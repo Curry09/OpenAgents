@@ -1,6 +1,6 @@
 # RFC-0001: MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
 
-- **状态**: accepted
+- **状态**: implementing
 - **优先级**: P0
 - **标签**: `architecture`, `cli`, `protocol`
 - **影响模块**: `openagents/`（新建 Python 包）、`tests/`、`pyproject.toml`
@@ -172,7 +172,7 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | 包骨架 + CLI 框架 + 后端接口契约 | - | `openagents/__init__.py`, `openagents/cli.py`, `openagents/config.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `pyproject.toml`, `tests/test_cli.py` | pending |
+| T1 | 包骨架 + CLI 框架 + 后端接口契约 | - | `openagents/__init__.py`, `openagents/cli.py`, `openagents/config.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `pyproject.toml`, `tests/test_cli.py`, `tests/test_config.py`, `tests/test_base.py` | implemented |
 | T2 | Claude Code 后端适配器 | T1 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | blocked |
 | T3 | GitHub 集成（issue/PR/comment） | T1 | `openagents/github.py`, `tests/test_github.py` | blocked |
 | T4 | 单 issue → 单 agent 编排 + 状态 | T2, T3 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py` | blocked |
@@ -187,7 +187,7 @@ graph LR
 
 **T1: 包骨架 + CLI 框架 + 后端接口契约**
 - **范围**: 建 `openagents/` 包；`cli.py` 注册 `init`/`solve`/`poll`/`watch`/`board` 五个子命令（命令体内延迟 import 业务模块，本子任务只放可运行的骨架与占位提示）；`config.py` 实现项目绑定 `resolve_project`/`ensure_project`（决策 10：cwd 解析 git root + remote，缺失时交互式新建；`gh repo create` 部分通过延迟 import 调用 `github.create_repo`）；`backends/base.py` 定义 `AgentBackend` 协议与 `AgentResult`；在 `pyproject.toml` 声明 CLI entry point 与必要依赖（CLI 框架）。
-- **涉及文件**: 见上表（新增包文件 + 修改 `pyproject.toml`）。
+- **涉及文件**: 见上表（新增包文件 + 修改 `pyproject.toml`；测试拆为 `tests/test_cli.py` / `tests/test_config.py` / `tests/test_base.py`）。
 - **验收标准**: `openagents --help` 列出五个子命令；`AgentBackend` 协议可被导入；`resolve_project` 能从 cwd 正确识别 git root 与 remote、非仓库返回 `None`，`ensure_project(interactive=False)` 缺失时抛错（交互分支与 `git init`/`gh` 被 mock）；`ruff check`/`ruff format --check` 通过；`tests/test_cli.py` 验证子命令注册与 preflight 调用。
 
 **T2: Claude Code 后端适配器**

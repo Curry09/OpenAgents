@@ -11,9 +11,18 @@ dev = [
     "pytest>=8.0.0",
 ]
 
+[project.scripts]
+# RFC-0001 T1: CLI 入口
+openagents = "openagents.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+# 让测试无需构建即可 import 顶层 openagents 包
+pythonpath = ["."]
+testpaths = ["tests"]
 
 # Ruff lint/format 配置（对应 CLAUDE.md「代码检查」约定，行宽 100）
 [tool.ruff]
