@@ -176,9 +176,9 @@ graph LR
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
 | T1 | 包骨架 + CLI 框架 + 后端接口契约 | - | `openagents/__init__.py`, `openagents/cli.py`, `openagents/config.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `pyproject.toml`, `tests/test_cli.py`, `tests/test_config.py`, `tests/test_base.py` | implemented |
-| T2 | Claude Code 后端适配器 | T1 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | blocked |
-| T3 | GitHub 集成（issue/PR/comment） | T1 | `openagents/github.py`, `tests/test_github.py` | blocked |
-| T4 | 单 issue → 单 agent 编排 + 状态 | T2, T3 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py` | blocked |
+| T2 | Claude Code 后端适配器 | T1 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
+| T3 | GitHub 集成（issue/PR/comment） | T1 | `openagents/github.py`, `tests/test_github.py` | implemented |
+| T4 | 单 issue → 单 agent 编排 + 状态 | T2, T3 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py` | in-progress |
 | T5 | PR comment 消息机制 | T3, T4 | `openagents/messages.py`, `tests/test_messages.py` | blocked |
 | T6 | 成果看板 + 本地启动命令 | T4 | `openagents/results.py`, `openagents/templates/board.html`, `tests/test_results.py` | blocked |
 
