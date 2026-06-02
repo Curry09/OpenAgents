@@ -28,7 +28,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 
 | RFC | 标题 | 状态 | 优先级 |
 |-----|------|------|--------|
-| [RFC-0001](./0001-mvp-issue-to-pr-loop.md) | MVP：单 issue → 单 agent → 真实 PR 的最小自举闭环 | draft | P0 |
+| [RFC-0001](./0001-mvp-issue-to-pr-loop.md) | MVP：单 issue → 单 agent → 真实 PR 的最小自举闭环 | accepted | P0 |
 
 ## RFC 编号规则
 

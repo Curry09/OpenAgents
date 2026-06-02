@@ -1,6 +1,6 @@
 # RFC-0001: MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
 
-- **状态**: draft
+- **状态**: accepted
 - **优先级**: P0
 - **标签**: `architecture`, `cli`, `protocol`
 - **影响模块**: `openagents/`（新建 Python 包）、`tests/`、`pyproject.toml`
