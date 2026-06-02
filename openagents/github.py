@@ -169,6 +169,20 @@ def check_status(*, pr_number: int) -> CheckStatus:
     return _classify_checks(checks=checks)
 
 
+def is_merged(*, pr_number: int) -> bool:
+    """RFC-0001 T3（决策 8）：PR 是否已合并（`gh pr view <n> --json state`）。
+
+    供编排/消息层判定终止条件：PR 合并即把对应 issue 置 done。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "state"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return str(data.get("state") or "").upper() == "MERGED"
+
+
 def _parse_pr_number(*, url: str) -> int | None:
     """从形如 .../pull/<n> 的 PR url 末段解析 PR number；失败返回 None。"""
     marker = "/pull/"

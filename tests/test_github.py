@@ -20,6 +20,7 @@ from openagents.github import (
     create_pr,
     create_repo,
     get_issue,
+    is_merged,
     list_comments,
     post_comment,
 )
@@ -320,3 +321,19 @@ def test_check_status_real_error_raises(monkeypatch):
     )
     with pytest.raises(GithubError):
         check_status(pr_number=42)
+
+
+def test_is_merged_true_when_state_merged(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "MERGED"})))
+    assert is_merged(pr_number=7) is True
+
+
+def test_is_merged_false_when_open(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "OPEN"})))
+    assert is_merged(pr_number=7) is False
+
+
+def test_is_merged_gh_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
+    with pytest.raises(GithubError):
+        is_merged(pr_number=7)
