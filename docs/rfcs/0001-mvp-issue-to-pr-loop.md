@@ -28,9 +28,10 @@
 
 本 RFC 选定「GitHub issues + 真实 PR」路线，依赖以下环境前提：
 
-1. 仓库已配置 GitHub remote（当前 `git remote` 为空，需先创建远端仓库并 `git remote add`）。
-2. 本机已安装并鉴权 `gh` CLI（`gh auth status` 通过）。
-3. 已配置 Claude Code CLI，可在非交互模式下被子进程调用。
+1. 本机已安装并鉴权 `gh` CLI（`gh auth status` 通过）—— 这是冷启动建仓与所有 GitHub 操作的前提。
+2. 已配置 Claude Code CLI，可在非交互模式下被子进程调用。
+
+> 注：目标项目的 git 仓库与远端**不再是硬性前置条件**——决策 10 让 OpenAgents 在 cwd 缺 git/remote 时交互式新建。本框架自身的仓库 `Curry09/OpenAgents`（私有）已于 bootstrap 阶段建好。
 
 ## 设计
 
@@ -39,6 +40,8 @@
 新建 Python 包 `openagents/`，提供 `openagents` CLI 入口。MVP 由六个解耦模块组成，数据流如下：
 
 ```
+用户 ──> CLI(任意命令) ──> Config.ensure_project(cwd 解析 git/remote，缺失则交互新建)
+                                      │
 用户 ──> CLI(solve <issue#>) ──> Orchestrator ──> GitHub(拉取 issue 正文)
                                       │
                                       ├─> AgentBackend(ClaudeCode 适配器) 在分支上改代码、commit
@@ -50,7 +53,7 @@
 用户 ──> CLI(board) ──> Results(读 State 渲染成果看板) ──> 本地浏览器
 ```
 
-- **CLI 层**（`cli.py`）：唯一的命令入口，注册 `solve` / `poll` / `board` 三个子命令，仅做参数解析与分发，业务逻辑下沉到各模块。
+- **CLI 层**（`cli.py`）：唯一的命令入口，注册 `init` / `solve` / `poll` / `watch` / `board` 子命令，仅做参数解析与分发，业务逻辑下沉到各模块。除 `board` 外的命令在执行前先调用项目绑定 preflight（决策 10）。
 - **后端抽象层**（`backends/base.py` + `backends/claude_code.py`）：定义 `AgentBackend` 协议，MVP 只实现 Claude Code 适配器；新后端只需新增一个适配器文件。
 - **GitHub 集成层**（`github.py`）：封装 `gh` CLI，提供拉 issue、开 PR、读/写 comment 的薄封装。
 - **编排层**（`orchestrator.py` + `state.py`）：单 issue → 单 agent 的编排，维护每个 agent / issue 的状态。
@@ -77,15 +80,26 @@
 
 9. **成果看板用「渲染静态 HTML + 启动本地查看」**：理由：CLAUDE.md 理念 8「以成果为中心，前端用于呈现成果」。MVP 不引入前端框架，由 `results.py` 把 State 渲染成单页 HTML 并用标准库 `webbrowser` 打开，零前端依赖。
 
+10. **项目绑定：以 cwd 为目标项目，缺 git/remote 时交互式新建（基础性决策）**：OpenAgents 不持有「项目」参数，而是像 cursor/git 一样**以当前工作目录为操作对象**。每个需要仓库的命令先做 preflight：从 cwd 向上解析 git root，再读 `origin` 远端。
+    - 若 cwd **不是 git 仓库** → 提示用户是否 `git init`。
+    - 若**无 `origin` 远端** → 提示用户是否新建（`gh repo create`，可选私有/公开）。
+    - 用户确认后自动补齐再继续；非交互场景（如 CI）下缺失则报错退出，不擅自创建。
+    理由：这是「项目如何传给 OpenAgents」的答案——无需显式传仓库参数，降低使用心智；同时把「冷启动一个新项目」这一高频动作内建为产品能力（呼应 CLAUDE.md「从 0 快速搭建项目」）。提供显式 `openagents init` 命令承载该逻辑，其余命令复用同一 preflight。
+
 ### 接口契约
 
 > 仅描述边界契约（what），不含实现（how）。
+
+**项目绑定 / Config**（`config.py`）
+- `resolve_project() -> ProjectContext | None` —— 从 cwd 向上解析 git root 与 `origin` 远端；非 git 仓库返回 `None`。
+- `ensure_project(interactive) -> ProjectContext` —— preflight：缺 git 仓库或远端时，`interactive=True` 则提示用户并按需 `git init` / 调用 `github.create_repo`；`interactive=False`（CI 等）缺失则抛错。返回就绪的 `ProjectContext(repo_root, remote)`。
 
 **AgentBackend 协议**（`backends/base.py`）
 - `name: str` —— 后端标识（如 `"claude-code"`）。
 - `run(work_dir, task, context) -> AgentResult` —— 在 `work_dir` 内按 `task` 描述改代码；`context` 携带 issue 正文与历史 comment；返回 `AgentResult(changed: bool, summary: str)`。
 
 **GitHub 封装**（`github.py`）
+- `create_repo(name, private) -> remote_url` —— 用 `gh repo create` 新建远端并关联为 `origin`（供 `config.ensure_project` 冷启动调用）。
 - `get_issue(number) -> Issue(number, title, body)`
 - `create_pr(branch, title, body) -> PR(number, url)`
 - `list_comments(pr_number) -> list[Comment(id, author, body)]`
@@ -106,6 +120,7 @@
 - `watch(interval) -> None` —— 每隔 `interval` 秒循环调用 `poll`（决策 6），直到无 open PR 或用户中断。
 
 **CLI**（`cli.py`）
+- `openagents init` —— 绑定/初始化当前目录为 OpenAgents 项目（git init / 新建远端），即决策 10 的显式入口。
 - `openagents solve <issue-number>`
 - `openagents poll` —— 拉取并处理所有 PR 的新 comment（一次性）。
 - `openagents watch [--interval N]` —— 按间隔循环 `poll`，自动化拉取。
@@ -171,9 +186,9 @@ graph LR
 #### 子任务定义
 
 **T1: 包骨架 + CLI 框架 + 后端接口契约**
-- **范围**: 建 `openagents/` 包；`cli.py` 注册 `solve`/`poll`/`watch`/`board` 四个子命令（命令体内延迟 import 业务模块，本子任务只放可运行的骨架与占位提示）；`config.py` 读取仓库/路径配置；`backends/base.py` 定义 `AgentBackend` 协议与 `AgentResult`；在 `pyproject.toml` 声明 CLI entry point 与必要依赖（CLI 框架）。
+- **范围**: 建 `openagents/` 包；`cli.py` 注册 `init`/`solve`/`poll`/`watch`/`board` 五个子命令（命令体内延迟 import 业务模块，本子任务只放可运行的骨架与占位提示）；`config.py` 实现项目绑定 `resolve_project`/`ensure_project`（决策 10：cwd 解析 git root + remote，缺失时交互式新建；`gh repo create` 部分通过延迟 import 调用 `github.create_repo`）；`backends/base.py` 定义 `AgentBackend` 协议与 `AgentResult`；在 `pyproject.toml` 声明 CLI entry point 与必要依赖（CLI 框架）。
 - **涉及文件**: 见上表（新增包文件 + 修改 `pyproject.toml`）。
-- **验收标准**: `openagents --help` 列出四个子命令；`AgentBackend` 协议可被导入；`ruff check`/`ruff format --check` 通过；`tests/test_cli.py` 验证子命令注册与 help 输出。
+- **验收标准**: `openagents --help` 列出五个子命令；`AgentBackend` 协议可被导入；`resolve_project` 能从 cwd 正确识别 git root 与 remote、非仓库返回 `None`，`ensure_project(interactive=False)` 缺失时抛错（交互分支与 `git init`/`gh` 被 mock）；`ruff check`/`ruff format --check` 通过；`tests/test_cli.py` 验证子命令注册与 preflight 调用。
 
 **T2: Claude Code 后端适配器**
 - **范围**: 实现 `ClaudeCodeBackend`，以子进程方式非交互调用 Claude Code，在给定工作目录按任务描述改代码，返回 `AgentResult`。
@@ -181,9 +196,9 @@ graph LR
 - **验收标准**: 给定一个临时仓库与任务，适配器能驱动 Claude Code 产生文件改动并正确报告 `changed/summary`；子进程调用被 mock 的单测通过。
 
 **T3: GitHub 集成（issue/PR/comment）**
-- **范围**: 封装 `gh` CLI，实现 `get_issue`/`create_pr`/`list_comments`/`post_comment`，统一错误处理。
+- **范围**: 封装 `gh` CLI，实现 `create_repo`（供冷启动绑定）/`get_issue`/`create_pr`/`list_comments`/`post_comment`，统一错误处理。
 - **涉及文件**: `openagents/github.py`, `tests/test_github.py`。
-- **验收标准**: 各函数对 `gh` 输出正确解析为数据类；`gh` 子进程被 mock 的单测覆盖正常与错误路径。
+- **验收标准**: 各函数对 `gh` 输出正确解析为数据类；`create_repo` 正确组装 `gh repo create` 参数（私有/公开）；`gh` 子进程被 mock 的单测覆盖正常与错误路径。
 
 **T4: 单 issue → 单 agent 编排 + 状态**
 - **范围**: 实现 `Orchestrator.solve`（拉 issue → 建分支 → 调后端 → 开 PR → 写 State）与 `iterate`（喂回 comment → 追加 commit → push，决策 7）；实现 `State` 的 JSON 持久化（`.openagents/state.json`）含状态机（含 `done`）与 comment 游标。
