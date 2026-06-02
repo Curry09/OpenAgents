@@ -1,0 +1,27 @@
+[project]
+name = "openagents"
+version = "0.1.0"
+description = "RFC 驱动的多 Agent 框架"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+    "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Ruff lint/format 配置（对应 CLAUDE.md「代码检查」约定，行宽 100）
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: pyflakes+pycodestyle，I: import 排序，UP: pyupgrade，
+# B: bugbear，ASYNC: 防止 async 函数中使用同步阻塞调用
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]  # 行宽由 formatter 负责

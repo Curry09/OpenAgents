@@ -1,0 +1,18 @@
+# Git 钩子配置（对应 CLAUDE.md「Git 钩子」约定）
+
+pre-commit:
+  parallel: true
+  commands:
+    ruff-check:
+      glob: "**/*.py"
+      run: uv run --with ruff ruff check --fix {staged_files}
+      stage_fixed: true
+    ruff-format:
+      glob: "**/*.py"
+      run: uv run --with ruff ruff format {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --no-install commitlint --edit {1}

@@ -1,0 +1,108 @@
+# CI 流水线（纯 Python 项目，由 north-coder CI 裁剪而来）
+# 仅 "CI Gate" 作为分支保护的必需状态检查。
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Ruff check
+        run: |
+          uv sync --extra dev
+          uv run ruff check .
+          uv run ruff format --check .
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Pytest
+        run: |
+          uv sync --extra dev
+          if [ -d tests ]; then
+            uv run pytest tests/ -v
+          else
+            echo "尚无 tests/ 目录，跳过"
+          fi
+
+  commitlint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6
+
+  rfc-conflicts:
+    name: RFC Number Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check RFC number conflicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/check-rfc-number-conflicts.py \
+            --open-prs \
+            --require-open-pr-scan \
+            --current-pr "${{ github.event.pull_request.number }}"
+
+  # --- 唯一的必需状态检查：聚合所有任务结果 ---
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [lint, test, commitlint, rfc-conflicts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        run: |
+          echo "lint:          ${{ needs.lint.result }}"
+          echo "test:          ${{ needs.test.result }}"
+          echo "commitlint:    ${{ needs.commitlint.result }}"
+          echo "rfc-conflicts: ${{ needs.rfc-conflicts.result }}"
+
+          results=(
+            "${{ needs.lint.result }}"
+            "${{ needs.test.result }}"
+            "${{ needs.commitlint.result }}"
+            "${{ needs.rfc-conflicts.result }}"
+          )
+          for r in "${results[@]}"; do
+            if [[ "$r" != "success" && "$r" != "skipped" ]]; then
+              echo "::error::CI failed — job result: $r"
+              exit 1
+            fi
+          done
+          echo "✓ All jobs passed or were correctly skipped"

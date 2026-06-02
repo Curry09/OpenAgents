@@ -1,0 +1,7 @@
+# Conventional Commits 校验（对应 CLAUDE.md「提交信息」约定）
+extends: ['@commitlint/config-conventional']
+rules:
+  scope-enum:
+    - 2
+    - always
+    - [backend, cli, ci, deps, docs]

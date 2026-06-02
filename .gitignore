@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
+# Node (仅用于 git 钩子工具链)
+node_modules/
+
+# OpenAgents 运行时状态
+.openagents/
+
+# Claude Code 本地配置
+.claude/settings.local.json
+
+# OS
+.DS_Store
