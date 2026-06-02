@@ -49,9 +49,33 @@ def _patch_ensure(monkeypatch):
     return calls
 
 
-def test_solve_runs_interactive_preflight(monkeypatch):
+class _FakePR:
+    url = "https://github.com/x/y/pull/9"
+
+
+def test_solve_runs_preflight_then_opens_pr(monkeypatch):
     calls = _patch_ensure(monkeypatch)
+
+    class _FakeOrch:
+        def solve(self, *, issue_number):
+            assert issue_number == 1
+            return _FakePR()
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
     code = main(["solve", "1"])
+    assert code == 0
+    assert calls == [True]
+
+
+def test_poll_runs_preflight_then_polls(monkeypatch):
+    calls = _patch_ensure(monkeypatch)
+
+    class _FakeMessages:
+        def poll(self):
+            return [{"pr_number": 9, "reason": "comment"}]
+
+    monkeypatch.setattr("openagents.cli._messages_for", lambda *, ctx: _FakeMessages())
+    code = main(["poll"])
     assert code == 0
     assert calls == [True]
 
@@ -65,6 +89,7 @@ def test_init_runs_interactive_preflight(monkeypatch):
 
 def test_board_skips_preflight(monkeypatch):
     calls = _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.results.board", lambda *, state: Path("/tmp/board.html"))
     code = main(["board"])
     assert code == 0
     assert calls == []

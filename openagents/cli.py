@@ -10,8 +10,9 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
-from openagents.config import ProjectContext, ensure_project
+from openagents.config import ProjectContext, ensure_project, resolve_project
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,28 +37,66 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# RFC-0001 T1: 业务对象工厂，延迟 import 各子任务模块；测试可对这些工厂打桩，
+# 保持 cli 测试 hermetic（不触达真实 gh / claude / 浏览器）。
+def _state_for(*, repo_root: Path):
+    from openagents.state import State
+
+    return State(path=repo_root / ".openagents" / "state.json")
+
+
+def _orchestrator_for(*, ctx: ProjectContext):
+    from openagents.backends.claude_code import ClaudeCodeBackend
+    from openagents.orchestrator import Orchestrator
+
+    return Orchestrator(
+        backend=ClaudeCodeBackend(),
+        state=_state_for(repo_root=ctx.repo_root),
+        work_dir=ctx.repo_root,
+    )
+
+
+def _messages_for(*, ctx: ProjectContext):
+    from openagents.messages import Messages
+
+    return Messages(
+        orchestrator=_orchestrator_for(ctx=ctx), state=_state_for(repo_root=ctx.repo_root)
+    )
+
+
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
     return 0
 
 
 def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    print(f"solve #{args.issue}：编排尚未实现（见 RFC-0001 T4）")
+    # RFC-0001 T4: 派单个 agent 解决 issue 并开真实 PR。
+    pr = _orchestrator_for(ctx=ctx).solve(issue_number=args.issue)
+    print(f"✓ 已为 issue #{args.issue} 开 PR：{pr.url}")
     return 0
 
 
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    print("poll：消息机制尚未实现（见 RFC-0001 T5）")
+    # RFC-0001 T5: 一次性扫描所有 open PR 的 CI / 新评论并触发 iterate。
+    events = _messages_for(ctx=ctx).poll()
+    print(f"✓ poll 完成，处理 {len(events)} 个事件")
     return 0
 
 
 def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    print(f"watch（间隔 {args.interval}s）：消息机制尚未实现（见 RFC-0001 T5）")
+    # RFC-0001 T5（决策 6）：按间隔循环 poll，自动化拉取直到无 open PR。
+    _messages_for(ctx=ctx).watch(interval=args.interval)
     return 0
 
 
 def _cmd_board(args: argparse.Namespace) -> int:
-    print("board：成果看板尚未实现（见 RFC-0001 T6）")
+    # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
+    from openagents.results import board
+
+    ctx = resolve_project()
+    repo_root = ctx.repo_root if ctx is not None else Path.cwd()
+    path = board(state=_state_for(repo_root=repo_root))
+    print(f"✓ 成果看板：{path}")
     return 0
 
 
