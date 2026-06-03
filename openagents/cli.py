@@ -29,6 +29,14 @@ def build_parser() -> argparse.ArgumentParser:
     # RFC-0003 决策 2/3：分支基线，默认 main；issue 分支从最新 origin/<base> 拉出。
     p_solve.add_argument("--base", default="main", help="分支基线（默认 main）")
 
+    # RFC-0002 T2：主动往当前项目仓库提一个 GitHub issue。
+    p_issue = sub.add_parser("issue", help="往当前项目仓库提一个 GitHub issue")
+    p_issue.add_argument("title", help="issue 标题")
+    p_issue.add_argument("--body", default="", help="issue 正文，默认空")
+    p_issue.add_argument(
+        "--label", action="append", default=[], metavar="LABEL", help="给 issue 打标签（可重复）"
+    )
+
     sub.add_parser("poll", help="拉取并处理所有 PR 的新评论（一次性）")
 
     p_watch = sub.add_parser("watch", help="按间隔循环 poll（自动化拉取）")
@@ -78,6 +86,15 @@ def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0002 T2：把 title/body/labels 透传给 github 层提 issue（决策 1）。
+    from openagents import github
+
+    issue = github.create_issue(title=args.title, body=args.body, labels=args.label)
+    print(f"✓ 已创建 issue #{issue.number}：{issue.title}")
+    return 0
+
+
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0001 T5: 一次性扫描所有 open PR 的 CI / 新评论并触发 iterate。
     events = _messages_for(ctx=ctx).poll()
@@ -111,6 +128,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "init": _cmd_init,
         "solve": _cmd_solve,
+        "issue": _cmd_issue,
         "poll": _cmd_poll,
         "watch": _cmd_watch,
     }

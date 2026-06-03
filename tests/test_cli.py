@@ -6,8 +6,9 @@ import pytest
 
 from openagents.cli import build_parser, main
 from openagents.config import ProjectContext
+from openagents.github import Issue
 
-COMMANDS = ["init", "solve", "poll", "watch", "board"]
+COMMANDS = ["init", "solve", "issue", "poll", "watch", "board"]
 
 
 def test_parser_registers_all_subcommands():
@@ -101,6 +102,36 @@ def test_solve_reports_error_cleanly_without_traceback(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "✗" in err
     assert "non-fast-forward" in err
+
+
+def test_issue_runs_preflight_then_creates_issue(monkeypatch):
+    # RFC-0002 T2：issue 命令先跑 preflight，再把 title/body/labels 透传给 github.create_issue。
+    calls = _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_create_issue(*, title, body, labels):
+        seen.update(title=title, body=body, labels=labels)
+        return Issue(number=13, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1"])
+    assert code == 0
+    assert calls == [True]
+    assert seen == {"title": "Login broken", "body": "repro", "labels": ["bug", "p1"]}
+
+
+def test_issue_defaults_empty_body_and_labels(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_create_issue(*, title, body, labels):
+        seen.update(title=title, body=body, labels=labels)
+        return Issue(number=1, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "Just a title"])
+    assert code == 0
+    assert seen == {"title": "Just a title", "body": "", "labels": []}
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):
