@@ -1,14 +1,14 @@
-"""RFC-0001 T5: Messages 消息机制 + CI 监控（决策 6/8/11）的单元测试。
+"""RFC-0001 T5 + RFC-0005: Messages 按阶段路由 GitHub 事件的单元测试。
 
 外部副作用全部 mock/注入：
-- orchestrator：注入记录 iterate 调用的伪 Orchestrator。
+- orchestrator：注入记录 implement / refine_rfc / iterate 调用的伪 Orchestrator。
 - state：注入控制 all_runs / cursor 的伪 State。
-- github.*：monkeypatch 模块函数（is_merged / check_status / list_comments）。
+- github.*：monkeypatch（is_merged / has_label / check_status / list_comments / current_login）。
 - time.sleep：watch 循环测试中 monkeypatch，避免真实阻塞。
 
-覆盖：新 comment→触发 iterate(reason=comment) 并推进游标；CI 失败→触发
-iterate(reason=ci)；已 merge→置 done 不迭代；无新 comment 且 CI 绿→不触发；
-watch 循环间隔逻辑（sleep 被 mock，若干轮后退出）。
+覆盖：merged→done（优先级最高）；rfc-review 阶段 标签→implement、人类评论→refine_rfc、
+仅 agent 自评论→不触发；coding 阶段 CI→iterate(ci)、人类评论→iterate(comment)；
+仅 open 状态（含 rfc-review）被轮询；watch 循环。
 """
 
 import time
@@ -17,20 +17,31 @@ import pytest
 
 from openagents import messages as messages_module
 from openagents.github import CheckStatus, Comment
-from openagents.messages import Messages
+from openagents.messages import APPROVAL_LABEL, Messages
 from openagents.state import (
     STATUS_DONE,
     STATUS_ITERATING,
     STATUS_PR_OPEN,
+    STATUS_RFC_REVIEW,
     RunRecord,
 )
 
+_OWN_LOGIN = "agent-bot"
+
 
 class _FakeOrchestrator:
-    """记录 iterate 调用参数的伪编排器。"""
+    """记录三种原子操作调用参数的伪编排器。"""
 
     def __init__(self):
+        self.implement_calls = []
+        self.refine_calls = []
         self.iterate_calls = []
+
+    def implement(self, *, pr_number):
+        self.implement_calls.append(pr_number)
+
+    def refine_rfc(self, *, pr_number, detail):
+        self.refine_calls.append({"pr_number": pr_number, "detail": detail})
 
     def iterate(self, *, pr_number, reason, detail):
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
@@ -78,161 +89,217 @@ def _make(*, runs):
     return msgs, orch, state
 
 
-def _patch_github(monkeypatch, *, merged=False, check=None, comments=None):
+def _patch_github(
+    monkeypatch, *, merged=False, has_label=False, check=None, comments=None, login=_OWN_LOGIN
+):
     """统一 monkeypatch github 模块函数，返回固定值。"""
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
+    monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
     monkeypatch.setattr(
         messages_module.github,
         "check_status",
         lambda *, pr_number: check or CheckStatus(state="pass", failed_logs=[]),
     )
     monkeypatch.setattr(
-        messages_module.github,
-        "list_comments",
-        lambda *, pr_number: list(comments or []),
+        messages_module.github, "list_comments", lambda *, pr_number: list(comments or [])
     )
+    monkeypatch.setattr(messages_module.github, "current_login", lambda: login)
 
 
-def test_merged_pr_set_done_and_not_iterated(monkeypatch):
-    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
-    _patch_github(monkeypatch, merged=True)
+def _human(*, body, created_at):
+    return Comment(id="IC", author="alice", body=body, created_at=created_at)
+
+
+def _own(*, body, created_at):
+    return Comment(id="IC", author=_OWN_LOGIN, body=body, created_at=created_at)
+
+
+# --------------------------------------------------------------------------- #
+# merged 优先
+# --------------------------------------------------------------------------- #
+
+
+def test_merged_pr_set_done_and_not_routed(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(monkeypatch, merged=True, has_label=True)
 
     events = msgs.poll()
 
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
-    assert orch.iterate_calls == []
-    assert any(e["pr_number"] == 5 and e["reason"] == "merged" for e in events)
+    assert orch.implement_calls == []
+    assert any(e["reason"] == "merged" for e in events)
 
 
-def test_ci_fail_triggers_iterate_ci(monkeypatch):
-    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+# --------------------------------------------------------------------------- #
+# rfc-review 阶段
+# --------------------------------------------------------------------------- #
+
+
+def test_rfc_review_label_triggers_implement(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(monkeypatch, has_label=True)
+
+    events = msgs.poll()
+
+    assert orch.implement_calls == [5]
+    assert orch.refine_calls == []
+    assert any(e["pr_number"] == 5 and e["reason"] == "approved" for e in events)
+
+
+def test_rfc_review_human_comment_triggers_refine_and_advances_cursor(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
     _patch_github(
         monkeypatch,
-        check=CheckStatus(state="fail", failed_logs=["lint [FAILURE] http://x"]),
+        has_label=False,
+        comments=[_human(body="补充权衡章节", created_at="2026-06-03T02:00:00Z")],
     )
 
     events = msgs.poll()
 
-    assert len(orch.iterate_calls) == 1
-    call = orch.iterate_calls[0]
-    assert call["pr_number"] == 5
-    assert call["reason"] == "ci"
-    assert "lint" in call["detail"]
-    assert any(e["pr_number"] == 5 and e["reason"] == "ci" for e in events)
-
-
-def test_new_comment_triggers_iterate_and_advances_cursor(monkeypatch):
-    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
-    _patch_github(
-        monkeypatch,
-        comments=[
-            Comment(id="IC_a", author="alice", body="old", created_at="2026-06-03T01:00:00Z"),
-            Comment(
-                id="IC_b", author="bob", body="please fix this", created_at="2026-06-03T02:00:00Z"
-            ),
-        ],
-    )
-
-    events = msgs.poll()
-
-    assert len(orch.iterate_calls) == 1
-    call = orch.iterate_calls[0]
-    assert call["pr_number"] == 5
-    assert call["reason"] == "comment"
-    assert call["detail"] == "please fix this"
-    # 游标推进到最新评论的 created_at
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "补充权衡章节"}]
+    assert orch.implement_calls == []
     assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
-    assert any(e["pr_number"] == 5 and e["reason"] == "comment" for e in events)
+    assert any(e["reason"] == "refine" for e in events)
 
 
-def test_only_comments_above_cursor_are_new(monkeypatch):
-    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING)])
+def test_rfc_review_ignores_agent_own_comment(monkeypatch):
+    # agent 自己回贴的「已更新 RFC」评论不应再次触发 refine（决策 6，防自我死循环）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(
+        monkeypatch,
+        has_label=False,
+        comments=[_own(body="🤖 已根据评审更新 RFC", created_at="2026-06-03T03:00:00Z")],
+    )
+
+    events = msgs.poll()
+
+    assert orch.refine_calls == []
+    assert events == []
+
+
+def test_rfc_review_refines_only_newest_human_above_cursor(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
     state.set_cursor(pr_number=5, comment_id="2026-06-03T01:00:00Z")
     _patch_github(
         monkeypatch,
+        has_label=False,
         comments=[
-            Comment(
-                id="IC_a", author="alice", body="already seen", created_at="2026-06-03T01:00:00Z"
-            ),
-            Comment(
-                id="IC_b", author="bob", body="newest feedback", created_at="2026-06-03T02:00:00Z"
-            ),
+            _human(body="seen", created_at="2026-06-03T01:00:00Z"),
+            _human(body="newest", created_at="2026-06-03T02:00:00Z"),
         ],
     )
 
     msgs.poll()
 
-    assert len(orch.iterate_calls) == 1
-    assert orch.iterate_calls[0]["detail"] == "newest feedback"
-    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "newest"}]
 
 
-def test_no_new_comment_and_ci_green_does_not_trigger(monkeypatch):
+# --------------------------------------------------------------------------- #
+# coding 阶段
+# --------------------------------------------------------------------------- #
+
+
+def test_coding_ci_fail_triggers_iterate_ci(monkeypatch):
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
-    state.set_cursor(pr_number=5, comment_id="2026-06-03T05:00:00Z")
     _patch_github(
-        monkeypatch,
-        comments=[
-            Comment(id="IC_a", author="alice", body="seen", created_at="2026-06-03T05:00:00Z")
-        ],
+        monkeypatch, check=CheckStatus(state="fail", failed_logs=["lint [FAILURE] http://x"])
     )
+
+    events = msgs.poll()
+
+    assert len(orch.iterate_calls) == 1
+    assert orch.iterate_calls[0]["reason"] == "ci"
+    assert "lint" in orch.iterate_calls[0]["detail"]
+    assert any(e["reason"] == "ci" for e in events)
+
+
+def test_coding_human_comment_triggers_iterate_comment(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    _patch_github(
+        monkeypatch, comments=[_human(body="please fix", created_at="2026-06-03T02:00:00Z")]
+    )
+
+    events = msgs.poll()
+
+    assert orch.iterate_calls == [{"pr_number": 5, "reason": "comment", "detail": "please fix"}]
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
+    assert any(e["reason"] == "comment" for e in events)
+
+
+def test_coding_ignores_agent_own_comment(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING)])
+    _patch_github(monkeypatch, comments=[_own(body="bot note", created_at="2026-06-03T02:00:00Z")])
 
     events = msgs.poll()
 
     assert orch.iterate_calls == []
     assert events == []
-    assert state.status_updates == []
 
 
-def test_only_open_runs_are_polled(monkeypatch):
+def test_coding_no_new_comment_ci_green_does_not_trigger(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    state.set_cursor(pr_number=5, comment_id="2026-06-03T05:00:00Z")
+    _patch_github(monkeypatch, comments=[_human(body="seen", created_at="2026-06-03T05:00:00Z")])
+
+    events = msgs.poll()
+
+    assert orch.iterate_calls == []
+    assert events == []
+
+
+# --------------------------------------------------------------------------- #
+# 轮询范围 / watch
+# --------------------------------------------------------------------------- #
+
+
+def test_only_open_runs_are_polled_including_rfc_review(monkeypatch):
     msgs, orch, state = _make(
         runs=[
             _run(issue_number=1, pr_number=11, status=STATUS_DONE),
             _run(issue_number=2, pr_number=22, status="solving"),
-            _run(issue_number=3, pr_number=33, status=STATUS_PR_OPEN),
+            _run(issue_number=3, pr_number=33, status=STATUS_RFC_REVIEW),
+            _run(issue_number=4, pr_number=44, status=STATUS_PR_OPEN),
         ]
     )
-    seen_prs = []
-
-    def _is_merged(*, pr_number):
-        seen_prs.append(pr_number)
-        return False
-
-    monkeypatch.setattr(messages_module.github, "is_merged", _is_merged)
+    seen = []
+    monkeypatch.setattr(
+        messages_module.github, "is_merged", lambda *, pr_number: seen.append(pr_number) or False
+    )
+    monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: False)
     monkeypatch.setattr(
         messages_module.github,
         "check_status",
         lambda *, pr_number: CheckStatus(state="pass", failed_logs=[]),
     )
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
+    monkeypatch.setattr(messages_module.github, "current_login", lambda: _OWN_LOGIN)
 
     msgs.poll()
 
-    # 仅 pr-open / iterating 的 PR 被轮询
-    assert seen_prs == [33]
+    assert seen == [33, 44]
 
 
-def test_merged_takes_precedence_over_ci_and_comment(monkeypatch):
-    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+def test_merged_takes_precedence_over_label_and_comment(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
     _patch_github(
         monkeypatch,
         merged=True,
-        check=CheckStatus(state="fail", failed_logs=["should not be read"]),
-        comments=[
-            Comment(
-                id="IC_x", author="x", body="should not be read", created_at="2026-06-03T09:00:00Z"
-            )
-        ],
+        has_label=True,
+        comments=[_human(body="x", created_at="2026-06-03T09:00:00Z")],
     )
 
     msgs.poll()
 
-    assert orch.iterate_calls == []
+    assert orch.implement_calls == []
+    assert orch.refine_calls == []
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
 
 
+def test_approval_label_constant():
+    assert APPROVAL_LABEL == "rfc-approved"
+
+
 def test_watch_loops_then_exits_when_no_open_pr(monkeypatch):
-    # 第一轮有 open PR（CI 绿、无新 comment，不迭代），随后置 done → 无 open PR 退出。
     runs = [_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)]
     msgs, orch, state = _make(runs=runs)
 
@@ -244,7 +311,6 @@ def test_watch_loops_then_exits_when_no_open_pr(monkeypatch):
 
     def _counting_poll():
         poll_count["n"] += 1
-        # 第二次 poll 时把 run 置 done，模拟 PR 合并后无 open PR。
         if poll_count["n"] == 2:
             state.update_status(issue_number=3, status=STATUS_DONE)
         return real_poll()
@@ -255,7 +321,6 @@ def test_watch_loops_then_exits_when_no_open_pr(monkeypatch):
     msgs.watch(interval=7)
 
     assert poll_count["n"] >= 1
-    # sleep 用传入的 interval
     assert all(s == 7 for s in sleeps)
 
 
@@ -264,7 +329,6 @@ def test_watch_exits_on_keyboard_interrupt(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt()))
     _patch_github(monkeypatch)
 
-    # 不应向上抛出 KeyboardInterrupt
     msgs.watch(interval=1)
 
 

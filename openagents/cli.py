@@ -1,8 +1,13 @@
-"""RFC-0001 T1: CLI 入口。
+"""RFC-0001 T1 + RFC-0005: CLI 入口。
 
-唯一命令入口，注册 init/solve/poll/watch/board 子命令，仅做参数解析与分发；
-业务逻辑下沉到各模块（命令体内延迟 import，保持 cli.py 文件归属单一、文件清单不重叠）。
-除 board 外的命令在执行前先做项目绑定 preflight（决策 10）。
+唯一命令入口，仅做参数解析与分发；业务逻辑下沉到各模块（命令体内延迟 import，
+保持 cli.py 文件归属单一、文件清单不重叠）。除 board 外的命令在执行前先做项目
+绑定 preflight（决策 10）。
+
+RFC-0005 决策 1：取消一站式 solve，改注册四个**原子步骤**子命令——
+rfc（起草 RFC 开 draft PR）/ refine-rfc（按评审精炼 RFC）/ implement（获批后写码转正）/
+iterate（coding 阶段就 comment/CI 迭代）——外加 init/issue/poll/watch/board。
+跨步骤编排交给 poll 的状态机，CLI 只负责触发单步。
 """
 
 from __future__ import annotations
@@ -24,10 +29,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="绑定/初始化当前目录为 OpenAgents 项目")
 
-    p_solve = sub.add_parser("solve", help="拉取并解决一个 GitHub issue")
-    p_solve.add_argument("issue", type=int, help="issue 编号")
+    # RFC-0005：取消一站式 solve，改为四个可单独触发的原子步骤（决策 1）。
+    p_rfc = sub.add_parser("rfc", help="为一个 issue 起草 RFC 并开 draft PR")
+    p_rfc.add_argument("issue", type=int, help="issue 编号")
     # RFC-0003 决策 2/3：分支基线，默认 main；issue 分支从最新 origin/<base> 拉出。
-    p_solve.add_argument("--base", default="main", help="分支基线（默认 main）")
+    p_rfc.add_argument("--base", default="main", help="分支基线（默认 main）")
+
+    p_refine = sub.add_parser("refine-rfc", help="按 PR 最新评审评论精炼 RFC")
+    p_refine.add_argument("pr", type=int, help="PR 编号")
+
+    p_impl = sub.add_parser("implement", help="RFC 获批后按 RFC 实现代码并转正 PR")
+    p_impl.add_argument("pr", type=int, help="PR 编号")
+
+    p_iter = sub.add_parser("iterate", help="就 PR 的 comment/CI 反馈迭代代码")
+    p_iter.add_argument("pr", type=int, help="PR 编号")
+    p_iter.add_argument(
+        "--reason", choices=["comment", "ci"], default="comment", help="反馈来源（默认 comment）"
+    )
 
     # RFC-0002 T2：主动往当前项目仓库提一个 GitHub issue。
     p_issue = sub.add_parser("issue", help="往当前项目仓库提一个 GitHub issue")
@@ -79,11 +97,53 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
-def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0001 T4 + RFC-0003: 派单个 agent 在每 issue 独立 worktree（基线 origin/<base>）中解决 issue 并开真实 PR。
-    pr = _orchestrator_for(ctx=ctx).solve(issue_number=args.issue, base=args.base)
-    print(f"✓ 已为 issue #{args.issue} 开 PR：{pr.url}")
+def _cmd_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0005：起草 RFC 并开 draft PR（状态 rfc-review），等人评审。
+    pr = _orchestrator_for(ctx=ctx).start_rfc(issue_number=args.issue, base=args.base)
+    print(f"✓ 已为 issue #{args.issue} 起草 RFC 并开 draft PR：{pr.url}")
     return 0
+
+
+def _cmd_refine_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0005：取该 PR 最新人类评论作评审意见，精炼 RFC 并回贴说明。
+    detail = _latest_human_comment_body(pr_number=args.pr)
+    if detail is None:
+        print(f"✗ PR #{args.pr} 暂无可用于精炼 RFC 的人类评论", file=sys.stderr)
+        return 1
+    _orchestrator_for(ctx=ctx).refine_rfc(pr_number=args.pr, detail=detail)
+    print(f"✓ 已按评审意见精炼 PR #{args.pr} 的 RFC 并回贴说明")
+    return 0
+
+
+def _cmd_implement(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0005：RFC 获批后按其实现代码并把 draft PR 转正（状态 pr-open）。
+    _orchestrator_for(ctx=ctx).implement(pr_number=args.pr)
+    print(f"✓ 已按 RFC 实现 PR #{args.pr} 的代码并转正")
+    return 0
+
+
+def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0005：coding 阶段就 comment/CI 反馈手动迭代（与 poll 自动驱动同一操作）。
+    from openagents import github
+
+    if args.reason == "ci":
+        detail = "\n".join(github.check_status(pr_number=args.pr).failed_logs)
+    else:
+        detail = _latest_human_comment_body(pr_number=args.pr) or ""
+    _orchestrator_for(ctx=ctx).iterate(pr_number=args.pr, reason=args.reason, detail=detail)
+    print(f"✓ 已就 PR #{args.pr} 的 {args.reason} 反馈迭代")
+    return 0
+
+
+def _latest_human_comment_body(*, pr_number: int) -> str | None:
+    # RFC-0005 决策 6：手动触发时取最新「非 agent 自身」评论作上下文（与 messages 同口径）。
+    from openagents import github
+
+    login = github.current_login()
+    humans = [c for c in github.list_comments(pr_number=pr_number) if c.author != login]
+    if not humans:
+        return None
+    return max(humans, key=lambda c: c.created_at).body
 
 
 def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
@@ -127,7 +187,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     ctx = ensure_project(interactive=True)
     handlers = {
         "init": _cmd_init,
-        "solve": _cmd_solve,
+        "rfc": _cmd_rfc,
+        "refine-rfc": _cmd_refine_rfc,
+        "implement": _cmd_implement,
+        "iterate": _cmd_iterate,
         "issue": _cmd_issue,
         "poll": _cmd_poll,
         "watch": _cmd_watch,
@@ -140,10 +203,11 @@ def _run(args: argparse.Namespace) -> int:
     # 不再把 Python traceback 糊用户一脸（业务异常延迟 import）。
     from openagents.github import GithubError
     from openagents.orchestrator import OrchestratorError
+    from openagents.workspace import WorkspaceError
 
     try:
         return _dispatch(args)
-    except (OrchestratorError, GithubError, RuntimeError) as exc:
+    except (OrchestratorError, GithubError, WorkspaceError, RuntimeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 1
 

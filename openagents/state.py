@@ -22,6 +22,8 @@ from openagents.github import PR
 
 # 状态机取值（决策 8：PR 被 merge 时置 done）。
 STATUS_SOLVING = "solving"
+# RFC-0005：PR 为 draft、承载 RFC、待人评审/批准的阶段。
+STATUS_RFC_REVIEW = "rfc-review"
 STATUS_PR_OPEN = "pr-open"
 STATUS_ITERATING = "iterating"
 STATUS_DONE = "done"
@@ -31,7 +33,7 @@ STATUS_DONE = "done"
 class RunRecord:
     """一条 issue → agent run 的状态记录（RFC-0001 接口契约）。
 
-    status ∈ {solving, pr-open, iterating, done}。
+    status ∈ {solving, rfc-review, pr-open, iterating, done}（rfc-review 为 RFC-0005 新增）。
     """
 
     issue_number: int

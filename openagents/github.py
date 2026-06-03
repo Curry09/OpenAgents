@@ -149,12 +149,16 @@ def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
     return Issue(number=number, title=title, body=body)
 
 
-def create_pr(*, branch: str, title: str, body: str) -> PR:
-    """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。"""
-    result = _run_gh(
-        ["pr", "create", "--head", branch, "--title", title, "--body", body],
-        allow_returncodes=set(),
-    )
+def create_pr(*, branch: str, title: str, body: str, draft: bool = False) -> PR:
+    """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。
+
+    RFC-0005 决策 2：draft=True 时追加 `--draft`，使 PR 先以草稿形态承载 RFC，
+    待人评审/批准后由 mark_ready 转正。默认 False，保持既有调用向后兼容。
+    """
+    args = ["pr", "create", "--head", branch, "--title", title, "--body", body]
+    if draft:
+        args.append("--draft")
+    result = _run_gh(args, allow_returncodes=set())
     url = result.stdout.strip()
     number = _parse_pr_number(url=url)
     if number is None:
@@ -213,6 +217,41 @@ def post_comment(*, pr_number: int, body: str) -> None:
         ["pr", "comment", str(pr_number), "--body", body],
         allow_returncodes=set(),
     )
+
+
+def mark_ready(*, pr_number: int) -> None:
+    """RFC-0005 T3（决策 2）：把 draft PR 转正（`gh pr ready <n>`）。
+
+    implement 写完代码后调用，使承载 RFC 的草稿 PR 转为可正式评审的代码 PR。
+    """
+    _run_gh(["pr", "ready", str(pr_number)], allow_returncodes=set())
+
+
+def has_label(*, pr_number: int, name: str) -> bool:
+    """RFC-0005 T3（决策 4）：PR 是否带某标签（`gh pr view <n> --json labels`）。
+
+    供消息层识别批准信号（rfc-approved 标签）——标签是结构化信号，不与讨论评论混淆。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "labels"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    labels = data.get("labels") or []
+    return any((label or {}).get("name") == name for label in labels)
+
+
+def current_login() -> str:
+    """RFC-0005 T3（决策 6）：当前认证用户登录名（`gh api user --jq .login`）。
+
+    供消息层按作者过滤 agent 自己发的评论，避免对自评论再次触发 refine 形成死循环。
+    """
+    result = _run_gh(["api", "user", "--jq", ".login"], allow_returncodes=set())
+    login = result.stdout.strip()
+    if not login:
+        raise GithubError("gh api user 未返回登录名")
+    return login
 
 
 def check_status(*, pr_number: int) -> CheckStatus:

@@ -20,10 +20,13 @@ from openagents.github import (
     create_issue,
     create_pr,
     create_repo,
+    current_login,
     find_pr_by_branch,
     get_issue,
+    has_label,
     is_merged,
     list_comments,
+    mark_ready,
     post_comment,
 )
 
@@ -443,3 +446,105 @@ def test_find_pr_by_branch_gh_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
     with pytest.raises(GithubError):
         find_pr_by_branch(branch="openagents/issue-1")
+
+
+# --------------------------------------------------------------------------- #
+# create_pr --draft（RFC-0005 决策 2）
+# --------------------------------------------------------------------------- #
+
+
+def test_create_pr_draft_passes_draft_flag(monkeypatch):
+    runner = _fake_run(stdout="https://github.com/acme/widget/pull/42\n")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    create_pr(branch="b", title="t", body="x", draft=True)
+
+    assert "--draft" in runner.calls[-1]
+
+
+def test_create_pr_default_is_not_draft(monkeypatch):
+    runner = _fake_run(stdout="https://github.com/acme/widget/pull/42\n")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    create_pr(branch="b", title="t", body="x")
+
+    assert "--draft" not in runner.calls[-1]
+
+
+# --------------------------------------------------------------------------- #
+# mark_ready（RFC-0005 决策 2）
+# --------------------------------------------------------------------------- #
+
+
+def test_mark_ready_invokes_gh_pr_ready(monkeypatch):
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    assert mark_ready(pr_number=42) is None
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "pr", "ready"]
+    assert "42" in cmd
+
+
+def test_mark_ready_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
+    with pytest.raises(GithubError):
+        mark_ready(pr_number=42)
+
+
+# --------------------------------------------------------------------------- #
+# has_label（RFC-0005 决策 4）
+# --------------------------------------------------------------------------- #
+
+
+def test_has_label_true_when_present(monkeypatch):
+    payload = json.dumps({"labels": [{"name": "rfc-approved"}, {"name": "bug"}]})
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
+
+    assert has_label(pr_number=7, name="rfc-approved") is True
+
+
+def test_has_label_false_when_absent(monkeypatch):
+    payload = json.dumps({"labels": [{"name": "bug"}]})
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
+
+    assert has_label(pr_number=7, name="rfc-approved") is False
+
+
+def test_has_label_false_when_no_labels(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"labels": []})))
+
+    assert has_label(pr_number=7, name="rfc-approved") is False
+
+
+def test_has_label_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
+    with pytest.raises(GithubError):
+        has_label(pr_number=7, name="rfc-approved")
+
+
+# --------------------------------------------------------------------------- #
+# current_login（RFC-0005 决策 6）
+# --------------------------------------------------------------------------- #
+
+
+def test_current_login_returns_login(monkeypatch):
+    runner = _fake_run(stdout="agent-bot\n")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    assert current_login() == "agent-bot"
+    cmd = runner.calls[-1]
+    assert cmd[:2] == ["gh", "api"]
+    assert "user" in cmd
+
+
+def test_current_login_empty_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="\n"))
+    with pytest.raises(GithubError):
+        current_login()
+
+
+def test_current_login_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="no auth"))
+    with pytest.raises(GithubError):
+        current_login()
