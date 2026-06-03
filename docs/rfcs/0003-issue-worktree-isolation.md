@@ -3,14 +3,14 @@
 - **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `backend`, `cli`
-- **影响模块**: `openagents/orchestrator.py`、`openagents/cli.py`、`tests/`
+- **影响模块**: `openagents/orchestrator.py`、`openagents/cli.py`、`openagents/backends/claude_code.py`、`tests/`
 - **负责人**: TBD
 - **创建日期**: 2026-06-03
 - **更新日期**: 2026-06-03
 
 ## 摘要
 
-修正 RFC-0001 中 `solve` 的工作区与分支基线行为。现状：`solve` 在**主工作树原地** `git checkout -b <branch>` 求解 issue，分支基线是「执行命令那一刻的当前 HEAD」。本 RFC 改为：每个 issue 在**独立 git worktree** 中、从**最新 `origin/main`** 拉出的分支上求解，为 CLAUDE.md 理念 5「issue 层面并行」提供隔离前提，并杜绝基线漂移。
+修正 RFC-0001 中 `solve` 的工作区、分支基线与可观测性。现状：`solve` 在**主工作树原地** `git checkout -b <branch>` 求解 issue，分支基线是「执行命令那一刻的当前 HEAD」，且后端 `claude -p` 以 `capture_output` 整段吞掉输出（运行数分钟零反馈）。本 RFC 改为：每个 issue 在**独立 git worktree** 中、从**最新 `origin/main`** 拉出的分支上求解（为 CLAUDE.md 理念 5「issue 层面并行」提供隔离前提、杜绝基线漂移），并将后端输出**实时透传**到终端。
 
 ## 动机
 
@@ -35,10 +35,13 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 5. **iterate 复用 worktree**：`iterate` 在 `solve` 建的同一 worktree 中续写、**追加 commit**（沿用 RFC-0001 决策 7，绝不 force-push）；worktree 缺失（如跨进程后被清理）则从远端分支重建后再续写。
 
+6. **求解过程实时透传后端输出**：`ClaudeCodeBackend` 从 `subprocess.run(capture_output=True)`（整段吞掉、运行数分钟零反馈）改为 `subprocess.Popen` 逐行读取 stdout（stderr 合并进 stdout），边读边转发到本进程 stdout，同时累积全文供 PR 摘要。理由：`solve` 全程静默是直接的可用性问题；实时透传让运行中的 `solve` 有进度反馈，又不丢失摘要。代价：合并 stderr 后摘要含少量噪声（仅用于 PR 正文，可接受）。
+
 ### 接口契约（相对 RFC-0001 的变更）
 
 - `Orchestrator.solve(issue_number, base="main") -> PR` —— 新增 `base` 参数（默认 `main`）；内部改为「fetch 基线 → 建 worktree → 在 worktree 内调后端/commit/push」。
 - `Orchestrator.iterate(pr_number, reason, detail) -> None` —— 签名不变，内部改为在该 issue 的 worktree 中续写。
+- `AgentBackend.run(work_dir, task, context) -> AgentResult` —— 协议不变；`ClaudeCodeBackend` 内部从 `run(capture_output)` 改为 `Popen` 实时透传（决策 6），`AgentResult.summary` 语义不变。
 - **CLI**：`openagents solve <issue-number> [--base <ref>]`，`--base` 默认 `main`。
 
 > 本 RFC 不含具体实现代码，实现细节在 Phase 3 落地。
@@ -64,13 +67,14 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 ### 子任务分解
 
-> 单子任务：改动集中于 orchestrator/cli，文件清单与 open PR #4（RFC-0002）仅在 `cli.py` 上相邻（不同函数），合并时按常规解决。
+> 两个子任务文件清单互不重叠，可并行。与 open PR #4（RFC-0002）仅在 `cli.py` 上相邻（不同函数），合并时按常规解决。
 
 #### 依赖关系图
 
 ```mermaid
 graph LR
     RFC0001[RFC-0001 已实现] --> T1[T1: worktree 隔离 + origin/main 基线 + --base]
+    RFC0001 --> T2[T2: 后端输出实时透传]
 ```
 
 #### 子任务列表
@@ -78,6 +82,7 @@ graph LR
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
 | T1 | solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项 | RFC-0001 | `openagents/orchestrator.py`, `openagents/cli.py`, `tests/test_orchestrator.py`, `tests/test_cli.py` | implemented |
+| T2 | 后端输出实时透传（`Popen` 替代 `capture_output`） | RFC-0001 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
 
 > 文档改动（本 RFC 文件、`docs/rfcs/README.md`、RFC-0001 交叉引用）随本子任务一并提交。
 
@@ -90,12 +95,18 @@ graph LR
 - **涉及文件**: `openagents/orchestrator.py`, `openagents/cli.py`, `tests/test_orchestrator.py`, `tests/test_cli.py`。
 - **验收标准**: `solve` 调用序列含 `git fetch origin main` 与 `git worktree add -b openagents/issue-<n> <path> origin/main`，**不再**在主树 `checkout -b`；后端 `work_dir` 为 worktree 路径；`commit/push` 正常且不 force-push；`solve --base <ref>` 时 worktree 自 `origin/<ref>` 拉出；`iterate` 在 worktree 内追加 commit；CLI 将 `--base` 透传、默认 `main`；`ruff check`/`ruff format --check`/`pytest` 全通过。
 
+**T2: 后端输出实时透传（`Popen` 替代 `capture_output`）**
+- **范围**: `ClaudeCodeBackend.run` 内部从 `subprocess.run(capture_output=True)` 改为 `subprocess.Popen`（`stderr` 合并进 `stdout`），逐行边读边转发到本进程 `stdout`，同时累积全文供摘要；非零退出码抛 `RuntimeError`（含已收集输出）。`git status` 判定改动逻辑不变。
+- **涉及文件**: `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py`。
+- **验收标准**: claude 输出在运行过程中实时出现在 stdout（`capsys` 断言）；`changed`/`summary` 行为与原先一致；claude 非零退出抛 `RuntimeError` 且含输出；子进程 mock 单测全通过。
+
 ## 测试方案
 
 ### 单元测试
 
 - `tests/test_orchestrator.py`：`solve` 的 git 序列断言（`fetch origin main`、`worktree add -b ... origin/main`、无主树 `checkout -b`、`commit`/`push`）；后端 `work_dir` 为 worktree 路径；`--base` 透传到 `origin/<ref>`；`iterate` 在 worktree 内追加 commit、不 force-push。
 - `tests/test_cli.py`：`solve` 默认 `base="main"`；`solve --base dev` 透传 `base="dev"`。
+- `tests/test_backend_claude_code.py`：`Popen` 输出经 `capsys` 实时可见；`changed`/`summary`/非零退出错误路径不变。
 - 外部副作用（`git` 子进程、`gh`）一律 mock。
 
 ### 手动验证
