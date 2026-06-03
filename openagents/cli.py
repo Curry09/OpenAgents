@@ -117,13 +117,26 @@ def _dispatch(args: argparse.Namespace) -> int:
     return handlers[args.command](args, ctx)
 
 
+def _run(args: argparse.Namespace) -> int:
+    # RFC-0003 决策 9：把已知的运行期错误转成干净的一行提示 + 非零退出，
+    # 不再把 Python traceback 糊用户一脸（业务异常延迟 import）。
+    from openagents.github import GithubError
+    from openagents.orchestrator import OrchestratorError
+
+    try:
+        return _dispatch(args)
+    except (OrchestratorError, GithubError, RuntimeError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help(sys.stderr)
         return 2
-    return _dispatch(args)
+    return _run(args)
 
 
 if __name__ == "__main__":
