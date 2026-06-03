@@ -124,6 +124,31 @@ def get_issue(*, number: int) -> Issue:
     )
 
 
+def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
+    """Create a GitHub issue via gh and return its minimal projection.
+
+    RFC-0002 T1：`gh issue create --title <title> --body <body> [--label <l> ...]`。
+
+    与决策 3 一致走 gh 子进程，复用 _run_gh 的错误处理；gh 在 stdout 返回新 issue 的
+    url（形如 .../issues/<n>），从末段解析出 number，连同传入的 title/body 组装成
+    既有的 Issue 返回（决策 2：不新增数据类型）。
+    """
+    # 1. 组装 gh 参数：title/body 必带，labels 逐个展开为 --label
+    args = ["issue", "create", "--title", title, "--body", body]
+    for label in labels:
+        args += ["--label", label]
+
+    # 2. 调用 gh；非零退出由 _run_gh 抛 GithubError
+    result = _run_gh(args, allow_returncodes=set())
+
+    # 3. 从 stdout 的 issue url 末段解析 number
+    url = result.stdout.strip()
+    number = _parse_issue_number(url=url)
+    if number is None:
+        raise GithubError(f"无法从 gh issue create 输出解析 issue number：{url!r}")
+    return Issue(number=number, title=title, body=body)
+
+
 def create_pr(*, branch: str, title: str, body: str) -> PR:
     """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。"""
     result = _run_gh(
@@ -226,7 +251,16 @@ def is_merged(*, pr_number: int) -> bool:
 
 def _parse_pr_number(*, url: str) -> int | None:
     """从形如 .../pull/<n> 的 PR url 末段解析 PR number；失败返回 None。"""
-    marker = "/pull/"
+    return _parse_number_after(url=url, marker="/pull/")
+
+
+def _parse_issue_number(*, url: str) -> int | None:
+    """RFC-0002 T1：从形如 .../issues/<n> 的 issue url 末段解析 number；失败返回 None。"""
+    return _parse_number_after(url=url, marker="/issues/")
+
+
+def _parse_number_after(*, url: str, marker: str) -> int | None:
+    """从 url 中 marker 之后的首段解析整数 number；找不到或非数字返回 None。"""
     idx = url.rfind(marker)
     if idx == -1:
         return None
