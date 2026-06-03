@@ -206,6 +206,28 @@ def test_solve_commit_message_is_conventional(tmp_path, monkeypatch):
     assert any(t in msg for t in ("feat", "fix", "chore", "refactor"))
 
 
+def test_solve_prints_phase_progress_to_stderr(tmp_path, monkeypatch, capsys):
+    # RFC-0003 决策 6：求解各阶段在 stderr 打进度行，保证全程有反馈。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3)
+
+    err = capsys.readouterr().err
+    assert "▶" in err
+    assert "issue #3" in err
+
+
 def test_solve_resume_reuses_existing_pr_no_new_pr(tmp_path, monkeypatch):
     # RFC-0003 决策 7/8：issue 已有 open PR → 续写复用，不重开 PR、不重建分支。
     orch, backend, state = _make(tmp_path)

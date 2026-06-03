@@ -17,6 +17,7 @@ issue 层面并行（CLAUDE.md 理念 5）提供隔离前提。
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from openagents import github
@@ -54,6 +55,7 @@ class Orchestrator:
           commit 推到同一 PR。这样 solve 中途报错后，重跑能从断点继续而非撞墙。
         base：分支基线（默认 main，决策 2/3）。返回该 issue 绑定的 PR。
         """
+        self._progress(message=f"▶ 拉取 issue #{issue_number} …")
         issue = github.get_issue(number=issue_number)
         branch = f"{_BRANCH_PREFIX}{issue_number}"
         record = self._state.find_by_issue(issue_number=issue_number)
@@ -61,6 +63,10 @@ class Orchestrator:
         if self._should_resume(record=record, branch=branch):
             return self._resume(issue=issue, branch=branch)
         return self._fresh_solve(issue=issue, branch=branch, base=base)
+
+    def _progress(self, *, message: str) -> None:
+        """RFC-0003 决策 6：把求解各阶段进度打到 stderr，保证用户全程有反馈。"""
+        print(message, file=sys.stderr, flush=True)
 
     def _should_resume(self, *, record: RunRecord | None, branch: str) -> bool:
         """RFC-0003 决策 7：该 issue 有进行中的 run，或远端已存在其分支 → 续写。"""
@@ -70,18 +76,22 @@ class Orchestrator:
 
     def _fresh_solve(self, *, issue: github.Issue, branch: str, base: str) -> github.PR:
         """RFC-0003：全新求解——建隔离 worktree（从最新 origin/<base>）、开新 PR。"""
+        self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
         worktree = self._prepare_worktree(issue_number=issue.number, branch=branch, base=base)
         # 决策 8：进入即记 solving（PR 尚未开），崩溃后可据此恢复。
         self._state.begin_run(issue_number=issue.number, branch=branch)
 
+        self._progress(message="▶ 调起 claude 在 worktree 内改代码（可能需要几分钟）…")
         result = self._backend.run(
             work_dir=worktree,
             task=f"{issue.title}\n\n{issue.body}",
             context=issue.body,
         )
         message = f"feat: resolve issue #{issue.number} {issue.title}".strip()
+        self._progress(message=f"▶ 提交并推送分支 {branch} …")
         self._commit_and_push(worktree=worktree, branch=branch, message=message)
 
+        self._progress(message="▶ 开 PR …")
         pr = github.create_pr(
             branch=branch,
             title=message,
@@ -93,14 +103,17 @@ class Orchestrator:
 
     def _resume(self, *, issue: github.Issue, branch: str) -> github.PR:
         """RFC-0003 决策 7/8：复用已有分支/worktree 续写，追加 commit 推到同一 PR。"""
+        self._progress(message=f"▶ 续写已有分支 {branch}（复用 worktree）…")
         worktree = self._ensure_worktree(issue_number=issue.number, branch=branch)
 
+        self._progress(message="▶ 调起 claude 续写…")
         result = self._backend.run(
             work_dir=worktree,
             task=f"继续解决 issue #{issue.number}（续写已有 PR）：\n{issue.title}\n\n{issue.body}",
             context=issue.body,
         )
         message = f"fix: continue issue #{issue.number} {issue.title}".strip()
+        self._progress(message=f"▶ 追加提交并推送 {branch} …")
         self._commit_and_push(worktree=worktree, branch=branch, message=message)
 
         pr = self._open_or_reuse_pr(issue=issue, branch=branch, summary=result.summary)
