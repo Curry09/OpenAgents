@@ -1,7 +1,7 @@
 ## 总体原则：
 这是一个RFC驱动的多Agent框架, 旨在解决如何从0开始快速搭建一个项目的需求。
 需要最小化的搭建一个mvp,然后用这个mvp来迭代自身，因为自身就是一个产品。
-交付程度以pr为单位，除了rfc设计环节，执行环节尽量少问，直到这个rfc做完并且pr的ci全通过了
+交付程度以pr为单位，除了rfc设计环节，执行环节尽量少问，直到这个rfc做完并且pr的ci全通过了，然后需要给出端到端测试的启动脚本
 商业上对标cursor、windsurf这类纯交互式agent场景
 目标上，希望通过多agent协作，1、减少项目搭建的时间 2.来改变人类需要负责的部分（不再是细节，而是宏观把控）
 后端兼容不同cli-agent，例如claude code, codex, nexau
@@ -32,3 +32,4 @@ python
 - **代码注释**：每一层级都要引用对应的 RFC ID，详见 `.claude/skills/rfc-driven-development/references/code-comment-conventions.md`
 - **语言**：代码注释中英文皆可，不强制区分，以清晰表达为先
 - **Python 函数参数**：禁止位置参数（`/` 语法），private 函数（`_` 开头，不含 dunder）参数禁止默认值，调用方必须显式传参
+- **测试**：/testdi xia

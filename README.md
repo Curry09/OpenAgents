@@ -7,7 +7,7 @@ RFC 驱动的多 Agent 框架：从 GitHub 拉 issue → 派一个 coding agent�
 ## 前置条件
 
 - Python ≥ 3.12、[uv](https://docs.astral.sh/uv/)
-- 已鉴权的 [`gh` CLI](https://cli.github.com/)（`gh auth status` 通过）
+- 已鉴权的 [`gh` CLI](https://cli.github.com/)：首次用 `gh auth login` 登录（GitHub.com → HTTPS → 浏览器授权即可），用 `gh auth status` 确认通过。OpenAgents 不存任何 token，鉴权全交给 `gh`。
 - 已安装的 [`claude` CLI](https://docs.claude.com/claude-code)
 
 ## 安装
