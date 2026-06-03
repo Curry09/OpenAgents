@@ -1,6 +1,6 @@
 # RFC-0001: MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
 
-- **状态**: accepted
+- **状态**: implemented
 - **优先级**: P0
 - **标签**: `architecture`, `cli`, `protocol`
 - **影响模块**: `openagents/`（新建 Python 包）、`tests/`、`pyproject.toml`
@@ -48,7 +48,7 @@
                                       │
                                       ├─> GitHub(开 PR) ──> 写回 State
                                       │
-   PR 评论 ──> CLI(poll / watch 循环) ──> Messages(检测 merge & 新 comment) ──> Orchestrator(把 comment 喂回 agent 追加 commit 迭代)
+   PR 评论 / CI 失败 ──> CLI(poll / watch 循环) ──> Messages(检测 merge / CI 状态 / 新 comment) ──> Orchestrator(把 comment 或 CI 失败日志喂回 agent 追加 commit，修到 CI 全绿)
 
 用户 ──> CLI(board) ──> Results(读 State 渲染成果看板) ──> 本地浏览器
 ```
@@ -86,6 +86,8 @@
     - 用户确认后自动补齐再继续；非交互场景（如 CI）下缺失则报错退出，不擅自创建。
     理由：这是「项目如何传给 OpenAgents」的答案——无需显式传仓库参数，降低使用心智；同时把「冷启动一个新项目」这一高频动作内建为产品能力（呼应 CLAUDE.md「从 0 快速搭建项目」）。提供显式 `openagents init` 命令承载该逻辑，其余命令复用同一 preflight。
 
+11. **CI 必须全绿：CI 失败也是 iterate 触发源**：agent 开 PR 后不仅响应人工 comment，还要监控 PR 的 CI 状态。CI 失败时，把失败的 check 日志作为一种「消息事件」喂回 agent 继续修、重推，**反复直到 CI 全绿**，再交人 review。理由：绿色 CI 是交付硬门槛；这把「修到 CI 通过」内建进自举循环，使 agent 产出可直接合并。`poll`/`watch` 在比对 comment 游标的同时读取 `gh pr checks` 状态；失败则触发 `iterate(..., reason="ci")`。
+
 ### 接口契约
 
 > 仅描述边界契约（what），不含实现（how）。
@@ -100,9 +102,10 @@
 
 **GitHub 封装**（`github.py`）
 - `create_repo(name, private) -> remote_url` —— 用 `gh repo create` 新建远端并关联为 `origin`（供 `config.ensure_project` 冷启动调用）。
+- `check_status(pr_number) -> CheckStatus(state, failed_logs)` —— 读 `gh pr checks` 的 CI 状态（决策 11）；失败时附带可喂回 agent 的失败日志摘要。
 - `get_issue(number) -> Issue(number, title, body)`
 - `create_pr(branch, title, body) -> PR(number, url)`
-- `list_comments(pr_number) -> list[Comment(id, author, body)]`
+- `list_comments(pr_number) -> list[Comment(id, author, body, created_at)]` —— id 为 node id 字符串；新评论按 created_at 判定（端到端验证修正）。
 - `post_comment(pr_number, body) -> None`
 
 **State**（`state.py`）
@@ -116,7 +119,7 @@
 - `iterate(pr_number, comment) -> None` —— 把一条新 comment 作为上下文喂回后端继续改，并**追加 commit** 后 push（决策 7）。
 
 **Messages**（`messages.py`）
-- `poll() -> list[CommentEvent]` —— 对所有 `pr-open`/`iterating` 状态的 PR：先检测是否已 merge（已 merge → 置 `done`，跳过），否则比对游标，产出新 comment 事件并调用 `Orchestrator.iterate`，推进游标。
+- `poll() -> list[Event]` —— 对所有 `pr-open`/`iterating` 状态的 PR：先检测是否已 merge（已 merge → 置 `done`，跳过）；否则 (a) 读 CI 状态，失败则以失败日志触发 `Orchestrator.iterate(reason="ci")`（决策 11）；(b) 比对 comment 游标，新 comment 触发 `iterate(reason="comment")` 并推进游标。
 - `watch(interval) -> None` —— 每隔 `interval` 秒循环调用 `poll`（决策 6），直到无 open PR 或用户中断。
 
 **CLI**（`cli.py`）
@@ -172,12 +175,12 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | 包骨架 + CLI 框架 + 后端接口契约 | - | `openagents/__init__.py`, `openagents/cli.py`, `openagents/config.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `pyproject.toml`, `tests/test_cli.py` | pending |
-| T2 | Claude Code 后端适配器 | T1 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | blocked |
-| T3 | GitHub 集成（issue/PR/comment） | T1 | `openagents/github.py`, `tests/test_github.py` | blocked |
-| T4 | 单 issue → 单 agent 编排 + 状态 | T2, T3 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py` | blocked |
-| T5 | PR comment 消息机制 | T3, T4 | `openagents/messages.py`, `tests/test_messages.py` | blocked |
-| T6 | 成果看板 + 本地启动命令 | T4 | `openagents/results.py`, `openagents/templates/board.html`, `tests/test_results.py` | blocked |
+| T1 | 包骨架 + CLI 框架 + 后端接口契约 | - | `openagents/__init__.py`, `openagents/cli.py`, `openagents/config.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `pyproject.toml`, `tests/test_cli.py`, `tests/test_config.py`, `tests/test_base.py` | implemented |
+| T2 | Claude Code 后端适配器 | T1 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
+| T3 | GitHub 集成（issue/PR/comment） | T1 | `openagents/github.py`, `tests/test_github.py` | implemented |
+| T4 | 单 issue → 单 agent 编排 + 状态 | T2, T3 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py` | implemented |
+| T5 | PR comment 消息机制 | T3, T4 | `openagents/messages.py`, `tests/test_messages.py` | implemented |
+| T6 | 成果看板 + 本地启动命令 | T4 | `openagents/results.py`, `openagents/templates/board.html`, `tests/test_results.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
@@ -187,7 +190,7 @@ graph LR
 
 **T1: 包骨架 + CLI 框架 + 后端接口契约**
 - **范围**: 建 `openagents/` 包；`cli.py` 注册 `init`/`solve`/`poll`/`watch`/`board` 五个子命令（命令体内延迟 import 业务模块，本子任务只放可运行的骨架与占位提示）；`config.py` 实现项目绑定 `resolve_project`/`ensure_project`（决策 10：cwd 解析 git root + remote，缺失时交互式新建；`gh repo create` 部分通过延迟 import 调用 `github.create_repo`）；`backends/base.py` 定义 `AgentBackend` 协议与 `AgentResult`；在 `pyproject.toml` 声明 CLI entry point 与必要依赖（CLI 框架）。
-- **涉及文件**: 见上表（新增包文件 + 修改 `pyproject.toml`）。
+- **涉及文件**: 见上表（新增包文件 + 修改 `pyproject.toml`；测试拆为 `tests/test_cli.py` / `tests/test_config.py` / `tests/test_base.py`）。
 - **验收标准**: `openagents --help` 列出五个子命令；`AgentBackend` 协议可被导入；`resolve_project` 能从 cwd 正确识别 git root 与 remote、非仓库返回 `None`，`ensure_project(interactive=False)` 缺失时抛错（交互分支与 `git init`/`gh` 被 mock）；`ruff check`/`ruff format --check` 通过；`tests/test_cli.py` 验证子命令注册与 preflight 调用。
 
 **T2: Claude Code 后端适配器**
@@ -196,19 +199,19 @@ graph LR
 - **验收标准**: 给定一个临时仓库与任务，适配器能驱动 Claude Code 产生文件改动并正确报告 `changed/summary`；子进程调用被 mock 的单测通过。
 
 **T3: GitHub 集成（issue/PR/comment）**
-- **范围**: 封装 `gh` CLI，实现 `create_repo`（供冷启动绑定）/`get_issue`/`create_pr`/`list_comments`/`post_comment`，统一错误处理。
+- **范围**: 封装 `gh` CLI，实现 `create_repo`（供冷启动绑定）/`get_issue`/`create_pr`/`list_comments`/`post_comment`/`check_status`（CI 状态，决策 11），统一错误处理。
 - **涉及文件**: `openagents/github.py`, `tests/test_github.py`。
-- **验收标准**: 各函数对 `gh` 输出正确解析为数据类；`create_repo` 正确组装 `gh repo create` 参数（私有/公开）；`gh` 子进程被 mock 的单测覆盖正常与错误路径。
+- **验收标准**: 各函数对 `gh` 输出正确解析为数据类；`create_repo` 正确组装 `gh repo create` 参数（私有/公开）；`check_status` 正确归类 pass/fail 并提取失败日志摘要；`gh` 子进程被 mock 的单测覆盖正常与错误路径。
 
 **T4: 单 issue → 单 agent 编排 + 状态**
 - **范围**: 实现 `Orchestrator.solve`（拉 issue → 建分支 → 调后端 → 开 PR → 写 State）与 `iterate`（喂回 comment → 追加 commit → push，决策 7）；实现 `State` 的 JSON 持久化（`.openagents/state.json`）含状态机（含 `done`）与 comment 游标。
 - **涉及文件**: `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator.py`, `tests/test_state.py`。
 - **验收标准**: 用 mock 的 backend + github，`solve` 端到端产出一条 RunRecord 且状态流转正确；State 读写与游标逻辑单测通过。
 
-**T5: PR comment 消息机制**
-- **范围**: 实现 `Messages.poll`：对 open 状态 PR 先检测是否已 merge（已 merge → 置 `done` 并跳过，决策 8），否则比对游标，发现新 comment 时生成「your PR #N received a comment」事件并调用 `Orchestrator.iterate`，更新游标；实现 `Messages.watch`：按间隔循环 `poll`（决策 6）。
+**T5: PR comment 消息机制 + CI 监控**
+- **范围**: 实现 `Messages.poll`：对 open 状态 PR 先检测是否已 merge（已 merge → 置 `done` 并跳过，决策 8）；否则 (a) 读 CI 状态，失败则以失败日志触发 `iterate(reason="ci")`（决策 11，修到 CI 全绿）；(b) 比对游标，新 comment 触发 `iterate(reason="comment")` 并更新游标。实现 `Messages.watch`：按间隔循环 `poll`（决策 6）。
 - **涉及文件**: `openagents/messages.py`, `tests/test_messages.py`。
-- **验收标准**: 给定带新 comment 的 mock PR，`poll` 正确触发一次 `iterate` 并推进游标；已 merge 的 PR 被置 `done` 且不再迭代；无新 comment 时不触发；`watch` 的循环间隔逻辑（`time.sleep` 被 mock）单测通过。
+- **验收标准**: 给定带新 comment 的 mock PR，`poll` 正确触发一次 `iterate(reason="comment")` 并推进游标；CI 失败的 mock PR 触发 `iterate(reason="ci")`，CI 全绿则不触发；已 merge 的 PR 被置 `done` 且不再迭代；无新 comment 且 CI 绿时不触发；`watch` 的循环间隔逻辑（`time.sleep` 被 mock）单测通过。
 
 **T6: 成果看板 + 本地启动命令**
 - **范围**: 实现 `results.render(runs) -> html` 与 `board()` 启动逻辑（渲染 State 为单页 HTML 并用 `webbrowser` 打开）；提供 HTML 模板。
