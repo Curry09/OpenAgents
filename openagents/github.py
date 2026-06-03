@@ -124,6 +124,29 @@ def get_issue(*, number: int) -> Issue:
     )
 
 
+def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
+    """RFC-0004 T1：列出（可按标签门控的）issue，供 vigil 守夜人发现新 issue。
+
+    走 `gh issue list --state <state> [--label L ...] --json number,title,body`。
+    labels 为空表示不按标签过滤（列出该 state 的全部 issue）；多个 label 由 gh 以
+    并集（OR）语义处理（任一命中即返回）。复用决策 3 的 gh 子进程封装与既有 Issue
+    数据模型，不新增数据类型（CLAUDE.md 理念 1）。
+    """
+    args = ["issue", "list", "--state", state, "--json", "number,title,body"]
+    for label in labels:
+        args += ["--label", label]
+    data = _gh_json(args, allow_returncodes=set())
+    rows = data if isinstance(data, list) else []
+    return [
+        Issue(
+            number=int(raw["number"]),
+            title=raw.get("title") or "",
+            body=raw.get("body") or "",
+        )
+        for raw in rows
+    ]
+
+
 def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
     """Create a GitHub issue via gh and return its minimal projection.
 

@@ -26,6 +26,7 @@ from openagents.github import (
     has_label,
     is_merged,
     list_comments,
+    list_issues,
     mark_ready,
     post_comment,
 )
@@ -548,3 +549,76 @@ def test_current_login_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="no auth"))
     with pytest.raises(GithubError):
         current_login()
+
+
+# --------------------------------------------------------------------------- #
+# list_issues（RFC-0004 T1：标签门控的 issue 发现）
+# --------------------------------------------------------------------------- #
+
+
+def test_list_issues_parses_multiple(monkeypatch):
+    payload = json.dumps(
+        [
+            {"number": 9, "title": "守夜人模式", "body": "details"},
+            {"number": 7, "title": "rebase", "body": ""},
+        ]
+    )
+    runner = _fake_run(stdout=payload)
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    issues = list_issues(labels=[])
+
+    assert [i.number for i in issues] == [9, 7]
+    assert all(isinstance(i, Issue) for i in issues)
+    assert issues[0].title == "守夜人模式"
+    assert issues[1].body == ""
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "issue", "list"]
+    assert "--state" in cmd and "open" in cmd
+    assert "--json" in cmd
+    # 无 label 时不应带 --label
+    assert "--label" not in cmd
+
+
+def test_list_issues_passes_each_label(monkeypatch):
+    runner = _fake_run(stdout="[]")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    list_issues(labels=["openagents", "vigil"])
+
+    cmd = runner.calls[-1]
+    # 每个 label 展开成一对 --label <value>；gh 以并集语义处理。
+    assert cmd.count("--label") == 2
+    assert "openagents" in cmd
+    assert "vigil" in cmd
+
+
+def test_list_issues_custom_state(monkeypatch):
+    runner = _fake_run(stdout="[]")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    list_issues(labels=[], state="closed")
+
+    cmd = runner.calls[-1]
+    assert "--state" in cmd
+    assert "closed" in cmd
+
+
+def test_list_issues_empty_result(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
+    assert list_issues(labels=["openagents"]) == []
+
+
+def test_list_issues_null_body_becomes_empty(monkeypatch):
+    payload = json.dumps([{"number": 5, "title": "T", "body": None}])
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
+
+    issues = list_issues(labels=[])
+
+    assert issues[0].body == ""
+
+
+def test_list_issues_gh_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
+    with pytest.raises(GithubError):
+        list_issues(labels=[])
