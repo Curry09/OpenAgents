@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_solve = sub.add_parser("solve", help="拉取并解决一个 GitHub issue")
     p_solve.add_argument("issue", type=int, help="issue 编号")
+    # RFC-0003 决策 2/3：分支基线，默认 main；issue 分支从最新 origin/<base> 拉出。
+    p_solve.add_argument("--base", default="main", help="分支基线（默认 main）")
 
     sub.add_parser("poll", help="拉取并处理所有 PR 的新评论（一次性）")
 
@@ -70,8 +72,8 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0001 T4: 派单个 agent 解决 issue 并开真实 PR。
-    pr = _orchestrator_for(ctx=ctx).solve(issue_number=args.issue)
+    # RFC-0001 T4 + RFC-0003: 派单个 agent 在每 issue 独立 worktree（基线 origin/<base>）中解决 issue 并开真实 PR。
+    pr = _orchestrator_for(ctx=ctx).solve(issue_number=args.issue, base=args.base)
     print(f"✓ 已为 issue #{args.issue} 开 PR：{pr.url}")
     return 0
 
