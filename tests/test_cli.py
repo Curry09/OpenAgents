@@ -57,14 +57,50 @@ def test_solve_runs_preflight_then_opens_pr(monkeypatch):
     calls = _patch_ensure(monkeypatch)
 
     class _FakeOrch:
-        def solve(self, *, issue_number):
+        def solve(self, *, issue_number, base):
             assert issue_number == 1
+            # RFC-0003：未传 --base 时默认 main。
+            assert base == "main"
             return _FakePR()
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
     code = main(["solve", "1"])
     assert code == 0
     assert calls == [True]
+
+
+def test_solve_passes_base_override(monkeypatch):
+    # RFC-0003 决策 3：--base 透传给 Orchestrator.solve。
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def solve(self, *, issue_number, base):
+            seen.update(issue_number=issue_number, base=base)
+            return _FakePR()
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    code = main(["solve", "7", "--base", "dev"])
+    assert code == 0
+    assert seen == {"issue_number": 7, "base": "dev"}
+
+
+def test_solve_reports_error_cleanly_without_traceback(monkeypatch, capsys):
+    # RFC-0003 决策 9：业务异常转成干净的一行提示 + 非零退出，不吐 traceback。
+    _patch_ensure(monkeypatch)
+    from openagents.orchestrator import OrchestratorError
+
+    class _Boom:
+        def solve(self, *, issue_number, base):
+            raise OrchestratorError("push 被拒：non-fast-forward")
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _Boom())
+    code = main(["solve", "3"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "✗" in err
+    assert "non-fast-forward" in err
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):

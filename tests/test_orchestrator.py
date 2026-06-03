@@ -106,10 +106,11 @@ def test_solve_invokes_backend_with_issue_content(tmp_path, monkeypatch):
     assert "fix bug" in call["task"]
     assert "the body" in call["task"]
     assert call["context"] == "the body"
-    assert call["work_dir"] == tmp_path
+    # RFC-0003：后端在每 issue 独立 worktree 内求解，而非主工作树。
+    assert call["work_dir"] == tmp_path / ".openagents" / "worktrees" / "issue-3"
 
 
-def test_solve_creates_branch_and_pushes(tmp_path, monkeypatch):
+def test_solve_creates_worktree_and_pushes(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -127,11 +128,58 @@ def test_solve_creates_branch_and_pushes(tmp_path, monkeypatch):
     orch.solve(issue_number=3)
 
     joined = [" ".join(c) for c in recorder.commands]
-    # 建分支
-    assert any("checkout" in c and "openagents/issue-3" in c for c in joined)
+    # RFC-0003：建每 issue 独立 worktree（不在主工作树原地 checkout -b）
+    assert any("worktree add -b openagents/issue-3" in c for c in joined)
+    assert not any("checkout -b" in c for c in joined)
     # commit + push
     assert any("commit" in c for c in joined)
     assert any("push" in c for c in joined)
+
+
+def test_solve_branches_from_latest_origin_main(tmp_path, monkeypatch):
+    # RFC-0003 决策 2：solve 前 fetch 最新 main，分支自 origin/main 拉出。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3)
+
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("fetch origin main" in c for c in joined)
+    assert any("worktree add -b openagents/issue-3" in c and "origin/main" in c for c in joined)
+
+
+def test_solve_base_override_uses_origin_ref(tmp_path, monkeypatch):
+    # RFC-0003 决策 3：--base 覆盖基线，worktree 自 origin/<ref> 拉出。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3, base="dev")
+
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("fetch origin dev" in c for c in joined)
+    assert any("worktree add -b openagents/issue-3" in c and "origin/dev" in c for c in joined)
 
 
 def test_solve_commit_message_is_conventional(tmp_path, monkeypatch):
@@ -156,6 +204,85 @@ def test_solve_commit_message_is_conventional(tmp_path, monkeypatch):
     msg = " ".join(commit_cmds[0])
     # Conventional Commits 前缀
     assert any(t in msg for t in ("feat", "fix", "chore", "refactor"))
+
+
+def test_solve_prints_phase_progress_to_stderr(tmp_path, monkeypatch, capsys):
+    # RFC-0003 决策 6：求解各阶段在 stderr 打进度行，保证全程有反馈。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3)
+
+    err = capsys.readouterr().err
+    assert "▶" in err
+    assert "issue #3" in err
+
+
+def test_solve_resume_reuses_existing_pr_no_new_pr(tmp_path, monkeypatch):
+    # RFC-0003 决策 7/8：issue 已有 open PR → 续写复用，不重开 PR、不重建分支。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "find_pr_by_branch",
+        lambda *, branch: PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+
+    def _no_create(**kwargs):
+        raise AssertionError("续写不应调用 create_pr")
+
+    monkeypatch.setattr(orch_module.github, "create_pr", _no_create)
+
+    pr = orch.solve(issue_number=3)
+
+    assert pr.number == 5
+    joined = [" ".join(c) for c in recorder.commands]
+    # 复用分支：不重建（无 worktree remove --force / branch -D），但追加 commit/push
+    assert not any("worktree remove --force" in c for c in joined)
+    assert any("commit" in c for c in joined)
+    assert any("push" in c for c in joined)
+    assert state.all_runs()[0].status == "iterating"
+
+
+def test_solve_resume_opens_pr_when_missing(tmp_path, monkeypatch):
+    # RFC-0003 决策 8：崩在开 PR 前（state 有 solving 记录、远端无 PR）→ 续写时补开 PR。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    state.begin_run(issue_number=3, branch="openagents/issue-3")
+    monkeypatch.setattr(orch_module.github, "find_pr_by_branch", lambda *, branch: None)
+    created = PR(number=9, url="https://github.com/acme/widget/pull/9")
+    monkeypatch.setattr(orch_module.github, "create_pr", lambda *, branch, title, body: created)
+
+    pr = orch.solve(issue_number=3)
+
+    assert pr == created
+    assert state.all_runs()[0].pr_number == 9
 
 
 def test_iterate_feeds_detail_to_backend_and_appends_commit(tmp_path, monkeypatch):

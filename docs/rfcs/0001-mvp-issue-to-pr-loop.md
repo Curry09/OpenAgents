@@ -115,7 +115,7 @@
 - `all_runs() -> list[RunRecord]`（供成果看板读取）
 
 **Orchestrator**（`orchestrator.py`）
-- `solve(issue_number) -> PR` —— 完整执行「拉 issue → 建分支 → 调后端 → 开 PR → 写 State」。
+- `solve(issue_number) -> PR` —— 完整执行「拉 issue → 建分支 → 调后端 → 开 PR → 写 State」。（工作区与分支基线行为已被 [RFC-0003](./0003-issue-worktree-isolation.md) 修正：改为「每 issue 独立 worktree + 分支自最新 `origin/<base>` 拉出」，并新增 `base` 参数。）
 - `iterate(pr_number, comment) -> None` —— 把一条新 comment 作为上下文喂回后端继续改，并**追加 commit** 后 push（决策 7）。
 
 **Messages**（`messages.py`）

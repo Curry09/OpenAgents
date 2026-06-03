@@ -137,6 +137,26 @@ def create_pr(*, branch: str, title: str, body: str) -> PR:
     return PR(number=number, url=url)
 
 
+def find_pr_by_branch(*, branch: str) -> PR | None:
+    """RFC-0003 决策 8：查某分支当前的 open PR（`gh pr list --head <branch>`）。
+
+    供 solve 续写/恢复时复用已有 PR、避免重复 `gh pr create`；无则返回 None。
+    """
+    data = _gh_json(
+        ["pr", "list", "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"],
+        allow_returncodes=set(),
+    )
+    rows = data if isinstance(data, list) else []
+    if not rows:
+        return None
+    first = rows[0]
+    number = first.get("number")
+    url = first.get("url") or ""
+    if number is None:
+        return None
+    return PR(number=int(number), url=url)
+
+
 def list_comments(*, pr_number: int) -> list[Comment]:
     """RFC-0001 T3：`gh pr view <n> --json comments`，解析为 Comment 列表。
 
