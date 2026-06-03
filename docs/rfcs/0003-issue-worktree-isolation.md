@@ -10,7 +10,7 @@
 
 ## 摘要
 
-修正 RFC-0001 中 `solve` 的工作区、分支基线与可观测性。现状：`solve` 在**主工作树原地** `git checkout -b <branch>` 求解 issue，分支基线是「执行命令那一刻的当前 HEAD」，且后端 `claude -p` 以 `capture_output` 整段吞掉输出（运行数分钟零反馈）。本 RFC 改为：每个 issue 在**独立 git worktree** 中、从**最新 `origin/main`** 拉出的分支上求解（为 CLAUDE.md 理念 5「issue 层面并行」提供隔离前提、杜绝基线漂移），并将后端输出**实时透传**到终端。
+修正 RFC-0001 中 `solve` 的工作区、分支基线、可观测性与健壮性。现状：`solve` 在**主工作树原地** `git checkout -b <branch>` 求解 issue，分支基线是「执行命令那一刻的当前 HEAD」，后端 `claude -p` 以 `capture_output` 整段吞掉输出（运行数分钟零反馈），且 `solve` 无幂等——中途报错（如 push 非快进被拒）后重跑会撞同一堵墙、无法继续。本 RFC 改为：每个 issue 在**独立 git worktree** 中、从**最新 `origin/main`** 拉出的分支上求解（为 CLAUDE.md 理念 5「issue 层面并行」提供隔离前提、杜绝基线漂移），后端输出**实时透传**到终端，并让 `solve` **幂等可恢复**（按 State 分流「全新/续写」，一个 issue 绑定一个 PR，报错后能从断点继续）、CLI **统一错误处理**（不再吐 traceback）。
 
 ## 动机
 
@@ -31,24 +31,36 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 3. **`--base` 覆盖依赖场景**：提供 `openagents solve <n> --base <ref>` 显式指定基线，默认 `main`。理由：默认隔离/独立，但不堵死「issue B 依赖 issue A 改动」的依赖式工作流；基线应**显式声明**，而非靠「你恰好停在哪个分支」隐式决定（后者是 bug 不是 feature）。
 
-4. **solve 幂等**：建 worktree 前尽力清理同 issue 的残留 worktree 与本地分支（`worktree remove --force` / `worktree prune` / `branch -D`，失败忽略），再新建。理由：同一 issue 重跑不应报错。
+4. **全新求解前幂等清理**（仅 fresh 路径）：判定为「全新求解」时，建 worktree 前尽力清理同 issue 的残留 worktree 与本地分支（`worktree remove --force` / `worktree prune` / `branch -D`，失败忽略），再从 `origin/<base>` 新建。理由：全新求解意味着远端尚无该 issue 分支（见决策 7 的分流），清掉本地残留是安全的。**续写路径不走此清理**（否则会丢掉已提交的工作、导致 push 非快进——这正是原实现的 bug）。
 
 5. **iterate 复用 worktree**：`iterate` 在 `solve` 建的同一 worktree 中续写、**追加 commit**（沿用 RFC-0001 决策 7，绝不 force-push）；worktree 缺失（如跨进程后被清理）则从远端分支重建后再续写。
 
 6. **求解过程实时透传后端输出**：`ClaudeCodeBackend` 从 `subprocess.run(capture_output=True)`（整段吞掉、运行数分钟零反馈）改为 `subprocess.Popen` 逐行读取 stdout（stderr 合并进 stdout），边读边转发到本进程 stdout，同时累积全文供 PR 摘要。理由：`solve` 全程静默是直接的可用性问题；实时透传让运行中的 `solve` 有进度反馈，又不丢失摘要。代价：合并 stderr 后摘要含少量噪声（仅用于 PR 正文，可接受）。
 
+7. **solve 按 State 分流「全新/续写」，一个 issue 绑定一个 PR**：`solve` 入口先 `state.find_by_issue(n)` 反查——
+   - 该 issue 有进行中的 run（状态 ≠ `done`），**或**远端已存在其分支（`git ls-remote --heads`，State 丢失时的兜底）→ 走**续写**：复用已有分支/worktree（缺失则从远端分支重建，保住已提交工作），追加 commit，推到**同一 PR**；
+   - 否则 → 走**全新求解**（决策 1/2/4）。
+   理由：这是「每个 issue 与 PR 绑定」的落点；也让「重跑 = 继续」而非「重开/撞墙」。
+
+8. **分步落 State + gh 兜底恢复绑定**：State 从「最后才写」改为**进入即写**——`solve` 一开始 `begin_run`（状态 `solving`、PR 待开），开 PR 后 `record_run`（`pr-open`），续写后置 `iterating`。于是 push 后崩、开 PR 前崩、开 PR 后崩各种中断都能恢复。续写补开 PR 前先 `github.find_pr_by_branch` 复用分支上已有的 open PR（避免重复 `gh pr create`，并在 State 丢失时恢复 issue↔PR 绑定）。
+
+9. **CLI 统一错误处理**：`cli` 把已知运行期异常（`OrchestratorError` / `GithubError` / `RuntimeError`）转成 `✗ <消息>` 到 stderr + 非零退出码，不再把 Python traceback 抛给用户。理由：traceback 对用户无用且观感差；未知异常仍向上抛出（暴露真实 bug）。
+
 ### 接口契约（相对 RFC-0001 的变更）
 
-- `Orchestrator.solve(issue_number, base="main") -> PR` —— 新增 `base` 参数（默认 `main`）；内部改为「fetch 基线 → 建 worktree → 在 worktree 内调后端/commit/push」。
+- `Orchestrator.solve(issue_number, base="main") -> PR` —— 新增 `base` 参数（默认 `main`）；内部按 State 分流「全新/续写」（决策 7/8），返回该 issue 绑定的 PR。
 - `Orchestrator.iterate(pr_number, reason, detail) -> None` —— 签名不变，内部改为在该 issue 的 worktree 中续写。
 - `AgentBackend.run(work_dir, task, context) -> AgentResult` —— 协议不变；`ClaudeCodeBackend` 内部从 `run(capture_output)` 改为 `Popen` 实时透传（决策 6），`AgentResult.summary` 语义不变。
-- **CLI**：`openagents solve <issue-number> [--base <ref>]`，`--base` 默认 `main`。
+- `State`：新增 `begin_run(issue_number, branch)`（记 `solving`、PR 待开）与 `find_by_issue(issue_number) -> RunRecord | None`（决策 7/8）。
+- `github.find_pr_by_branch(branch) -> PR | None` —— 查分支当前 open PR（决策 8）。
+- **CLI**：`openagents solve <issue-number> [--base <ref>]`，`--base` 默认 `main`；运行期错误干净退出（决策 9）。
 
 > 本 RFC 不含具体实现代码，实现细节在 Phase 3 落地。
 
 ### 不在本 RFC 范围
 
-- **worktree 生命周期清理**（PR 合并后自动移除、跨 issue 累积治理）：留作后续 RFC。本 RFC 仅保证「同一 issue 重跑」被决策 4 清理；不同 issue 的 worktree 会累积在 `.openagents/worktrees/` 下，可手动 `git worktree prune` 或删除。见「未解决的问题」。
+- **worktree 生命周期清理**（PR 合并后自动移除、跨 issue 累积治理）：留作后续 RFC。本 RFC 中「同一 issue 重跑」由决策 7 分流为续写（复用而非新建）；不同 issue 的 worktree 会累积在 `.openagents/worktrees/` 下，可手动 `git worktree prune` 或删除。见「未解决的问题」。
+- **`--force` 显式重开**（废弃旧分支/PR、从 `origin/<base>` 重来）：本 RFC 未提供；需重开时手动删远端分支/关 PR。留作后续增量。
 
 ## 权衡取舍
 
@@ -67,7 +79,7 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 ### 子任务分解
 
-> 两个子任务文件清单互不重叠，可并行。与 open PR #4（RFC-0002）仅在 `cli.py` 上相邻（不同函数），合并时按常规解决。
+> T1/T2 文件清单互不重叠，可并行。T3/T4 与 T1 在同一 PR 内**顺序**实现，文件清单与 T1 有重叠（`orchestrator.py` / `cli.py`）——这是 amend 已实现子任务、非并行执行，无冲突风险。与 open PR #4（RFC-0002）仅在 `cli.py` 上相邻（不同函数），合并时按常规解决。
 
 #### 依赖关系图
 
@@ -75,6 +87,8 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 graph LR
     RFC0001[RFC-0001 已实现] --> T1[T1: worktree 隔离 + origin/main 基线 + --base]
     RFC0001 --> T2[T2: 后端输出实时透传]
+    T1 --> T3[T3: solve 幂等可恢复 + issue↔PR 绑定]
+    T1 --> T4[T4: CLI 统一错误处理]
 ```
 
 #### 子任务列表
@@ -83,6 +97,8 @@ graph LR
 |----|------|------|---------|------|
 | T1 | solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项 | RFC-0001 | `openagents/orchestrator.py`, `openagents/cli.py`, `tests/test_orchestrator.py`, `tests/test_cli.py` | implemented |
 | T2 | 后端输出实时透传（`Popen` 替代 `capture_output`） | RFC-0001 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
+| T3 | solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底 | T1 | `openagents/orchestrator.py`, `openagents/state.py`, `openagents/github.py`, `tests/test_orchestrator.py`, `tests/test_state.py`, `tests/test_github.py` | implemented |
+| T4 | CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback） | T1 | `openagents/cli.py`, `tests/test_cli.py` | implemented |
 
 > 文档改动（本 RFC 文件、`docs/rfcs/README.md`、RFC-0001 交叉引用）随本子任务一并提交。
 
@@ -100,6 +116,16 @@ graph LR
 - **涉及文件**: `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py`。
 - **验收标准**: claude 输出在运行过程中实时出现在 stdout（`capsys` 断言）；`changed`/`summary` 行为与原先一致；claude 非零退出抛 `RuntimeError` 且含输出；子进程 mock 单测全通过。
 
+**T3: solve 幂等可恢复 + issue↔PR 绑定 + gh 兜底**
+- **范围**: `solve` 入口 `state.find_by_issue` 反查并按决策 7 分流——续写复用分支/worktree（不走决策 4 的清理）、追加 commit、`find_pr_by_branch` 复用或补开 PR；全新走决策 1/2/4 并 `begin_run` 先记 `solving`。`_commit_and_push` 容忍「无改动可提交」（跳过 commit 仍 push）。`state.py` 加 `begin_run` / `find_by_issue`；`github.py` 加 `find_pr_by_branch`。
+- **涉及文件**: `openagents/orchestrator.py`, `openagents/state.py`, `openagents/github.py`, `tests/test_orchestrator.py`, `tests/test_state.py`, `tests/test_github.py`。
+- **验收标准**: 该 issue 已有 open PR 时 `solve` 走续写、复用 PR（不调用 `create_pr`）、不重建分支、状态置 `iterating`；`begin_run` 后崩溃场景（无 PR）重跑能补开 PR；`find_by_issue`/`begin_run`/`find_pr_by_branch` 单测通过。
+
+**T4: CLI 统一错误处理**
+- **范围**: `cli` 在分发外层捕获 `OrchestratorError` / `GithubError` / `RuntimeError`，打印 `✗ <消息>` 到 stderr 并返回非零退出码；未知异常仍向上抛出。
+- **涉及文件**: `openagents/cli.py`, `tests/test_cli.py`。
+- **验收标准**: `solve` 抛 `OrchestratorError` 时 `main` 返回 1、stderr 含 `✗` 与原因、无 traceback；单测通过。
+
 ## 测试方案
 
 ### 单元测试
@@ -107,6 +133,10 @@ graph LR
 - `tests/test_orchestrator.py`：`solve` 的 git 序列断言（`fetch origin main`、`worktree add -b ... origin/main`、无主树 `checkout -b`、`commit`/`push`）；后端 `work_dir` 为 worktree 路径；`--base` 透传到 `origin/<ref>`；`iterate` 在 worktree 内追加 commit、不 force-push。
 - `tests/test_cli.py`：`solve` 默认 `base="main"`；`solve --base dev` 透传 `base="dev"`。
 - `tests/test_backend_claude_code.py`：`Popen` 输出经 `capsys` 实时可见；`changed`/`summary`/非零退出错误路径不变。
+- `tests/test_orchestrator.py`（T3）：已有 open PR → 续写复用 PR、不重建分支、状态 `iterating`；`begin_run` 后无 PR → 续写补开 PR。
+- `tests/test_state.py`（T3）：`begin_run` 记 `solving`/PR 待开、被 `record_run` 覆盖；`find_by_issue` 命中/未命中。
+- `tests/test_github.py`（T3）：`find_pr_by_branch` 命中/无 PR/gh 错误三路径。
+- `tests/test_cli.py`（T4）：业务异常 → 返回 1、stderr 含 `✗`、无 traceback。
 - 外部副作用（`git` 子进程、`gh`）一律 mock。
 
 ### 手动验证
@@ -115,10 +145,13 @@ graph LR
 2. `openagents solve N` → 检查 `.openagents/worktrees/issue-N` 被创建、该分支基线为最新 `origin/main`、主树当前分支未被切换、产生真实 PR。
 3. 连续 `openagents solve M` → 检查 issue-M 分支同样从 `origin/main` 拉出，与 issue-N 互不污染。
 4. `openagents solve N --base some-branch` → 检查 worktree 基线为 `origin/some-branch`。
+5. 对已有 PR 的 issue 再次 `openagents solve N` → 检查**不重开** PR，而是在原分支追加 commit 推到同一 PR（状态 `iterating`）。
+6. 制造一次失败（如先手动改坏远端使 push 被拒）→ 检查 CLI 打印 `✗ ...` 干净退出、**无 traceback**，修正后重跑能从断点继续。
 
 ## 未解决的问题
 
-- **worktree 生命周期清理**：PR 合并后自动移除对应 worktree、以及 `.openagents/worktrees/` 跨 issue 累积的治理，留作后续 RFC（可在 `Messages` 检测到 PR `done` 时调用清理）。本 RFC 暂仅处理「同 issue 重跑」的幂等清理。
+- **worktree 生命周期清理**：PR 合并后自动移除对应 worktree、以及 `.openagents/worktrees/` 跨 issue 累积的治理，留作后续 RFC（可在 `Messages` 检测到 PR `done` 时调用清理）。
+- **`--force` 显式重开**：废弃旧分支/PR、从 `origin/<base>` 重来的能力，本 RFC 未提供，留作后续增量。
 
 ## 参考资料
 
