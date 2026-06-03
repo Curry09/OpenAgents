@@ -106,10 +106,11 @@ def test_solve_invokes_backend_with_issue_content(tmp_path, monkeypatch):
     assert "fix bug" in call["task"]
     assert "the body" in call["task"]
     assert call["context"] == "the body"
-    assert call["work_dir"] == tmp_path
+    # RFC-0003：后端在每 issue 独立 worktree 内求解，而非主工作树。
+    assert call["work_dir"] == tmp_path / ".openagents" / "worktrees" / "issue-3"
 
 
-def test_solve_creates_branch_and_pushes(tmp_path, monkeypatch):
+def test_solve_creates_worktree_and_pushes(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -127,11 +128,58 @@ def test_solve_creates_branch_and_pushes(tmp_path, monkeypatch):
     orch.solve(issue_number=3)
 
     joined = [" ".join(c) for c in recorder.commands]
-    # 建分支
-    assert any("checkout" in c and "openagents/issue-3" in c for c in joined)
+    # RFC-0003：建每 issue 独立 worktree（不在主工作树原地 checkout -b）
+    assert any("worktree add -b openagents/issue-3" in c for c in joined)
+    assert not any("checkout -b" in c for c in joined)
     # commit + push
     assert any("commit" in c for c in joined)
     assert any("push" in c for c in joined)
+
+
+def test_solve_branches_from_latest_origin_main(tmp_path, monkeypatch):
+    # RFC-0003 决策 2：solve 前 fetch 最新 main，分支自 origin/main 拉出。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3)
+
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("fetch origin main" in c for c in joined)
+    assert any("worktree add -b openagents/issue-3" in c and "origin/main" in c for c in joined)
+
+
+def test_solve_base_override_uses_origin_ref(tmp_path, monkeypatch):
+    # RFC-0003 决策 3：--base 覆盖基线，worktree 自 origin/<ref> 拉出。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body: PR(number=5, url="u/pull/5"),
+    )
+
+    orch.solve(issue_number=3, base="dev")
+
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("fetch origin dev" in c for c in joined)
+    assert any("worktree add -b openagents/issue-3" in c and "origin/dev" in c for c in joined)
 
 
 def test_solve_commit_message_is_conventional(tmp_path, monkeypatch):
