@@ -1,6 +1,6 @@
 # RFC-0002: OpenAgents 主动提 issue
 
-- **状态**: accepted
+- **状态**: implementing
 - **优先级**: P1
 - **标签**: `cli`, `github`
 - **影响模块**: `openagents/cli.py`, `openagents/github.py`
@@ -110,7 +110,7 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | github 层 create_issue | - | `openagents/github.py`, `tests/test_github.py` | pending |
+| T1 | github 层 create_issue | - | `openagents/github.py`, `tests/test_github.py` | implemented |
 | T2 | CLI issue 子命令 | T1 | `openagents/cli.py`, `tests/test_cli.py` | pending |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`

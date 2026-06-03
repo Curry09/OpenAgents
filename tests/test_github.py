@@ -17,6 +17,7 @@ from openagents.github import (
     GithubError,
     Issue,
     check_status,
+    create_issue,
     create_pr,
     create_repo,
     find_pr_by_branch,
@@ -119,6 +120,55 @@ def test_get_issue_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
         get_issue(number=999)
+
+
+# --------------------------------------------------------------------------- #
+# create_issue
+# --------------------------------------------------------------------------- #
+
+
+def test_create_issue_parses_number_and_reuses_inputs(monkeypatch):
+    runner = _fake_run(stdout="https://github.com/acme/widget/issues/13\n")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    issue = create_issue(title="Login broken", body="steps to repro", labels=[])
+
+    assert isinstance(issue, Issue)
+    assert issue.number == 13
+    assert issue.title == "Login broken"
+    assert issue.body == "steps to repro"
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "issue", "create"]
+    assert "--title" in cmd
+    assert "Login broken" in cmd
+    assert "--body" in cmd
+    assert "steps to repro" in cmd
+    assert "--label" not in cmd
+
+
+def test_create_issue_passes_each_label(monkeypatch):
+    runner = _fake_run(stdout="https://github.com/acme/widget/issues/1\n")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    create_issue(title="T", body="", labels=["bug", "p1"])
+
+    cmd = runner.calls[-1]
+    # 每个 label 都应展开成一对 --label <value>
+    assert cmd.count("--label") == 2
+    assert "bug" in cmd
+    assert "p1" in cmd
+
+
+def test_create_issue_unparsable_url_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="not-an-issue-url\n"))
+    with pytest.raises(GithubError):
+        create_issue(title="T", body="b", labels=[])
+
+
+def test_create_issue_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="label not found"))
+    with pytest.raises(GithubError):
+        create_issue(title="T", body="b", labels=["nope"])
 
 
 # --------------------------------------------------------------------------- #
