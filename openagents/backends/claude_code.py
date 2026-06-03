@@ -15,6 +15,10 @@ from openagents.backends.base import AgentResult
 # RFC-0001 T2: claude 可执行名做成模块级常量，便于测试 mock / 替换。
 CLAUDE_BIN = "claude"
 
+# RFC-0001 T2: headless 模式下必须显式放行编辑，否则 claude 不会落盘改动
+# （端到端验证发现：缺此参数 run 永远返回 changed=False）。
+_PERMISSION_MODE = "acceptEdits"
+
 # 摘要截断长度，避免把超长 CLI 输出整段塞进 PR 正文。
 _SUMMARY_MAX_LEN = 2000
 
@@ -48,7 +52,7 @@ class ClaudeCodeBackend:
         prompt = _build_prompt(task=task, context=context)
 
         completed = subprocess.run(
-            [CLAUDE_BIN, "-p", prompt],
+            [CLAUDE_BIN, "-p", prompt, "--permission-mode", _PERMISSION_MODE],
             cwd=work_dir,
             capture_output=True,
             text=True,

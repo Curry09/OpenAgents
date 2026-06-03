@@ -84,11 +84,12 @@ def test_invokes_claude_print_mode_in_work_dir(monkeypatch, tmp_path):
     claude_calls = [c for c in runner.calls if c[0][0] == CLAUDE_BIN]
     assert len(claude_calls) == 1
     cmd, kwargs = claude_calls[0]
-    # headless/print 模式：claude -p "<prompt>"
+    # headless/print 模式：claude -p "<prompt>" --permission-mode acceptEdits
     assert cmd[:2] == [CLAUDE_BIN, "-p"]
     prompt = cmd[2]
     assert "修复 bug" in prompt
     assert "历史 comment" in prompt
+    assert "--permission-mode" in cmd and "acceptEdits" in cmd
     assert kwargs["cwd"] == tmp_path
 
 
