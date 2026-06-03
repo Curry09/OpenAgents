@@ -4,7 +4,7 @@ poll：对所有 pr-open/iterating 状态的 run 做一次扫描——
   1. 先 github.is_merged：已合并 → State 置 done，跳过该 PR（决策 8）。
   2. 否则读 github.check_status：CI 失败 → 以失败日志触发
      Orchestrator.iterate(reason="ci")，反复修到 CI 全绿（决策 11）。
-  3. 再比对 comment 游标：github.list_comments 中 id 大于游标的为新评论，
+  3. 再比对 comment 游标：github.list_comments 中 created_at 晚于游标的为新评论，
      对最新一条触发 Orchestrator.iterate(reason="comment") 并推进游标（决策 5）。
 watch：每隔 interval 秒循环调用 poll（决策 6），无 open PR 或用户中断时退出。
 
@@ -80,17 +80,20 @@ class Messages:
         return self._process_comments(pr_number=pr_number)
 
     def _process_comments(self, *, pr_number: int) -> dict | None:
-        """比对游标，对最新的新 comment 触发 iterate 并把游标推进到最大 id。"""
+        """比对游标（comment 的 created_at），对最新的新 comment 触发 iterate。
+
+        comment id 是 node id 字符串、不可排序，故用 created_at（ISO 8601，
+        字典序即时间序）判断「新」并推进游标。
+        """
         cursor = self._state.get_cursor(pr_number=pr_number)
         comments = github.list_comments(pr_number=pr_number)
-        new_comments = [c for c in comments if cursor is None or c.id > cursor]
+        new_comments = [c for c in comments if cursor is None or c.created_at > cursor]
         if not new_comments:
             return None
 
-        latest = max(new_comments, key=lambda c: c.id)
-        max_id = max(c.id for c in new_comments)
+        latest = max(new_comments, key=lambda c: c.created_at)
         self._orchestrator.iterate(pr_number=pr_number, reason="comment", detail=latest.body)
-        self._state.set_cursor(pr_number=pr_number, comment_id=max_id)
+        self._state.set_cursor(pr_number=pr_number, comment_id=latest.created_at)
         return {"pr_number": pr_number, "reason": "comment"}
 
     def _has_open_pr(self) -> bool:

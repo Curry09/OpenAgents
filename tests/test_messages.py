@@ -126,8 +126,10 @@ def test_new_comment_triggers_iterate_and_advances_cursor(monkeypatch):
     _patch_github(
         monkeypatch,
         comments=[
-            Comment(id=10, author="alice", body="old"),
-            Comment(id=20, author="bob", body="please fix this"),
+            Comment(id="IC_a", author="alice", body="old", created_at="2026-06-03T01:00:00Z"),
+            Comment(
+                id="IC_b", author="bob", body="please fix this", created_at="2026-06-03T02:00:00Z"
+            ),
         ],
     )
 
@@ -138,19 +140,23 @@ def test_new_comment_triggers_iterate_and_advances_cursor(monkeypatch):
     assert call["pr_number"] == 5
     assert call["reason"] == "comment"
     assert call["detail"] == "please fix this"
-    # 游标推进到最大 id
-    assert state.get_cursor(pr_number=5) == 20
+    # 游标推进到最新评论的 created_at
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
     assert any(e["pr_number"] == 5 and e["reason"] == "comment" for e in events)
 
 
 def test_only_comments_above_cursor_are_new(monkeypatch):
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING)])
-    state.set_cursor(pr_number=5, comment_id=10)
+    state.set_cursor(pr_number=5, comment_id="2026-06-03T01:00:00Z")
     _patch_github(
         monkeypatch,
         comments=[
-            Comment(id=10, author="alice", body="already seen"),
-            Comment(id=15, author="bob", body="newest feedback"),
+            Comment(
+                id="IC_a", author="alice", body="already seen", created_at="2026-06-03T01:00:00Z"
+            ),
+            Comment(
+                id="IC_b", author="bob", body="newest feedback", created_at="2026-06-03T02:00:00Z"
+            ),
         ],
     )
 
@@ -158,15 +164,17 @@ def test_only_comments_above_cursor_are_new(monkeypatch):
 
     assert len(orch.iterate_calls) == 1
     assert orch.iterate_calls[0]["detail"] == "newest feedback"
-    assert state.get_cursor(pr_number=5) == 15
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
 
 
 def test_no_new_comment_and_ci_green_does_not_trigger(monkeypatch):
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
-    state.set_cursor(pr_number=5, comment_id=20)
+    state.set_cursor(pr_number=5, comment_id="2026-06-03T05:00:00Z")
     _patch_github(
         monkeypatch,
-        comments=[Comment(id=20, author="alice", body="seen")],
+        comments=[
+            Comment(id="IC_a", author="alice", body="seen", created_at="2026-06-03T05:00:00Z")
+        ],
     )
 
     events = msgs.poll()
@@ -210,7 +218,11 @@ def test_merged_takes_precedence_over_ci_and_comment(monkeypatch):
         monkeypatch,
         merged=True,
         check=CheckStatus(state="fail", failed_logs=["should not be read"]),
-        comments=[Comment(id=99, author="x", body="should not be read")],
+        comments=[
+            Comment(
+                id="IC_x", author="x", body="should not be read", created_at="2026-06-03T09:00:00Z"
+            )
+        ],
     )
 
     msgs.poll()

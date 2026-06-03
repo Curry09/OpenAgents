@@ -159,11 +159,22 @@ def test_create_pr_unparsable_url_raises(monkeypatch):
 
 
 def test_list_comments_parses(monkeypatch):
+    # gh 返回的 comment id 是 node id 字符串，并带 createdAt。
     payload = json.dumps(
         {
             "comments": [
-                {"id": 1, "author": {"login": "alice"}, "body": "first"},
-                {"id": 2, "author": {"login": "bob"}, "body": "second"},
+                {
+                    "id": "IC_aaa",
+                    "author": {"login": "alice"},
+                    "body": "first",
+                    "createdAt": "2026-06-03T01:00:00Z",
+                },
+                {
+                    "id": "IC_bbb",
+                    "author": {"login": "bob"},
+                    "body": "second",
+                    "createdAt": "2026-06-03T02:00:00Z",
+                },
             ]
         }
     )
@@ -172,7 +183,8 @@ def test_list_comments_parses(monkeypatch):
 
     comments = list_comments(pr_number=42)
 
-    assert [c.id for c in comments] == [1, 2]
+    assert [c.id for c in comments] == ["IC_aaa", "IC_bbb"]
+    assert [c.created_at for c in comments] == ["2026-06-03T01:00:00Z", "2026-06-03T02:00:00Z"]
     assert comments[0].author == "alice"
     assert comments[1].body == "second"
     assert all(isinstance(c, Comment) for c in comments)
@@ -317,10 +329,22 @@ def test_check_status_gh_exit_8_means_pending(monkeypatch):
 
 def test_check_status_real_error_raises(monkeypatch):
     monkeypatch.setattr(
-        subprocess, "run", _fake_run(returncode=1, stdout="", stderr="no checks reported")
+        subprocess, "run", _fake_run(returncode=1, stdout="", stderr="pull request not found")
     )
     with pytest.raises(GithubError):
         check_status(pr_number=42)
+
+
+def test_check_status_no_checks_reported_is_pass(monkeypatch):
+    # 仓库无 CI 时 gh pr checks 非零退出并报 "no checks reported"，应视为 pass。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(returncode=1, stderr="no checks reported on the 'feat/x' branch"),
+    )
+    status = check_status(pr_number=42)
+    assert status.state == "pass"
+    assert status.failed_logs == []
 
 
 def test_is_merged_true_when_state_merged(monkeypatch):

@@ -105,7 +105,7 @@
 - `check_status(pr_number) -> CheckStatus(state, failed_logs)` —— 读 `gh pr checks` 的 CI 状态（决策 11）；失败时附带可喂回 agent 的失败日志摘要。
 - `get_issue(number) -> Issue(number, title, body)`
 - `create_pr(branch, title, body) -> PR(number, url)`
-- `list_comments(pr_number) -> list[Comment(id, author, body)]`
+- `list_comments(pr_number) -> list[Comment(id, author, body, created_at)]` —— id 为 node id 字符串；新评论按 created_at 判定（端到端验证修正）。
 - `post_comment(pr_number, body) -> None`
 
 **State**（`state.py`）

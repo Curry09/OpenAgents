@@ -48,11 +48,16 @@ class PR:
 
 @dataclass(frozen=True)
 class Comment:
-    """PR 上的一条评论。"""
+    """PR 上的一条评论。
 
-    id: int
+    id 是 GitHub 的 GraphQL node id（字符串，非数字）；评论的先后顺序用
+    created_at（ISO 8601，可按字典序比较）判断，不能用 id 排序。
+    """
+
+    id: str
     author: str
     body: str
+    created_at: str
 
 
 @dataclass(frozen=True)
@@ -133,7 +138,10 @@ def create_pr(*, branch: str, title: str, body: str) -> PR:
 
 
 def list_comments(*, pr_number: int) -> list[Comment]:
-    """RFC-0001 T3：`gh pr view <n> --json comments`，解析为 Comment 列表。"""
+    """RFC-0001 T3：`gh pr view <n> --json comments`，解析为 Comment 列表。
+
+    comment id 是 node id 字符串；同时取 createdAt 供消息层按时间判定新评论。
+    """
     data = _gh_json(
         ["pr", "view", str(pr_number), "--json", "comments"],
         allow_returncodes=set(),
@@ -143,7 +151,14 @@ def list_comments(*, pr_number: int) -> list[Comment]:
     comments: list[Comment] = []
     for raw in data.get("comments") or []:
         author = (raw.get("author") or {}).get("login") or ""
-        comments.append(Comment(id=int(raw["id"]), author=author, body=raw.get("body") or ""))
+        comments.append(
+            Comment(
+                id=str(raw.get("id") or ""),
+                author=author,
+                body=raw.get("body") or "",
+                created_at=raw.get("createdAt") or "",
+            )
+        )
     return comments
 
 
@@ -161,10 +176,16 @@ def check_status(*, pr_number: int) -> CheckStatus:
     归类：任一 check 失败 → "fail"（收集失败摘要）；否则任一进行中 → "pending"；
     全部通过（或无 check）→ "pass"。失败优先于进行中。
     """
-    data = _gh_json(
-        ["pr", "checks", str(pr_number), "--json", "name,state,link"],
-        allow_returncodes={_GH_CHECKS_PENDING_RETURNCODE},
-    )
+    try:
+        data = _gh_json(
+            ["pr", "checks", str(pr_number), "--json", "name,state,link"],
+            allow_returncodes={_GH_CHECKS_PENDING_RETURNCODE},
+        )
+    except GithubError as exc:
+        # 仓库未配置任何 CI 时 gh 以非零退出并报 "no checks reported"——视为通过。
+        if "no checks reported" in str(exc).lower():
+            return CheckStatus(state="pass", failed_logs=[])
+        raise
     checks = data if isinstance(data, list) else []
     return _classify_checks(checks=checks)
 
