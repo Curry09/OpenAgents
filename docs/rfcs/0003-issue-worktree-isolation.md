@@ -35,7 +35,10 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 5. **iterate 复用 worktree**：`iterate` 在 `solve` 建的同一 worktree 中续写、**追加 commit**（沿用 RFC-0001 决策 7，绝不 force-push）；worktree 缺失（如跨进程后被清理）则从远端分支重建后再续写。
 
-6. **求解过程实时透传后端输出**：`ClaudeCodeBackend` 从 `subprocess.run(capture_output=True)`（整段吞掉、运行数分钟零反馈）改为 `subprocess.Popen` 逐行读取 stdout（stderr 合并进 stdout），边读边转发到本进程 stdout，同时累积全文供 PR 摘要。理由：`solve` 全程静默是直接的可用性问题；实时透传让运行中的 `solve` 有进度反馈，又不丢失摘要。代价：合并 stderr 后摘要含少量噪声（仅用于 PR 正文，可接受）。
+6. **求解过程实时反馈（两层）**：`solve` 全程静默是直接的可用性问题，分两层解决——
+   - **后端事件流**：`claude -p` 默认 `--output-format=text` 会把输出整段缓冲到结束才吐（端到端实测：运行中输出文件 0 字节，跑完才一次性出现），故 `ClaudeCodeBackend` 改用 `--output-format stream-json --verbose` + `subprocess.Popen` 逐行读取 NDJSON 事件，把助手文本与工具动作（如 `🔧 Edit openagents/github.py`）即时打印，并从 `result` 事件取最终文本作 PR 摘要。
+   - **编排阶段进度**：`Orchestrator` 在拉 issue / 建 worktree / 调起 claude / 提交推送 / 开 PR 各阶段向 stderr 打 `▶ …` 进度行，保证即便后端暂时无事件也有反馈。
+   理由：仅靠「Popen 透传」不够——上游 `claude -p` 缓冲时无事件可透传（初版踩到此坑）；stream-json 才有实时事件，阶段进度行则与后端行为无关地兜底。
 
 7. **solve 按 State 分流「全新/续写」，一个 issue 绑定一个 PR**：`solve` 入口先 `state.find_by_issue(n)` 反查——
    - 该 issue 有进行中的 run（状态 ≠ `done`），**或**远端已存在其分支（`git ls-remote --heads`，State 丢失时的兜底）→ 走**续写**：复用已有分支/worktree（缺失则从远端分支重建，保住已提交工作），追加 commit，推到**同一 PR**；
@@ -50,7 +53,7 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 
 - `Orchestrator.solve(issue_number, base="main") -> PR` —— 新增 `base` 参数（默认 `main`）；内部按 State 分流「全新/续写」（决策 7/8），返回该 issue 绑定的 PR。
 - `Orchestrator.iterate(pr_number, reason, detail) -> None` —— 签名不变，内部改为在该 issue 的 worktree 中续写。
-- `AgentBackend.run(work_dir, task, context) -> AgentResult` —— 协议不变；`ClaudeCodeBackend` 内部从 `run(capture_output)` 改为 `Popen` 实时透传（决策 6），`AgentResult.summary` 语义不变。
+- `AgentBackend.run(work_dir, task, context) -> AgentResult` —— 协议不变；`ClaudeCodeBackend` 内部改用 `stream-json --verbose` + `Popen` 解析事件实时打印（决策 6），`AgentResult.summary` 取自 `result` 事件。
 - `State`：新增 `begin_run(issue_number, branch)`（记 `solving`、PR 待开）与 `find_by_issue(issue_number) -> RunRecord | None`（决策 7/8）。
 - `github.find_pr_by_branch(branch) -> PR | None` —— 查分支当前 open PR（决策 8）。
 - **CLI**：`openagents solve <issue-number> [--base <ref>]`，`--base` 默认 `main`；运行期错误干净退出（决策 9）。
@@ -96,7 +99,7 @@ graph LR
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
 | T1 | solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项 | RFC-0001 | `openagents/orchestrator.py`, `openagents/cli.py`, `tests/test_orchestrator.py`, `tests/test_cli.py` | implemented |
-| T2 | 后端输出实时透传（`Popen` 替代 `capture_output`） | RFC-0001 | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
+| T2 | 求解实时反馈：后端 stream-json 事件流 + 编排阶段进度行 | RFC-0001 | `openagents/backends/claude_code.py`, `openagents/orchestrator.py`, `tests/test_backend_claude_code.py`, `tests/test_orchestrator.py` | implemented |
 | T3 | solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底 | T1 | `openagents/orchestrator.py`, `openagents/state.py`, `openagents/github.py`, `tests/test_orchestrator.py`, `tests/test_state.py`, `tests/test_github.py` | implemented |
 | T4 | CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback） | T1 | `openagents/cli.py`, `tests/test_cli.py` | implemented |
 
@@ -111,10 +114,10 @@ graph LR
 - **涉及文件**: `openagents/orchestrator.py`, `openagents/cli.py`, `tests/test_orchestrator.py`, `tests/test_cli.py`。
 - **验收标准**: `solve` 调用序列含 `git fetch origin main` 与 `git worktree add -b openagents/issue-<n> <path> origin/main`，**不再**在主树 `checkout -b`；后端 `work_dir` 为 worktree 路径；`commit/push` 正常且不 force-push；`solve --base <ref>` 时 worktree 自 `origin/<ref>` 拉出；`iterate` 在 worktree 内追加 commit；CLI 将 `--base` 透传、默认 `main`；`ruff check`/`ruff format --check`/`pytest` 全通过。
 
-**T2: 后端输出实时透传（`Popen` 替代 `capture_output`）**
-- **范围**: `ClaudeCodeBackend.run` 内部从 `subprocess.run(capture_output=True)` 改为 `subprocess.Popen`（`stderr` 合并进 `stdout`），逐行边读边转发到本进程 `stdout`，同时累积全文供摘要；非零退出码抛 `RuntimeError`（含已收集输出）。`git status` 判定改动逻辑不变。
-- **涉及文件**: `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py`。
-- **验收标准**: claude 输出在运行过程中实时出现在 stdout（`capsys` 断言）；`changed`/`summary` 行为与原先一致；claude 非零退出抛 `RuntimeError` 且含输出；子进程 mock 单测全通过。
+**T2: 求解实时反馈（后端 stream-json 事件流 + 编排阶段进度行）**
+- **范围**: `ClaudeCodeBackend.run` 改用 `--output-format stream-json --verbose` + `Popen`，逐行解析 NDJSON 事件，实时打印助手文本与工具动作（`🔧 <tool>: <hint>`）到 stdout，从 `result` 事件取摘要；非零退出抛 `RuntimeError`（带详情），非 JSON 行原样透传并作兜底详情。`Orchestrator` 在各阶段向 stderr 打 `▶ …` 进度行。`git status` 判定改动逻辑不变。
+- **涉及文件**: `openagents/backends/claude_code.py`, `openagents/orchestrator.py`, `tests/test_backend_claude_code.py`, `tests/test_orchestrator.py`。
+- **验收标准**: 后端 `Popen` 命令含 `--output-format stream-json --verbose`；assistant 文本/工具事件经 `capsys` 实时可见；`summary` 取自 `result` 事件；非零退出抛 `RuntimeError`；`solve` 各阶段在 stderr 有 `▶` 进度行；子进程 mock 单测全通过。
 
 **T3: solve 幂等可恢复 + issue↔PR 绑定 + gh 兜底**
 - **范围**: `solve` 入口 `state.find_by_issue` 反查并按决策 7 分流——续写复用分支/worktree（不走决策 4 的清理）、追加 commit、`find_pr_by_branch` 复用或补开 PR；全新走决策 1/2/4 并 `begin_run` 先记 `solving`。`_commit_and_push` 容忍「无改动可提交」（跳过 commit 仍 push）。`state.py` 加 `begin_run` / `find_by_issue`；`github.py` 加 `find_pr_by_branch`。
@@ -132,7 +135,8 @@ graph LR
 
 - `tests/test_orchestrator.py`：`solve` 的 git 序列断言（`fetch origin main`、`worktree add -b ... origin/main`、无主树 `checkout -b`、`commit`/`push`）；后端 `work_dir` 为 worktree 路径；`--base` 透传到 `origin/<ref>`；`iterate` 在 worktree 内追加 commit、不 force-push。
 - `tests/test_cli.py`：`solve` 默认 `base="main"`；`solve --base dev` 透传 `base="dev"`。
-- `tests/test_backend_claude_code.py`：`Popen` 输出经 `capsys` 实时可见；`changed`/`summary`/非零退出错误路径不变。
+- `tests/test_backend_claude_code.py`：`Popen` 命令含 stream-json 参数；assistant 文本/工具事件经 `capsys` 实时可见；`summary` 取自 `result` 事件；非零退出与非 JSON 行错误路径。
+- `tests/test_orchestrator.py`（T2 进度）：`solve` 各阶段在 stderr 打 `▶` 进度行。
 - `tests/test_orchestrator.py`（T3）：已有 open PR → 续写复用 PR、不重建分支、状态 `iterating`；`begin_run` 后无 PR → 续写补开 PR。
 - `tests/test_state.py`（T3）：`begin_run` 记 `solving`/PR 待开、被 `record_run` 覆盖；`find_by_issue` 命中/未命中。
 - `tests/test_github.py`（T3）：`find_pr_by_branch` 命中/无 PR/gh 错误三路径。
