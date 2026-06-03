@@ -51,8 +51,31 @@ class State:
     def __init__(self, *, path: Path) -> None:
         self._path = Path(path)
 
+    def begin_run(self, *, issue_number: int, branch: str) -> None:
+        """RFC-0003 决策 8：进入 solve 即记下 (issue, branch)，状态 solving、PR 待开。
+
+        「分步落 state」的第一步：哪怕后续 push / 开 PR 崩溃，重跑也能据此恢复。
+        pr_number=0 / pr_url="" 表示 PR 尚未开（看板对空 url 渲染为 —）。
+        """
+        data = self._load()
+        runs = [r for r in data["runs"] if r["issue_number"] != issue_number]
+        runs.append(
+            asdict(
+                RunRecord(
+                    issue_number=issue_number,
+                    branch=branch,
+                    pr_number=0,
+                    pr_url="",
+                    status=STATUS_SOLVING,
+                    summary="",
+                )
+            )
+        )
+        data["runs"] = runs
+        self._save(data=data)
+
     def record_run(self, *, issue_number: int, branch: str, pr: PR) -> None:
-        """RFC-0001 T4：登记一条新 run，初始状态为 pr-open（PR 已开）。"""
+        """RFC-0001 T4：登记一条 run，状态为 pr-open（PR 已开）；按 issue 去重覆盖。"""
         data = self._load()
         runs = [r for r in data["runs"] if r["issue_number"] != issue_number]
         runs.append(
@@ -99,6 +122,13 @@ class State:
         """RFC-0001 T4：按 PR number 定位 run（供 iterate 找回分支）。"""
         for record in self.all_runs():
             if record.pr_number == pr_number:
+                return record
+        return None
+
+    def find_by_issue(self, *, issue_number: int) -> RunRecord | None:
+        """RFC-0003 决策 7：按 issue number 反查 run（供 solve 分流 fresh / resume）。"""
+        for record in self.all_runs():
+            if record.issue_number == issue_number:
                 return record
         return None
 

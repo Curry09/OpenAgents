@@ -21,7 +21,7 @@ from pathlib import Path
 
 from openagents import github
 from openagents.backends.base import AgentBackend
-from openagents.state import STATUS_ITERATING, State
+from openagents.state import STATUS_DONE, STATUS_ITERATING, RunRecord, State
 
 # 分支命名前缀：单 issue → 单分支（RFC-0001 概述数据流）。
 _BRANCH_PREFIX = "openagents/issue-"
@@ -46,32 +46,87 @@ class Orchestrator:
         self._work_dir = Path(work_dir)
 
     def solve(self, *, issue_number: int, base: str = DEFAULT_BASE) -> github.PR:
-        """RFC-0001 T4 + RFC-0003：执行「fetch base → 建 worktree → 调后端 → 开 PR → 写 State」。
+        """RFC-0001 T4 + RFC-0003：求解一个 issue 并开/续写其唯一绑定的 PR。
 
-        base：分支基线（默认 main），分支从最新 `origin/<base>` 拉出（RFC-0003 决策 2/3）。
-        状态流转：进入时该 issue 视为 solving；开 PR 并 record_run 后置 pr-open。
-        返回新建的 PR。
+        RFC-0003 决策 7/8：按 State 把重跑分流为「全新」或「续写」——
+        - 全新：从最新 `origin/<base>` 建隔离 worktree+分支，开新 PR；
+        - 续写：复用已有分支/worktree/PR（State 丢失时用 gh 兜底恢复），追加
+          commit 推到同一 PR。这样 solve 中途报错后，重跑能从断点继续而非撞墙。
+        base：分支基线（默认 main，决策 2/3）。返回该 issue 绑定的 PR。
         """
         issue = github.get_issue(number=issue_number)
         branch = f"{_BRANCH_PREFIX}{issue_number}"
+        record = self._state.find_by_issue(issue_number=issue_number)
 
-        # RFC-0003：在每 issue 独立 worktree（从最新 origin/<base> 拉）内求解。
-        worktree = self._prepare_worktree(issue_number=issue_number, branch=branch, base=base)
+        if self._should_resume(record=record, branch=branch):
+            return self._resume(issue=issue, branch=branch)
+        return self._fresh_solve(issue=issue, branch=branch, base=base)
 
-        task = f"{issue.title}\n\n{issue.body}"
-        result = self._backend.run(work_dir=worktree, task=task, context=issue.body)
+    def _should_resume(self, *, record: RunRecord | None, branch: str) -> bool:
+        """RFC-0003 决策 7：该 issue 有进行中的 run，或远端已存在其分支 → 续写。"""
+        if record is not None and record.status != STATUS_DONE:
+            return True
+        return self._remote_branch_exists(branch=branch)
 
-        commit_message = f"feat: resolve issue #{issue_number} {issue.title}".strip()
-        self._commit_and_push(worktree=worktree, branch=branch, message=commit_message)
+    def _fresh_solve(self, *, issue: github.Issue, branch: str, base: str) -> github.PR:
+        """RFC-0003：全新求解——建隔离 worktree（从最新 origin/<base>）、开新 PR。"""
+        worktree = self._prepare_worktree(issue_number=issue.number, branch=branch, base=base)
+        # 决策 8：进入即记 solving（PR 尚未开），崩溃后可据此恢复。
+        self._state.begin_run(issue_number=issue.number, branch=branch)
+
+        result = self._backend.run(
+            work_dir=worktree,
+            task=f"{issue.title}\n\n{issue.body}",
+            context=issue.body,
+        )
+        message = f"feat: resolve issue #{issue.number} {issue.title}".strip()
+        self._commit_and_push(worktree=worktree, branch=branch, message=message)
 
         pr = github.create_pr(
             branch=branch,
-            title=f"feat: resolve issue #{issue_number} {issue.title}".strip(),
-            body=self._pr_body(issue_number=issue_number, summary=result.summary),
+            title=message,
+            body=self._pr_body(issue_number=issue.number, summary=result.summary),
         )
-        # record_run 内部将状态登记为 pr-open（决策 8 的初始态）。
-        self._state.record_run(issue_number=issue_number, branch=branch, pr=pr)
+        # record_run 将状态登记为 pr-open（决策 8 的初始态）。
+        self._state.record_run(issue_number=issue.number, branch=branch, pr=pr)
         return pr
+
+    def _resume(self, *, issue: github.Issue, branch: str) -> github.PR:
+        """RFC-0003 决策 7/8：复用已有分支/worktree 续写，追加 commit 推到同一 PR。"""
+        worktree = self._ensure_worktree(issue_number=issue.number, branch=branch)
+
+        result = self._backend.run(
+            work_dir=worktree,
+            task=f"继续解决 issue #{issue.number}（续写已有 PR）：\n{issue.title}\n\n{issue.body}",
+            context=issue.body,
+        )
+        message = f"fix: continue issue #{issue.number} {issue.title}".strip()
+        self._commit_and_push(worktree=worktree, branch=branch, message=message)
+
+        pr = self._open_or_reuse_pr(issue=issue, branch=branch, summary=result.summary)
+        self._state.record_run(issue_number=issue.number, branch=branch, pr=pr)
+        self._state.update_status(issue_number=issue.number, status=STATUS_ITERATING)
+        return pr
+
+    def _open_or_reuse_pr(self, *, issue: github.Issue, branch: str, summary: str) -> github.PR:
+        """RFC-0003 决策 8：优先复用分支已有的 open PR（gh 兜底）；没有才补开新 PR。"""
+        existing = github.find_pr_by_branch(branch=branch)
+        if existing is not None:
+            return existing
+        return github.create_pr(
+            branch=branch,
+            title=f"feat: resolve issue #{issue.number} {issue.title}".strip(),
+            body=self._pr_body(issue_number=issue.number, summary=summary),
+        )
+
+    def _remote_branch_exists(self, *, branch: str) -> bool:
+        """RFC-0003 决策 7：远端是否已存在该分支（`git ls-remote --heads`）。"""
+        result = self._git(
+            args=["ls-remote", "--heads", "origin", branch],
+            cwd=self._work_dir,
+            check=False,
+        )
+        return bool(result.stdout.strip())
 
     def iterate(self, *, pr_number: int, reason: str, detail: str) -> None:
         """RFC-0001 T4（决策 7）+ RFC-0003：在 issue 的 worktree 内续写并**追加 commit**。
@@ -128,9 +183,13 @@ class Orchestrator:
         return path
 
     def _commit_and_push(self, *, worktree: Path, branch: str, message: str) -> None:
-        """git add -A → commit → push（决策 7：普通 push，绝不 force-push），均在 worktree 内。"""
+        """git add -A → commit → push（决策 7：普通 push，绝不 force-push），均在 worktree 内。
+
+        RFC-0003：无改动可提交（续写时后端可能未改文件）则跳过 commit（check=False），
+        仍执行 push 以补推历史中尚未推送的 commit；远端已最新时 push 为幂等空操作。
+        """
         self._git(args=["add", "-A"], cwd=worktree, check=True)
-        self._git(args=["commit", "-m", message], cwd=worktree, check=True)
+        self._git(args=["commit", "-m", message], cwd=worktree, check=False)
         self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
 
     def _git(self, *, args: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess[str]:

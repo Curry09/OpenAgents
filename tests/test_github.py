@@ -19,6 +19,7 @@ from openagents.github import (
     check_status,
     create_pr,
     create_repo,
+    find_pr_by_branch,
     get_issue,
     is_merged,
     list_comments,
@@ -361,3 +362,34 @@ def test_is_merged_gh_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
         is_merged(pr_number=7)
+
+
+# --------------------------------------------------------------------------- #
+# find_pr_by_branch（RFC-0003 决策 8）
+# --------------------------------------------------------------------------- #
+
+
+def test_find_pr_by_branch_returns_pr_when_open_exists(monkeypatch):
+    runner = _fake_run(
+        stdout=json.dumps([{"number": 5, "url": "https://github.com/acme/widget/pull/5"}])
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    pr = find_pr_by_branch(branch="openagents/issue-3")
+
+    assert pr == PR(number=5, url="https://github.com/acme/widget/pull/5")
+    cmd = runner.calls[-1]
+    assert cmd[:4] == ["gh", "pr", "list", "--head"]
+    assert "openagents/issue-3" in cmd
+    assert "--state" in cmd and "open" in cmd
+
+
+def test_find_pr_by_branch_returns_none_when_no_pr(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
+    assert find_pr_by_branch(branch="openagents/issue-9") is None
+
+
+def test_find_pr_by_branch_gh_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
+    with pytest.raises(GithubError):
+        find_pr_by_branch(branch="openagents/issue-1")

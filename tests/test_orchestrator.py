@@ -206,6 +206,63 @@ def test_solve_commit_message_is_conventional(tmp_path, monkeypatch):
     assert any(t in msg for t in ("feat", "fix", "chore", "refactor"))
 
 
+def test_solve_resume_reuses_existing_pr_no_new_pr(tmp_path, monkeypatch):
+    # RFC-0003 决策 7/8：issue 已有 open PR → 续写复用，不重开 PR、不重建分支。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "find_pr_by_branch",
+        lambda *, branch: PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+
+    def _no_create(**kwargs):
+        raise AssertionError("续写不应调用 create_pr")
+
+    monkeypatch.setattr(orch_module.github, "create_pr", _no_create)
+
+    pr = orch.solve(issue_number=3)
+
+    assert pr.number == 5
+    joined = [" ".join(c) for c in recorder.commands]
+    # 复用分支：不重建（无 worktree remove --force / branch -D），但追加 commit/push
+    assert not any("worktree remove --force" in c for c in joined)
+    assert any("commit" in c for c in joined)
+    assert any("push" in c for c in joined)
+    assert state.all_runs()[0].status == "iterating"
+
+
+def test_solve_resume_opens_pr_when_missing(tmp_path, monkeypatch):
+    # RFC-0003 决策 8：崩在开 PR 前（state 有 solving 记录、远端无 PR）→ 续写时补开 PR。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    monkeypatch.setattr(
+        orch_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b"),
+    )
+    state.begin_run(issue_number=3, branch="openagents/issue-3")
+    monkeypatch.setattr(orch_module.github, "find_pr_by_branch", lambda *, branch: None)
+    created = PR(number=9, url="https://github.com/acme/widget/pull/9")
+    monkeypatch.setattr(orch_module.github, "create_pr", lambda *, branch, title, body: created)
+
+    pr = orch.solve(issue_number=3)
+
+    assert pr == created
+    assert state.all_runs()[0].pr_number == 9
+
+
 def test_iterate_feeds_detail_to_backend_and_appends_commit(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
