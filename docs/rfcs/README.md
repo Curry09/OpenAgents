@@ -31,6 +31,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0001](./0001-mvp-issue-to-pr-loop.md) | MVP：单 issue → 单 agent → 真实 PR 的最小自举闭环 | implemented | P0 |
 | [RFC-0002](./0002-create-issue.md) | OpenAgents 主动提 issue | implemented | P1 |
 | [RFC-0003](./0003-issue-worktree-isolation.md) | issue 求解隔离：每 issue 独立 worktree + 分支基线锁定最新 main | implemented | P1 |
+| [RFC-0004](./0004-vigil-autonomous-loop.md) | openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环） | implemented | P1 |
 | [RFC-0005](./0005-solve-atomization-rfc-first-loop.md) | solve 原子化拆分 + RFC-first 评审循环 | implemented | P1 |
 
 ## RFC 编号规则

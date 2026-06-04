@@ -11,7 +11,18 @@ from openagents.cli import build_parser, main
 from openagents.config import ProjectContext
 from openagents.github import Comment, Issue
 
-COMMANDS = ["init", "rfc", "refine-rfc", "implement", "iterate", "issue", "poll", "watch", "board"]
+COMMANDS = [
+    "init",
+    "rfc",
+    "refine-rfc",
+    "implement",
+    "iterate",
+    "issue",
+    "poll",
+    "watch",
+    "board",
+    "vigil",
+]
 
 
 def test_parser_registers_all_subcommands():
@@ -277,6 +288,38 @@ def test_poll_runs_preflight_then_polls(monkeypatch):
     code = main(["poll"])
     assert code == 0
     assert calls == [True]
+
+
+def test_vigil_runs_preflight_with_defaults(monkeypatch):
+    # RFC-0004 T3：vigil 先跑 preflight，未传参时用默认值。
+    calls = _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeVigil:
+        def run(self, *, interval, labels, base, once):
+            seen.update(interval=interval, labels=labels, base=base, once=once)
+
+    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    code = main(["vigil"])
+    assert code == 0
+    assert calls == [True]
+    assert seen == {"interval": 60, "labels": ["openagents"], "base": "main", "once": False}
+
+
+def test_vigil_passes_all_overrides(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeVigil:
+        def run(self, *, interval, labels, base, once):
+            seen.update(interval=interval, labels=labels, base=base, once=once)
+
+    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    code = main(
+        ["vigil", "--once", "--interval", "5", "--label", "a", "--label", "b", "--base", "dev"]
+    )
+    assert code == 0
+    assert seen == {"interval": 5, "labels": ["a", "b"], "base": "dev", "once": True}
 
 
 def test_init_runs_interactive_preflight(monkeypatch):

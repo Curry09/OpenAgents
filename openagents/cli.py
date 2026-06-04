@@ -62,6 +62,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("board", help="启动本地成果看板")
 
+    # RFC-0004：守夜人模式——自主发现新 issue 派单 + 守候 PR（comment/CI），人只审 PR。
+    p_vigil = sub.add_parser("vigil", help="守夜人模式：自主监控 issue → 派单 → 守候 PR")
+    p_vigil.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
+    # default=None：用户传 --label 时替换而非追加默认；handler 缺省回落到 ["openagents"]。
+    p_vigil.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help="issue 发现的标签门控（可重复），默认 openagents",
+    )
+    p_vigil.add_argument("--base", default="main", help="派单起草 RFC 的分支基线（默认 main）")
+    p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+poll）后退出")
+
     return parser
 
 
@@ -89,6 +103,18 @@ def _messages_for(*, ctx: ProjectContext):
 
     return Messages(
         orchestrator=_orchestrator_for(ctx=ctx), state=_state_for(repo_root=ctx.repo_root)
+    )
+
+
+# RFC-0004：守夜人——复用 orchestrator/messages/state 工厂，附 work_dir 供发现段去重。
+def _vigil_for(*, ctx: ProjectContext):
+    from openagents.vigil import Vigil
+
+    return Vigil(
+        orchestrator=_orchestrator_for(ctx=ctx),
+        messages=_messages_for(ctx=ctx),
+        state=_state_for(repo_root=ctx.repo_root),
+        work_dir=ctx.repo_root,
     )
 
 
@@ -168,6 +194,13 @@ def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0004：守夜人主循环。--label 缺省回落到 ["openagents"]（决策 2）。
+    labels = args.label if args.label else ["openagents"]
+    _vigil_for(ctx=ctx).run(interval=args.interval, labels=labels, base=args.base, once=args.once)
+    return 0
+
+
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
     from openagents.results import board
@@ -194,6 +227,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "issue": _cmd_issue,
         "poll": _cmd_poll,
         "watch": _cmd_watch,
+        "vigil": _cmd_vigil,
     }
     return handlers[args.command](args, ctx)
 
