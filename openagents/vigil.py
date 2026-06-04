@@ -3,10 +3,13 @@
 Vigil 是一个**薄调度循环**，本身不实现「解 issue」或「轮询 PR」——这些分别由
 Orchestrator 与 Messages 提供（决策 1）。它唯一新增的业务能力是**issue 发现**
 （决策 2/3）：去 GitHub 列出带约定标签、且尚未处理过的 open issue，逐个派单
-Orchestrator.solve（决策 5 串行、决策 8 错误隔离），再调 Messages.poll 处理已开 PR
-的 merge/CI/comment。每轮循环都从 GitHub + 本地 State 重新推导「现在该做什么」，
-不持有不可重建的内存状态——这是 issue #9「代码即 checkpoint、agent 一次性」的落点：
-vigil 被 kill/崩溃后重跑即从断点继续（solve 幂等，RFC-0003 决策 7/8）。
+Orchestrator.start_rfc 起草 RFC、开 draft PR（决策 5 串行、决策 8 错误隔离），
+再调 Messages.poll 推进已开 PR。RFC-0005 把一站式 solve 拆成原子步骤后，发现段只
+负责「起草 RFC」这一步，后续 refine→implement→iterate 整条 RFC-first 循环由守候段
+Messages.poll 按 rfc-approved 标签 / 评论 / CI 自动分流驱动——vigil 无需感知这些步骤。
+每轮循环都从 GitHub + 本地 State 重新推导「现在该做什么」，不持有不可重建的内存
+状态——这是 issue #9「代码即 checkpoint、agent 一次性」的落点：vigil 被 kill/崩溃
+后重跑即从断点继续（去重三道闸据 State+远端重新推导，RFC-0003 决策 7/8）。
 
 依赖注入：orchestrator（Orchestrator）、messages（Messages）、state（State）、
 work_dir（repo 根，供发现段去重闸 (c) 的 git ls-remote）。time.sleep 可在测试中 mock。
@@ -47,7 +50,7 @@ class Vigil:
         """
         try:
             while True:
-                self.discover_and_solve(labels=labels, base=base)
+                self.discover_and_dispatch(labels=labels, base=base)
                 self._messages.poll()
                 if once:
                     return
@@ -57,22 +60,23 @@ class Vigil:
             self._log(message="✓ 守夜人已停止（Ctrl-C）")
             return
 
-    def discover_and_solve(self, *, labels: list[str], base: str) -> list[int]:
-        """发现段：列出标签门控的 open issue，过滤出「新」的逐个 solve（决策 2/3/5/8）。
+    def discover_and_dispatch(self, *, labels: list[str], base: str) -> list[int]:
+        """发现段：列出标签门控的 open issue，过滤出「新」的逐个起草 RFC（决策 2/3/5/8）。
 
-        返回本轮实际派单的 issue 编号列表（便于日志/测试断言）。
+        RFC-0005：派单只调 start_rfc（开 RFC draft PR）；后续 refine/implement/iterate
+        由守候段 Messages.poll 驱动。返回本轮实际派单的 issue 编号列表（便于日志/测试断言）。
         """
         dispatched: list[int] = []
         for issue in github.list_issues(labels=labels):
             if not self._is_new(issue=issue):
                 continue
             try:
-                self._log(message=f"▶ 发现新 issue #{issue.number}：{issue.title} → 派单 solve")
-                self._orchestrator.solve(issue_number=issue.number, base=base)
+                self._log(message=f"▶ 发现新 issue #{issue.number}：{issue.title} → 派单起草 RFC")
+                self._orchestrator.start_rfc(issue_number=issue.number, base=base)
                 dispatched.append(issue.number)
             except (OrchestratorError, GithubError) as exc:
                 # 决策 8：单个 issue 失败记录并跳过，不拖垮整轮守候。
-                self._log(message=f"✗ issue #{issue.number} 求解失败，跳过：{exc}")
+                self._log(message=f"✗ issue #{issue.number} 起草 RFC 失败，跳过：{exc}")
         return dispatched
 
     def _is_new(self, *, issue: github.Issue) -> bool:

@@ -6,7 +6,9 @@
 - **影响模块**: `openagents/vigil.py`（新建）、`openagents/github.py`、`openagents/cli.py`、`tests/`
 - **负责人**: openagents-agent（issue #9）
 - **创建日期**: 2026-06-03
-- **更新日期**: 2026-06-03
+- **更新日期**: 2026-06-04
+
+> **与 RFC-0005 的调和（2026-06-04）**：本 RFC 起草时主干仍是一站式 `Orchestrator.solve`（issue→RFC→实现→转正一气呵成）。RFC-0005 已将 `solve` 拆为四个原子步骤 `start_rfc / refine_rfc / implement / iterate`。rebase 到新 main 后，vigil **发现段的派单由 `Orchestrator.solve` 改为 `Orchestrator.start_rfc`**（只起草 RFC、开 draft PR）；后续 `refine_rfc → implement → iterate` 整条 RFC-first 循环改由**守候段 `Messages.poll`** 按 `rfc-approved` 标签 / 评论 / CI 自动分流驱动（见 RFC-0005）。这反而让 vigil 更薄——它只管「发现 + 起草」，无需感知原子步骤。下文凡提及「派单 solve」均按此理解为「派单 `start_rfc`」。
 
 ## 摘要
 
@@ -59,13 +61,14 @@ openagents vigil [--interval N] [--label L ...] [--base REF] [--once]
    Vigil.run(interval, labels, base, once)
         │
         │   ┌──────────────── 每轮 cycle ────────────────┐
-        │   │ 1) 发现段：github.list_issues(labels)        │
-        │   │      → 过滤掉「已有 State run / 远端已有分支」 │
-        │   │      → 对每个新 issue: Orchestrator.solve()   │  ← 复用 RFC-0001/0003
-        │   │ 2) 守候段：Messages.poll()                   │  ← 复用 RFC-0001 T5
-        │   │      （merged→done / CI 失败→iterate /        │
-        │   │        新 comment→iterate）                   │
-        │   └──────────────────────────────────────────────┘
+        │   │ 1) 发现段：github.list_issues(labels)         │
+        │   │      → 过滤掉「已有 State run / 远端已有分支」  │
+        │   │      → 对每个新 issue: Orchestrator.start_rfc()│  ← RFC-0005：起草 RFC、开 draft PR
+        │   │ 2) 守候段：Messages.poll()                    │  ← 复用 RFC-0001 T5 + RFC-0005
+        │   │      （merged→done / rfc-approved→implement /  │
+        │   │        RFC 评论→refine_rfc / CI 失败→iterate / │
+        │   │        代码评论→iterate）                      │
+        │   └───────────────────────────────────────────────┘
         │   3) once? → 退出 ；否则 sleep(interval) 回到 1
         ▼
    Ctrl-C / KeyboardInterrupt → 干净退出
@@ -75,15 +78,15 @@ openagents vigil [--interval N] [--label L ...] [--base REF] [--once]
 
 ### 关键设计决策
 
-1. **vigil 是「发现 + 编排」的薄循环，复用既有零件**：`Vigil` 依赖注入 `Orchestrator`、`Messages`、`State`，循环体里「解 issue」直接调 `Orchestrator.solve`、「处理 PR」直接调 `Messages.poll`。**唯一新增的业务能力是 issue 发现**。理由：奥卡姆剃刀（理念 1）——不重复实现已有逻辑；解耦（理念 10）——vigil 只负责「何时、对谁」调度，不碰「怎么解 / 怎么轮询」。
+1. **vigil 是「发现 + 编排」的薄循环，复用既有零件**：`Vigil` 依赖注入 `Orchestrator`、`Messages`、`State`，循环体里「起草 RFC」直接调 `Orchestrator.start_rfc`（RFC-0005）、「推进 PR」直接调 `Messages.poll`（由它分流 refine_rfc/implement/iterate）。**唯一新增的业务能力是 issue 发现**。理由：奥卡姆剃刀（理念 1）——不重复实现已有逻辑；解耦（理念 10）——vigil 只负责「何时、对谁」调度，不碰「怎么解 / 怎么轮询」，连 RFC-0005 的原子步骤拆分都无需感知。
 
 2. **issue 发现走标签门控（label-gated），默认标签可配置、可用 `--label` 覆盖**：vigil 只自动认领**带约定标签**（默认 `openagents`）的 open issue。理由：(a) **安全**——避免误抓人类不想自动化的 issue；本仓库现存的 issue #3「增加 openagents 提 issue 的功能」**已被 RFC-0002 实现并合并、但 issue 仍处于 open**，若不加门控会被重复求解。(b) **把人类角色精确收敛为「宏观把控」**（设计目标 2）——人类通过「给 issue 打标签」来决定哪些交给 agent，这就是人类的决策点。`--label` 支持重复传入，多个标签取**并集**（任一命中即认领）。
 
 3. **issue 去重三道闸，杜绝重复求解**：一个 open issue 只有**同时**满足才被认领为「新」：(a) 命中标签门控（决策 2）；(b) State 里**没有**该 issue 的 run（`State.find_by_issue` 为空）；(c) 远端**不存在**其分支 `openagents/issue-<n>`（复用 `Orchestrator` 已有的 `git ls-remote` 判据，State 丢失时的兜底）。理由：与 RFC-0003 决策 7「按 State 分流 fresh/resume」同源——已在处理或已处理过的 issue 一律不再发起新 `solve`；这也是「代码即 checkpoint」在发现段的体现（每轮从 State+远端重新推导，不靠内存记忆）。
 
-4. **派单仍走幂等 `solve`，发现段对「已开 PR」天然安全**：即便去重闸有时序窗口（如刚 `solve` 完、State 已写但同轮又被列出），`Orchestrator.solve` 本身幂等（RFC-0003）——重复调用走 resume 复用同一 PR，不会重开。理由：发现段不必追求「绝对不重复列出」，把幂等性兜底交给已经过验证的 `solve`，发现段保持简单。
+4. **派单走 `start_rfc`，去重三道闸保证「每 issue 只起草一次 RFC」**：发现段在调 `start_rfc` 前已过去重三道闸（决策 3），其中 (b) State 有 run、(c) 远端有分支两闸——而 `start_rfc` 一进入就 `begin_run` 写 State 并推送分支——确保同一 issue 在后续任何一轮都不会被再次派单起草。理由：RFC-0005 将一站式 `solve`（自带 resume 幂等）拆为原子步骤后，`start_rfc` 是「开 draft PR」的一次性入口，幂等性改由 vigil 的去重闸前置保证；起草成功后该 issue 的推进交给守候段 `poll`，发现段不再碰它。
 
-5. **串行派发（一次一个 issue）**：一轮里发现多个新 issue 时**顺序** `solve`，处理完一个再下一个；`poll` 也顺序处理各 PR。理由：奥卡姆剃刀（理念 1）+ 一次性 agent 模型——串行最简、最可观测、无并发子进程管理；且现有 `ClaudeCodeBackend` 是**前台实时透传**输出（RFC-0003 决策 6），并行会让多个 agent 的 stream 互相打架。issue 层面的**真正并行**（每 issue 独立 worktree 并发，理念 5）依赖额外的子进程/输出管理，**留作后续 RFC**（见「不在本 RFC 范围」）。
+5. **串行派发（一次一个 issue）**：一轮里发现多个新 issue 时**顺序** `start_rfc`，处理完一个再下一个；`poll` 也顺序处理各 PR。理由：奥卡姆剃刀（理念 1）+ 一次性 agent 模型——串行最简、最可观测、无并发子进程管理；且现有 `ClaudeCodeBackend` 是**前台实时透传**输出（RFC-0003 决策 6），并行会让多个 agent 的 stream 互相打架。issue 层面的**真正并行**（每 issue 独立 worktree 并发，理念 5）依赖额外的子进程/输出管理，**留作后续 RFC**（见「不在本 RFC 范围」）。
 
 6. **持续守候直到中断，区别于 `watch` 的「无 open PR 即退出」**：vigil 默认**永不主动退出**——即使当下既无新 issue 也无 open PR，也继续按 `interval` 轮询，等待人类投喂新 issue 或在 PR 上评论。提供 `--once` 做「单轮发现+poll 后退出」（适配 cron/CI 周期触发）。理由：守夜人语义就是「长期守候」；`watch`（RFC-0001 决策 6）的退出条件是为「把已知 PR 修完就收工」设计的，与 vigil 的「持续监控新 issue」语义不同，故 **vigil 不复用 `watch` 的退出条件，而复用其内核 `poll`**。`watch` 子命令保留不动。
 
@@ -100,8 +103,8 @@ openagents vigil [--interval N] [--label L ...] [--base REF] [--once]
 
 **新增 vigil 模块**（`vigil.py`）
 - `Vigil(*, orchestrator: Orchestrator, messages: Messages, state: State, work_dir: Path)` —— 依赖注入，不自行构造业务对象（与 `Messages`/`Orchestrator` 的注入风格一致）。`work_dir` 为 repo 根，用于发现段去重闸 (c) 的 `git ls-remote`（Phase 3 精化：显式传 cwd 而非依赖进程 cwd，与 `Orchestrator` 的 `git -C` 风格一致，杜绝基线/路径漂移）。
-- `Vigil.run(*, interval: int, labels: list[str], base: str, once: bool) -> None` —— 守夜人主循环：每轮先 `discover_and_solve` 再 `messages.poll`，`once=True` 跑一轮即返回，否则 `sleep(interval)` 续循环；`KeyboardInterrupt` 干净退出。
-- `Vigil.discover_and_solve(*, labels: list[str], base: str) -> list[int]` —— 列出标签门控下的 open issue，按决策 3 三道闸过滤出「新」issue，逐个 `solve`（决策 5 串行、决策 8 错误隔离），返回本轮实际派单的 issue 编号列表（便于日志/测试断言）。
+- `Vigil.run(*, interval: int, labels: list[str], base: str, once: bool) -> None` —— 守夜人主循环：每轮先 `discover_and_dispatch` 再 `messages.poll`，`once=True` 跑一轮即返回，否则 `sleep(interval)` 续循环；`KeyboardInterrupt` 干净退出。
+- `Vigil.discover_and_dispatch(*, labels: list[str], base: str) -> list[int]` —— 列出标签门控下的 open issue，按决策 3 三道闸过滤出「新」issue，逐个 `start_rfc`（RFC-0005：派单只起草 RFC；决策 5 串行、决策 8 错误隔离），返回本轮实际派单的 issue 编号列表（便于日志/测试断言）。
 
 **新增 CLI 子命令**（`cli.py`）
 - `openagents vigil [--interval N] [--label L]... [--base REF] [--once]`
@@ -111,18 +114,18 @@ openagents vigil [--interval N] [--label L ...] [--base REF] [--once]
   - `--once`：只跑一轮（发现+poll）后退出（决策 6）。
   - 走 preflight `ensure_project(interactive=True)`，与 `solve`/`poll`/`watch` 一致。
 
-> 既有契约**不改动**：`Orchestrator.solve`/`iterate`、`Messages.poll`/`watch`、`State` 全部按现状复用。
+> 既有契约**不改动**：`Orchestrator.start_rfc`/`refine_rfc`/`implement`/`iterate`（RFC-0005）、`Messages.poll`/`watch`、`State` 全部按现状复用。
 
 ### 架构图
 
 ```mermaid
 graph TD
     CLI[cli.vigil 子命令 / _cmd_vigil] --> V[Vigil.run 守夜人循环]
-    V -->|发现段| D[Vigil.discover_and_solve]
+    V -->|发现段| D[Vigil.discover_and_dispatch]
     D --> GI[github.list_issues 标签门控]
-    D -->|三道闸过滤后逐个| ORC[Orchestrator.solve 幂等]
+    D -->|三道闸过滤后逐个| ORC[Orchestrator.start_rfc 起草 RFC]
     V -->|守候段| POLL[Messages.poll]
-    POLL --> ORC2[Orchestrator.iterate]
+    POLL --> ORC2[Orchestrator.refine_rfc / implement / iterate]
     GI --> GHCLI[(gh issue list)]
 ```
 
@@ -182,9 +185,9 @@ graph LR
 - **验收标准**: 单测覆盖——无 label 时命令不含 `--label` 且正确解析多条 issue；带多个 label 时命令含对应多个 `--label`；空结果返回 `[]`；gh 非零退出抛 `GithubError`；`ruff check`/`ruff format --check`/`pytest` 通过。
 
 **T2: `Vigil` 守夜人循环模块**
-- **范围**: 新建 `openagents/vigil.py`，实现 `Vigil`（注入 `Orchestrator`/`Messages`/`State`）的 `run`、`discover_and_solve`。`discover_and_solve` 调 `github.list_issues` 后按决策 3 三道闸（标签已在 list 层、State 无 run、远端无分支）过滤出新 issue，串行 `solve`（决策 5），单项失败记录并跳过（决策 8）。`run` 每轮先发现再 `messages.poll`，`once` 跑一轮即返回，否则 `time.sleep(interval)` 续循环，`KeyboardInterrupt` 干净退出。远端分支判据复用一处 `git ls-remote`（在 vigil 内实现一个最小私有助手或经由注入的 orchestrator 暴露；实现细节 Phase 3 定，不改 orchestrator 既有契约）。
+- **范围**: 新建 `openagents/vigil.py`，实现 `Vigil`（注入 `Orchestrator`/`Messages`/`State`）的 `run`、`discover_and_dispatch`。`discover_and_dispatch` 调 `github.list_issues` 后按决策 3 三道闸（标签已在 list 层、State 无 run、远端无分支）过滤出新 issue，串行 `start_rfc`（RFC-0005：派单只起草 RFC；决策 5），单项失败记录并跳过（决策 8）。`run` 每轮先发现再 `messages.poll`，`once` 跑一轮即返回，否则 `time.sleep(interval)` 续循环，`KeyboardInterrupt` 干净退出。远端分支判据复用一处 `git ls-remote`（在 vigil 内实现一个最小私有助手或经由注入的 orchestrator 暴露；实现细节 Phase 3 定，不改 orchestrator 既有契约）。
 - **涉及文件**: `openagents/vigil.py`（新增）、`tests/test_vigil.py`（新增）。
-- **验收标准**: 单测（mock `github.list_issues`/`Orchestrator.solve`/`Messages.poll`/`time.sleep` 与远端分支判据）覆盖——已有 State run 的 issue 被跳过；远端已有分支的 issue 被跳过；全新 issue 触发一次 `solve`；某 issue `solve` 抛 `OrchestratorError` 时被跳过且不影响同轮其余 issue 与 `poll`；`once=True` 只跑一轮、不 `sleep`；`once=False` 多轮调用 `sleep(interval)`；`KeyboardInterrupt` 干净返回；`discover_and_solve` 返回实际派单编号列表。
+- **验收标准**: 单测（mock `github.list_issues`/`Orchestrator.start_rfc`/`Messages.poll`/`time.sleep` 与远端分支判据）覆盖——已有 State run 的 issue 被跳过；远端已有分支的 issue 被跳过；全新 issue 触发一次 `start_rfc`；某 issue `start_rfc` 抛 `OrchestratorError` 时被跳过且不影响同轮其余 issue 与 `poll`；`once=True` 只跑一轮、不 `sleep`；`once=False` 多轮调用 `sleep(interval)`；`KeyboardInterrupt` 干净返回；`discover_and_dispatch` 返回实际派单编号列表。
 - **不做**: 不改动 `orchestrator.py`/`messages.py`/`state.py` 的既有契约（保持文件清单不重叠）。
 
 **T3: CLI `vigil` 子命令 + 端到端脚本**
@@ -197,13 +200,13 @@ graph LR
 ### 单元测试
 
 - `tests/test_github.py`：`list_issues` 的命令组装（无/有 label、state）、多条解析、空结果、gh 非零抛错。
-- `tests/test_vigil.py`：发现段三道闸（State 有 run / 远端有分支 → 跳过；全新 → solve 一次）、错误隔离（单 issue 失败跳过、不影响其余与 poll）、循环控制（`once` 单轮不 sleep；多轮 sleep；`KeyboardInterrupt` 干净退出）、`discover_and_solve` 返回值。
+- `tests/test_vigil.py`：发现段三道闸（State 有 run / 远端有分支 → 跳过；全新 → start_rfc 一次）、错误隔离（单 issue 失败跳过、不影响其余与 poll）、循环控制（`once` 单轮不 sleep；多轮 sleep；`KeyboardInterrupt` 干净退出）、`discover_and_dispatch` 返回值。
 - `tests/test_cli.py`：`vigil` 子命令注册与参数默认值/透传、preflight 调用、返回码。
 - 外部副作用（`gh`、`git`、`time.sleep`、`Orchestrator`/`Messages`）一律 mock。
 
 ### 集成测试
 
-- 在 `tests/test_vigil.py` 内用 mock 的 `github.list_issues` + 桩 `Orchestrator`/`Messages` 串起「发现新 issue → solve → poll」一轮 cycle，断言：新 issue 被派单、已处理 issue 被跳过、poll 被调用一次；`once` 模式下整轮后干净返回。
+- 在 `tests/test_vigil.py` 内用 mock 的 `github.list_issues` + 桩 `Orchestrator`/`Messages` 串起「发现新 issue → start_rfc → poll」一轮 cycle，断言：新 issue 被派单、已处理 issue 被跳过、poll 被调用一次；`once` 模式下整轮后干净返回。
 
 ### 手动验证
 

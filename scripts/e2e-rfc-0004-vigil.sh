@@ -44,7 +44,7 @@ uv run openagents issue "$title" \
   --body "由 e2e-rfc-0004 脚本创建：请在 README 末尾追加一行 'vigil e2e ok'。" \
   --label "$label"
 
-echo "运行守夜人单轮（--once）：自主发现该 issue 并派单 solve 开 PR …"
+echo "运行守夜人单轮（--once）：自主发现该 issue 并派单起草 RFC、开 draft PR …"
 uv run openagents vigil --once --label "$label"
 
 echo

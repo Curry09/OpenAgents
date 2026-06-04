@@ -15,14 +15,14 @@ from openagents.vigil import Vigil
 
 
 class _StubOrchestrator:
-    """记录 solve 调用；可配置对某些 issue 抛错。"""
+    """记录 start_rfc 调用（RFC-0005：派单只起草 RFC）；可配置对某些 issue 抛错。"""
 
     def __init__(self, *, fail_on=()):
-        self.solved = []
+        self.started = []
         self._fail_on = set(fail_on)
 
-    def solve(self, *, issue_number, base):
-        self.solved.append((issue_number, base))
+    def start_rfc(self, *, issue_number, base):
+        self.started.append((issue_number, base))
         if issue_number in self._fail_on:
             raise OrchestratorError(f"boom #{issue_number}")
         return None
@@ -78,19 +78,19 @@ class _Proc:
 
 
 # --------------------------------------------------------------------------- #
-# discover_and_solve：三道闸 + 错误隔离
+# discover_and_dispatch：三道闸 + 错误隔离
 # --------------------------------------------------------------------------- #
 
 
-def test_discovers_and_solves_fresh_issue(monkeypatch):
+def test_discovers_and_dispatches_fresh_issue(monkeypatch):
     _no_remote_branches(monkeypatch)
     monkeypatch.setattr(github, "list_issues", lambda *, labels: [Issue(9, "t", "b")])
     orch = _StubOrchestrator()
 
-    dispatched = _vigil(orchestrator=orch).discover_and_solve(labels=["openagents"], base="main")
+    dispatched = _vigil(orchestrator=orch).discover_and_dispatch(labels=["openagents"], base="main")
 
     assert dispatched == [9]
-    assert orch.solved == [(9, "main")]
+    assert orch.started == [(9, "main")]
 
 
 def test_skips_issue_with_existing_state_run(monkeypatch):
@@ -98,12 +98,12 @@ def test_skips_issue_with_existing_state_run(monkeypatch):
     monkeypatch.setattr(github, "list_issues", lambda *, labels: [Issue(9, "t", "b")])
     orch = _StubOrchestrator()
 
-    dispatched = _vigil(orchestrator=orch, state=_StubState(known={9})).discover_and_solve(
+    dispatched = _vigil(orchestrator=orch, state=_StubState(known={9})).discover_and_dispatch(
         labels=["openagents"], base="main"
     )
 
     assert dispatched == []
-    assert orch.solved == []
+    assert orch.started == []
 
 
 def test_skips_issue_with_existing_remote_branch(monkeypatch):
@@ -117,24 +117,24 @@ def test_skips_issue_with_existing_remote_branch(monkeypatch):
     monkeypatch.setattr(github, "list_issues", lambda *, labels: [Issue(9, "t", "b")])
     orch = _StubOrchestrator()
 
-    dispatched = _vigil(orchestrator=orch).discover_and_solve(labels=["openagents"], base="main")
+    dispatched = _vigil(orchestrator=orch).discover_and_dispatch(labels=["openagents"], base="main")
 
     assert dispatched == []
-    assert orch.solved == []
+    assert orch.started == []
 
 
-def test_solve_failure_is_isolated(monkeypatch, capsys):
-    # issue 9 的 solve 抛错应被跳过，不影响 issue 10 的派单。
+def test_dispatch_failure_is_isolated(monkeypatch, capsys):
+    # issue 9 的 start_rfc 抛错应被跳过，不影响 issue 10 的派单。
     _no_remote_branches(monkeypatch)
     monkeypatch.setattr(
         github, "list_issues", lambda *, labels: [Issue(9, "a", ""), Issue(10, "b", "")]
     )
     orch = _StubOrchestrator(fail_on={9})
 
-    dispatched = _vigil(orchestrator=orch).discover_and_solve(labels=["openagents"], base="main")
+    dispatched = _vigil(orchestrator=orch).discover_and_dispatch(labels=["openagents"], base="main")
 
     assert dispatched == [10]
-    assert (9, "main") in orch.solved and (10, "main") in orch.solved
+    assert (9, "main") in orch.started and (10, "main") in orch.started
 
 
 def test_base_is_passed_through(monkeypatch):
@@ -142,9 +142,9 @@ def test_base_is_passed_through(monkeypatch):
     monkeypatch.setattr(github, "list_issues", lambda *, labels: [Issue(9, "t", "b")])
     orch = _StubOrchestrator()
 
-    _vigil(orchestrator=orch).discover_and_solve(labels=["x"], base="dev")
+    _vigil(orchestrator=orch).discover_and_dispatch(labels=["x"], base="dev")
 
-    assert orch.solved == [(9, "dev")]
+    assert orch.started == [(9, "dev")]
 
 
 # --------------------------------------------------------------------------- #

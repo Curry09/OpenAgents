@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LABEL",
         help="issue 发现的标签门控（可重复），默认 openagents",
     )
-    p_vigil.add_argument("--base", default="main", help="派单 solve 的分支基线（默认 main）")
+    p_vigil.add_argument("--base", default="main", help="派单起草 RFC 的分支基线（默认 main）")
     p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+poll）后退出")
 
     return parser
