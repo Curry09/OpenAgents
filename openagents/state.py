@@ -103,14 +103,17 @@ class State:
                 record["status"] = status
         self._save(data=data)
 
-    def get_cursor(self, *, pr_number: int) -> int | None:
-        """RFC-0001 T4：读某 PR 已处理到的最后 comment id（决策 5 游标）。"""
-        data = self._load()
-        value = data["cursors"].get(str(pr_number))
-        return int(value) if value is not None else None
+    def get_cursor(self, *, pr_number: int) -> str | None:
+        """RFC-0001 T4：读某 PR 已处理到的游标（RFC-0005：comment 的 created_at）。
 
-    def set_cursor(self, *, pr_number: int, comment_id: int) -> None:
-        """RFC-0001 T4：推进某 PR 的 comment 游标。"""
+        RFC-0005 决策 6：comment id 是 node id 字符串、不可排序，故游标存 created_at
+        （ISO 8601，字典序即时间序），原样返回不做类型强转。
+        """
+        data = self._load()
+        return data["cursors"].get(str(pr_number))
+
+    def set_cursor(self, *, pr_number: int, comment_id: str) -> None:
+        """RFC-0001 T4：推进某 PR 的 comment 游标（RFC-0005：存 created_at 字符串）。"""
         data = self._load()
         data["cursors"][str(pr_number)] = comment_id
         self._save(data=data)

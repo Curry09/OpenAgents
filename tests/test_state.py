@@ -87,25 +87,26 @@ def test_update_status_persists(tmp_path):
     assert reloaded.all_runs()[0].status == "done"
 
 
+# RFC-0005 决策 6：游标存 comment 的 created_at（ISO 8601 字符串），原样读回不强转。
 def test_set_and_get_cursor(tmp_path):
     state = _new_state(tmp_path)
-    state.set_cursor(pr_number=7, comment_id=123)
-    assert state.get_cursor(pr_number=7) == 123
+    state.set_cursor(pr_number=7, comment_id="2026-06-04T02:00:00Z")
+    assert state.get_cursor(pr_number=7) == "2026-06-04T02:00:00Z"
 
 
 def test_cursor_persists(tmp_path):
     state = _new_state(tmp_path)
-    state.set_cursor(pr_number=7, comment_id=123)
+    state.set_cursor(pr_number=7, comment_id="2026-06-04T02:00:00Z")
 
     reloaded = State(path=tmp_path / ".openagents" / "state.json")
-    assert reloaded.get_cursor(pr_number=7) == 123
+    assert reloaded.get_cursor(pr_number=7) == "2026-06-04T02:00:00Z"
 
 
 def test_set_cursor_overwrites(tmp_path):
     state = _new_state(tmp_path)
-    state.set_cursor(pr_number=7, comment_id=1)
-    state.set_cursor(pr_number=7, comment_id=2)
-    assert state.get_cursor(pr_number=7) == 2
+    state.set_cursor(pr_number=7, comment_id="2026-06-04T01:00:00Z")
+    state.set_cursor(pr_number=7, comment_id="2026-06-04T02:00:00Z")
+    assert state.get_cursor(pr_number=7) == "2026-06-04T02:00:00Z"
 
 
 def test_begin_run_records_solving_without_pr(tmp_path):
