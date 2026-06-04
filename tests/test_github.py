@@ -25,6 +25,7 @@ from openagents.github import (
     find_pr_by_branch,
     get_issue,
     has_label,
+    is_closed,
     is_merged,
     list_comments,
     list_issues,
@@ -449,6 +450,33 @@ def test_is_merged_gh_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
         is_merged(pr_number=7)
+
+
+# --------------------------------------------------------------------------- #
+# is_closed（RFC-0006：关闭但未合并的 PR 是终止信号）
+# --------------------------------------------------------------------------- #
+
+
+def test_is_closed_true_when_state_closed(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "CLOSED"})))
+    assert is_closed(pr_number=7) is True
+
+
+def test_is_closed_false_when_open(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "OPEN"})))
+    assert is_closed(pr_number=7) is False
+
+
+def test_is_closed_false_when_merged(monkeypatch):
+    # 已合并的 PR state 是 MERGED，不算 closed（避免与 merged 终态语义混淆）。
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "MERGED"})))
+    assert is_closed(pr_number=7) is False
+
+
+def test_is_closed_gh_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
+    with pytest.raises(GithubError):
+        is_closed(pr_number=7)
 
 
 # --------------------------------------------------------------------------- #

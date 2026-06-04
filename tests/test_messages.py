@@ -20,6 +20,7 @@ from openagents import messages as messages_module
 from openagents.github import CheckStatus, Comment
 from openagents.messages import APPROVAL_LABEL, Messages
 from openagents.state import (
+    STATUS_CLOSED,
     STATUS_DONE,
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -91,10 +92,18 @@ def _make(*, runs):
 
 
 def _patch_github(
-    monkeypatch, *, merged=False, has_label=False, check=None, comments=None, login=_OWN_LOGIN
+    monkeypatch,
+    *,
+    merged=False,
+    closed=False,
+    has_label=False,
+    check=None,
+    comments=None,
+    login=_OWN_LOGIN,
 ):
     """统一 monkeypatch github 模块函数，返回固定值。"""
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
     monkeypatch.setattr(
         messages_module.github,
@@ -129,6 +138,66 @@ def test_merged_pr_set_done_and_not_routed(monkeypatch):
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
     assert orch.implement_calls == []
     assert any(e["reason"] == "merged" for e in events)
+
+
+# --------------------------------------------------------------------------- #
+# closed 终止（RFC-0006：关闭但未合并的 PR 不再处理）
+# --------------------------------------------------------------------------- #
+
+
+def test_closed_pr_set_closed_and_not_routed(monkeypatch):
+    # RFC-0006：人关掉一个仍带 rfc-approved 标签的 draft PR → 置 closed，不再 implement。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(monkeypatch, closed=True, has_label=True)
+
+    events = msgs.poll()
+
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_CLOSED}]
+    assert orch.implement_calls == []
+    assert orch.refine_calls == []
+    assert any(e["pr_number"] == 5 and e["reason"] == "closed" for e in events)
+
+
+def test_closed_coding_pr_not_iterated(monkeypatch):
+    # RFC-0006：coding 阶段被关闭的 PR，即便有新评论也不再 iterate。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    _patch_github(
+        monkeypatch,
+        closed=True,
+        comments=[_human(body="please fix", created_at="2026-06-03T02:00:00Z")],
+    )
+
+    events = msgs.poll()
+
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_CLOSED}]
+    assert orch.iterate_calls == []
+    assert any(e["reason"] == "closed" for e in events)
+
+
+def test_merged_takes_precedence_over_closed(monkeypatch):
+    # MERGED 与 CLOSED 互斥，但若两者判定同真，merged 优先（决策 3/8）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(monkeypatch, merged=True, closed=True)
+
+    events = msgs.poll()
+
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+    assert any(e["reason"] == "merged" for e in events)
+
+
+def test_closed_status_run_not_polled(monkeypatch):
+    # closed 不在 _OPEN_STATUSES，已关闭的 run 后续轮询被跳过。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_CLOSED)])
+    seen = []
+    monkeypatch.setattr(
+        messages_module.github, "is_merged", lambda *, pr_number: seen.append(pr_number) or False
+    )
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+
+    events = msgs.poll()
+
+    assert seen == []
+    assert events == []
 
 
 # --------------------------------------------------------------------------- #
@@ -280,6 +349,7 @@ def test_only_open_runs_are_polled_including_rfc_review(monkeypatch):
     monkeypatch.setattr(
         messages_module.github, "is_merged", lambda *, pr_number: seen.append(pr_number) or False
     )
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: False)
     monkeypatch.setattr(
         messages_module.github,

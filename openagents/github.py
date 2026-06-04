@@ -330,6 +330,21 @@ def is_merged(*, pr_number: int) -> bool:
     return str(data.get("state") or "").upper() == "MERGED"
 
 
+def is_closed(*, pr_number: int) -> bool:
+    """RFC-0006：PR 是否被关闭但未合并（`gh pr view <n> --json state` == "CLOSED"）。
+
+    供消息层把「人主动关闭」识别为终止信号：与 is_merged 对称——GitHub PR 的 state 有
+    OPEN / CLOSED / MERGED 三态且互斥，已合并的 PR state 是 MERGED（不算 closed）。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "state"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return str(data.get("state") or "").upper() == "CLOSED"
+
+
 def _parse_pr_number(*, url: str) -> int | None:
     """从形如 .../pull/<n> 的 PR url 末段解析 PR number；失败返回 None。"""
     return _parse_number_after(url=url, marker="/pull/")

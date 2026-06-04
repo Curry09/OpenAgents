@@ -4,6 +4,7 @@ poll 对每个 open 状态的 run 做一次扫描，先判 merge，再按 run �
 （RFC-0005 决策 5）：
 
   1. github.is_merged：已合并 → State 置 done，跳过（决策 8）。
+  1b. github.is_closed：关闭未合并 → State 置 closed，跳过（RFC-0006，merged 优先）。
   2. 阶段 rfc-review（PR 为 draft、承载 RFC）：
      a. 带 rfc-approved 标签 → Orchestrator.implement（转入 coding）。
      b. 否则有「游标后的新评论」→ Orchestrator.refine_rfc（精炼 RFC 并回贴说明），
@@ -29,6 +30,7 @@ import time
 from openagents import github
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
+    STATUS_CLOSED,
     STATUS_DONE,
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -84,6 +86,12 @@ class Messages:
         if github.is_merged(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             return {"pr_number": pr_number, "reason": "merged"}
+
+        # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过，不触发任何
+        # 编排动作。closed 不在 _OPEN_STATUSES，下一轮直接被跳过。merged 优先于 closed。
+        if github.is_closed(pr_number=pr_number):
+            self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
+            return {"pr_number": pr_number, "reason": "closed"}
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
