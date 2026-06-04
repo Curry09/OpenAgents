@@ -6,13 +6,15 @@ poll 对每个 open 状态的 run 做一次扫描，先判 merge，再按 run �
   1. github.is_merged：已合并 → State 置 done，跳过（决策 8）。
   2. 阶段 rfc-review（PR 为 draft、承载 RFC）：
      a. 带 rfc-approved 标签 → Orchestrator.implement（转入 coding）。
-     b. 否则有「人类新评论」→ Orchestrator.refine_rfc（精炼 RFC 并回贴说明）。
+     b. 否则有「游标后的新评论」→ Orchestrator.refine_rfc（精炼 RFC 并回贴说明），
+        随后把游标推进到回贴后 PR 上最新评论之后（消费掉 agent 自己的回贴）。
   3. 阶段 coding（pr-open / iterating）：
      a. CI 失败 → Orchestrator.iterate(reason="ci")（决策 11）。
-     b. 否则有「人类新评论」→ Orchestrator.iterate(reason="comment")（决策 5）。
+     b. 否则有「游标后的新评论」→ Orchestrator.iterate(reason="comment")（决策 5）。
 
-「人类新评论」= 作者非 agent 自身（按 github.current_login 过滤，RFC-0005 决策 6，
-避免对 refine 自己回贴的评论再次触发形成死循环）且 created_at 晚于游标。
+「新评论」= created_at 晚于游标的最新一条评论，**不论作者**（RFC-0005 决策 6）：
+人与 agent 可能共用同一 GitHub 账号，按作者过滤会误杀真人评论；自我循环改由
+「refine 后把游标推进到 agent 回贴之后」消费掉自己的回贴来避免。
 
 watch：每隔 interval 秒循环调用 poll，无 open PR 或用户中断时退出（决策 6）。
 
@@ -48,8 +50,6 @@ class Messages:
     def __init__(self, *, orchestrator: Orchestrator, state: State) -> None:
         self._orchestrator = orchestrator
         self._state = state
-        # agent 自身登录名，惰性获取并缓存（仅在需要过滤评论时才查 gh）。
-        self._login: str | None = None
 
     def poll(self) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
@@ -91,18 +91,23 @@ class Messages:
         return self._process_coding(record=record)
 
     def _process_rfc_review(self, *, record: RunRecord) -> dict | None:
-        """rfc-review 阶段：批准标签 → implement；否则人类新评论 → refine_rfc。"""
+        """rfc-review 阶段：批准标签 → implement；否则游标后的新评论 → refine_rfc。"""
         pr_number = record.pr_number
         # 2a. 批准标签优先：转入实现（决策 4）。
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
-        # 2b. 人类新评论 → 精炼 RFC（决策 6 已过滤 agent 自评论）。
-        comment = self._latest_new_human_comment(pr_number=pr_number)
+        # 2b. 游标后的最新评论（不论作者）→ 精炼 RFC（决策 6）。
+        comment = self._latest_new_comment(pr_number=pr_number)
         if comment is None:
             return None
         self._orchestrator.refine_rfc(pr_number=pr_number, detail=comment.body)
-        self._state.set_cursor(pr_number=pr_number, comment_id=comment.created_at)
+        # 决策 6：refine 会回贴一条「已更新 RFC」评论；把游标推进到回贴后 PR 上最新
+        # 评论之后，消费掉 agent 自己的回贴，避免下一轮对自己的评论再次触发 refine。
+        self._state.set_cursor(
+            pr_number=pr_number,
+            comment_id=self._newest_comment_id(pr_number=pr_number, fallback=comment.created_at),
+        )
         return {"pr_number": pr_number, "reason": "refine"}
 
     def _process_coding(self, *, record: RunRecord) -> dict | None:
@@ -114,37 +119,38 @@ class Messages:
             detail = "\n".join(status.failed_logs)
             self._orchestrator.iterate(pr_number=pr_number, reason="ci", detail=detail)
             return {"pr_number": pr_number, "reason": "ci"}
-        # 3b. 人类新评论 → 迭代代码（决策 5）。
-        comment = self._latest_new_human_comment(pr_number=pr_number)
+        # 3b. 游标后的新评论 → 迭代代码（决策 5）。iterate 不回贴评论，故游标推进到
+        # 触发评论即可（无 agent 自评论需消费）。
+        comment = self._latest_new_comment(pr_number=pr_number)
         if comment is None:
             return None
         self._orchestrator.iterate(pr_number=pr_number, reason="comment", detail=comment.body)
         self._state.set_cursor(pr_number=pr_number, comment_id=comment.created_at)
         return {"pr_number": pr_number, "reason": "comment"}
 
-    def _latest_new_human_comment(self, *, pr_number: int) -> github.Comment | None:
-        """取晚于游标、且作者非 agent 自身的最新评论；无则 None（决策 6）。
+    def _latest_new_comment(self, *, pr_number: int) -> github.Comment | None:
+        """取晚于游标的最新评论（不论作者）；无则 None（决策 6）。
 
         comment id 是 node id 字符串、不可排序，故用 created_at（ISO 8601，
-        字典序即时间序）判断「新」并供调用方推进游标。
+        字典序即时间序）判断「新」并供调用方推进游标。不按作者过滤：人与 agent
+        可能共用账号，自循环由调用方推进游标越过 agent 回贴来避免。
         """
         cursor = self._state.get_cursor(pr_number=pr_number)
         comments = github.list_comments(pr_number=pr_number)
-        if not comments:
+        fresh = [c for c in comments if cursor is None or c.created_at > cursor]
+        if not fresh:
             return None
-        login = self._own_login()
-        humans = [
-            c for c in comments if c.author != login and (cursor is None or c.created_at > cursor)
-        ]
-        if not humans:
-            return None
-        return max(humans, key=lambda c: c.created_at)
+        return max(fresh, key=lambda c: c.created_at)
 
-    def _own_login(self) -> str:
-        """惰性获取并缓存 agent 自身的 GitHub 登录名（决策 6）。"""
-        if self._login is None:
-            self._login = github.current_login()
-        return self._login
+    def _newest_comment_id(self, *, pr_number: int, fallback: str) -> str:
+        """refine 回贴后 PR 上最新评论的 created_at；取不到则回退到 fallback（决策 6）。
+
+        用于把游标推进到 agent 自己刚回贴的「已更新 RFC」之后，消费掉该回贴。
+        """
+        comments = github.list_comments(pr_number=pr_number)
+        if not comments:
+            return fallback
+        return max(c.created_at for c in comments)
 
     def _has_open_pr(self) -> bool:
         """是否还有 rfc-review/pr-open/iterating 的 run（watch 循环的退出条件）。"""

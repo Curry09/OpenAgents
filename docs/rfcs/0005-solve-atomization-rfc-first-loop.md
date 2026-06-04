@@ -38,7 +38,7 @@ CLAUDE.md 理念 2（去中心化）/ 理念 4（RFC 对齐）/ 理念 8（以�
 - **`orchestrator.py` 瘦身**：只保留四个**原子操作**，每个都是「确保工作区 → `backend.run(任务)` → 提交推送 → 一次 GitHub 动作 → 一次状态流转」的薄组合。
 - **`github.py` 扩展**：支持 draft PR、取消 draft、读标签、读当前登录名。
 - **`state.py` 扩展**：新增 `rfc-review` 状态。
-- **`messages.py` 阶段化**：poll 按 run 所处阶段把 GitHub 事件路由到对应原子操作，并过滤 agent 自己发的评论。
+- **`messages.py` 阶段化**：poll 按 run 所处阶段把 GitHub 事件路由到对应原子操作，靠游标推进（而非作者过滤）避免对 agent 自己回贴的评论二次触发。
 - **`cli.py` 改造**：删除 `solve`，新增 `rfc` / `refine-rfc` / `implement` / `iterate` 子命令；`poll` / `watch` 自动驱动同一批步骤。
 
 **一 issue → 一分支 → 一 PR** 的既有不变量保持不变：PR 先以 draft 形态承载 RFC，批准后代码 commit 追加到**同一分支/PR**，再 `mark_ready` 转正。这样可直接复用既有的 worktree 隔离、poll 轮询与评论游标机制。
@@ -55,7 +55,7 @@ CLAUDE.md 理念 2（去中心化）/ 理念 4（RFC 对齐）/ 理念 8（以�
 
 5. **poll 阶段化路由**：`rfc-review` 阶段把「人类新评论」路由到 `refine_rfc`、把 `rfc-approved` 标签路由到 `implement`；`pr-open` / `iterating` 阶段维持「CI 失败 / 新评论 → `iterate`」。阶段直接由 run 的 `status` 推导，无需额外字段。理由——复用既有 poll 骨架，新增分支最小。
 
-6. **`refine_rfc` 回贴评论说明改动；poll 必须按作者过滤 agent 自己的评论**：理由——agent 精炼后回贴的评论本身也是「新评论」，若不按 `author`（== 当前 gh 登录名）过滤，poll 会对自己的评论再次触发 `refine_rfc`，形成自我触发死循环。
+6. **`refine_rfc` 回贴评论说明改动；poll 用「游标推进到 agent 回贴之后」防自我循环（不按作者过滤）**：理由——人与 agent 可能共用同一 GitHub 账号（见未解决问题 2），按 `author == current_login` 过滤会把真人评论一并误杀。改为：处理「游标之后的最新评论」（不论作者）触发 `refine_rfc`；精炼并回贴说明后，把游标推进到回贴后 PR 上最新那条评论（即 agent 自己的回贴）的时间戳，从而消费掉自己的回贴、下一轮不再二次触发。备选的「按作者过滤」在共账号场景下会漏掉真人评论，已弃用。
 
 ### 接口契约
 
@@ -117,7 +117,7 @@ APPROVAL_LABEL = "rfc-approved"
 #   merged                         → state: done
 #   status == rfc-review:
 #       has_label(rfc-approved)    → orchestrator.implement(pr)        （转入 coding）
-#       否则有「人类新评论」        → orchestrator.refine_rfc(pr, body) （按作者过滤 agent 自评论 + 推进游标）
+#       否则有「游标后的最新评论」  → orchestrator.refine_rfc(pr, body) （不论作者；refine 后游标推进到 agent 回贴之后，防自循环）
 #   status ∈ {pr-open, iterating}:
 #       CI fail                    → orchestrator.iterate(reason=ci)
 #       人类新评论                  → orchestrator.iterate(reason=comment)
@@ -182,7 +182,7 @@ graph LR
 
 - **同一 PR 混合 RFC 文档与代码**：评审历史里 RFC 与代码 commit 交织，需靠 commit message 区分阶段。
 - **多 issue 并发起草时 RFC 编号可能撞号**（见未解决的问题）。
-- **`refine-rfc` / `iterate` 手动触发与 poll 自动触发都需要「取最新人类评论」**：两处各有一小段「按作者过滤」逻辑（均调用 `github.current_login` + `list_comments`），存在少量重复，可接受。
+- **`refine-rfc` / `iterate` 手动触发取「最新评论」（不按作者过滤）**：手动触发由人显式发起、无自循环风险，故直接取 `list_comments` 的最新一条；自动 poll 则靠游标推进消费掉 agent 自己的回贴。`github.current_login` 不再用于过滤评论（保留该 gh 封装供未来 bot 账号身份区分，见未解决问题 2）。
 - 跨 PR 文件冲突风险：本 RFC 改动的 `cli.py` / `github.py` / `tests/test_cli.py` / `tests/test_github.py` 与 open PR #10（RFC-0004 vigil）有交集，合并时需处理冲突。
 
 ## 实现计划
@@ -241,10 +241,10 @@ graph LR
 - **涉及文件**: `openagents/orchestrator.py`、`tests/test_orchestrator.py`
 - **验收标准**: 单测用假 backend / monkeypatch github、注入假 Workspace，覆盖四操作的「确保工作区→run→提交推送→GitHub 动作→状态流转」；ruff 通过；注释引用 `RFC-0005`。
 
-**T5: messages 阶段化 + 过滤自评论**
-- **范围**: `_process_run` 按 run 状态分阶段路由（见接口契约）；新增 `APPROVAL_LABEL`；评论处理按 `author == github.current_login()` 过滤 agent 自评论后再比对游标；`rfc-review` 阶段命中标签调 `implement`、否则人类新评论调 `refine_rfc`。
+**T5: messages 阶段化 + 游标防自循环**
+- **范围**: `_process_run` 按 run 状态分阶段路由（见接口契约）；新增 `APPROVAL_LABEL`；评论处理取「游标之后的最新评论」（不论作者）；`rfc-review` 阶段命中标签调 `implement`、否则最新评论调 `refine_rfc` 并把游标推进到回贴后 PR 上最新评论之后（消费掉 agent 自己的回贴）。
 - **涉及文件**: `openagents/messages.py`、`tests/test_messages.py`
-- **验收标准**: 单测覆盖：rfc-review + 标签 → implement；rfc-review + 人类评论 → refine_rfc；rfc-review + 仅 agent 自评论 → 不触发；coding 阶段 CI/comment → iterate；merged → done；ruff 通过。
+- **验收标准**: 单测覆盖：rfc-review + 标签 → implement；rfc-review + 新评论 → refine_rfc 且游标推进到 PR 最新评论；游标已越过最新评论 → 不重复触发（防自循环）；coding 阶段 CI/comment → iterate；merged → done；ruff 通过。
 
 **T6: cli 改造 + e2e**
 - **范围**: 删除 `solve` 子命令与 `_cmd_solve`；新增 `rfc` / `refine-rfc` / `implement` / `iterate` 子命令及处理函数（`refine-rfc`/`iterate` 取最新人类评论作 detail）；更新 `_dispatch` 路由表。新增端到端脚本 `scripts/e2e-rfc-0005-rfc-first.sh`（起草 RFC → 模拟评论 → refine → 打标签 → implement → poll 转 done 的演示）。
@@ -259,7 +259,7 @@ graph LR
 - `test_github`: draft 透传、mark_ready、has_label、current_login。
 - `test_state`: rfc-review 状态读写。
 - `test_orchestrator`: 四原子操作各自的组合编排（假 backend + 假 Workspace + monkeypatch github）。
-- `test_messages`: 阶段化路由全分支 + 自评论过滤。
+- `test_messages`: 阶段化路由全分支 + 游标防自循环（refine 后游标越过 agent 回贴，不重复触发）。
 - `test_cli`: 新子命令分发、`solve` 移除。
 
 ### 集成测试
@@ -271,12 +271,12 @@ graph LR
 1. `openagents rfc <issue>` → 检查生成 draft PR 且含 `docs/rfcs/NNNN-*.md`。
 2. 在 PR 上发一条评论 → `openagents poll` → 检查 RFC 被精炼且 agent 回贴了改动说明评论。
 3. 给 PR 打 `rfc-approved` 标签 → `openagents poll` → 检查代码 commit 追加、PR 转正（非 draft）、状态变 pr-open。
-4. 确认 agent 不会对自己回贴的评论再次触发 refine（无自我循环）。
+4. 确认 agent 不会对自己回贴的评论再次触发 refine（refine 后游标已越过该回贴，无自我循环）；人与 agent 共用同一账号时，真人评论仍能正常触发 refine。
 
 ## 未解决的问题
 
 1. **多 issue 并发起草时 RFC 编号撞号**：当前依赖 rfc-driven skill 的「扫描 local + open PR 编号 + 尽早推 draft PR 使编号可见」机制。是否需要额外的编号锁/分配服务，留待实现阶段并发实测后再定。
-2. **多 agent 共用同一 GitHub 账号时的身份区分**：MVP 用 `author == current_login` 过滤 agent 自评论已足够。若未来多个 agent 共用同一账号，人 / 本 agent / 其他 agent 难以区分，是否需要专用 bot 账号或评论隐藏标记，留待多 agent 场景落地时再定。
+2. **多 agent 共用同一 GitHub 账号时的身份区分**：自循环已改由游标推进解决（不依赖账号身份），故人与 agent 共用账号时真人评论也能正常触发。但人 / 本 agent / 其他 agent 仍无法相互区分，未来多 agent 协同时是否需要专用 bot 账号或评论隐藏标记（`github.current_login` 已保留备用），留待多 agent 场景落地时再定。
 
 ## 参考资料
 

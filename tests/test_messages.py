@@ -6,9 +6,10 @@
 - github.*：monkeypatch（is_merged / has_label / check_status / list_comments / current_login）。
 - time.sleep：watch 循环测试中 monkeypatch，避免真实阻塞。
 
-覆盖：merged→done（优先级最高）；rfc-review 阶段 标签→implement、人类评论→refine_rfc、
-仅 agent 自评论→不触发；coding 阶段 CI→iterate(ci)、人类评论→iterate(comment)；
-仅 open 状态（含 rfc-review）被轮询；watch 循环。
+覆盖：merged→done（优先级最高）；rfc-review 阶段 标签→implement、新评论→refine_rfc
+（不论作者）并把游标推进到回贴后最新评论、游标已越过→不重复触发（防自循环）；
+coding 阶段 CI→iterate(ci)、新评论→iterate(comment)；仅 open 状态（含 rfc-review）
+被轮询；watch 循环。
 """
 
 import time
@@ -162,17 +163,29 @@ def test_rfc_review_human_comment_triggers_refine_and_advances_cursor(monkeypatc
     assert any(e["reason"] == "refine" for e in events)
 
 
-def test_rfc_review_ignores_agent_own_comment(monkeypatch):
-    # agent 自己回贴的「已更新 RFC」评论不应再次触发 refine（决策 6，防自我死循环）。
+def test_rfc_review_refine_advances_cursor_past_agent_reply(monkeypatch):
+    # 决策 6：真人评论（与 agent 同账号也行）触发 refine；refine 回贴「已更新 RFC」后，
+    # 游标推进到该回贴之后，下一轮不再对自己的回贴触发 refine（防自循环）。
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
-    _patch_github(
-        monkeypatch,
-        has_label=False,
-        comments=[_own(body="🤖 已根据评审更新 RFC", created_at="2026-06-03T03:00:00Z")],
-    )
+    # 用 _own（与 agent 同账号）作触发评论，证明不再按作者过滤。
+    comments = [_own(body="补充权衡章节", created_at="2026-06-03T02:00:00Z")]
 
+    def _refine(*, pr_number, detail):
+        orch.refine_calls.append({"pr_number": pr_number, "detail": detail})
+        # 模拟 orchestrator.refine_rfc 回贴一条 agent 自己的说明评论（晚于触发评论）。
+        comments.append(_own(body="🤖 已更新 RFC", created_at="2026-06-03T02:05:00Z"))
+
+    orch.refine_rfc = _refine
+    _patch_github(monkeypatch, has_label=False, comments=comments)
+
+    msgs.poll()
+
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "补充权衡章节"}]
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:05:00Z"
+
+    # 下一轮：所有评论都不晚于游标 → 不重复触发。
+    orch.refine_calls.clear()
     events = msgs.poll()
-
     assert orch.refine_calls == []
     assert events == []
 
@@ -226,8 +239,10 @@ def test_coding_human_comment_triggers_iterate_comment(monkeypatch):
     assert any(e["reason"] == "comment" for e in events)
 
 
-def test_coding_ignores_agent_own_comment(monkeypatch):
+def test_coding_does_not_retrigger_at_or_below_cursor(monkeypatch):
+    # 进入 coding 前游标已越过 rfc-review 阶段 agent 的回贴；不晚于游标的评论不重复触发。
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING)])
+    state.set_cursor(pr_number=5, comment_id="2026-06-03T02:00:00Z")
     _patch_github(monkeypatch, comments=[_own(body="bot note", created_at="2026-06-03T02:00:00Z")])
 
     events = msgs.poll()

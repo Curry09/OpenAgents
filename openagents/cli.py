@@ -105,10 +105,10 @@ def _cmd_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_refine_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0005：取该 PR 最新人类评论作评审意见，精炼 RFC 并回贴说明。
-    detail = _latest_human_comment_body(pr_number=args.pr)
+    # RFC-0005：取该 PR 最新评论作评审意见，精炼 RFC 并回贴说明。
+    detail = _latest_comment_body(pr_number=args.pr)
     if detail is None:
-        print(f"✗ PR #{args.pr} 暂无可用于精炼 RFC 的人类评论", file=sys.stderr)
+        print(f"✗ PR #{args.pr} 暂无可用于精炼 RFC 的评论", file=sys.stderr)
         return 1
     _orchestrator_for(ctx=ctx).refine_rfc(pr_number=args.pr, detail=detail)
     print(f"✓ 已按评审意见精炼 PR #{args.pr} 的 RFC 并回贴说明")
@@ -129,21 +129,21 @@ def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
     if args.reason == "ci":
         detail = "\n".join(github.check_status(pr_number=args.pr).failed_logs)
     else:
-        detail = _latest_human_comment_body(pr_number=args.pr) or ""
+        detail = _latest_comment_body(pr_number=args.pr) or ""
     _orchestrator_for(ctx=ctx).iterate(pr_number=args.pr, reason=args.reason, detail=detail)
     print(f"✓ 已就 PR #{args.pr} 的 {args.reason} 反馈迭代")
     return 0
 
 
-def _latest_human_comment_body(*, pr_number: int) -> str | None:
-    # RFC-0005 决策 6：手动触发时取最新「非 agent 自身」评论作上下文（与 messages 同口径）。
+def _latest_comment_body(*, pr_number: int) -> str | None:
+    # RFC-0005 决策 6：手动触发取最新一条评论作上下文（不按作者过滤——手动由人显式
+    # 发起、无自循环风险；与 messages 自动 poll 同样不再按账号过滤）。
     from openagents import github
 
-    login = github.current_login()
-    humans = [c for c in github.list_comments(pr_number=pr_number) if c.author != login]
-    if not humans:
+    comments = github.list_comments(pr_number=pr_number)
+    if not comments:
         return None
-    return max(humans, key=lambda c: c.created_at).body
+    return max(comments, key=lambda c: c.created_at).body
 
 
 def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:

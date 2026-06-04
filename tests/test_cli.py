@@ -120,7 +120,9 @@ def test_rfc_reports_error_cleanly_without_traceback(monkeypatch, capsys):
 # --------------------------------------------------------------------------- #
 
 
-def test_refine_rfc_fetches_latest_human_comment_and_calls_orchestrator(monkeypatch):
+def test_refine_rfc_fetches_latest_comment_and_calls_orchestrator(monkeypatch):
+    # RFC-0005 决策 6：取最新评论作 detail，不论作者——人与 agent 共用同一账号
+    # （这里最新评论作者与 current_login 同为 agent-bot）时仍能触发。
     _patch_ensure(monkeypatch)
     seen = {}
 
@@ -133,8 +135,10 @@ def test_refine_rfc_fetches_latest_human_comment_and_calls_orchestrator(monkeypa
     monkeypatch.setattr(
         "openagents.github.list_comments",
         lambda *, pr_number: [
-            Comment(id="1", author="agent-bot", body="bot", created_at="2026-06-03T01:00:00Z"),
-            Comment(id="2", author="alice", body="改 RFC 设计", created_at="2026-06-03T02:00:00Z"),
+            Comment(id="1", author="alice", body="旧评论", created_at="2026-06-03T01:00:00Z"),
+            Comment(
+                id="2", author="agent-bot", body="改 RFC 设计", created_at="2026-06-03T02:00:00Z"
+            ),
         ],
     )
 
@@ -143,21 +147,16 @@ def test_refine_rfc_fetches_latest_human_comment_and_calls_orchestrator(monkeypa
     assert seen == {"pr_number": 9, "detail": "改 RFC 设计"}
 
 
-def test_refine_rfc_without_human_comment_returns_nonzero(monkeypatch, capsys):
+def test_refine_rfc_without_any_comment_returns_nonzero(monkeypatch, capsys):
+    # RFC-0005 决策 6：不再按作者过滤；仅当 PR 上完全没有评论时才报错退出。
     _patch_ensure(monkeypatch)
 
     class _FakeOrch:
         def refine_rfc(self, *, pr_number, detail):
-            raise AssertionError("无人类评论时不应调用 refine_rfc")
+            raise AssertionError("无评论时不应调用 refine_rfc")
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
-    monkeypatch.setattr("openagents.github.current_login", lambda: "agent-bot")
-    monkeypatch.setattr(
-        "openagents.github.list_comments",
-        lambda *, pr_number: [
-            Comment(id="1", author="agent-bot", body="bot", created_at="2026-06-03T01:00:00Z")
-        ],
-    )
+    monkeypatch.setattr("openagents.github.list_comments", lambda *, pr_number: [])
 
     code = main(["refine-rfc", "9"])
     assert code == 1
