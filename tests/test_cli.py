@@ -260,10 +260,12 @@ def test_issue_runs_preflight_then_creates_issue(monkeypatch):
     code = main(["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1"])
     assert code == 0
     assert calls == [True]
-    assert seen == {"title": "Login broken", "body": "repro", "labels": ["bug", "p1"]}
+    # RFC-0002 决策 5：用户标签之外总会追加发现标签 openagents（去重）。
+    assert seen == {"title": "Login broken", "body": "repro", "labels": ["bug", "p1", "openagents"]}
 
 
-def test_issue_defaults_empty_body_and_labels(monkeypatch):
+def test_issue_defaults_empty_body_and_attaches_discovery_label(monkeypatch):
+    # RFC-0002 决策 5：不传 --label 时，issue 仍自动带上 openagents 标签（供 vigil 发现）。
     _patch_ensure(monkeypatch)
     seen = {}
 
@@ -274,7 +276,22 @@ def test_issue_defaults_empty_body_and_labels(monkeypatch):
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
     code = main(["issue", "Just a title"])
     assert code == 0
-    assert seen == {"title": "Just a title", "body": "", "labels": []}
+    assert seen == {"title": "Just a title", "body": "", "labels": ["openagents"]}
+
+
+def test_issue_does_not_duplicate_discovery_label(monkeypatch):
+    # RFC-0002 决策 5：用户显式传 openagents 时不重复，且保留出现顺序。
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_create_issue(*, title, body, labels):
+        seen.update(labels=labels)
+        return Issue(number=2, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "T", "--label", "openagents", "--label", "bug"])
+    assert code == 0
+    assert seen == {"labels": ["openagents", "bug"]}
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):
