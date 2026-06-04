@@ -22,6 +22,8 @@ from openagents.github import PR
 
 # 状态机取值（决策 8：PR 被 merge 时置 done）。
 STATUS_SOLVING = "solving"
+# RFC-0005：PR 为 draft、承载 RFC、待人评审/批准的阶段。
+STATUS_RFC_REVIEW = "rfc-review"
 STATUS_PR_OPEN = "pr-open"
 STATUS_ITERATING = "iterating"
 STATUS_DONE = "done"
@@ -31,7 +33,7 @@ STATUS_DONE = "done"
 class RunRecord:
     """一条 issue → agent run 的状态记录（RFC-0001 接口契约）。
 
-    status ∈ {solving, pr-open, iterating, done}。
+    status ∈ {solving, rfc-review, pr-open, iterating, done}（rfc-review 为 RFC-0005 新增）。
     """
 
     issue_number: int
@@ -101,14 +103,17 @@ class State:
                 record["status"] = status
         self._save(data=data)
 
-    def get_cursor(self, *, pr_number: int) -> int | None:
-        """RFC-0001 T4：读某 PR 已处理到的最后 comment id（决策 5 游标）。"""
-        data = self._load()
-        value = data["cursors"].get(str(pr_number))
-        return int(value) if value is not None else None
+    def get_cursor(self, *, pr_number: int) -> str | None:
+        """RFC-0001 T4：读某 PR 已处理到的游标（RFC-0005：comment 的 created_at）。
 
-    def set_cursor(self, *, pr_number: int, comment_id: int) -> None:
-        """RFC-0001 T4：推进某 PR 的 comment 游标。"""
+        RFC-0005 决策 6：comment id 是 node id 字符串、不可排序，故游标存 created_at
+        （ISO 8601，字典序即时间序），原样返回不做类型强转。
+        """
+        data = self._load()
+        return data["cursors"].get(str(pr_number))
+
+    def set_cursor(self, *, pr_number: int, comment_id: str) -> None:
+        """RFC-0001 T4：推进某 PR 的 comment 游标（RFC-0005：存 created_at 字符串）。"""
         data = self._load()
         data["cursors"][str(pr_number)] = comment_id
         self._save(data=data)

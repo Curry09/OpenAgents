@@ -1,4 +1,7 @@
-"""RFC-0001 T1: CLI 子命令注册与 preflight 调用的契约测试。"""
+"""RFC-0001 T1 + RFC-0005: CLI 子命令注册与分发的契约测试。
+
+RFC-0005：solve 已移除，改为 rfc / refine-rfc / implement / iterate 四个原子步骤。
+"""
 
 from pathlib import Path
 
@@ -6,9 +9,9 @@ import pytest
 
 from openagents.cli import build_parser, main
 from openagents.config import ProjectContext
-from openagents.github import Issue
+from openagents.github import Comment, Issue
 
-COMMANDS = ["init", "solve", "issue", "poll", "watch", "board"]
+COMMANDS = ["init", "rfc", "refine-rfc", "implement", "iterate", "issue", "poll", "watch", "board"]
 
 
 def test_parser_registers_all_subcommands():
@@ -16,6 +19,12 @@ def test_parser_registers_all_subcommands():
     subparsers = next(a for a in parser._actions if getattr(a, "choices", None))
     for cmd in COMMANDS:
         assert cmd in subparsers.choices
+
+
+def test_solve_command_removed():
+    parser = build_parser()
+    subparsers = next(a for a in parser._actions if getattr(a, "choices", None))
+    assert "solve" not in subparsers.choices
 
 
 def test_help_exits_zero_and_lists_commands(capsys):
@@ -54,49 +63,51 @@ class _FakePR:
     url = "https://github.com/x/y/pull/9"
 
 
-def test_solve_runs_preflight_then_opens_pr(monkeypatch):
+# --------------------------------------------------------------------------- #
+# rfc
+# --------------------------------------------------------------------------- #
+
+
+def test_rfc_runs_preflight_then_opens_draft_pr(monkeypatch):
     calls = _patch_ensure(monkeypatch)
 
     class _FakeOrch:
-        def solve(self, *, issue_number, base):
+        def start_rfc(self, *, issue_number, base):
             assert issue_number == 1
-            # RFC-0003：未传 --base 时默认 main。
             assert base == "main"
             return _FakePR()
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
-    code = main(["solve", "1"])
+    code = main(["rfc", "1"])
     assert code == 0
     assert calls == [True]
 
 
-def test_solve_passes_base_override(monkeypatch):
-    # RFC-0003 决策 3：--base 透传给 Orchestrator.solve。
+def test_rfc_passes_base_override(monkeypatch):
     _patch_ensure(monkeypatch)
     seen = {}
 
     class _FakeOrch:
-        def solve(self, *, issue_number, base):
+        def start_rfc(self, *, issue_number, base):
             seen.update(issue_number=issue_number, base=base)
             return _FakePR()
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
-    code = main(["solve", "7", "--base", "dev"])
+    code = main(["rfc", "7", "--base", "dev"])
     assert code == 0
     assert seen == {"issue_number": 7, "base": "dev"}
 
 
-def test_solve_reports_error_cleanly_without_traceback(monkeypatch, capsys):
-    # RFC-0003 决策 9：业务异常转成干净的一行提示 + 非零退出，不吐 traceback。
+def test_rfc_reports_error_cleanly_without_traceback(monkeypatch, capsys):
     _patch_ensure(monkeypatch)
     from openagents.orchestrator import OrchestratorError
 
     class _Boom:
-        def solve(self, *, issue_number, base):
+        def start_rfc(self, *, issue_number, base):
             raise OrchestratorError("push 被拒：non-fast-forward")
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _Boom())
-    code = main(["solve", "3"])
+    code = main(["rfc", "3"])
 
     assert code == 1
     err = capsys.readouterr().err
@@ -104,8 +115,129 @@ def test_solve_reports_error_cleanly_without_traceback(monkeypatch, capsys):
     assert "non-fast-forward" in err
 
 
+# --------------------------------------------------------------------------- #
+# refine-rfc
+# --------------------------------------------------------------------------- #
+
+
+def test_refine_rfc_fetches_latest_comment_and_calls_orchestrator(monkeypatch):
+    # RFC-0005 决策 6：取最新评论作 detail，不论作者——人与 agent 共用同一账号
+    # （这里最新评论作者与 current_login 同为 agent-bot）时仍能触发。
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def refine_rfc(self, *, pr_number, detail):
+            seen.update(pr_number=pr_number, detail=detail)
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.github.current_login", lambda: "agent-bot")
+    monkeypatch.setattr(
+        "openagents.github.list_comments",
+        lambda *, pr_number: [
+            Comment(id="1", author="alice", body="旧评论", created_at="2026-06-03T01:00:00Z"),
+            Comment(
+                id="2", author="agent-bot", body="改 RFC 设计", created_at="2026-06-03T02:00:00Z"
+            ),
+        ],
+    )
+
+    code = main(["refine-rfc", "9"])
+    assert code == 0
+    assert seen == {"pr_number": 9, "detail": "改 RFC 设计"}
+
+
+def test_refine_rfc_without_any_comment_returns_nonzero(monkeypatch, capsys):
+    # RFC-0005 决策 6：不再按作者过滤；仅当 PR 上完全没有评论时才报错退出。
+    _patch_ensure(monkeypatch)
+
+    class _FakeOrch:
+        def refine_rfc(self, *, pr_number, detail):
+            raise AssertionError("无评论时不应调用 refine_rfc")
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.github.list_comments", lambda *, pr_number: [])
+
+    code = main(["refine-rfc", "9"])
+    assert code == 1
+    assert "✗" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# implement
+# --------------------------------------------------------------------------- #
+
+
+def test_implement_calls_orchestrator(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def implement(self, *, pr_number):
+            seen.update(pr_number=pr_number)
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    code = main(["implement", "9"])
+    assert code == 0
+    assert seen == {"pr_number": 9}
+
+
+# --------------------------------------------------------------------------- #
+# iterate
+# --------------------------------------------------------------------------- #
+
+
+def test_iterate_comment_fetches_latest_human_comment(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def iterate(self, *, pr_number, reason, detail):
+            seen.update(pr_number=pr_number, reason=reason, detail=detail)
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.github.current_login", lambda: "agent-bot")
+    monkeypatch.setattr(
+        "openagents.github.list_comments",
+        lambda *, pr_number: [
+            Comment(id="2", author="alice", body="修一下", created_at="2026-06-03T02:00:00Z")
+        ],
+    )
+
+    code = main(["iterate", "9"])
+    assert code == 0
+    assert seen == {"pr_number": 9, "reason": "comment", "detail": "修一下"}
+
+
+def test_iterate_ci_uses_check_status(monkeypatch):
+    from openagents.github import CheckStatus
+
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def iterate(self, *, pr_number, reason, detail):
+            seen.update(pr_number=pr_number, reason=reason, detail=detail)
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr(
+        "openagents.github.check_status",
+        lambda *, pr_number: CheckStatus(state="fail", failed_logs=["lint [FAILURE] http://x"]),
+    )
+
+    code = main(["iterate", "9", "--reason", "ci"])
+    assert code == 0
+    assert seen["pr_number"] == 9
+    assert seen["reason"] == "ci"
+    assert "lint" in seen["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# issue / poll / init / board（既有，保持）
+# --------------------------------------------------------------------------- #
+
+
 def test_issue_runs_preflight_then_creates_issue(monkeypatch):
-    # RFC-0002 T2：issue 命令先跑 preflight，再把 title/body/labels 透传给 github.create_issue。
     calls = _patch_ensure(monkeypatch)
     seen = {}
 
