@@ -27,13 +27,17 @@ STATUS_RFC_REVIEW = "rfc-review"
 STATUS_PR_OPEN = "pr-open"
 STATUS_ITERATING = "iterating"
 STATUS_DONE = "done"
+# RFC-0006：PR 被关闭但未合并的终态（人主动放弃）；不在 messages._OPEN_STATUSES 内，
+# 故置 closed 后该 run 不再被守夜人轮询处理。与 done（合并成功）语义相反。
+STATUS_CLOSED = "closed"
 
 
 @dataclass
 class RunRecord:
     """一条 issue → agent run 的状态记录（RFC-0001 接口契约）。
 
-    status ∈ {solving, rfc-review, pr-open, iterating, done}（rfc-review 为 RFC-0005 新增）。
+    status ∈ {solving, rfc-review, pr-open, iterating, done, closed}
+    （rfc-review 为 RFC-0005 新增；closed 为 RFC-0006 新增——PR 关闭未合并的终态）。
     """
 
     issue_number: int
