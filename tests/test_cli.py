@@ -256,6 +256,7 @@ def test_issue_runs_preflight_then_creates_issue(monkeypatch):
         seen.update(title=title, body=body, labels=labels)
         return Issue(number=13, title=title, body=body)
 
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
     code = main(["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1"])
     assert code == 0
@@ -273,6 +274,7 @@ def test_issue_defaults_empty_body_and_attaches_discovery_label(monkeypatch):
         seen.update(title=title, body=body, labels=labels)
         return Issue(number=1, title=title, body=body)
 
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
     code = main(["issue", "Just a title"])
     assert code == 0
@@ -288,10 +290,31 @@ def test_issue_does_not_duplicate_discovery_label(monkeypatch):
         seen.update(labels=labels)
         return Issue(number=2, title=title, body=body)
 
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
     code = main(["issue", "T", "--label", "openagents", "--label", "bug"])
     assert code == 0
     assert seen == {"labels": ["openagents", "bug"]}
+
+
+def test_issue_ensures_discovery_label_before_create(monkeypatch):
+    # RFC-0002 决策 6：create_issue 前先 ensure_label(openagents)，否则 gh 报 label not found。
+    _patch_ensure(monkeypatch)
+    order = []
+
+    monkeypatch.setattr(
+        "openagents.github.ensure_label", lambda *, name: order.append(("ensure", name))
+    )
+
+    def fake_create_issue(*, title, body, labels):
+        order.append(("create", labels))
+        return Issue(number=5, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "测试"])
+    assert code == 0
+    # ensure 必须发生在 create 之前，且确保的是发现标签。
+    assert order == [("ensure", "openagents"), ("create", ["openagents"])]
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):

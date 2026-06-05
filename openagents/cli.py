@@ -188,6 +188,8 @@ def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0002 决策 5：在用户标签之外追加发现标签并去重（保留出现顺序），
     # 使 openagents 自己提的 issue 总能被守夜人发现。dict.fromkeys 既去重又保序。
     labels = list(dict.fromkeys([*args.label, DISCOVERY_LABEL]))
+    # RFC-0002 决策 6：gh issue create --label 要求标签预先存在，先确保发现标签已建。
+    github.ensure_label(name=DISCOVERY_LABEL)
     issue = github.create_issue(title=args.title, body=args.body, labels=labels)
     print(f"✓ 已创建 issue #{issue.number}：{issue.title}")
     return 0

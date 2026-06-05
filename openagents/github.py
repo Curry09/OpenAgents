@@ -172,6 +172,25 @@ def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
     return Issue(number=number, title=title, body=body)
 
 
+def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> None:
+    """RFC-0002 决策 6：确保仓库存在名为 name 的标签，供 `gh issue create --label` 使用。
+
+    `gh issue create --label <L>` 要求 <L> 预先存在，否则报 "could not add label: ... not found"。
+    既然决策 5 强制附加发现标签 openagents，提 issue 前先确保它存在：不存在则 `gh label create`
+    创建；已存在时 gh 以非零退出并报 "already exists"——吞掉视为成功，**不覆盖**既有颜色/描述
+    （与 check_status 吞 "no checks reported" 同一容错风格）。其它 gh 错误照常抛 GithubError。
+    """
+    try:
+        _run_gh(
+            ["label", "create", name, "--color", color, "--description", description],
+            allow_returncodes=set(),
+        )
+    except GithubError as exc:
+        if "already exists" in str(exc).lower():
+            return
+        raise
+
+
 def create_pr(*, branch: str, title: str, body: str, draft: bool = False) -> PR:
     """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。
 

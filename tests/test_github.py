@@ -21,6 +21,7 @@ from openagents.github import (
     create_pr,
     create_repo,
     current_login,
+    ensure_label,
     find_pr_by_branch,
     get_issue,
     has_label,
@@ -173,6 +174,38 @@ def test_create_issue_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="label not found"))
     with pytest.raises(GithubError):
         create_issue(title="T", body="b", labels=["nope"])
+
+
+# --------------------------------------------------------------------------- #
+# ensure_label（RFC-0002 决策 6：提 issue 前确保发现标签存在）
+# --------------------------------------------------------------------------- #
+
+
+def test_ensure_label_creates_when_missing(monkeypatch):
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    ensure_label(name="openagents")
+
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "label", "create"]
+    assert "openagents" in cmd
+
+
+def test_ensure_label_ignores_already_exists(monkeypatch):
+    # gh label create 在标签已存在时以非零退出并报 "already exists" → 视为成功，不抛、不覆盖。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(returncode=1, stderr="label with name openagents already exists; use `--force`"),
+    )
+    ensure_label(name="openagents")  # 不应抛异常
+
+
+def test_ensure_label_reraises_other_errors(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="HTTP 500 server error"))
+    with pytest.raises(GithubError):
+        ensure_label(name="openagents")
 
 
 # --------------------------------------------------------------------------- #
