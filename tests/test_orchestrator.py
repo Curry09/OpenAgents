@@ -52,6 +52,29 @@ class _GitRecorder:
         return _Proc()
 
 
+class _FakeWorkspace:
+    """记录 prepare / ensure / commit_and_push 调用的伪 Workspace（RFC-0007 T2）。
+
+    用于断言 fresh 走 prepare、resume 走 ensure，二者都不走对方的路径。
+    """
+
+    def __init__(self, *, root):
+        self.prepare_calls = []
+        self.ensure_calls = []
+        self._root = root
+
+    def prepare(self, *, issue_number, branch, base):
+        self.prepare_calls.append({"issue_number": issue_number, "branch": branch, "base": base})
+        return self._root / f"issue-{issue_number}"
+
+    def ensure(self, *, issue_number, branch):
+        self.ensure_calls.append({"issue_number": issue_number, "branch": branch})
+        return self._root / f"issue-{issue_number}"
+
+    def commit_and_push(self, *, worktree, branch, message):
+        pass
+
+
 def _make(tmp_path, *, backend=None):
     backend = backend or _FakeBackend()
     state = State(path=tmp_path / ".openagents" / "state.json")
@@ -134,6 +157,91 @@ def test_start_rfc_drafts_from_origin_base_and_commits_docs(tmp_path, monkeypatc
     assert any("worktree add -b openagents/issue-3" in c and "origin/main" in c for c in joined)
     commit_cmds = [c for c in recorder.commands if "commit" in c]
     assert commit_cmds and "docs" in " ".join(commit_cmds[0])
+
+
+def test_start_rfc_writes_rfc_review_in_single_record_run(tmp_path, monkeypatch):
+    # RFC-0007 T2/决策 4：末态一次写成 rfc-review（带 pr），不再有随后的 update_status，
+    # 故全程不出现瞬态 pr-open。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _patch_get_issue(monkeypatch)
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+    )
+    statuses = []
+    orig_record = state.record_run
+    orig_update = state.update_status
+
+    def _spy_record(**kwargs):
+        statuses.append(("record_run", kwargs.get("status")))
+        return orig_record(**kwargs)
+
+    def _spy_update(**kwargs):
+        statuses.append(("update_status", kwargs.get("status")))
+        return orig_update(**kwargs)
+
+    monkeypatch.setattr(state, "record_run", _spy_record)
+    monkeypatch.setattr(state, "update_status", _spy_update)
+
+    orch.start_rfc(issue_number=3)
+
+    # 唯一一次状态写入是 record_run(status=rfc-review)；没有任何 update_status 调用。
+    assert statuses == [("record_run", "rfc-review")]
+    assert state.all_runs()[0].status == "rfc-review"
+
+
+def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
+    # RFC-0007 T2：resume=False 走 prepare（建全新 worktree）并 begin_run（落 solving/pr=0）。
+    orch, backend, state = _make(tmp_path)
+    fake_ws = _FakeWorkspace(root=tmp_path)
+    orch._workspace = fake_ws
+    _patch_get_issue(monkeypatch)
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+    )
+    begin_calls = []
+    monkeypatch.setattr(
+        state, "begin_run", lambda *, issue_number, branch: begin_calls.append(issue_number)
+    )
+
+    orch.start_rfc(issue_number=3, resume=False)
+
+    assert fake_ws.prepare_calls == [
+        {"issue_number": 3, "branch": "openagents/issue-3", "base": "main"}
+    ]
+    assert fake_ws.ensure_calls == []
+    assert begin_calls == [3]
+
+
+def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, monkeypatch):
+    # RFC-0007 T2/决策 2：resume=True 走 ensure（复用残留 worktree），不调 prepare、不调 begin_run。
+    orch, backend, state = _make(tmp_path)
+    fake_ws = _FakeWorkspace(root=tmp_path)
+    orch._workspace = fake_ws
+    _patch_get_issue(monkeypatch)
+    monkeypatch.setattr(
+        orch_module.github,
+        "create_pr",
+        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+    )
+    begin_calls = []
+    monkeypatch.setattr(
+        state, "begin_run", lambda *, issue_number, branch: begin_calls.append(issue_number)
+    )
+
+    pr = orch.start_rfc(issue_number=3, resume=True)
+
+    assert fake_ws.ensure_calls == [{"issue_number": 3, "branch": "openagents/issue-3"}]
+    assert fake_ws.prepare_calls == []
+    assert begin_calls == []
+    # 恢复路径同样以一次写成的 rfc-review（带 pr）收尾。
+    assert pr.number == 5
+    assert state.all_runs()[0].status == "rfc-review"
+    assert state.all_runs()[0].pr_number == 5
 
 
 # --------------------------------------------------------------------------- #

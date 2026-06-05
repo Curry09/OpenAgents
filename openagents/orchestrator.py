@@ -72,19 +72,33 @@ class Orchestrator:
         self._workspace = Workspace(work_dir=work_dir)
 
     # --- 原子操作 1：起草 RFC（开 draft PR）------------------------------- #
-    def start_rfc(self, *, issue_number: int, base: str = DEFAULT_BASE) -> github.PR:
-        """RFC-0005：拉 issue → 建隔离 worktree → 后端起草 RFC → 开 draft PR，状态 rfc-review。
+    def start_rfc(
+        self, *, issue_number: int, base: str = DEFAULT_BASE, resume: bool = False
+    ) -> github.PR:
+        """RFC-0005 / RFC-0007：拉 issue → 确保 worktree → 后端起草 RFC → 开 draft PR，状态 rfc-review。
 
         base：分支基线（默认 main，决策 2/3）。返回该 issue 绑定的 draft PR。
+
+        RFC-0007 决策 2/3：resume 形参把 fresh / 恢复 两种入口收敛到同一尾段。
+        - resume=False（fresh）：workspace.prepare 建全新隔离 worktree + begin_run 落 solving/pr=0。
+        - resume=True （恢复）：workspace.ensure 复用崩溃残留的 worktree（保留半成品草稿），
+          不调 prepare（避免铲掉进度）、不调 begin_run（solving 记录已存在）。
+        fresh / resume 的判定下沉到 vigil 发现段；本方法不读 State，只按显式 resume 形参选择路径
+        （保持原子操作「无隐藏状态读」的可单测特性）。
         """
         self._progress(message=f"▶ 拉取 issue #{issue_number} …")
         issue = github.get_issue(number=issue_number)
         branch = f"{_BRANCH_PREFIX}{issue_number}"
 
-        self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
-        worktree = self._workspace.prepare(issue_number=issue_number, branch=branch, base=base)
-        # 进入即记 run（PR 尚未开），崩溃后可据此恢复定位。
-        self._state.begin_run(issue_number=issue_number, branch=branch)
+        if resume:
+            # RFC-0007 决策 2：复用崩溃残留 worktree，接着断点继续，不重写 begin_run。
+            self._progress(message=f"▶ 恢复孤儿 run：复用 issue #{issue_number} 既有 worktree …")
+            worktree = self._workspace.ensure(issue_number=issue_number, branch=branch)
+        else:
+            self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
+            worktree = self._workspace.prepare(issue_number=issue_number, branch=branch, base=base)
+            # 进入即记 run（PR 尚未开），崩溃后可据此恢复定位。
+            self._state.begin_run(issue_number=issue_number, branch=branch)
 
         self._progress(message="▶ 调起后端起草 RFC（可能需要几分钟）…")
         self._backend.run(
@@ -106,9 +120,11 @@ class Orchestrator:
             body=self._pr_body(issue_number=issue.number, summary="RFC 草稿待评审。"),
             draft=True,
         )
-        # record_run 先登记为 pr-open，再翻到 rfc-review（draft 阶段）。
-        self._state.record_run(issue_number=issue.number, branch=branch, pr=pr)
-        self._state.update_status(issue_number=issue.number, status=STATUS_RFC_REVIEW)
+        # RFC-0007 决策 4：一次写成带 pr 的 rfc-review，消除原 record_run(pr-open)→update_status
+        # 两次写之间的瞬态 pr-open 窗口（否则恰被 poll 扫到会误当 coding 阶段处理）。
+        self._state.record_run(
+            issue_number=issue.number, branch=branch, pr=pr, status=STATUS_RFC_REVIEW
+        )
         return pr
 
     # --- 原子操作 2：按评审精炼 RFC -------------------------------------- #

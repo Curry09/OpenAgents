@@ -80,8 +80,16 @@ class State:
         data["runs"] = runs
         self._save(data=data)
 
-    def record_run(self, *, issue_number: int, branch: str, pr: PR) -> None:
-        """RFC-0001 T4：登记一条 run，状态为 pr-open（PR 已开）；按 issue 去重覆盖。"""
+    def record_run(
+        self, *, issue_number: int, branch: str, pr: PR, status: str = STATUS_PR_OPEN
+    ) -> None:
+        """RFC-0001 T4 / RFC-0007 T1：一次 _save 落盘一条带 pr_number/pr_url 的 run；按 issue 去重覆盖。
+
+        RFC-0007 决策 4：新增 status 形参（默认 pr-open，既有调用方/测试夹具行为不变）。
+        start_rfc 传 status=STATUS_RFC_REVIEW，使「开 PR + 翻到 rfc-review」一次写成，
+        消除原 record_run(pr-open) → update_status(rfc-review) 两次写之间的瞬态 pr-open 窗口
+        （否则恰被 poll 扫到会把 draft RFC 误当 coding 阶段处理）。
+        """
         data = self._load()
         runs = [r for r in data["runs"] if r["issue_number"] != issue_number]
         runs.append(
@@ -91,7 +99,7 @@ class State:
                     branch=branch,
                     pr_number=pr.number,
                     pr_url=pr.url,
-                    status=STATUS_PR_OPEN,
+                    status=status,
                     summary="",
                 )
             )
@@ -135,7 +143,11 @@ class State:
         return None
 
     def find_by_issue(self, *, issue_number: int) -> RunRecord | None:
-        """RFC-0003 决策 7：按 issue number 反查 run（供 solve 分流 fresh / resume）。"""
+        """RFC-0003 决策 7 / RFC-0007 决策 3：按 issue number 反查 run（供发现段分流 fresh / resume）。
+
+        RFC-0005 删除了原 solve 里的 reader（_should_resume），此 reader 退化为去重闸；
+        RFC-0007 把它重新归位为 vigil 发现段的分流依据（无 run→fresh、solving/pr=0→resume）。
+        """
         for record in self.all_runs():
             if record.issue_number == issue_number:
                 return record
