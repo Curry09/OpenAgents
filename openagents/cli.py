@@ -19,6 +19,11 @@ from pathlib import Path
 
 from openagents.config import ProjectContext, ensure_project, resolve_project
 
+# RFC-0002 决策 5 / RFC-0004 决策 2：发现标签——单一真源。
+# `openagents issue` 提 issue 时自动附加它（使 issue 可被发现），vigil 发现段默认按它门控；
+# 两端共用同一常量，保证「提 issue 用的标签」与「vigil 发现用的标签」永远一致。
+DISCOVERY_LABEL = "openagents"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -52,7 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_issue.add_argument("title", help="issue 标题")
     p_issue.add_argument("--body", default="", help="issue 正文，默认空")
     p_issue.add_argument(
-        "--label", action="append", default=[], metavar="LABEL", help="给 issue 打标签（可重复）"
+        "--label",
+        action="append",
+        default=[],
+        metavar="LABEL",
+        help=f"给 issue 打标签（可重复）；总会附带发现标签 {DISCOVERY_LABEL!r}（决策 5）",
     )
 
     sub.add_parser("poll", help="拉取并处理所有 PR 的新评论（一次性）")
@@ -176,7 +185,12 @@ def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0002 T2：把 title/body/labels 透传给 github 层提 issue（决策 1）。
     from openagents import github
 
-    issue = github.create_issue(title=args.title, body=args.body, labels=args.label)
+    # RFC-0002 决策 5：在用户标签之外追加发现标签并去重（保留出现顺序），
+    # 使 openagents 自己提的 issue 总能被守夜人发现。dict.fromkeys 既去重又保序。
+    labels = list(dict.fromkeys([*args.label, DISCOVERY_LABEL]))
+    # RFC-0002 决策 6：gh issue create --label 要求标签预先存在，先确保发现标签已建。
+    github.ensure_label(name=DISCOVERY_LABEL)
+    issue = github.create_issue(title=args.title, body=args.body, labels=labels)
     print(f"✓ 已创建 issue #{issue.number}：{issue.title}")
     return 0
 
@@ -195,8 +209,8 @@ def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0004：守夜人主循环。--label 缺省回落到 ["openagents"]（决策 2）。
-    labels = args.label if args.label else ["openagents"]
+    # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
+    labels = args.label if args.label else [DISCOVERY_LABEL]
     _vigil_for(ctx=ctx).run(interval=args.interval, labels=labels, base=args.base, once=args.once)
     return 0
 
