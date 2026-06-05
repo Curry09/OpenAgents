@@ -10,12 +10,17 @@ from dataclasses import dataclass
 
 import pytest
 
+from openagents import github as ghmod
 from openagents.github import (
+    _GH_RETRY_BACKOFF_BASE,
+    _GH_RETRY_MAX_ATTEMPTS,
     PR,
     CheckStatus,
     Comment,
     GithubError,
     Issue,
+    _is_transient_gh_error,
+    _run_gh,
     check_status,
     create_issue,
     create_pr,
@@ -50,6 +55,26 @@ def _fake_run(*, returncode=0, stdout="", stderr=""):
     def runner(args, **kwargs):
         calls.append(list(args))
         return _FakeProc(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    runner.calls = calls
+    return runner
+
+
+def _fake_run_sequence(results):
+    """subprocess.run 替身：按序返回 results 中每一项，耗尽后重复最后一项。
+
+    每项为 _FakeProc → 返回该进程；为 BaseException 实例 → 抛出（用于注入
+    subprocess.TimeoutExpired）。记录每次调用的参数到 .calls，供断言重试次数。
+    """
+    calls: list[list[str]] = []
+    seq = list(results)
+
+    def runner(args, **kwargs):
+        calls.append(list(args))
+        item = seq[len(calls) - 1] if len(calls) <= len(seq) else seq[-1]
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
     runner.calls = calls
     return runner
@@ -683,3 +708,125 @@ def test_list_issues_gh_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
     with pytest.raises(GithubError):
         list_issues(labels=[])
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0010 T1：_run_gh 瞬时错误重试 + 指数退避
+# --------------------------------------------------------------------------- #
+
+
+def test_is_transient_gh_error_hits_server_markers():
+    # 各服务端瞬时故障标记串（大小写无关）均应判为瞬时。
+    for stderr in (
+        "HTTP 502 Bad Gateway",
+        "HTTP 503",
+        "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)",
+        "Gateway Timeout",
+        "Bad Gateway",
+        "Service Unavailable",
+    ):
+        assert _is_transient_gh_error(stderr=stderr) is True
+
+
+def test_is_transient_gh_error_misses_business_errors():
+    # 业务错误绝不算瞬时——否则会把确定性失败反复重试（决策 2）。
+    for stderr in ("pull request not found", "no checks reported", "", "label already exists"):
+        assert _is_transient_gh_error(stderr=stderr) is False
+
+
+def test_run_gh_retries_transient_then_succeeds(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
+    runner = _fake_run_sequence(
+        [
+            _FakeProc(returncode=1, stderr="HTTP 504: 504 Gateway Timeout"),
+            _FakeProc(returncode=0, stdout="ok"),
+        ]
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    result = _run_gh(["pr", "checks", "1"], allow_returncodes=set())
+
+    assert result.stdout == "ok"
+    assert len(runner.calls) == 2  # 首败 + 次成
+    assert len(sleeps) == 1  # 仅一次退避
+
+
+def test_run_gh_exhausts_retries_then_raises(monkeypatch):
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: None)
+    runner = _fake_run_sequence([_FakeProc(returncode=1, stderr="HTTP 503 Service Unavailable")])
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    with pytest.raises(GithubError):
+        _run_gh(["pr", "checks", "1"], allow_returncodes=set())
+
+    assert len(runner.calls) == _GH_RETRY_MAX_ATTEMPTS  # 持续瞬时失败 → 尝试到上限
+
+
+def test_run_gh_backoff_is_exponential(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
+    runner = _fake_run_sequence([_FakeProc(returncode=1, stderr="HTTP 504")])
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    with pytest.raises(GithubError):
+        _run_gh(["pr", "checks", "1"], allow_returncodes=set())
+
+    # 3 次尝试 → 2 次退避：base·2^0、base·2^1。
+    assert sleeps == [_GH_RETRY_BACKOFF_BASE, _GH_RETRY_BACKOFF_BASE * 2]
+
+
+def test_run_gh_timeout_is_retried_then_normalized(monkeypatch):
+    # subprocess.TimeoutExpired 视为瞬时、重试；耗尽后归一化为 GithubError（非 TimeoutExpired）。
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: None)
+    runner = _fake_run_sequence([subprocess.TimeoutExpired(cmd="gh", timeout=30)])
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    with pytest.raises(GithubError):
+        _run_gh(["pr", "checks", "1"], allow_returncodes=set())
+
+    assert len(runner.calls) == _GH_RETRY_MAX_ATTEMPTS
+
+
+def test_run_gh_timeout_then_success(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
+    runner = _fake_run_sequence(
+        [
+            subprocess.TimeoutExpired(cmd="gh", timeout=30),
+            _FakeProc(returncode=0, stdout="ok"),
+        ]
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    result = _run_gh(["pr", "checks", "1"], allow_returncodes=set())
+
+    assert result.stdout == "ok"
+    assert len(sleeps) == 1
+
+
+def test_run_gh_non_transient_error_not_retried(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
+    runner = _fake_run_sequence([_FakeProc(returncode=1, stderr="pull request not found")])
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    with pytest.raises(GithubError):
+        _run_gh(["pr", "view", "1"], allow_returncodes=set())
+
+    assert len(runner.calls) == 1  # 业务错误立即抛、不重试
+    assert sleeps == []
+
+
+def test_run_gh_allow_returncode_not_retried(monkeypatch):
+    # allow_returncodes 放行的退出码（如 pending=8）不触发重试，行为与现状一致。
+    sleeps: list[float] = []
+    monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
+    runner = _fake_run_sequence([_FakeProc(returncode=8, stdout="[]")])
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    result = _run_gh(["pr", "checks", "1"], allow_returncodes={8})
+
+    assert result.returncode == 8
+    assert len(runner.calls) == 1
+    assert sleeps == []

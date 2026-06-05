@@ -1,6 +1,6 @@
 # RFC-0010: gh 瞬时错误重试 + 守夜循环单轮容错
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `reliability`, `cli`, `resilience`
 - **影响模块**: `openagents/github.py`、`openagents/vigil.py`
@@ -233,8 +233,8 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | `_run_gh` 瞬时错误重试 + 指数退避 | - | `openagents/github.py`、`tests/test_github.py` | pending |
-| T2 | `vigil.run` 单轮 try/except 兜底 | - | `openagents/vigil.py`、`tests/test_vigil.py` | pending |
+| T1 | `_run_gh` 瞬时错误重试 + 指数退避 | - | `openagents/github.py`、`tests/test_github.py` | implemented |
+| T2 | `vigil.run` 单轮 try/except 兜底 | - | `openagents/vigil.py`、`tests/test_vigil.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 

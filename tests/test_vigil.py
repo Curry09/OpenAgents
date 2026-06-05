@@ -7,8 +7,10 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from openagents import github, vigil
-from openagents.github import Issue
+from openagents.github import GithubError, Issue
 from openagents.orchestrator import OrchestratorError
 from openagents.state import STATUS_SOLVING, RunRecord
 from openagents.vigil import Vigil
@@ -250,3 +252,84 @@ def test_run_keyboard_interrupt_during_work_is_clean(monkeypatch):
     monkeypatch.setattr(github, "list_issues", boom)
 
     _vigil().run(interval=5, labels=["openagents"], base="main", once=False)
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0010 T2：run 单轮 try/except 兜底（长驻吞异常续命 / once 上抛）
+# --------------------------------------------------------------------------- #
+
+
+def test_run_long_running_swallows_round_failure_and_continues(monkeypatch, capsys):
+    # 长驻模式：第一轮 list_issues 抛 GithubError → 记日志、不崩、进下一轮；第二轮正常 poll
+    # 后在 sleep 时 Ctrl-C 干净退出。
+    _no_remote_branches(monkeypatch)
+    rounds = {"n": 0}
+
+    def flaky_list(*, labels):
+        rounds["n"] += 1
+        if rounds["n"] == 1:
+            raise GithubError("HTTP 504: 504 Gateway Timeout")
+        return []
+
+    monkeypatch.setattr(github, "list_issues", flaky_list)
+
+    # sleep 在第二轮之后才以 Ctrl-C 终止，确保第二轮真的跑到（证明失败后续命）。
+    slept = {"n": 0}
+
+    def fake_sleep(_seconds):
+        slept["n"] += 1
+        if slept["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(vigil.time, "sleep", fake_sleep)
+    msgs = _StubMessages()
+
+    _vigil(messages=msgs).run(interval=5, labels=["openagents"], base="main", once=False)
+
+    assert rounds["n"] == 2  # 第一轮失败后续到了第二轮
+    assert msgs.poll_count == 1  # 第一轮在发现段就抛、未到 poll；第二轮 poll 一次
+    err = capsys.readouterr().err
+    assert "本轮守夜失败" in err  # 失败被记录到 stderr，可观测
+
+
+def test_run_long_running_swallows_generic_exception(monkeypatch):
+    # 兜底范围比发现段更宽：poll 段抛通用 Exception（非 GithubError）也应被吞、续命。
+    _no_remote_branches(monkeypatch)
+    monkeypatch.setattr(github, "list_issues", lambda *, labels: [])
+
+    class _BoomMessages:
+        def __init__(self):
+            self.poll_count = 0
+
+        def poll(self):
+            self.poll_count += 1
+            if self.poll_count == 1:
+                raise RuntimeError("unexpected boom")
+            return []
+
+    slept = {"n": 0}
+
+    def fake_sleep(_seconds):
+        slept["n"] += 1
+        if slept["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(vigil.time, "sleep", fake_sleep)
+    msgs = _BoomMessages()
+
+    _vigil(messages=msgs).run(interval=5, labels=["openagents"], base="main", once=False)
+
+    assert msgs.poll_count == 2  # 第一轮 poll 抛错被吞，第二轮 poll 正常 → 续命成功
+
+
+def test_run_once_propagates_round_failure(monkeypatch):
+    # once 模式：单轮异常照旧上抛（不被吞），便于 cron/CI 得到非零退出。
+    _no_remote_branches(monkeypatch)
+
+    def boom(*, labels):
+        raise GithubError("HTTP 504: 504 Gateway Timeout")
+
+    monkeypatch.setattr(github, "list_issues", boom)
+
+    with pytest.raises(GithubError):
+        _vigil().run(interval=5, labels=["openagents"], base="main", once=True)
