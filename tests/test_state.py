@@ -8,7 +8,7 @@
 import json
 
 from openagents.github import PR
-from openagents.state import STATUS_RFC_REVIEW, RunRecord, State
+from openagents.state import STATUS_PR_OPEN, STATUS_RFC_REVIEW, RunRecord, State
 
 
 def _new_state(tmp_path):
@@ -169,6 +169,33 @@ def test_update_status_to_rfc_review(tmp_path):
     assert state.all_runs()[0].status == STATUS_RFC_REVIEW
     reloaded = State(path=tmp_path / ".openagents" / "state.json")
     assert reloaded.all_runs()[0].status == "rfc-review"
+
+
+def test_record_run_with_rfc_review_status_writes_once(tmp_path):
+    # RFC-0007 T1：record_run(status=rfc-review) 一次落盘即得 rfc-review + 非零 pr_number，
+    # 无需随后再 update_status（消除瞬态 pr-open 窗口）。
+    state = _new_state(tmp_path)
+    pr = PR(number=5, url="https://github.com/acme/widget/pull/5")
+
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=pr, status=STATUS_RFC_REVIEW)
+
+    runs = state.all_runs()
+    assert len(runs) == 1
+    assert runs[0].status == STATUS_RFC_REVIEW
+    assert runs[0].pr_number == 5
+    # 真实落盘可读回。
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.all_runs()[0].status == "rfc-review"
+
+
+def test_record_run_defaults_to_pr_open(tmp_path):
+    # RFC-0007 T1：不传 status 时默认仍落 pr-open（既有调用方/夹具不回归）。
+    state = _new_state(tmp_path)
+    pr = PR(number=7, url="https://github.com/acme/widget/pull/7")
+
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=pr)
+
+    assert state.all_runs()[0].status == STATUS_PR_OPEN
 
 
 def test_record_run_multiple_runs(tmp_path):

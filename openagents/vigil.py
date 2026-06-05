@@ -26,6 +26,7 @@ from openagents import github
 from openagents.github import GithubError
 from openagents.messages import Messages
 from openagents.orchestrator import Orchestrator, OrchestratorError
+from openagents.state import STATUS_SOLVING
 
 # 与 orchestrator 一致的分支命名：单 issue → 单分支。
 _BRANCH_PREFIX = "openagents/issue-"
@@ -61,29 +62,48 @@ class Vigil:
             return
 
     def discover_and_dispatch(self, *, labels: list[str], base: str) -> list[int]:
-        """发现段：列出标签门控的 open issue，过滤出「新」的逐个起草 RFC（决策 2/3/5/8）。
+        """发现段：列出标签门控的 open issue，按本地 State 三路分流派单（RFC-0004/0007）。
 
+        RFC-0007 决策 1/3：用 `_dispatch_kind` 取代原 `_is_new`，对每个 issue 区分：
+          - "fresh"  → start_rfc(resume=False)：无 run 记录且远端无分支，建全新 worktree。
+          - "resume" → start_rfc(resume=True) ：solving/pr=0 的孤儿 run，复用残留 worktree 续跑。
+          - None     → 跳过：已开 PR / rfc-review / pr-open / iterating / done / closed，交 poll 推进。
         RFC-0005：派单只调 start_rfc（开 RFC draft PR）；后续 refine/implement/iterate
-        由守候段 Messages.poll 驱动。返回本轮实际派单的 issue 编号列表（便于日志/测试断言）。
+        由守候段 Messages.poll 驱动。返回本轮实际派单（fresh+resume）的 issue 编号列表。
         """
         dispatched: list[int] = []
         for issue in github.list_issues(labels=labels):
-            if not self._is_new(issue=issue):
+            kind = self._dispatch_kind(issue=issue)
+            if kind is None:
                 continue
+            resume = kind == "resume"
+            verb = "恢复孤儿 run" if resume else "派单起草 RFC"
             try:
-                self._log(message=f"▶ 发现新 issue #{issue.number}：{issue.title} → 派单起草 RFC")
-                self._orchestrator.start_rfc(issue_number=issue.number, base=base)
+                self._log(message=f"▶ issue #{issue.number}：{issue.title} → {verb}")
+                self._orchestrator.start_rfc(issue_number=issue.number, base=base, resume=resume)
                 dispatched.append(issue.number)
             except (OrchestratorError, GithubError) as exc:
                 # 决策 8：单个 issue 失败记录并跳过，不拖垮整轮守候。
-                self._log(message=f"✗ issue #{issue.number} 起草 RFC 失败，跳过：{exc}")
+                self._log(message=f"✗ issue #{issue.number} {verb}失败，跳过：{exc}")
         return dispatched
 
-    def _is_new(self, *, issue: github.Issue) -> bool:
-        """决策 3 去重三道闸（标签已在 list 层）：State 无 run 且远端无分支才算「新」。"""
-        if self._state.find_by_issue(issue_number=issue.number) is not None:
-            return False
-        return not self._remote_branch_exists(branch=f"{_BRANCH_PREFIX}{issue.number}")
+    def _dispatch_kind(self, *, issue: github.Issue) -> str | None:
+        """RFC-0007 决策 1/3/6：据本地 State + 远端分支把 issue 归类为 fresh / resume / 跳过。
+
+        返回 "fresh" | "resume" | None：
+          - 无 run 记录 → 远端无分支才 "fresh"（去重闸 c：远端已有分支但无 run 视为在途，跳过）。
+          - solving 且 pr_number==0 → "resume"（崩在起草/push/建 PR 段的孤儿 run）。
+          - 其它（已带 PR：rfc-review/pr-open/iterating/done/closed）→ None，交 poll。
+        resume 路径刻意不查远端分支去重闸——复用同名分支正是目的（决策 6(c)）。
+        """
+        record = self._state.find_by_issue(issue_number=issue.number)
+        if record is None:
+            if self._remote_branch_exists(branch=f"{_BRANCH_PREFIX}{issue.number}"):
+                return None
+            return "fresh"
+        if record.status == STATUS_SOLVING and record.pr_number == 0:
+            return "resume"
+        return None
 
     def _remote_branch_exists(self, *, branch: str) -> bool:
         """决策 3(c)：远端是否已存在该 issue 分支（State 丢失时的兜底）。"""

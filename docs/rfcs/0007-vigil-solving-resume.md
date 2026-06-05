@@ -1,6 +1,6 @@
 # RFC-0007: 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `cli`, `dx`, `reliability`
 - **影响模块**: backend（vigil / orchestrator / state）
@@ -175,10 +175,10 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | state：record_run 增 status 形参（一次写 rfc-review） | - | `openagents/state.py`, `tests/test_state.py` | pending |
-| T2 | orchestrator：start_rfc 增 resume + 合并落盘 | T1 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | pending |
-| T3 | vigil：发现段 solving 恢复三路分流 | T2 | `openagents/vigil.py`, `tests/test_vigil.py` | pending |
-| T4 | e2e 崩溃恢复脚本 + README 登记 | T3 | `scripts/e2e-rfc-0007-resume.sh`, `docs/rfcs/README.md` | pending |
+| T1 | state：record_run 增 status 形参（一次写 rfc-review） | - | `openagents/state.py`, `tests/test_state.py` | implemented |
+| T2 | orchestrator：start_rfc 增 resume + 合并落盘 | T1 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | implemented |
+| T3 | vigil：发现段 solving 恢复三路分流 | T2 | `openagents/vigil.py`, `tests/test_vigil.py` | implemented |
+| T4 | e2e 崩溃恢复脚本 + README 登记 | T3 | `scripts/e2e-rfc-0007-resume.sh`, `docs/rfcs/README.md` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
