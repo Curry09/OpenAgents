@@ -74,6 +74,11 @@ class _FakeWorkspace:
     def commit_and_push(self, *, worktree, branch, message):
         pass
 
+    def changed_rfc_path(self, *, worktree, base):
+        # RFC-0008：start_rfc 开 PR 前会查本分支新增的 RFC 以拼端到端指路牌。
+        # 这两个用例只断言 prepare/ensure/begin_run 路径，返回 None 让正文回退即可。
+        return None
+
 
 def _make(tmp_path, *, backend=None):
     backend = backend or _FakeBackend()
@@ -242,6 +247,66 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
     assert pr.number == 5
     assert state.all_runs()[0].status == "rfc-review"
     assert state.all_runs()[0].pr_number == 5
+
+
+# RFC-0008 T3: PR 正文端到端验证指路牌
+
+_RFC_WITH_E2E = """# RFC-0008: 示例
+
+### 集成测试
+
+- `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`：默认离线跑 ruff + pytest。
+
+### 手动验证
+
+1. `openagents rfc <issue>` → 检查生成的 draft PR 正文含「## 端到端验证」段。
+"""
+
+
+def test_start_rfc_pr_body_includes_e2e_signpost(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _patch_get_issue(monkeypatch)
+    # 造一份带测试方案的 RFC，并让 changed_rfc_path 指向它。
+    rfc_file = tmp_path / "0008-pr-e2e-signpost.md"
+    rfc_file.write_text(_RFC_WITH_E2E, encoding="utf-8")
+    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: rfc_file)
+    captured = {}
+
+    def _create_pr(*, branch, title, body, draft):
+        captured.update(body=body)
+        return PR(number=5, url="u/pull/5")
+
+    monkeypatch.setattr(orch_module.github, "create_pr", _create_pr)
+
+    orch.start_rfc(issue_number=3)
+
+    body = captured["body"]
+    assert "## 端到端验证" in body
+    assert "`bash scripts/e2e-rfc-0008-pr-e2e-signpost.sh`" in body
+    assert "RFC-0008「手动验证」" in body
+    # 指路牌追加在原有 Closes + 摘要之后，不替换它们。
+    assert body.startswith("Closes #3")
+
+
+def test_start_rfc_pr_body_omits_e2e_when_no_rfc(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _patch_get_issue(monkeypatch)
+    # changed_rfc_path 取不到 RFC 文件时正文回退为原样、不抛错。
+    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: None)
+    captured = {}
+
+    def _create_pr(*, branch, title, body, draft):
+        captured.update(body=body)
+        return PR(number=5, url="u/pull/5")
+
+    monkeypatch.setattr(orch_module.github, "create_pr", _create_pr)
+
+    orch.start_rfc(issue_number=3)
+
+    assert "## 端到端验证" not in captured["body"]
+    assert captured["body"].startswith("Closes #3")
 
 
 # --------------------------------------------------------------------------- #

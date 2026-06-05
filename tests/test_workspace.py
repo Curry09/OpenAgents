@@ -142,6 +142,46 @@ def test_remote_branch_exists_false_when_empty(tmp_path, monkeypatch):
     assert ws.remote_branch_exists(branch="x") is False
 
 
+# --------------------------------------------------------------------------- #
+# RFC-0008 T2: changed_rfc_path
+# --------------------------------------------------------------------------- #
+
+
+def test_changed_rfc_path_returns_added_rfc(tmp_path, monkeypatch):
+    # git diff 列出本分支新增的 RFC 文件，方法返回其绝对路径。
+    recorder = _GitRecorder(stdout="docs/rfcs/0008-pr-e2e-signpost.md\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+
+    path = ws.changed_rfc_path(worktree=tmp_path, base="main")
+
+    assert path == tmp_path / "docs/rfcs/0008-pr-e2e-signpost.md"
+    joined = _joined(recorder)
+    assert any("diff --name-only origin/main...HEAD -- docs/rfcs/" in c for c in joined)
+
+
+def test_changed_rfc_path_none_when_no_rfc(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _GitRecorder(stdout=""))
+    ws = Workspace(work_dir=tmp_path)
+    assert ws.changed_rfc_path(worktree=tmp_path, base="main") is None
+
+
+def test_changed_rfc_path_excludes_readme(tmp_path, monkeypatch):
+    # README.md 改动不应被误判为新增 RFC。
+    recorder = _GitRecorder(stdout="docs/rfcs/README.md\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+    assert ws.changed_rfc_path(worktree=tmp_path, base="main") is None
+
+
+def test_changed_rfc_path_picks_rfc_over_readme(tmp_path, monkeypatch):
+    # 同时改了 README 与新 RFC 时，挑出 RFC 文件。
+    recorder = _GitRecorder(stdout="docs/rfcs/README.md\ndocs/rfcs/0008-x.md\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+    assert ws.changed_rfc_path(worktree=tmp_path, base="main") == tmp_path / "docs/rfcs/0008-x.md"
+
+
 def test_module_exposes_workspace_error():
     assert issubclass(ws_module.WorkspaceError, Exception)
 
