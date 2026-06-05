@@ -7,18 +7,43 @@
 
 错误处理：任何 gh 返回非零（且非"仍有 check 进行中"的特例）时统一抛 GithubError，
 携带 gh 的 stderr 摘要，便于上层定位。
+
+RFC-0010：所有 gh 调用都经由唯一收口点 `_run_gh`，在此加一层瞬时错误（HTTP
+502/503/504 等服务端网关故障、以及 subprocess 超时）的指数退避重试——一处覆盖全部
+gh 调用，元凶 `gh pr checks`（statusCheckRollup 偶发 504）自然受益。业务错误（not
+found / no checks reported / pending 退出码 8）绝不重试，立即按原样抛出/返回。
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import Any
 
 # `gh pr checks` 在 CI 仍有 check 进行中时以退出码 8 返回，stdout 仍是合法 JSON。
 # 见 gh 文档：非零退出并不总代表错误，这里单独放行该特例。
 _GH_CHECKS_PENDING_RETURNCODE = 8
+
+# gh 子进程超时秒数（决策 4：超时抛 subprocess.TimeoutExpired，归一化为瞬时错误）。
+_GH_TIMEOUT_SECONDS = 30
+
+# RFC-0010 决策 3：瞬时错误重试上限与退避基数，均为模块级常量（理念 1：不引入配置项）。
+# 总尝试 = 1 次原始 + 最多 (_GH_RETRY_MAX_ATTEMPTS - 1) 次重试；退避 base·2^(n-1) 秒。
+_GH_RETRY_MAX_ATTEMPTS = 3
+_GH_RETRY_BACKOFF_BASE = 1.0
+
+# RFC-0010 决策 2：瞬时服务端故障的 stderr 标记（小写匹配）。判定要「窄」——只认这些
+# 服务端瞬时故障；not found / already exists / no checks reported 等业务错误绝不算。
+_GH_TRANSIENT_MARKERS = (
+    "http 502",
+    "http 503",
+    "http 504",
+    "bad gateway",
+    "gateway timeout",
+    "service unavailable",
+)
 
 # gh pr checks 的 state 取值归类。
 _CHECK_FAIL_STATES = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"}
@@ -72,19 +97,47 @@ class CheckStatus:
     failed_logs: list[str]
 
 
+def _is_transient_gh_error(*, stderr: str) -> bool:
+    """RFC-0010 决策 2：stderr 是否命中瞬时服务端故障标记（HTTP 502/503/504 / Bad
+    Gateway / Gateway Timeout / Service Unavailable）。纯函数，便于单测。"""
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _GH_TRANSIENT_MARKERS)
+
+
 def _run_gh(args: list[str], *, allow_returncodes: set[int]) -> subprocess.CompletedProcess[str]:
-    """运行 gh 子命令；返回非零且不在 allow_returncodes 中时抛 GithubError。"""
-    result = subprocess.run(
-        ["gh", *args],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    if result.returncode != 0 and result.returncode not in allow_returncodes:
-        reason = result.stderr.strip() or f"gh {' '.join(args)} 返回码 {result.returncode}"
-        raise GithubError(reason)
-    return result
+    """运行 gh 子命令；返回非零且不在 allow_returncodes 中时抛 GithubError。
+
+    RFC-0010：瞬时错误（stderr 命中 _GH_TRANSIENT_MARKERS，或 subprocess.TimeoutExpired）
+    按指数退避重试，最多 _GH_RETRY_MAX_ATTEMPTS 次尝试；非瞬时错误（含 allow_returncodes
+    放行的退出码、not found 等业务错误）立即返回/抛出，绝不重试。重试耗尽（含超时）后
+    统一抛 GithubError——对外签名/返回类型不变，所有调用方零改动（决策 1/4）。
+    """
+    for attempt in range(1, _GH_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            result = subprocess.run(
+                ["gh", *args],
+                capture_output=True,
+                text=True,
+                timeout=_GH_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            # 决策 4：超时视为瞬时错误，重试；耗尽后归一化为 GithubError（非 TimeoutExpired）。
+            reason = f"gh {' '.join(args)} 超时（{_GH_TIMEOUT_SECONDS}s）"
+            if attempt < _GH_RETRY_MAX_ATTEMPTS:
+                time.sleep(_GH_RETRY_BACKOFF_BASE * 2 ** (attempt - 1))
+                continue
+            raise GithubError(reason) from None
+        if result.returncode != 0 and result.returncode not in allow_returncodes:
+            reason = result.stderr.strip() or f"gh {' '.join(args)} 返回码 {result.returncode}"
+            # 决策 2：仅瞬时错误且仍有重试次数时退避重试；业务错误/末次尝试立即抛。
+            if _is_transient_gh_error(stderr=result.stderr) and attempt < _GH_RETRY_MAX_ATTEMPTS:
+                time.sleep(_GH_RETRY_BACKOFF_BASE * 2 ** (attempt - 1))
+                continue
+            raise GithubError(reason)
+        return result
+    # 不可达：循环每轮要么 return、要么 continue、要么 raise（保留以满足类型检查）。
+    raise GithubError(f"gh {' '.join(args)} 重试耗尽")
 
 
 def _gh_json(args: list[str], *, allow_returncodes: set[int]) -> Any:

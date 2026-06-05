@@ -48,11 +48,21 @@ class Vigil:
 
         once=True 跑一轮即返回（适配 cron/CI 周期触发）；否则 sleep(interval) 续循环。
         KeyboardInterrupt 是人类的停止信号 → 干净退出，不抛出（决策 8）。
+
+        RFC-0010 决策 5/6：长驻（once=False）模式下，单轮 `_run_one_round` 失败记日志并
+        进下一轮，不掀掉整个守夜进程——单点偶发（如 gh 504 穿透重试、git/orchestrator 异常）
+        不该让无人值守的守夜整夜阵亡。once 模式（cron/CI 周期触发）则不吞异常、照旧上抛，
+        让调度器从非零退出码看见真实失败。`except Exception` 天然放行 KeyboardInterrupt
+        （非 Exception 子类），Ctrl-C 仍走既有干净退出分支。
         """
         try:
             while True:
-                self.discover_and_dispatch(labels=labels, base=base)
-                self._messages.poll()
+                try:
+                    self._run_one_round(labels=labels, base=base)
+                except Exception as exc:  # noqa: BLE001 —— 决策 6：守夜第一要务是「活着进下一轮」
+                    if once:
+                        raise  # 决策 5：once 模式不吞，让 cron/CI 得到非零退出
+                    self._log(message=f"✗ 本轮守夜失败，跳过、{interval}s 后再扫一轮：{exc}")
                 if once:
                     return
                 self._log(message=f"… 守夜中，{interval}s 后再扫一轮（Ctrl-C 停止）")
@@ -60,6 +70,15 @@ class Vigil:
         except KeyboardInterrupt:
             self._log(message="✓ 守夜人已停止（Ctrl-C）")
             return
+
+    def _run_one_round(self, *, labels: list[str], base: str) -> None:
+        """RFC-0010 T2：单轮——发现+派单，再 poll 已开 PR。
+
+        从既有 run 循环体中机械抽取的私有方法，行为不变；抽出后供长驻模式 try/except
+        包裹（单轮失败兜底）与 once 模式直接调用（异常上抛）复用。
+        """
+        self.discover_and_dispatch(labels=labels, base=base)
+        self._messages.poll()
 
     def discover_and_dispatch(self, *, labels: list[str], base: str) -> list[int]:
         """发现段：列出标签门控的 open issue，按本地 State 三路分流派单（RFC-0004/0007）。
