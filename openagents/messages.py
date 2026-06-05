@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import time
 
-from openagents import github
+from openagents import github, rebase
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
     STATUS_CLOSED,
@@ -85,7 +85,10 @@ class Messages:
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
-            return {"pr_number": pr_number, "reason": "merged"}
+            # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 main 并入其余
+            # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 由 rebase 层留言。
+            synced = rebase.rebase_open_prs(merged_pr_number=pr_number)
+            return {"pr_number": pr_number, "reason": "merged", "synced": synced}
 
         # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过，不触发任何
         # 编排动作。closed 不在 _OPEN_STATUSES，下一轮直接被跳过。merged 优先于 closed。
