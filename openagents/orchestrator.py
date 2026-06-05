@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import github
+from openagents import github, rfc
 from openagents.backends.base import AgentBackend
 from openagents.state import (
     STATUS_ITERATING,
@@ -113,11 +113,20 @@ class Orchestrator:
             message=f"docs: draft RFC for issue #{issue.number}",
         )
 
+        # RFC-0008：开 PR 前，从本分支新增的 RFC 抽取「端到端验证」指路牌拼进正文。
+        # 定位失败 / 渲染为 None 时正文回退为原样、不抛错（决策 5，验收标准 2）。
+        rfc_path = self._workspace.changed_rfc_path(worktree=worktree, base=base)
+        e2e_section = rfc.signpost_for(rfc_path=rfc_path) if rfc_path else None
+
         self._progress(message="▶ 开 draft PR …")
         pr = github.create_pr(
             branch=branch,
             title=f"docs: RFC for issue #{issue.number} {issue.title}".strip(),
-            body=self._pr_body(issue_number=issue.number, summary="RFC 草稿待评审。"),
+            body=self._pr_body(
+                issue_number=issue.number,
+                summary="RFC 草稿待评审。",
+                e2e_section=e2e_section,
+            ),
             draft=True,
         )
         # RFC-0007 决策 4：一次写成带 pr 的 rfc-review，消除原 record_run(pr-open)→update_status
@@ -202,8 +211,14 @@ class Orchestrator:
         """RFC-0003 决策 6：把各阶段进度打到 stderr，保证用户全程有反馈。"""
         print(message, file=sys.stderr, flush=True)
 
-    def _pr_body(self, *, issue_number: int, summary: str) -> str:
-        """组装 PR 正文：关联 issue + 摘要。"""
+    def _pr_body(self, *, issue_number: int, summary: str, e2e_section: str | None) -> str:
+        """组装 PR 正文：关联 issue + 摘要（+ RFC-0008 端到端验证指路牌）。
+
+        RFC-0008：e2e_section 非 None 时追加到摘要之后，否则正文回退为原有 Closes + 摘要。
+        私有函数，参数无默认值——调用方必须显式传 e2e_section。
+        """
         body = f"Closes #{issue_number}\n\n"
         body += summary or "（无摘要）"
+        if e2e_section is not None:
+            body += f"\n\n{e2e_section}"
         return body

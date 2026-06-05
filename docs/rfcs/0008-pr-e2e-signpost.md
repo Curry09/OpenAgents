@@ -1,6 +1,6 @@
 # RFC-0008: PR 正文「端到端验证」指路牌（从 RFC 自动生成）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `dx`, `cli`
 - **影响模块**: `openagents/orchestrator.py`、`openagents/workspace.py`、新增 `openagents/rfc.py`
@@ -181,10 +181,10 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | RFC 解析与指路牌渲染（纯模块） | - | `openagents/rfc.py`、`tests/test_rfc.py` | pending |
-| T2 | 定位本分支新增的 RFC 文件 | - | `openagents/workspace.py`、`tests/test_workspace.py` | pending |
-| T3 | 接线进 PR 正文编排 | T1, T2 | `openagents/orchestrator.py`、`tests/test_orchestrator.py` | blocked |
-| T4 | 端到端脚本 + RFC 索引 | T3 | `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`、`docs/rfcs/README.md` | blocked |
+| T1 | RFC 解析与指路牌渲染（纯模块） | - | `openagents/rfc.py`、`tests/test_rfc.py` | implemented |
+| T2 | 定位本分支新增的 RFC 文件 | - | `openagents/workspace.py`、`tests/test_workspace.py` | implemented |
+| T3 | 接线进 PR 正文编排 | T1, T2 | `openagents/orchestrator.py`、`tests/test_orchestrator.py` | implemented |
+| T4 | 端到端脚本 + RFC 索引 | T3 | `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`、`docs/rfcs/README.md` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 

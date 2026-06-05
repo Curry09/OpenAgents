@@ -11,11 +11,15 @@ push 一律普通 push（决策 7：绝不 force-push）。所有 git 操作走 
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 # RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
+
+# RFC-0008 决策 4：RFC 文件名形如 NNNN-slug.md，用于把本分支改动里的 RFC 文件挑出来。
+_RFC_FILENAME_RE = re.compile(r"^\d{4}-.*\.md$")
 
 
 class WorkspaceError(Exception):
@@ -65,6 +69,32 @@ class Workspace:
         self._git(args=["add", "-A"], cwd=worktree, check=True)
         self._git(args=["commit", "-m", message], cwd=worktree, check=False)
         self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
+
+    def changed_rfc_path(self, *, worktree: Path, base: str) -> Path | None:
+        """Locate the RFC file this branch adds, via git diff against the base.
+
+        RFC-0008 决策 4：worktree 含 main 上既有的全部 RFC，无法靠 glob 区分本次新增的
+        那一个；用 `git diff --name-only origin/<base>...HEAD -- docs/rfcs/` 取本分支改动的
+        首个 `NNNN-*.md`（排除 README.md），返回其在 worktree 下的绝对路径；无则 None。
+        只读 git，不抛业务错。
+        """
+        # 1. 列出本分支相对 base 改动的 docs/rfcs/ 文件（三点 diff：仅本分支侧的改动）。
+        result = self._git(
+            args=["diff", "--name-only", f"origin/{base}...HEAD", "--", "docs/rfcs/"],
+            cwd=worktree,
+            check=False,
+        )
+        # 2. 取首个 NNNN-*.md（排除 README.md），拼成 worktree 下的绝对路径。
+        for line in result.stdout.splitlines():
+            rel = line.strip()
+            if not rel:
+                continue
+            name = Path(rel).name
+            if name == "README.md":
+                continue
+            if _RFC_FILENAME_RE.match(name):
+                return worktree / rel
+        return None
 
     def remote_branch_exists(self, *, branch: str) -> bool:
         """远端是否已存在该分支（`git ls-remote --heads`）。"""
