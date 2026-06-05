@@ -114,6 +114,11 @@ def _patch_github(
         messages_module.github, "list_comments", lambda *, pr_number: list(comments or [])
     )
     monkeypatch.setattr(messages_module.github, "current_login", lambda: login)
+    # RFC-0009 T3：合并分支会扇出 rebase.rebase_open_prs；默认桩为 no-op，保持 hermetic
+    # （不触达真实 gh）。需要断言扇出的测试自行覆盖此桩。
+    monkeypatch.setattr(
+        messages_module.rebase, "rebase_open_prs", lambda *, merged_pr_number=None: []
+    )
 
 
 def _human(*, body, created_at):
@@ -378,6 +383,52 @@ def test_merged_takes_precedence_over_label_and_comment(monkeypatch):
     assert orch.implement_calls == []
     assert orch.refine_calls == []
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0009 T3：合并后扇出 rebase_open_prs
+# --------------------------------------------------------------------------- #
+
+
+def test_merged_fans_out_rebase_with_merged_pr_number(monkeypatch):
+    # 侦测到合并时调用 rebase.rebase_open_prs 且传入正确 merged_pr_number。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    _patch_github(monkeypatch, merged=True)
+
+    seen = {}
+
+    def _fake_rebase(*, merged_pr_number=None):
+        seen["merged_pr_number"] = merged_pr_number
+        return [{"pr_number": 8, "result": "updated"}]
+
+    monkeypatch.setattr(messages_module.rebase, "rebase_open_prs", _fake_rebase)
+
+    events = msgs.poll()
+
+    assert seen == {"merged_pr_number": 5}
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+    # merged 事件附带本轮同步结果，供日志。
+    merged_event = next(e for e in events if e["reason"] == "merged")
+    assert merged_event["synced"] == [{"pr_number": 8, "result": "updated"}]
+
+
+def test_non_merged_does_not_fan_out_rebase(monkeypatch):
+    # 未合并的 run（仅有新评论）不触发扇出同步。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    _patch_github(
+        monkeypatch, comments=[_human(body="please fix", created_at="2026-06-03T02:00:00Z")]
+    )
+
+    called = []
+    monkeypatch.setattr(
+        messages_module.rebase,
+        "rebase_open_prs",
+        lambda *, merged_pr_number=None: called.append(merged_pr_number) or [],
+    )
+
+    msgs.poll()
+
+    assert called == []
 
 
 def test_approval_label_constant():

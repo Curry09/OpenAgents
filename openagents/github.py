@@ -398,6 +398,60 @@ def is_closed(*, pr_number: int) -> bool:
     return str(data.get("state") or "").upper() == "CLOSED"
 
 
+def list_open_prs() -> list[PR]:
+    """RFC-0009 T1：列出仓库当前所有 open PR（`gh pr list --state open --json number,url`）。
+
+    以 GitHub 为真源，覆盖面比本地 State（只含 openagents 自建的 run）更全，对人工建的
+    PR 也成立——供合并后自动同步扇出（rebase_open_prs）枚举待更新的 PR。无则返回 []。
+    复用既有 PR 数据类与 _gh_json 封装，不新增数据类型（CLAUDE.md 理念 1）。
+    """
+    data = _gh_json(
+        ["pr", "list", "--state", "open", "--json", "number,url"],
+        allow_returncodes=set(),
+    )
+    rows = data if isinstance(data, list) else []
+    prs: list[PR] = []
+    for raw in rows:
+        number = raw.get("number")
+        if number is None:
+            continue
+        prs.append(PR(number=int(number), url=raw.get("url") or ""))
+    return prs
+
+
+def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
+    """RFC-0009 T1（决策 2/5）：把最新 base（main）并入 PR 分支（`gh pr update-branch <n>`）。
+
+    默认走 merge（不重写历史、不需 force-push，适合无人值守循环）；rebase=True 追加
+    `--rebase` 改为 rebase。该更新会在 PR 上产生 synchronize 事件，触发其 CI 重跑。
+
+    返回 True 表示分支已被更新；返回 False 表示「已是最新」no-op——gh 在分支已与 base
+    同步时以非零退出并报 "already up to date" 之类信息，这里吞掉视为成功（与 ensure_label
+    吞 "already exists"、check_status 吞 "no checks reported" 同一容错风格，决策 5）。
+    冲突或其它失败照常抛 GithubError，供 rebase_open_prs 捕获后留言（决策 4）。
+    """
+    args = ["pr", "update-branch", str(pr_number)]
+    if rebase:
+        args.append("--rebase")
+    try:
+        _run_gh(args, allow_returncodes=set())
+    except GithubError as exc:
+        if _is_already_up_to_date(reason=str(exc)):
+            return False
+        raise
+    return True
+
+
+def _is_already_up_to_date(*, reason: str) -> bool:
+    """gh update-branch 的「分支已是最新」特例识别（决策 5）。
+
+    gh 对此以非零退出，文案大致为 "branch is already up to date"；大小写/连字符不一，
+    统一小写后按子串匹配，与冲突等真错误区分开。
+    """
+    lowered = reason.lower()
+    return "up to date" in lowered or "up-to-date" in lowered
+
+
 def _parse_pr_number(*, url: str) -> int | None:
     """从形如 .../pull/<n> 的 PR url 末段解析 PR number；失败返回 None。"""
     return _parse_number_after(url=url, marker="/pull/")

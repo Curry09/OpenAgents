@@ -20,6 +20,7 @@ COMMANDS = [
     "issue",
     "poll",
     "watch",
+    "sync-prs",
     "board",
     "vigil",
 ]
@@ -328,6 +329,54 @@ def test_poll_runs_preflight_then_polls(monkeypatch):
     code = main(["poll"])
     assert code == 0
     assert calls == [True]
+
+
+# --------------------------------------------------------------------------- #
+# sync-prs（RFC-0009 T4：合并后手动同步其余 open PR）
+# --------------------------------------------------------------------------- #
+
+
+def test_sync_prs_runs_preflight_with_defaults(monkeypatch):
+    # 缺省：不排除任何 PR（merged_pr_number=None）、默认 merge（rebase=False）。
+    calls = _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_rebase_open_prs(*, merged_pr_number, rebase):
+        seen.update(merged_pr_number=merged_pr_number, rebase=rebase)
+        return [{"pr_number": 8, "result": "updated"}]
+
+    monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
+    code = main(["sync-prs"])
+    assert code == 0
+    assert calls == [True]
+    assert seen == {"merged_pr_number": None, "rebase": False}
+
+
+def test_sync_prs_passes_merged_and_rebase(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_rebase_open_prs(*, merged_pr_number, rebase):
+        seen.update(merged_pr_number=merged_pr_number, rebase=rebase)
+        return []
+
+    monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
+    code = main(["sync-prs", "--merged", "5", "--rebase"])
+    assert code == 0
+    assert seen == {"merged_pr_number": 5, "rebase": True}
+
+
+def test_sync_prs_reports_error_cleanly(monkeypatch, capsys):
+    _patch_ensure(monkeypatch)
+    from openagents.github import GithubError
+
+    def boom(*, merged_pr_number, rebase):
+        raise GithubError("gh pr list 失败")
+
+    monkeypatch.setattr("openagents.rebase.rebase_open_prs", boom)
+    code = main(["sync-prs"])
+    assert code == 1
+    assert "✗" in capsys.readouterr().err
 
 
 def test_vigil_runs_preflight_with_defaults(monkeypatch):

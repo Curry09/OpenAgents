@@ -69,6 +69,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch = sub.add_parser("watch", help="按间隔循环 poll（自动化拉取）")
     p_watch.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
 
+    # RFC-0009 决策 6：自动 poll 路径的手动对应物——一次性把 open PR 同步到最新 main。
+    p_sync = sub.add_parser("sync-prs", help="把最新 main 并入其余 open PR（合并后手动同步）")
+    p_sync.add_argument(
+        "--merged",
+        type=int,
+        default=None,
+        metavar="N",
+        help="要排除的已合并 PR 编号（缺省：不排除）",
+    )
+    p_sync.add_argument(
+        "--rebase", action="store_true", help="用 rebase 而非 merge 方式同步（默认 merge）"
+    )
+
     sub.add_parser("board", help="启动本地成果看板")
 
     # RFC-0004：守夜人模式——自主发现新 issue 派单 + 守候 PR（comment/CI），人只审 PR。
@@ -208,6 +221,15 @@ def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
+    from openagents import rebase
+
+    events = rebase.rebase_open_prs(merged_pr_number=args.merged, rebase=args.rebase)
+    print(f"✓ sync-prs 完成，同步 {len(events)} 个 open PR")
+    return 0
+
+
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
     labels = args.label if args.label else [DISCOVERY_LABEL]
@@ -241,6 +263,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "issue": _cmd_issue,
         "poll": _cmd_poll,
         "watch": _cmd_watch,
+        "sync-prs": _cmd_sync_prs,
         "vigil": _cmd_vigil,
     }
     return handlers[args.command](args, ctx)

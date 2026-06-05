@@ -34,8 +34,10 @@ from openagents.github import (
     is_merged,
     list_comments,
     list_issues,
+    list_open_prs,
     mark_ready,
     post_comment,
+    update_branch,
 )
 
 
@@ -830,3 +832,97 @@ def test_run_gh_allow_returncode_not_retried(monkeypatch):
     assert result.returncode == 8
     assert len(runner.calls) == 1
     assert sleeps == []
+
+
+# --------------------------------------------------------------------------- #
+# list_open_prs（RFC-0009 T1：枚举所有 open PR 供合并后同步扇出）
+# --------------------------------------------------------------------------- #
+
+
+def test_list_open_prs_parses_multiple(monkeypatch):
+    payload = json.dumps(
+        [
+            {"number": 5, "url": "https://github.com/acme/widget/pull/5"},
+            {"number": 8, "url": "https://github.com/acme/widget/pull/8"},
+        ]
+    )
+    runner = _fake_run(stdout=payload)
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    prs = list_open_prs()
+
+    assert prs == [
+        PR(number=5, url="https://github.com/acme/widget/pull/5"),
+        PR(number=8, url="https://github.com/acme/widget/pull/8"),
+    ]
+    cmd = runner.calls[-1]
+    assert cmd[:4] == ["gh", "pr", "list", "--state"]
+    assert "open" in cmd
+    assert "--json" in cmd
+
+
+def test_list_open_prs_empty(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
+    assert list_open_prs() == []
+
+
+def test_list_open_prs_skips_rows_without_number(monkeypatch):
+    payload = json.dumps(
+        [{"url": "https://github.com/acme/widget/pull/1"}, {"number": 2, "url": ""}]
+    )
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
+
+    prs = list_open_prs()
+
+    assert prs == [PR(number=2, url="")]
+
+
+def test_list_open_prs_gh_error_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
+    with pytest.raises(GithubError):
+        list_open_prs()
+
+
+# --------------------------------------------------------------------------- #
+# update_branch（RFC-0009 T1 决策 2/5：三态——更新 / 已最新 / 冲突）
+# --------------------------------------------------------------------------- #
+
+
+def test_update_branch_updated_returns_true_default_merge(monkeypatch):
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    assert update_branch(pr_number=42) is True
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "pr", "update-branch"]
+    assert "42" in cmd
+    # 默认走 merge，不应带 --rebase。
+    assert "--rebase" not in cmd
+
+
+def test_update_branch_rebase_passes_flag(monkeypatch):
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    assert update_branch(pr_number=42, rebase=True) is True
+    assert "--rebase" in runner.calls[-1]
+
+
+def test_update_branch_already_up_to_date_returns_false(monkeypatch):
+    # gh 在分支已与 base 同步时以非零退出并报 "already up to date" → 吞为 False，不抛。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(returncode=1, stderr="The branch is already up to date with the base branch"),
+    )
+    assert update_branch(pr_number=42) is False
+
+
+def test_update_branch_conflict_raises(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(returncode=1, stderr="merge conflict between base and head"),
+    )
+    with pytest.raises(GithubError):
+        update_branch(pr_number=42)

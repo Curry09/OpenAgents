@@ -1,6 +1,6 @@
 # RFC-0009: 合并后自动 rebase 其他 open PR
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `cli`, `ci`, `automation`
 - **影响模块**: `openagents/github.py`、`openagents/rebase.py`（新增）、`openagents/messages.py`、`openagents/cli.py`、`scripts/`、`tests/`
@@ -157,11 +157,11 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | github 层 `list_open_prs` + `update_branch` | - | `openagents/github.py`、`tests/test_github.py` | pending |
-| T2 | `rebase_open_prs` 扇出模块 | T1 | `openagents/rebase.py`、`tests/test_rebase.py` | pending |
-| T3 | `messages.poll` 合并后扇出集成 | T2 | `openagents/messages.py`、`tests/test_messages.py` | pending |
-| T4 | `openagents sync-prs` 手动命令 | T2 | `openagents/cli.py`、`tests/test_cli.py` | pending |
-| T5 | 端到端脚本 | T3, T4 | `scripts/e2e-rfc-0009-auto-rebase.sh` | pending |
+| T1 | github 层 `list_open_prs` + `update_branch` | - | `openagents/github.py`、`tests/test_github.py` | implemented |
+| T2 | `rebase_open_prs` 扇出模块 | T1 | `openagents/rebase.py`、`tests/test_rebase.py` | implemented |
+| T3 | `messages.poll` 合并后扇出集成 | T2 | `openagents/messages.py`、`tests/test_messages.py` | implemented |
+| T4 | `openagents sync-prs` 手动命令 | T2 | `openagents/cli.py`、`tests/test_cli.py` | implemented |
+| T5 | 端到端脚本 | T3, T4 | `scripts/e2e-rfc-0009-auto-rebase.sh` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
