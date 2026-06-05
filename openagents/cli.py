@@ -71,6 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("board", help="启动本地成果看板")
 
+    # RFC-0007：体检 issue→PR 流水线的环境前置条件（只读预检，跳过 preflight）。
+    sub.add_parser("doctor", help="体检 issue→PR 流水线的环境前置条件")
+
     # RFC-0004：守夜人模式——自主发现新 issue 派单 + 守候 PR（comment/CI），人只审 PR。
     p_vigil = sub.add_parser("vigil", help="守夜人模式：自主监控 issue → 派单 → 守候 PR")
     p_vigil.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
@@ -226,10 +229,42 @@ def _cmd_board(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    # RFC-0007（决策 2）：doctor 跳过 ensure_project preflight——体检对象可能正是
+    # 未就绪环境，先 preflight 会自抛错使体检失去意义（与 board 同档短路）。
+    from openagents import doctor
+
+    # 1. 尽力解析项目上下文（可能为 None：非 git 仓库），交给 doctor 体检
+    ctx = resolve_project()
+    results = doctor.run_checks(ctx=ctx)
+
+    # 2. 逐行渲染清单：✓ 通过 / ✗ 必需失败 / ⚠ 可选失败（warning），失败附修复提示
+    for result in results:
+        if result.ok:
+            mark = "✓"
+        elif result.required:
+            mark = "✗"
+        else:
+            mark = "⚠"
+        suffix = "" if result.required else "（可选）"
+        print(f"{mark} {result.name}{suffix}：{result.detail}")
+        if not result.ok and result.fix:
+            print(f"    ↳ 修复：{result.fix}")
+
+    # 3. 退出码只由必需项决定（决策 1）
+    if doctor.has_blocking_failure(results=results):
+        print("✗ 存在必需项失败，issue→PR 流水线无法跑通。", file=sys.stderr)
+        return 1
+    print("✓ 环境就绪：issue→PR 流水线的必需前置条件均已满足。")
+    return 0
+
+
 def _dispatch(args: argparse.Namespace) -> int:
-    # board 不操作仓库，跳过 preflight（决策 10）
+    # board / doctor 不操作仓库，跳过 preflight（决策 10 / RFC-0007 决策 2）
     if args.command == "board":
         return _cmd_board(args)
+    if args.command == "doctor":
+        return _cmd_doctor(args)
 
     ctx = ensure_project(interactive=True)
     handlers = {

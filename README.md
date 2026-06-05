@@ -31,7 +31,26 @@ openagents iterate 7        # coding 阶段就 PR #7 的最新评论/CI 失败�
 openagents poll             # 扫所有 open PR，按阶段自动路由：评审评论→精炼 / 批准→实现 / CI→修
 openagents watch            # 按间隔自动循环 poll（Ctrl-C 退出）
 openagents board            # 本地浏览器打开「成果看板」
+openagents doctor           # 体检流水线环境：git/gh 鉴权/后端 claude/origin（RFC-0007）
 ```
+
+### `openagents doctor` —— 环境健康自检（RFC-0007）
+
+派单前用一条命令确认「这台机器能不能跑通 issue→PR 流水线」。`doctor` 只读地逐项体检并打印
+✓/✗ 清单，**任一必需项失败时以非零退出码返回**（可直接用于脚本/CI 门控）。与 `board` 一样，
+`doctor` 跳过项目绑定 preflight——体检对象恰恰可能是尚未就绪的环境。
+
+检查项分两档：
+
+| 检查项 | 档位 | 说明 | 失败修复 |
+|--------|------|------|----------|
+| `git 仓库` | 必需 | 当前目录是否为 git 仓库（复用 `resolve_project`） | `cd` 到目标仓库或 `git init` |
+| `gh 鉴权` | 必需 | `gh` 是否安装且已 `gh auth status` 鉴权 | 安装 `gh` / `gh auth login` |
+| `后端 claude` | 必需 | `claude` 是否在 PATH | 安装 Claude Code CLI |
+| `origin 远端` | 可选 | 是否配置 origin 远端（推送/开 PR 才需要） | `git remote add origin <url>` |
+
+可选项失败仅以 ⚠ warning 呈现、**不影响退出码**（纯本地仓库也能起草 RFC）。退出码只由必需项决定：
+全部必需项通过 → `0`；任一必需项失败 → `1`。
 
 RFC-first 闭环（RFC-0005）：`rfc <issue>` 起草 → 人在 draft PR 上 comment → `refine-rfc`（或 `poll` 自动）按评论改 RFC → 人打 `rfc-approved` 标签批准 → `implement`（或 `poll` 自动）按 RFC 写码并转正 PR → 进入评论/CI 迭代。CLI 只触发单步，跨步骤编排交给 `poll` 的状态机。
 

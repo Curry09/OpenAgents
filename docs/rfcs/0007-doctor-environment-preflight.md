@@ -1,6 +1,6 @@
 # RFC-0007: openagents doctor —— 环境健康自检（pipeline 预检）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P2
 - **标签**: `cli`, `dx`
 - **影响模块**: backend（新增 doctor 模块）/ cli
@@ -137,9 +137,9 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | doctor 核心检查模块 | - | `openagents/doctor.py`, `tests/test_doctor.py` | pending |
-| T2 | cli 接线 doctor 子命令 | T1 | `openagents/cli.py`, `tests/test_cli.py` | blocked |
-| T3 | e2e 脚本 + README 文档 | T2 | `scripts/e2e-rfc-0007-doctor.sh`, `README.md` | blocked |
+| T1 | doctor 核心检查模块 | - | `openagents/doctor.py`, `tests/test_doctor.py` | implemented |
+| T2 | cli 接线 doctor 子命令 | T1 | `openagents/cli.py`, `tests/test_cli.py` | implemented |
+| T3 | e2e 脚本 + README 文档 | T2 | `scripts/e2e-rfc-0007-doctor.sh`, `README.md` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 

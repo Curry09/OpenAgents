@@ -22,6 +22,7 @@ COMMANDS = [
     "watch",
     "board",
     "vigil",
+    "doctor",
 ]
 
 
@@ -375,3 +376,85 @@ def test_board_skips_preflight(monkeypatch):
     code = main(["board"])
     assert code == 0
     assert calls == []
+
+
+# --------------------------------------------------------------------------- #
+# doctor（RFC-0007）
+# --------------------------------------------------------------------------- #
+
+
+def _ok_result():
+    from openagents.doctor import CheckResult
+
+    return CheckResult(name="git 仓库", ok=True, required=True, detail="ok", fix=None)
+
+
+def test_doctor_skips_preflight_and_exits_zero_when_healthy(monkeypatch, capsys):
+    # RFC-0007 决策 2：doctor 不走 ensure_project preflight（与 board 同档）。
+    calls = _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.cli.resolve_project", lambda: None)
+    monkeypatch.setattr("openagents.doctor.run_checks", lambda *, ctx: [_ok_result()])
+    monkeypatch.setattr("openagents.doctor.has_blocking_failure", lambda *, results: False)
+
+    code = main(["doctor"])
+    assert code == 0
+    assert calls == []  # 未触发 ensure_project
+    assert "✓" in capsys.readouterr().out
+
+
+def test_doctor_returns_nonzero_on_blocking_failure(monkeypatch, capsys):
+    # RFC-0007 决策 1：含必需项失败 → 退出 1（has_blocking_failure 用真实实现）。
+    _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.cli.resolve_project", lambda: None)
+    from openagents.doctor import CheckResult
+
+    monkeypatch.setattr(
+        "openagents.doctor.run_checks",
+        lambda *, ctx: [
+            CheckResult(
+                name="gh 鉴权", ok=False, required=True, detail="未鉴权", fix="gh auth login"
+            )
+        ],
+    )
+    code = main(["doctor"])
+    assert code == 1
+    out = capsys.readouterr()
+    assert "gh auth login" in out.out  # 失败项渲染了修复提示
+    assert "✗" in out.err
+
+
+def test_doctor_passes_resolved_ctx_to_run_checks(monkeypatch):
+    # doctor 把 resolve_project() 的结果原样喂给 run_checks。
+    _patch_ensure(monkeypatch)
+    fake_ctx = ProjectContext(repo_root=Path("/r"), remote="https://github.com/x/y.git")
+    monkeypatch.setattr("openagents.cli.resolve_project", lambda: fake_ctx)
+    seen = {}
+
+    def fake_run(*, ctx):
+        seen["ctx"] = ctx
+        return [_ok_result()]
+
+    monkeypatch.setattr("openagents.doctor.run_checks", fake_run)
+    code = main(["doctor"])
+    assert code == 0
+    assert seen["ctx"] is fake_ctx
+
+
+def test_doctor_optional_failure_does_not_block(monkeypatch, capsys):
+    # RFC-0007：仅可选项（origin）失败时仍退出 0，并以 ⚠ 标记 warning。
+    _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.cli.resolve_project", lambda: None)
+    from openagents.doctor import CheckResult
+
+    monkeypatch.setattr(
+        "openagents.doctor.run_checks",
+        lambda *, ctx: [
+            CheckResult(name="git 仓库", ok=True, required=True, detail="ok", fix=None),
+            CheckResult(
+                name="origin 远端", ok=False, required=False, detail="无远端", fix="git remote add"
+            ),
+        ],
+    )
+    code = main(["doctor"])
+    assert code == 0
+    assert "⚠" in capsys.readouterr().out
