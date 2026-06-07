@@ -133,8 +133,7 @@ def test_rfc_reports_error_cleanly_without_traceback(monkeypatch, capsys):
 
 
 def test_refine_rfc_fetches_latest_comment_and_calls_orchestrator(monkeypatch):
-    # RFC-0005 决策 6：取最新评论作 detail，不论作者——人与 agent 共用同一账号
-    # （这里最新评论作者与 current_login 同为 agent-bot）时仍能触发。
+    # RFC-0005 决策 6 / RFC-0011：取最新评论作 detail，不按作者过滤——人与 agent 共用账号时仍能触发。
     _patch_ensure(monkeypatch)
     seen = {}
 
@@ -143,7 +142,6 @@ def test_refine_rfc_fetches_latest_comment_and_calls_orchestrator(monkeypatch):
             seen.update(pr_number=pr_number, detail=detail)
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
-    monkeypatch.setattr("openagents.github.current_login", lambda: "agent-bot")
     monkeypatch.setattr(
         "openagents.github.list_comments",
         lambda *, pr_number: [
@@ -208,7 +206,6 @@ def test_iterate_comment_fetches_latest_human_comment(monkeypatch):
             seen.update(pr_number=pr_number, reason=reason, detail=detail)
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
-    monkeypatch.setattr("openagents.github.current_login", lambda: "agent-bot")
     monkeypatch.setattr(
         "openagents.github.list_comments",
         lambda *, pr_number: [
@@ -339,38 +336,42 @@ def test_poll_runs_preflight_then_polls(monkeypatch):
 def test_sync_prs_runs_preflight_with_defaults(monkeypatch):
     # 缺省：不排除任何 PR（merged_pr_number=None）、默认 merge（rebase=False）。
     calls = _patch_ensure(monkeypatch)
+    # RFC-0011 T6：sync-prs 透传 agent_id；打桩 _agent_id_for 避免触达真实 state。
+    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
 
-    def fake_rebase_open_prs(*, merged_pr_number, rebase):
-        seen.update(merged_pr_number=merged_pr_number, rebase=rebase)
+    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id):
+        seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
         return [{"pr_number": 8, "result": "updated"}]
 
     monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
     code = main(["sync-prs"])
     assert code == 0
     assert calls == [True]
-    assert seen == {"merged_pr_number": None, "rebase": False}
+    assert seen == {"merged_pr_number": None, "rebase": False, "agent_id": "agent-x"}
 
 
 def test_sync_prs_passes_merged_and_rebase(monkeypatch):
     _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
 
-    def fake_rebase_open_prs(*, merged_pr_number, rebase):
-        seen.update(merged_pr_number=merged_pr_number, rebase=rebase)
+    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id):
+        seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
         return []
 
     monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
     code = main(["sync-prs", "--merged", "5", "--rebase"])
     assert code == 0
-    assert seen == {"merged_pr_number": 5, "rebase": True}
+    assert seen == {"merged_pr_number": 5, "rebase": True, "agent_id": "agent-x"}
 
 
 def test_sync_prs_reports_error_cleanly(monkeypatch, capsys):
     _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     from openagents.github import GithubError
 
-    def boom(*, merged_pr_number, rebase):
+    def boom(*, merged_pr_number, rebase, agent_id):
         raise GithubError("gh pr list 失败")
 
     monkeypatch.setattr("openagents.rebase.rebase_open_prs", boom)
@@ -424,3 +425,58 @@ def test_board_skips_preflight(monkeypatch):
     code = main(["board"])
     assert code == 0
     assert calls == []
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0011 T6：agent_id 接线一致性
+# --------------------------------------------------------------------------- #
+
+
+def test_agent_id_for_resolves_and_is_stable(monkeypatch, tmp_path):
+    # RFC-0011 决策 7：_agent_id_for 解析（并首次落盘）一个稳定 id，多次调用得同一值。
+    from openagents.cli import _agent_id_for
+    from openagents.config import ProjectContext
+
+    monkeypatch.delenv("OPENAGENTS_AGENT_ID", raising=False)
+    ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
+
+    first = _agent_id_for(ctx=ctx)
+    second = _agent_id_for(ctx=ctx)
+
+    assert first
+    assert first == second
+
+
+def test_agent_id_for_honors_env_override(monkeypatch, tmp_path):
+    # RFC-0011 决策 2：env OPENAGENTS_AGENT_ID 优先于 state。
+    from openagents.cli import _agent_id_for
+    from openagents.config import ProjectContext
+
+    monkeypatch.setenv("OPENAGENTS_AGENT_ID", "alice")
+    ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
+
+    assert _agent_id_for(ctx=ctx) == "alice"
+
+
+def test_orchestrator_and_messages_share_resolved_agent_id(monkeypatch, tmp_path):
+    # RFC-0011 决策 7：Orchestrator / Messages 经接线拿到同一个 agent_id（poll 与其内部
+    # orchestrator 行为一致）。打桩 backend 工厂避免触达真实 ClaudeCodeBackend。
+    from openagents.cli import _messages_for, _orchestrator_for
+    from openagents.config import ProjectContext
+
+    monkeypatch.delenv("OPENAGENTS_AGENT_ID", raising=False)
+
+    class _StubBackend:
+        name = "stub"
+
+        def run(self, *, work_dir, task, context):
+            raise AssertionError("不应在接线测试中真正调用 backend")
+
+    monkeypatch.setattr("openagents.backends.claude_code.ClaudeCodeBackend", _StubBackend)
+    ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
+
+    orch = _orchestrator_for(ctx=ctx)
+    msgs = _messages_for(ctx=ctx)
+
+    assert orch._agent_id
+    assert orch._agent_id == msgs._agent_id == msgs._orchestrator._agent_id

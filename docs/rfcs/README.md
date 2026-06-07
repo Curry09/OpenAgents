@@ -38,7 +38,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0008](./0008-pr-e2e-signpost.md) | PR 正文「端到端验证」指路牌（从 RFC 自动生成） | implemented | P1 |
 | [RFC-0009](./0009-auto-rebase-open-prs-on-merge.md) | 合并后自动 rebase 其他 open PR | implemented | P1 |
 | [RFC-0010](./0010-gh-transient-retry-and-vigil-round-guard.md) | gh 瞬时错误重试 + 守夜循环单轮容错 | implemented | P1 |
-| [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环） | draft | P1 |
+| [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环） | implemented | P1 |
 
 ## RFC 编号规则
 

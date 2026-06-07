@@ -109,6 +109,15 @@ def _state_for(*, repo_root: Path):
     return State(path=repo_root / ".openagents" / "state.json")
 
 
+# RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（Orchestrator / Messages /
+# sync-prs 扇出）。resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，
+# 保证 solve / poll / vigil / sync-prs 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
+def _agent_id_for(*, ctx: ProjectContext) -> str:
+    from openagents import identity
+
+    return identity.resolve_agent_id(state=_state_for(repo_root=ctx.repo_root))
+
+
 def _orchestrator_for(*, ctx: ProjectContext):
     from openagents.backends.claude_code import ClaudeCodeBackend
     from openagents.orchestrator import Orchestrator
@@ -117,6 +126,7 @@ def _orchestrator_for(*, ctx: ProjectContext):
         backend=ClaudeCodeBackend(),
         state=_state_for(repo_root=ctx.repo_root),
         work_dir=ctx.repo_root,
+        agent_id=_agent_id_for(ctx=ctx),
     )
 
 
@@ -124,7 +134,9 @@ def _messages_for(*, ctx: ProjectContext):
     from openagents.messages import Messages
 
     return Messages(
-        orchestrator=_orchestrator_for(ctx=ctx), state=_state_for(repo_root=ctx.repo_root)
+        orchestrator=_orchestrator_for(ctx=ctx),
+        state=_state_for(repo_root=ctx.repo_root),
+        agent_id=_agent_id_for(ctx=ctx),
     )
 
 
@@ -184,8 +196,8 @@ def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _latest_comment_body(*, pr_number: int) -> str | None:
-    # RFC-0005 决策 6：手动触发取最新一条评论作上下文（不按作者过滤——手动由人显式
-    # 发起、无自循环风险；与 messages 自动 poll 同样不再按账号过滤）。
+    # RFC-0005 决策 6 / RFC-0011：手动触发取最新一条评论作上下文（不按作者过滤——手动由人
+    # 显式发起、无自循环风险；与 messages 自动 poll 同样不按账号过滤，改由签名区分自/非自）。
     from openagents import github
 
     comments = github.list_comments(pr_number=pr_number)
@@ -225,7 +237,10 @@ def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
     from openagents import rebase
 
-    events = rebase.rebase_open_prs(merged_pr_number=args.merged, rebase=args.rebase)
+    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖章，防自循环）。
+    events = rebase.rebase_open_prs(
+        merged_pr_number=args.merged, rebase=args.rebase, agent_id=_agent_id_for(ctx=ctx)
+    )
     print(f"✓ sync-prs 完成，同步 {len(events)} 个 open PR")
     return 0
 

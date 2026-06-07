@@ -337,18 +337,6 @@ def has_label(*, pr_number: int, name: str) -> bool:
     return any((label or {}).get("name") == name for label in labels)
 
 
-def current_login() -> str:
-    """RFC-0005 T3（决策 6）：当前认证用户登录名（`gh api user --jq .login`）。
-
-    供消息层按作者过滤 agent 自己发的评论，避免对自评论再次触发 refine 形成死循环。
-    """
-    result = _run_gh(["api", "user", "--jq", ".login"], allow_returncodes=set())
-    login = result.stdout.strip()
-    if not login:
-        raise GithubError("gh api user 未返回登录名")
-    return login
-
-
 def check_status(*, pr_number: int) -> CheckStatus:
     """RFC-0001 T3（决策 11）：读 `gh pr checks <n> --json`，聚合为 CI 状态。
 

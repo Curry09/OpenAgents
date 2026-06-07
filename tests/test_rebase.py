@@ -10,6 +10,7 @@ import pytest
 
 from openagents import rebase as rebase_module
 from openagents.github import PR, GithubError
+from openagents.identity import parse_agent_id
 from openagents.rebase import (
     CONFLICT_COMMENT,
     RESULT_CONFLICT,
@@ -17,6 +18,9 @@ from openagents.rebase import (
     RESULT_UPDATED,
     rebase_open_prs,
 )
+
+# RFC-0011 T5：所有 rebase_open_prs 调用都需传 agent_id（冲突留言据此盖章）。
+_AGENT_ID = "agent-x"
 
 
 def _patch(monkeypatch, *, open_prs, update):
@@ -52,7 +56,7 @@ def _pr(number):
 def test_updates_each_open_pr(monkeypatch):
     updates, comments = _patch(monkeypatch, open_prs=[_pr(5), _pr(8)], update={5: True, 8: True})
 
-    events = rebase_open_prs()
+    events = rebase_open_prs(agent_id=_AGENT_ID)
 
     assert events == [
         {"pr_number": 5, "result": RESULT_UPDATED},
@@ -67,7 +71,7 @@ def test_updates_each_open_pr(monkeypatch):
 def test_excludes_merged_pr(monkeypatch):
     updates, _ = _patch(monkeypatch, open_prs=[_pr(5), _pr(8)], update={8: True})
 
-    events = rebase_open_prs(merged_pr_number=5)
+    events = rebase_open_prs(merged_pr_number=5, agent_id=_AGENT_ID)
 
     # 刚合并的 PR #5 被排除，只同步 #8。
     assert [u["pr_number"] for u in updates] == [8]
@@ -77,7 +81,7 @@ def test_excludes_merged_pr(monkeypatch):
 def test_up_to_date_classified(monkeypatch):
     _patch(monkeypatch, open_prs=[_pr(5)], update={5: False})
 
-    events = rebase_open_prs()
+    events = rebase_open_prs(agent_id=_AGENT_ID)
 
     assert events == [{"pr_number": 5, "result": RESULT_UP_TO_DATE}]
 
@@ -90,21 +94,24 @@ def test_conflict_posts_comment_and_continues(monkeypatch):
         update={5: GithubError("merge conflict"), 8: True},
     )
 
-    events = rebase_open_prs()
+    events = rebase_open_prs(agent_id=_AGENT_ID)
 
     assert events == [
         {"pr_number": 5, "result": RESULT_CONFLICT},
         {"pr_number": 8, "result": RESULT_UPDATED},
     ]
     # 冲突 PR 收到提示评论；正常 PR 不留言。
-    assert comments == [{"pr_number": 5, "body": CONFLICT_COMMENT}]
+    assert [c["pr_number"] for c in comments] == [5]
+    # RFC-0011 T5：留言含原文案且盖本实例签名（下一轮 poll 据签名剔除自评论）。
+    assert CONFLICT_COMMENT in comments[0]["body"]
+    assert parse_agent_id(body=comments[0]["body"]) == _AGENT_ID
     assert [u["pr_number"] for u in updates] == [5, 8]
 
 
 def test_rebase_flag_passed_through(monkeypatch):
     updates, _ = _patch(monkeypatch, open_prs=[_pr(5)], update={5: True})
 
-    rebase_open_prs(rebase=True)
+    rebase_open_prs(rebase=True, agent_id=_AGENT_ID)
 
     assert updates == [{"pr_number": 5, "rebase": True}]
 
@@ -112,7 +119,7 @@ def test_rebase_flag_passed_through(monkeypatch):
 def test_empty_open_list_is_noop(monkeypatch):
     updates, comments = _patch(monkeypatch, open_prs=[], update={})
 
-    events = rebase_open_prs(merged_pr_number=5)
+    events = rebase_open_prs(merged_pr_number=5, agent_id=_AGENT_ID)
 
     assert events == []
     assert updates == []

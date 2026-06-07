@@ -25,7 +25,6 @@ from openagents.github import (
     create_issue,
     create_pr,
     create_repo,
-    current_login,
     ensure_label,
     find_pr_by_branch,
     get_issue,
@@ -613,30 +612,13 @@ def test_has_label_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# current_login（RFC-0005 决策 6）
-# --------------------------------------------------------------------------- #
+# RFC-0011 T6：current_login 已随签名机制取代而下线，全仓不应再有引用。
 
 
-def test_current_login_returns_login(monkeypatch):
-    runner = _fake_run(stdout="agent-bot\n")
-    monkeypatch.setattr(subprocess, "run", runner)
+def test_current_login_removed_from_github_module():
+    from openagents import github as ghmod
 
-    assert current_login() == "agent-bot"
-    cmd = runner.calls[-1]
-    assert cmd[:2] == ["gh", "api"]
-    assert "user" in cmd
-
-
-def test_current_login_empty_raises(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", _fake_run(stdout="\n"))
-    with pytest.raises(GithubError):
-        current_login()
-
-
-def test_current_login_error_raises(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="no auth"))
-    with pytest.raises(GithubError):
-        current_login()
+    assert not hasattr(ghmod, "current_login")
 
 
 # --------------------------------------------------------------------------- #

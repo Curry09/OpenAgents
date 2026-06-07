@@ -1,6 +1,6 @@
 # RFC-0011: 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `protocol`, `dx`
 - **影响模块**: `openagents/identity.py`（新增）、`openagents/state.py`、`openagents/messages.py`、`openagents/orchestrator.py`、`openagents/rebase.py`、`openagents/cli.py`、`openagents/github.py`
@@ -205,12 +205,12 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | state 层 agent_id 持久化 | - | `openagents/state.py`, `tests/test_state.py` | pending |
-| T2 | identity 模块（身份解析 + 评论签名） | T1 | `openagents/identity.py`, `tests/test_identity.py` | pending |
-| T3 | poll 判定剔除自评论 + 游标简化 | T2, T5 | `openagents/messages.py`, `tests/test_messages.py` | pending |
-| T4 | orchestrator 回贴评论盖章 | T2 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | pending |
-| T5 | rebase 冲突评论盖章 | T2 | `openagents/rebase.py`, `tests/test_rebase.py` | pending |
-| T6 | CLI 接线 + 下线 current_login | T3, T4, T5 | `openagents/cli.py`, `openagents/github.py`, `tests/test_cli.py`, `tests/test_github.py` | pending |
+| T1 | state 层 agent_id 持久化 | - | `openagents/state.py`, `tests/test_state.py` | implemented |
+| T2 | identity 模块（身份解析 + 评论签名） | T1 | `openagents/identity.py`, `tests/test_identity.py` | implemented |
+| T3 | poll 判定剔除自评论 + 游标简化 | T2, T5 | `openagents/messages.py`, `tests/test_messages.py` | implemented |
+| T4 | orchestrator 回贴评论盖章 | T2 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | implemented |
+| T5 | rebase 冲突评论盖章 | T2 | `openagents/rebase.py`, `tests/test_rebase.py` | implemented |
+| T6 | CLI 接线 + 下线 current_login | T3, T4, T5 | `openagents/cli.py`, `openagents/github.py`, `tests/test_cli.py`, `tests/test_github.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
@@ -260,8 +260,9 @@ graph LR
 
 ### 集成测试
 
-- 端到端模拟一轮 rfc-review poll：真人评论 → `refine_rfc` 回贴（带签名）→ 下一轮 poll **不**因自评论再触发；其后追加一条真人评论 → 被正常处理。
-- 模拟「post 评论后、推游标前崩溃」：重建 `Messages` 重跑 poll，自评论被签名过滤、不自循环。
+- 端到端模拟一轮 rfc-review poll（真实 `Messages` ↔ 真实 `Orchestrator`）：真人评论 → `refine_rfc` 经 `identity.post_signed_comment` 回贴带签名的自评论 → 下一轮 poll **不**因自评论再触发；其后追加一条真人评论 → 被正常处理（`tests/test_messages.py::test_integration_real_orchestrator_self_reply_does_not_self_loop`）。
+- 模拟「post 评论后、推游标前崩溃」：游标仍停在触发评论前，重跑 poll 时自评论被签名过滤、不自循环（`tests/test_messages.py::test_rfc_review_self_comment_filtered_even_if_cursor_not_advanced`）。
+- 一键启动脚本：`scripts/e2e-rfc-0011-agent-identity-signature.sh`，默认离线跑 ruff + pytest；设 `OPENAGENTS_E2E_REAL=1 E2E_PR=<PR编号>` 时在真实 PR 上演练「post_signed_comment → gh 取回 → parse_agent_id 解析」的签名往返。
 
 ### 手动验证
 

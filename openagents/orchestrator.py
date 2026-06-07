@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import github, rfc
+from openagents import github, identity, rfc
 from openagents.backends.base import AgentBackend
 from openagents.state import (
     STATUS_ITERATING,
@@ -65,11 +65,15 @@ class OrchestratorError(Exception):
 class Orchestrator:
     """RFC-0005：四个原子操作的编排器，组合 workspace + backend + github + state。"""
 
-    def __init__(self, *, backend: AgentBackend, state: State, work_dir: Path) -> None:
+    def __init__(
+        self, *, backend: AgentBackend, state: State, work_dir: Path, agent_id: str
+    ) -> None:
         self._backend = backend
         self._state = state
         self._work_dir = Path(work_dir)
         self._workspace = Workspace(work_dir=work_dir)
+        # RFC-0011 决策 4/7：本实例身份，由 CLI 接线处解析后注入；refine_rfc 的回贴据此盖章。
+        self._agent_id = agent_id
 
     # --- 原子操作 1：起草 RFC（开 draft PR）------------------------------- #
     def start_rfc(
@@ -154,9 +158,12 @@ class Orchestrator:
             message=f"docs: refine RFC for PR #{pr_number} per review",
         )
         # 决策 6：回贴评论说明改动，让人类知道 RFC 已据评审更新。
-        github.post_comment(
+        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，
+        # 使下一轮 poll 据签名剔除这条自评论，不再对自己的回贴触发 refine（防自循环）。
+        identity.post_signed_comment(
             pr_number=pr_number,
             body=_REFINE_COMMENT.format(summary=result.summary or "（无摘要）"),
+            agent_id=self._agent_id,
         )
         self._state.update_status(issue_number=record.issue_number, status=STATUS_RFC_REVIEW)
 

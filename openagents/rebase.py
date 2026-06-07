@@ -14,7 +14,7 @@ messages.poll 的合并分支自动驱动（决策 1），也被 `openagents syn
 
 from __future__ import annotations
 
-from openagents import github
+from openagents import github, identity
 
 # RFC-0009 决策 4：冲突时贴给 PR 的提示文案——以模块常量定义，便于测试断言与统一维护。
 CONFLICT_COMMENT = (
@@ -28,16 +28,20 @@ RESULT_UP_TO_DATE = "up-to-date"
 RESULT_CONFLICT = "conflict"
 
 
-def rebase_open_prs(*, merged_pr_number: int | None = None, rebase: bool = False) -> list[dict]:
+def rebase_open_prs(
+    *, merged_pr_number: int | None = None, rebase: bool = False, agent_id: str
+) -> list[dict]:
     """RFC-0009 T2：对每个 open PR（排除 merged_pr_number）执行 github.update_branch。
 
     merged_pr_number：刚合并的 PR 编号——合并后它已不在 open 列表，但合并瞬间存在竞态，
     故再显式排除一次兜底；None 表示不排除、同步全部 open PR（手动入口缺省）。
     rebase：True 用 rebase、False（默认）用 merge 方式同步（决策 2）。
+    agent_id：RFC-0011 T5 新增必填——冲突留言据此盖本实例签名，使下一轮 poll 据签名
+    剔除这条自评论（保持无状态：rebase 不读 state，agent_id 由 messages/CLI 透传，理念 10）。
 
     返回事件列表，每项 {"pr_number": int, "result": str}，
     result ∈ {RESULT_UPDATED, RESULT_UP_TO_DATE, RESULT_CONFLICT}（供日志/测试断言）。
-    冲突时 github.post_comment 留言并继续后续，不中断整轮扇出（决策 4，错误隔离）。
+    冲突时留言并继续后续，不中断整轮扇出（决策 4，错误隔离）。
     """
     events: list[dict] = []
     for pr in github.list_open_prs():
@@ -47,7 +51,10 @@ def rebase_open_prs(*, merged_pr_number: int | None = None, rebase: bool = False
             updated = github.update_branch(pr_number=pr.number, rebase=rebase)
         except github.GithubError:
             # 决策 4：无法自动并入（冲突等）→ 留言提示人工处理，记 conflict 后继续下一个。
-            github.post_comment(pr_number=pr.number, body=CONFLICT_COMMENT)
+            # RFC-0011 T5：走 identity.post_signed_comment 盖签名，避免自评论触发自循环。
+            identity.post_signed_comment(
+                pr_number=pr.number, body=CONFLICT_COMMENT, agent_id=agent_id
+            )
             events.append({"pr_number": pr.number, "result": RESULT_CONFLICT})
             continue
         result = RESULT_UPDATED if updated else RESULT_UP_TO_DATE

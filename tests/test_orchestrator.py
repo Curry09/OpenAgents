@@ -80,10 +80,11 @@ class _FakeWorkspace:
         return None
 
 
-def _make(tmp_path, *, backend=None):
+def _make(tmp_path, *, backend=None, agent_id="agent-x"):
     backend = backend or _FakeBackend()
     state = State(path=tmp_path / ".openagents" / "state.json")
-    orch = Orchestrator(backend=backend, state=state, work_dir=tmp_path)
+    # RFC-0011 T4：Orchestrator 新增必填 agent_id（回贴评论盖章用）。
+    orch = Orchestrator(backend=backend, state=state, work_dir=tmp_path, agent_id=agent_id)
     return orch, backend, state
 
 
@@ -336,6 +337,10 @@ def test_refine_rfc_feeds_detail_posts_comment_and_keeps_rfc_review(tmp_path, mo
     assert "请补充权衡章节" in backend.calls[0]["task"]
     assert posted["pr_number"] == 5
     assert "done" in posted["body"]  # 回贴评论含后端摘要
+    # RFC-0011 T4：回贴评论盖本实例签名，下一轮 poll 据此剔除（防自循环）。
+    from openagents.identity import parse_agent_id
+
+    assert parse_agent_id(body=posted["body"]) == "agent-x"
     assert state.all_runs()[0].status == "rfc-review"
 
 
