@@ -1,13 +1,14 @@
-"""RFC-0001 T5 + RFC-0005: Messages 按阶段路由 GitHub 事件的单元测试。
+"""RFC-0001 T5 + RFC-0005 + RFC-0011: Messages 按阶段路由 GitHub 事件的单元测试。
 
 外部副作用全部 mock/注入：
 - orchestrator：注入记录 implement / refine_rfc / iterate 调用的伪 Orchestrator。
 - state：注入控制 all_runs / cursor 的伪 State。
-- github.*：monkeypatch（is_merged / has_label / check_status / list_comments / current_login）。
+- github.*：monkeypatch（is_merged / has_label / check_status / list_comments）。
 - time.sleep：watch 循环测试中 monkeypatch，避免真实阻塞。
 
 覆盖：merged→done（优先级最高）；rfc-review 阶段 标签→implement、新评论→refine_rfc
-（不论作者）并把游标推进到回贴后最新评论、游标已越过→不重复触发（防自循环）；
+并把游标推进到**触发评论本身**、自评论（带本实例签名）被剔除不触发（RFC-0011 防自循环：
+含 post 后未推游标即崩溃、其他 agent 签名照常处理、干活期间真人评论下一轮被处理）；
 coding 阶段 CI→iterate(ci)、新评论→iterate(comment)；仅 open 状态（含 rfc-review）
 被轮询；watch 循环。
 """
@@ -16,8 +17,9 @@ import time
 
 import pytest
 
+from openagents import identity
 from openagents import messages as messages_module
-from openagents.github import CheckStatus, Comment
+from openagents.github import PR, CheckStatus, Comment
 from openagents.messages import APPROVAL_LABEL, Messages
 from openagents.state import (
     STATUS_CLOSED,
@@ -28,7 +30,10 @@ from openagents.state import (
     RunRecord,
 )
 
-_OWN_LOGIN = "agent-bot"
+# RFC-0011：本实例（被测 Messages）的身份；自评论用它签名，应被 poll 剔除。
+_AGENT_ID = "agent-self"
+# 另一个 agent 的身份；其签名评论应被当作外部反馈照常处理。
+_OTHER_AGENT_ID = "agent-other"
 
 
 class _FakeOrchestrator:
@@ -84,10 +89,11 @@ def _run(*, issue_number, pr_number, status):
     )
 
 
-def _make(*, runs):
+def _make(*, runs, agent_id=_AGENT_ID):
     orch = _FakeOrchestrator()
     state = _FakeState(runs=runs)
-    msgs = Messages(orchestrator=orch, state=state)
+    # RFC-0011 T3：Messages 新增必填 agent_id（自评论签名过滤用）。
+    msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id)
     return msgs, orch, state
 
 
@@ -99,7 +105,6 @@ def _patch_github(
     has_label=False,
     check=None,
     comments=None,
-    login=_OWN_LOGIN,
 ):
     """统一 monkeypatch github 模块函数，返回固定值。"""
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
@@ -113,20 +118,38 @@ def _patch_github(
     monkeypatch.setattr(
         messages_module.github, "list_comments", lambda *, pr_number: list(comments or [])
     )
-    monkeypatch.setattr(messages_module.github, "current_login", lambda: login)
     # RFC-0009 T3：合并分支会扇出 rebase.rebase_open_prs；默认桩为 no-op，保持 hermetic
-    # （不触达真实 gh）。需要断言扇出的测试自行覆盖此桩。
+    # （不触达真实 gh）。RFC-0011：扇出新增 agent_id 形参，桩需接受它。
     monkeypatch.setattr(
-        messages_module.rebase, "rebase_open_prs", lambda *, merged_pr_number=None: []
+        messages_module.rebase,
+        "rebase_open_prs",
+        lambda *, merged_pr_number=None, agent_id=None: [],
     )
 
 
 def _human(*, body, created_at):
+    # 真人评论：无签名（author 字段已与判定无关，RFC-0011 不再按作者过滤）。
     return Comment(id="IC", author="alice", body=body, created_at=created_at)
 
 
 def _own(*, body, created_at):
-    return Comment(id="IC", author=_OWN_LOGIN, body=body, created_at=created_at)
+    # 本实例自评论：盖 _AGENT_ID 签名，应被 _latest_new_comment 剔除。
+    return Comment(
+        id="IC",
+        author="alice",
+        body=identity.sign(body=body, agent_id=_AGENT_ID),
+        created_at=created_at,
+    )
+
+
+def _other_agent(*, body, created_at):
+    # 其他 agent 的评论：带别人的签名，应被当作外部反馈照常处理。
+    return Comment(
+        id="IC",
+        author="alice",
+        body=identity.sign(body=body, agent_id=_OTHER_AGENT_ID),
+        created_at=created_at,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -237,16 +260,15 @@ def test_rfc_review_human_comment_triggers_refine_and_advances_cursor(monkeypatc
     assert any(e["reason"] == "refine" for e in events)
 
 
-def test_rfc_review_refine_advances_cursor_past_agent_reply(monkeypatch):
-    # 决策 6：真人评论（与 agent 同账号也行）触发 refine；refine 回贴「已更新 RFC」后，
-    # 游标推进到该回贴之后，下一轮不再对自己的回贴触发 refine（防自循环）。
+def test_rfc_review_refine_advances_cursor_to_trigger_and_signature_kills_self_loop(monkeypatch):
+    # RFC-0011 决策 1/5：真人评论触发 refine；游标只推进到**触发评论本身**；refine 回贴的
+    # 「已更新 RFC」自评论带本实例签名，下一轮由签名过滤剔除，不再对自己的回贴触发 refine。
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
-    # 用 _own（与 agent 同账号）作触发评论，证明不再按作者过滤。
-    comments = [_own(body="补充权衡章节", created_at="2026-06-03T02:00:00Z")]
+    comments = [_human(body="补充权衡章节", created_at="2026-06-03T02:00:00Z")]
 
     def _refine(*, pr_number, detail):
         orch.refine_calls.append({"pr_number": pr_number, "detail": detail})
-        # 模拟 orchestrator.refine_rfc 回贴一条 agent 自己的说明评论（晚于触发评论）。
+        # 模拟 orchestrator.refine_rfc 回贴一条带本实例签名的说明评论（晚于触发评论）。
         comments.append(_own(body="🤖 已更新 RFC", created_at="2026-06-03T02:05:00Z"))
 
     orch.refine_rfc = _refine
@@ -255,13 +277,74 @@ def test_rfc_review_refine_advances_cursor_past_agent_reply(monkeypatch):
     msgs.poll()
 
     assert orch.refine_calls == [{"pr_number": 5, "detail": "补充权衡章节"}]
-    assert state.get_cursor(pr_number=5) == "2026-06-03T02:05:00Z"
+    # 游标推进到触发评论本身（02:00），而非自评论所在的 02:05。
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
 
-    # 下一轮：所有评论都不晚于游标 → 不重复触发。
+    # 下一轮：自评论虽晚于游标，但带本实例签名 → 被剔除 → 不重复触发。
     orch.refine_calls.clear()
     events = msgs.poll()
     assert orch.refine_calls == []
     assert events == []
+
+
+def test_rfc_review_self_comment_filtered_even_if_cursor_not_advanced(monkeypatch):
+    # RFC-0011 决策 1（崩溃自循环根治）：模拟「post 自评论后、推游标前崩溃」——游标仍停在
+    # 触发评论之前。重启重跑 poll，自评论靠签名被剔除，不自循环；不依赖游标是否推进。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    # 游标尚未推进（None）；PR 上只剩 agent 自己的回贴（带本实例签名）。
+    _patch_github(
+        monkeypatch,
+        has_label=False,
+        comments=[_own(body="🤖 已更新 RFC", created_at="2026-06-03T02:05:00Z")],
+    )
+
+    events = msgs.poll()
+
+    assert orch.refine_calls == []
+    assert events == []
+
+
+def test_rfc_review_other_agent_comment_triggers_refine(monkeypatch):
+    # RFC-0011 决策 1：判定粒度是「自己 vs 非自己」——其他 agent 的签名评论是外部反馈，照常触发。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(
+        monkeypatch,
+        has_label=False,
+        comments=[_other_agent(body="另一个 agent 的意见", created_at="2026-06-03T02:00:00Z")],
+    )
+
+    events = msgs.poll()
+
+    assert len(orch.refine_calls) == 1
+    assert orch.refine_calls[0]["pr_number"] == 5
+    assert "另一个 agent 的意见" in orch.refine_calls[0]["detail"]
+    assert any(e["reason"] == "refine" for e in events)
+
+
+def test_rfc_review_human_comment_during_work_processed_next_round(monkeypatch):
+    # RFC-0011 决策 1（误跳真人根治）：agent 干活期间真人发了评论（晚于触发评论）。游标只推到
+    # 触发评论，真人那条 > cursor 且无签名 → 下一轮被正常处理，不再被「游标推到最新」静默跳过。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    comments = [_human(body="第一条意见", created_at="2026-06-03T02:00:00Z")]
+
+    def _refine(*, pr_number, detail):
+        orch.refine_calls.append({"pr_number": pr_number, "detail": detail})
+        # agent 回贴自评论；同时一条真人评论在干活期间到达（晚于触发评论与自评论）。
+        comments.append(_own(body="🤖 已更新 RFC", created_at="2026-06-03T02:05:00Z"))
+        comments.append(_human(body="第二条意见", created_at="2026-06-03T02:06:00Z"))
+
+    orch.refine_rfc = _refine
+    _patch_github(monkeypatch, has_label=False, comments=comments)
+
+    msgs.poll()
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "第一条意见"}]
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"
+
+    # 下一轮：自评论被签名剔除，但真人「第二条意见」> cursor 且无签名 → 被处理。
+    orch.refine_calls.clear()
+    msgs.poll()
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "第二条意见"}]
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:06:00Z"
 
 
 def test_rfc_review_refines_only_newest_human_above_cursor(monkeypatch):
@@ -362,7 +445,6 @@ def test_only_open_runs_are_polled_including_rfc_review(monkeypatch):
         lambda *, pr_number: CheckStatus(state="pass", failed_logs=[]),
     )
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
-    monkeypatch.setattr(messages_module.github, "current_login", lambda: _OWN_LOGIN)
 
     msgs.poll()
 
@@ -397,15 +479,17 @@ def test_merged_fans_out_rebase_with_merged_pr_number(monkeypatch):
 
     seen = {}
 
-    def _fake_rebase(*, merged_pr_number=None):
+    def _fake_rebase(*, merged_pr_number=None, agent_id=None):
         seen["merged_pr_number"] = merged_pr_number
+        seen["agent_id"] = agent_id
         return [{"pr_number": 8, "result": "updated"}]
 
     monkeypatch.setattr(messages_module.rebase, "rebase_open_prs", _fake_rebase)
 
     events = msgs.poll()
 
-    assert seen == {"merged_pr_number": 5}
+    # RFC-0011 T3：扇出透传本实例 agent_id（rebase 据此给冲突留言盖章）。
+    assert seen == {"merged_pr_number": 5, "agent_id": _AGENT_ID}
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
     # merged 事件附带本轮同步结果，供日志。
     merged_event = next(e for e in events if e["reason"] == "merged")
@@ -423,7 +507,7 @@ def test_non_merged_does_not_fan_out_rebase(monkeypatch):
     monkeypatch.setattr(
         messages_module.rebase,
         "rebase_open_prs",
-        lambda *, merged_pr_number=None: called.append(merged_pr_number) or [],
+        lambda *, merged_pr_number=None, agent_id=None: called.append(merged_pr_number) or [],
     )
 
     msgs.poll()
@@ -466,6 +550,88 @@ def test_watch_exits_on_keyboard_interrupt(monkeypatch):
     _patch_github(monkeypatch)
 
     msgs.watch(interval=1)
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0011 集成测试：真实 Messages + 真实 Orchestrator 的跨模块自循环防护
+# --------------------------------------------------------------------------- #
+
+
+def test_integration_real_orchestrator_self_reply_does_not_self_loop(monkeypatch, tmp_path):
+    """端到端一轮 rfc-review poll（真实 Messages ↔ 真实 Orchestrator）：
+
+    真人评论 → orchestrator.refine_rfc 经 identity.post_signed_comment 回贴带签名的自评论 →
+    下一轮 poll 据签名剔除自评论、不再触发 refine；其后追加一条真人评论 → 被正常处理。
+    跨 messages → orchestrator → identity → github 边界，验证整条链路的身份/签名一致。
+    """
+    from openagents import identity as identity_module
+    from openagents.orchestrator import Orchestrator
+    from openagents.state import State
+
+    agent_id = "agent-integration"
+
+    class _StubBackend:
+        name = "stub"
+
+        def run(self, *, work_dir, task, context):
+            from openagents.backends.base import AgentResult
+
+            return AgentResult(changed=True, summary="已据评审更新 RFC")
+
+    class _StubWorkspace:
+        def ensure(self, *, issue_number, branch):
+            return tmp_path / f"wt-{issue_number}"
+
+        def commit_and_push(self, *, worktree, branch, message):
+            pass
+
+    # 真实 State + 真实 Orchestrator（桩掉 backend / workspace / git）。
+    state = State(path=tmp_path / ".openagents" / "state.json")
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    state.update_status(issue_number=3, status=STATUS_RFC_REVIEW)
+    orch = Orchestrator(backend=_StubBackend(), state=state, work_dir=tmp_path, agent_id=agent_id)
+    orch._workspace = _StubWorkspace()
+    msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id)
+
+    # 共享一个内存评论列表：post_signed_comment 往里追加（带签名），list_comments 读它。
+    comments: list[Comment] = [_human(body="补充权衡章节", created_at="2026-06-03T02:00:00Z")]
+    posted_at = {"n": 4}
+
+    def _post_comment(*, pr_number, body):
+        # 模拟 gh 落地：原始 body（含隐藏签名）原样进入评论列表，时间晚于触发评论。
+        posted_at["n"] += 1
+        comments.append(
+            Comment(
+                id="IC", author="acct", body=body, created_at=f"2026-06-03T02:0{posted_at['n']}:00Z"
+            )
+        )
+
+    monkeypatch.setattr(identity_module.github, "post_comment", _post_comment)
+    monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+    monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: False)
+    monkeypatch.setattr(
+        messages_module.github, "list_comments", lambda *, pr_number: list(comments)
+    )
+
+    # 第 1 轮：真人评论触发 refine，orchestrator 回贴一条带本实例签名的自评论。
+    events = msgs.poll()
+    assert any(e["reason"] == "refine" for e in events)
+    assert identity.parse_agent_id(body=comments[-1].body) == agent_id  # 自评论确带签名
+    assert state.get_cursor(pr_number=5) == "2026-06-03T02:00:00Z"  # 游标只到触发评论
+
+    # 第 2 轮：仅有 agent 自评论晚于游标 → 被签名剔除 → 不自循环。
+    events = msgs.poll()
+    assert events == []
+
+    # 追加一条真人评论（无签名，晚于游标）→ 第 3 轮被正常处理。
+    comments.append(_human(body="再改一处", created_at="2026-06-03T03:00:00Z"))
+    events = msgs.poll()
+    assert any(e["reason"] == "refine" for e in events)
 
 
 if __name__ == "__main__":

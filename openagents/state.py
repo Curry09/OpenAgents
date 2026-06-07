@@ -7,7 +7,8 @@
 JSON 结构：
     {
         "runs": [ {issue_number, branch, pr_number, pr_url, status, summary}, ... ],
-        "cursors": { "<pr_number>": <last_comment_id> }
+        "cursors": { "<pr_number>": <last_comment_id> },
+        "agent_id": "<本实例稳定身份>"   # RFC-0011 T1：可选键，首次自动生成后落盘
     }
 读写一律容错：文件缺失/损坏视为空状态。
 """
@@ -113,6 +114,25 @@ class State:
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["status"] = status
+        self._save(data=data)
+
+    def get_agent_id(self) -> str | None:
+        """RFC-0011 T1：读已落盘的本实例 agent_id；未设过返回 None。
+
+        agent_id 是 state.json 顶层可选键（与 runs/cursors 平级）。供
+        identity.resolve_agent_id 在 env 未指定时复用既有值、保证跨进程/重启稳定。
+        """
+        data = self._load()
+        agent_id = data.get("agent_id")
+        return agent_id if isinstance(agent_id, str) and agent_id else None
+
+    def set_agent_id(self, *, agent_id: str) -> None:
+        """RFC-0011 T1：落盘本实例 agent_id（首次自动生成后写回，使后续进程拿到同一 id）。
+
+        _load 保留顶层的全部既有键，故写 agent_id 不影响 runs/cursors（反之亦然）。
+        """
+        data = self._load()
+        data["agent_id"] = agent_id
         self._save(data=data)
 
     def get_cursor(self, *, pr_number: int) -> str | None:

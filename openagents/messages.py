@@ -8,14 +8,16 @@ poll 对每个 open 状态的 run 做一次扫描，先判 merge，再按 run �
   2. 阶段 rfc-review（PR 为 draft、承载 RFC）：
      a. 带 rfc-approved 标签 → Orchestrator.implement（转入 coding）。
      b. 否则有「游标后的新评论」→ Orchestrator.refine_rfc（精炼 RFC 并回贴说明），
-        随后把游标推进到回贴后 PR 上最新评论之后（消费掉 agent 自己的回贴）。
+        随后把游标推进到**触发评论本身**的 created_at（RFC-0011 决策 5）。
   3. 阶段 coding（pr-open / iterating）：
      a. CI 失败 → Orchestrator.iterate(reason="ci")（决策 11）。
      b. 否则有「游标后的新评论」→ Orchestrator.iterate(reason="comment")（决策 5）。
 
-「新评论」= created_at 晚于游标的最新一条评论，**不论作者**（RFC-0005 决策 6）：
-人与 agent 可能共用同一 GitHub 账号，按作者过滤会误杀真人评论；自我循环改由
-「refine 后把游标推进到 agent 回贴之后」消费掉自己的回贴来避免。
+「新评论」= created_at 晚于游标、且**不带本实例签名**的最新一条评论
+（RFC-0011 决策 1）：判定粒度收敛为「自己 vs 非自己」——只剔除「带我自己
+agent=<my_id> 签名」的评论；其他 agent 的签名评论与无签名的真人评论都照常处理。
+不按 GitHub 账号过滤（人机可能共用账号，会误杀真人）；自循环由签名过滤根治，
+不再靠「把游标推进到 agent 回贴之后」消费自评论（RFC-0011 取代 RFC-0005 决策 6）。
 
 watch：每隔 interval 秒循环调用 poll，无 open PR 或用户中断时退出（决策 6）。
 
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 import time
 
-from openagents import github, rebase
+from openagents import github, identity, rebase
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
     STATUS_CLOSED,
@@ -49,9 +51,12 @@ APPROVAL_LABEL = "rfc-approved"
 class Messages:
     """RFC-0001 T5 + RFC-0005：按阶段轮询 PR 的 merge/标签/CI/comment，路由回编排层。"""
 
-    def __init__(self, *, orchestrator: Orchestrator, state: State) -> None:
+    def __init__(self, *, orchestrator: Orchestrator, state: State, agent_id: str) -> None:
         self._orchestrator = orchestrator
         self._state = state
+        # RFC-0011 决策 1/7：本实例身份，由 CLI 接线处解析后注入。_latest_new_comment 据此
+        # 剔除自己的签名评论；poll 合并分支再透传给 rebase.rebase_open_prs（保持 rebase 无状态）。
+        self._agent_id = agent_id
 
     def poll(self) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
@@ -87,7 +92,7 @@ class Messages:
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 main 并入其余
             # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 由 rebase 层留言。
-            synced = rebase.rebase_open_prs(merged_pr_number=pr_number)
+            synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
 
         # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过，不触发任何
@@ -108,17 +113,15 @@ class Messages:
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
-        # 2b. 游标后的最新评论（不论作者）→ 精炼 RFC（决策 6）。
+        # 2b. 游标后、非本实例签名的最新评论 → 精炼 RFC（RFC-0011 决策 1）。
         comment = self._latest_new_comment(pr_number=pr_number)
         if comment is None:
             return None
         self._orchestrator.refine_rfc(pr_number=pr_number, detail=comment.body)
-        # 决策 6：refine 会回贴一条「已更新 RFC」评论；把游标推进到回贴后 PR 上最新
-        # 评论之后，消费掉 agent 自己的回贴，避免下一轮对自己的评论再次触发 refine。
-        self._state.set_cursor(
-            pr_number=pr_number,
-            comment_id=self._newest_comment_id(pr_number=pr_number, fallback=comment.created_at),
-        )
+        # RFC-0011 决策 5：游标只推进到**触发评论本身**的 created_at（与 coding 阶段一致）。
+        # refine 回贴的「已更新 RFC」自评论带本实例签名，下一轮由 _latest_new_comment 的
+        # 签名过滤剔除，不靠推游标越过——与游标是否推进无关，故抗崩溃、不误跳真人、不撞秒。
+        self._state.set_cursor(pr_number=pr_number, comment_id=comment.created_at)
         return {"pr_number": pr_number, "reason": "refine"}
 
     def _process_coding(self, *, record: RunRecord) -> dict | None:
@@ -140,28 +143,24 @@ class Messages:
         return {"pr_number": pr_number, "reason": "comment"}
 
     def _latest_new_comment(self, *, pr_number: int) -> github.Comment | None:
-        """取晚于游标的最新评论（不论作者）；无则 None（决策 6）。
+        """取晚于游标、且非本实例签名的最新评论；无则 None（RFC-0011 决策 1）。
 
         comment id 是 node id 字符串、不可排序，故用 created_at（ISO 8601，
-        字典序即时间序）判断「新」并供调用方推进游标。不按作者过滤：人与 agent
-        可能共用账号，自循环由调用方推进游标越过 agent 回贴来避免。
+        字典序即时间序）判断「新」并供调用方推进游标。判定粒度是「自己 vs 非自己」：
+        只剔除 identity.parse_agent_id(body) == 我自己 agent_id 的评论；其他 agent 的
+        签名评论、无签名的真人评论都保留。这样既根治自循环，又不依赖按账号区分人/机。
         """
         cursor = self._state.get_cursor(pr_number=pr_number)
         comments = github.list_comments(pr_number=pr_number)
-        fresh = [c for c in comments if cursor is None or c.created_at > cursor]
+        fresh = [
+            c
+            for c in comments
+            if (cursor is None or c.created_at > cursor)
+            and identity.parse_agent_id(body=c.body) != self._agent_id
+        ]
         if not fresh:
             return None
         return max(fresh, key=lambda c: c.created_at)
-
-    def _newest_comment_id(self, *, pr_number: int, fallback: str) -> str:
-        """refine 回贴后 PR 上最新评论的 created_at；取不到则回退到 fallback（决策 6）。
-
-        用于把游标推进到 agent 自己刚回贴的「已更新 RFC」之后，消费掉该回贴。
-        """
-        comments = github.list_comments(pr_number=pr_number)
-        if not comments:
-            return fallback
-        return max(c.created_at for c in comments)
 
     def _has_open_pr(self) -> bool:
         """是否还有 rfc-review/pr-open/iterating 的 run（watch 循环的退出条件）。"""

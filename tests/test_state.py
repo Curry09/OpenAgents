@@ -198,6 +198,81 @@ def test_record_run_defaults_to_pr_open(tmp_path):
     assert state.all_runs()[0].status == STATUS_PR_OPEN
 
 
+# --------------------------------------------------------------------------- #
+# RFC-0011 T1：agent_id 持久化
+# --------------------------------------------------------------------------- #
+
+
+def test_get_agent_id_none_when_unset(tmp_path):
+    # RFC-0011 T1：未设过 agent_id 时 get 返回 None。
+    state = _new_state(tmp_path)
+    assert state.get_agent_id() is None
+
+
+def test_set_and_get_agent_id(tmp_path):
+    # RFC-0011 T1：set 后 get 取回同值。
+    state = _new_state(tmp_path)
+    state.set_agent_id(agent_id="abc123")
+    assert state.get_agent_id() == "abc123"
+
+
+def test_agent_id_persists_to_disk(tmp_path):
+    # RFC-0011 T1：真实落盘，跨 State 实例（即跨进程）读回一致。
+    state = _new_state(tmp_path)
+    state.set_agent_id(agent_id="abc123")
+
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.get_agent_id() == "abc123"
+
+
+def test_set_agent_id_overwrites(tmp_path):
+    # RFC-0011 T1：后写覆盖前值。
+    state = _new_state(tmp_path)
+    state.set_agent_id(agent_id="first")
+    state.set_agent_id(agent_id="second")
+    assert state.get_agent_id() == "second"
+
+
+def test_set_agent_id_preserves_runs_and_cursors(tmp_path):
+    # RFC-0011 T1 验收：写 agent_id 不破坏既有 runs / cursors。
+    state = _new_state(tmp_path)
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    state.set_cursor(pr_number=5, comment_id="2026-06-04T02:00:00Z")
+
+    state.set_agent_id(agent_id="abc123")
+
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.get_agent_id() == "abc123"
+    assert len(reloaded.all_runs()) == 1
+    assert reloaded.all_runs()[0].pr_number == 5
+    assert reloaded.get_cursor(pr_number=5) == "2026-06-04T02:00:00Z"
+
+
+def test_record_run_preserves_existing_agent_id(tmp_path):
+    # RFC-0011 T1：先落 agent_id，再写 run，agent_id 不被 _load/_save 丢掉。
+    state = _new_state(tmp_path)
+    state.set_agent_id(agent_id="abc123")
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.get_agent_id() == "abc123"
+    assert len(reloaded.all_runs()) == 1
+
+
+def test_get_agent_id_none_when_file_missing(tmp_path):
+    # RFC-0011 T1：文件缺失容错为 None（与 cursors/runs 同风格）。
+    state = _new_state(tmp_path)
+    assert state.get_agent_id() is None
+
+
 def test_record_run_multiple_runs(tmp_path):
     state = _new_state(tmp_path)
     state.record_run(
