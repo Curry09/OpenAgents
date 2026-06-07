@@ -39,6 +39,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0009](./0009-auto-rebase-open-prs-on-merge.md) | 合并后自动 rebase 其他 open PR | implemented | P1 |
 | [RFC-0010](./0010-gh-transient-retry-and-vigil-round-guard.md) | gh 瞬时错误重试 + 守夜循环单轮容错 | implemented | P1 |
 | [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环） | implemented | P1 |
+| [RFC-0012](./0012-test-branch-gated-flow.md) | test 分支门控流程——人只在「提 issue」与「promote」介入（reviewer agent 接管 RFC/代码评审闸） | draft | P1 |
 | [RFC-0013](./0013-implement-e2e-run-result-comment.md) | 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸） | implemented | P1 |
 
 ## RFC 编号规则
