@@ -407,6 +407,115 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# RFC-0013: implement 转正前实跑 e2e + 签名结果评论
+# --------------------------------------------------------------------------- #
+
+
+def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", rfc_path="/tmp/0013.md"):
+    """给 implement 接好 RFC-0013 旁路所需的全部替身，返回事件记录器。
+
+    monkeypatch：changed_rfc_path / rfc.script_path_for / e2e.run_e2e_script /
+    e2e.render_result / identity.post_signed_comment / github.mark_ready，并记录调用顺序。
+    """
+    from openagents.e2e import E2EResult
+
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    events = {"order": [], "comment": None, "run_e2e": [], "mark_ready": None}
+
+    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: rfc_path)
+    monkeypatch.setattr(orch_module.rfc, "script_path_for", lambda *, rfc_path: "scripts/x.sh")
+
+    def _run_e2e(*, worktree, script_path, timeout_seconds, tail_lines):
+        events["order"].append("run_e2e")
+        events["run_e2e"].append({"script_path": script_path})
+        return E2EResult(
+            outcome=e2e_outcome,
+            exit_code=0 if e2e_outcome == "passed" else 1,
+            script_path=script_path,
+            log_tail="log",
+            timed_out=False,
+        )
+
+    monkeypatch.setattr(orch_module.e2e, "run_e2e_script", _run_e2e)
+    monkeypatch.setattr(
+        orch_module.e2e, "render_result", lambda *, result, tail_lines: "## 端到端测试结果\nbody"
+    )
+
+    def _post(*, pr_number, body, agent_id):
+        events["order"].append("post_comment")
+        events["comment"] = {"pr_number": pr_number, "body": body, "agent_id": agent_id}
+
+    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _post)
+
+    def _mark_ready(*, pr_number):
+        events["order"].append("mark_ready")
+        events["mark_ready"] = pr_number
+
+    monkeypatch.setattr(orch_module.github, "mark_ready", _mark_ready)
+    return events
+
+
+def test_implement_runs_e2e_and_posts_signed_comment_before_mark_ready(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path, agent_id="agent-007")
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    events = _arm_implement(orch, state, monkeypatch)
+
+    orch.implement(pr_number=5)
+
+    # 实跑 → 发结果评论 → 转正，严格按此序（评论在 mark_ready 前）。
+    assert events["order"] == ["run_e2e", "post_comment", "mark_ready"]
+    assert events["run_e2e"][0]["script_path"] == "scripts/x.sh"
+    assert events["comment"]["pr_number"] == 5
+    assert events["comment"]["agent_id"] == "agent-007"
+    assert "端到端测试结果" in events["comment"]["body"]
+    assert events["mark_ready"] == 5
+
+
+def test_implement_e2e_failed_still_marks_ready(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    events = _arm_implement(orch, state, monkeypatch, e2e_outcome="failed")
+
+    orch.implement(pr_number=5)
+
+    # e2e 失败仅发评论、不阻断转正（决策 6）。
+    assert events["mark_ready"] == 5
+    assert events["comment"] is not None
+    assert state.all_runs()[0].status == "pr-open"
+
+
+def test_implement_no_rfc_runs_skipped_still_posts_and_marks_ready(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    events = _arm_implement(orch, state, monkeypatch, rfc_path=None)
+
+    orch.implement(pr_number=5)
+
+    # changed_rfc_path 为 None → script_path=None 传入 run_e2e_script，仍发评论且转正。
+    assert events["run_e2e"][0]["script_path"] is None
+    assert events["comment"] is not None
+    assert events["mark_ready"] == 5
+
+
+def test_implement_comment_failure_does_not_block_mark_ready(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    events = _arm_implement(orch, state, monkeypatch)
+
+    def _boom(*, pr_number, body, agent_id):
+        events["order"].append("post_comment")
+        raise RuntimeError("gh 故障")
+
+    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _boom)
+
+    orch.implement(pr_number=5)
+
+    # 发评论抛错被吞掉，mark_ready 仍执行、流程不崩（决策 6）。
+    assert events["mark_ready"] == 5
+    assert state.all_runs()[0].status == "pr-open"
+
+
+# --------------------------------------------------------------------------- #
 # iterate
 # --------------------------------------------------------------------------- #
 
