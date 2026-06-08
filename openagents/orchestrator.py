@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import github, identity, rfc
+from openagents import e2e, github, identity, rfc
 from openagents.backends.base import AgentBackend
 from openagents.state import (
     STATUS_ITERATING,
@@ -184,9 +184,40 @@ class Orchestrator:
             branch=record.branch,
             message=f"feat: implement issue #{record.issue_number} per RFC",
         )
+        # RFC-0013：转正前实跑本分支 RFC 的 e2e 脚本，把「合否 + 日志末尾」作为签名评论发出
+        # （指路牌 → 实跑结果，理念 8）。整段尽力而为、绝不阻断转正（决策 6）。
+        self._post_e2e_result(worktree=worktree, pr_number=pr_number)
         self._progress(message="▶ 取消 draft，PR 转正 …")
         github.mark_ready(pr_number=pr_number)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
+
+    def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
+        """RFC-0013：定位本分支 RFC 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。
+
+        脚本定位单一来源于 RFC（复用 RFC-0008 的 changed_rfc_path + rfc.script_path_for，决策 2）；
+        run_e2e_script 契约上绝不抛错；渲染/发评论一步若因 gh 故障抛错，只记进度并吞掉，
+        绝不把整条 implement 流程拖崩或拦住 mark_ready（决策 6）。
+        """
+        self._progress(message="▶ 转正前实跑端到端脚本（ruff + pytest）…")
+        # 1. 单一来源定位脚本：本分支新增 RFC → 集成测试段脚本相对路径（None 即 skipped）。
+        rfc_path = self._workspace.changed_rfc_path(worktree=worktree, base=DEFAULT_BASE)
+        script_path = rfc.script_path_for(rfc_path=rfc_path) if rfc_path else None
+        # 2. 实跑离线段并截退出码与日志末尾（绝不抛错）。
+        result = e2e.run_e2e_script(
+            worktree=worktree,
+            script_path=script_path,
+            timeout_seconds=e2e.DEFAULT_TIMEOUT_SECONDS,
+            tail_lines=e2e.DEFAULT_TAIL_LINES,
+        )
+        # 3. 渲染 + RFC-0011 盖章发评论；发评论失败仅记进度并吞掉，不拖垮主流程。
+        try:
+            identity.post_signed_comment(
+                pr_number=pr_number,
+                body=e2e.render_result(result=result, tail_lines=e2e.DEFAULT_TAIL_LINES),
+                agent_id=self._agent_id,
+            )
+        except Exception as error:  # noqa: BLE001 — 旁路尽力而为，任何 gh 故障都不得阻断转正
+            self._progress(message=f"⚠ 端到端结果评论发送失败（已忽略）：{error}")
 
     # --- 原子操作 4：coding 阶段迭代（CI/comment 反馈）------------------ #
     def iterate(self, *, pr_number: int, reason: str, detail: str) -> None:

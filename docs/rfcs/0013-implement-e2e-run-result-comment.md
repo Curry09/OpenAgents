@@ -1,6 +1,6 @@
 # RFC-0013: 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `dx`, `cli`
 - **影响模块**: 新增 `openagents/e2e.py`、`openagents/rfc.py`、`openagents/orchestrator.py`
@@ -240,10 +240,10 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | e2e 实跑封装 + 结果评论渲染（纯模块） | - | `openagents/e2e.py`、`tests/test_e2e.py` | pending |
-| T2 | rfc.script_path_for（复用 extract_e2e 定位脚本） | - | `openagents/rfc.py`、`tests/test_rfc.py` | pending |
-| T3 | implement 转正前实跑 + 签名结果评论接线 | T1, T2 | `openagents/orchestrator.py`、`tests/test_orchestrator.py` | blocked |
-| T4 | 端到端脚本 + RFC 索引 | T3 | `scripts/e2e-rfc-0013-implement-e2e-comment.sh`、`docs/rfcs/README.md` | blocked |
+| T1 | e2e 实跑封装 + 结果评论渲染（纯模块） | - | `openagents/e2e.py`、`tests/test_e2e.py` | implemented |
+| T2 | rfc.script_path_for（复用 extract_e2e 定位脚本） | - | `openagents/rfc.py`、`tests/test_rfc.py` | implemented |
+| T3 | implement 转正前实跑 + 签名结果评论接线 | T1, T2 | `openagents/orchestrator.py`、`tests/test_orchestrator.py` | implemented |
+| T4 | 端到端脚本 + RFC 索引 | T3 | `scripts/e2e-rfc-0013-implement-e2e-comment.sh`、`docs/rfcs/README.md` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 

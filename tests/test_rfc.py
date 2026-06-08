@@ -148,3 +148,38 @@ def test_module_exposes_public_api():
     assert hasattr(rfc, "render_signpost")
     assert hasattr(rfc, "signpost_for")
     assert hasattr(rfc, "E2EHints")
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0013 T2: script_path_for（复用 extract_e2e 定位 e2e 脚本）
+# --------------------------------------------------------------------------- #
+
+_NO_SCRIPT_RFC = """# RFC-0099: 无脚本
+
+## 测试方案
+
+### 手动验证
+
+1. 手动跑一下。
+
+## 未解决的问题
+
+无。
+"""
+
+
+def test_script_path_for_picks_integration_script(tmp_path):
+    rfc_file = tmp_path / "0008-pr-e2e-signpost.md"
+    rfc_file.write_text(_FULL_RFC, encoding="utf-8")
+    assert rfc.script_path_for(rfc_path=rfc_file) == "scripts/e2e-rfc-0008-pr-e2e-signpost.sh"
+
+
+def test_script_path_for_no_integration_section_returns_none(tmp_path):
+    rfc_file = tmp_path / "0099-no-script.md"
+    rfc_file.write_text(_NO_SCRIPT_RFC, encoding="utf-8")
+    assert rfc.script_path_for(rfc_path=rfc_file) is None
+
+
+def test_script_path_for_unreadable_file_returns_none(tmp_path):
+    missing = tmp_path / "0100-missing.md"
+    assert rfc.script_path_for(rfc_path=missing) is None

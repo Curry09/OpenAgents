@@ -103,6 +103,20 @@ def signpost_for(*, rfc_path: Path) -> str | None:
     return render_signpost(rfc_number=number, hints=hints)
 
 
+def script_path_for(*, rfc_path: Path) -> str | None:
+    """Read an RFC file and return its e2e script relative path (or None).
+
+    RFC-0013：读 rfc_path → extract_e2e（复用 RFC-0008）→ 返回 hints.script_path。
+    文件不可读 / 无集成测试脚本时返回 None（不抛错）。与 signpost_for 对称：把「读文件 +
+    RFC 语义解析」收在 rfc.py，orchestrator 不做文件 IO（理念 10 解耦）。
+    """
+    try:
+        rfc_text = rfc_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return extract_e2e(rfc_text=rfc_text).script_path
+
+
 def _rfc_number_from_name(*, name: str) -> int | None:
     """从 RFC 文件名（NNNN-slug.md）解析整型编号；不匹配返回 None。"""
     match = _RFC_FILENAME_RE.match(name)
