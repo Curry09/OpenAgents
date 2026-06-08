@@ -23,6 +23,7 @@ COMMANDS = [
     "sync-prs",
     "board",
     "vigil",
+    "promote",
 ]
 
 
@@ -86,7 +87,8 @@ def test_rfc_runs_preflight_then_opens_draft_pr(monkeypatch):
     class _FakeOrch:
         def start_rfc(self, *, issue_number, base):
             assert issue_number == 1
-            assert base == "main"
+            # RFC-0012 决策 2：rfc 默认基线改为 test。
+            assert base == "test"
             return _FakePR()
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
@@ -393,7 +395,8 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     code = main(["vigil"])
     assert code == 0
     assert calls == [True]
-    assert seen == {"interval": 60, "labels": ["openagents"], "base": "main", "once": False}
+    # RFC-0012 决策 2：vigil 默认基线改为 test。
+    assert seen == {"interval": 60, "labels": ["openagents"], "base": "test", "once": False}
 
 
 def test_vigil_passes_all_overrides(monkeypatch):
@@ -414,9 +417,64 @@ def test_vigil_passes_all_overrides(monkeypatch):
 
 def test_init_runs_interactive_preflight(monkeypatch):
     calls = _patch_ensure(monkeypatch)
+    # RFC-0012 决策 8：init 兜底建 test 分支——打桩 ensure_branch 避免触达真实 gh。
+    ensured = []
+    monkeypatch.setattr(
+        "openagents.github.ensure_branch",
+        lambda *, name, from_ref: ensured.append((name, from_ref)),
+    )
     code = main(["init"])
     assert code == 0
     assert calls == [True]
+    assert ensured == [("test", "main")]
+
+
+# --------------------------------------------------------------------------- #
+# promote（RFC-0012 T6/决策 7：人工扬升 test → main）
+# --------------------------------------------------------------------------- #
+
+
+def test_promote_success_returns_zero(monkeypatch):
+    from openagents.promote import PromoteResult
+
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_promote(*, state):
+        seen["called"] = True
+        return PromoteResult(promoted=True, reason="ok")
+
+    monkeypatch.setattr("openagents.promote.promote", fake_promote)
+    code = main(["promote"])
+    assert code == 0
+    assert seen["called"] is True
+
+
+def test_promote_precheck_fail_returns_nonzero(monkeypatch, capsys):
+    from openagents.promote import PromoteResult
+
+    _patch_ensure(monkeypatch)
+    monkeypatch.setattr(
+        "openagents.promote.promote",
+        lambda *, state: PromoteResult(promoted=False, reason="test 分支 CI 未全绿"),
+    )
+    code = main(["promote"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "✗" in err
+    assert "CI 未全绿" in err
+
+
+def test_promote_reports_runtime_error_cleanly(monkeypatch, capsys):
+    _patch_ensure(monkeypatch)
+
+    def boom(*, state):
+        raise RuntimeError("快进 main 失败：non-fast-forward")
+
+    monkeypatch.setattr("openagents.promote.promote", boom)
+    code = main(["promote"])
+    assert code == 1
+    assert "✗" in capsys.readouterr().err
 
 
 def test_board_skips_preflight(monkeypatch):

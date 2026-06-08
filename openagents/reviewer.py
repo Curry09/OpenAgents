@@ -1,0 +1,139 @@
+"""RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。
+
+把人类从「逐个审 PR diff / 评审 RFC」中抽离出来，质量闸的「人眼看代码」一侧换成
+reviewer agent 的全票裁决（RFC-0012 决策 1）。reviewer 是一个纯「输入 RFC/diff →
+输出裁决」的无状态函数：以一段 review 任务模板调既有 `AgentBackend.run`（决策 4：
+reviewer 与解题 agent 同 backend，不新引入第二套 agent 运行机制——奥卡姆剃刀），
+线程池并行派 N 个，从每个 `AgentResult.summary` 解析裁决 token（PASS/REWORK/RETHINK，
+移植自 `vigil:vigil-reviewer` 的 rubric），聚合成「全票 PASS」（决策 1）。
+
+解耦设计（CLAUDE.md 理念 10）：本模块只依赖 `AgentBackend` 协议，不碰 git/state/
+github/编排——便于单测打桩 backend，保持 hermetic。N（reviewer 并发数）从环境变量
+`OPENAGENTS_REVIEWERS` 读取（默认 1，决策 6），缺省即退化为单票。
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
+from openagents.backends.base import AgentBackend
+
+# RFC-0012 决策 6：reviewer 并发数旋钮——env 缺省取默认值（最小可配集，不引入配置文件）。
+REVIEWERS_ENV = "OPENAGENTS_REVIEWERS"
+DEFAULT_REVIEWERS = 1
+
+# 裁决 token（移植 vigil-reviewer rubric）：仅 PASS 视为通过，REWORK/RETHINK 均为非 PASS。
+# 解析鲁棒：大小写无关、允许 `VERDICT:` 前缀或裸 token，正文里第一处命中即采信。
+_VERDICT_RE = re.compile(r"VERDICT:\s*(PASS|REWORK|RETHINK)\b", re.IGNORECASE)
+_BARE_VERDICT_RE = re.compile(r"\b(PASS|REWORK|RETHINK)\b", re.IGNORECASE)
+
+# review 任务模板：要求 reviewer 独立读 RFC/diff，按 rubric 给出首行裁决 token（决策 1 缺点
+# 缓解：强约束输出格式 + 单测覆盖解析）。kind 选择评 RFC 文档 vs 评代码 diff。
+_RUBRIC_TAIL = (
+    "你只读不写，禁止任何写操作（commit/push/改文件）。\n"
+    "疑罪从严：任一验证标准不确定是否满足 → 判 REWORK，把疑虑写进 ISSUES。\n"
+    "你的最终回复必须以下面之一开头（主程序要解析首个裁决 token）：\n"
+    "  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
+    "或：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
+)
+_RFC_REVIEW_TASK = (
+    "你是独立的 RFC 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 RFC 文档。\n"
+    "按顺序读：CLAUDE.md（需求/设计理念）→ docs/rfcs/ 下本 PR 新增/改动的 RFC →"
+    "其引用的来源。判定：设计是否对齐需求、关键决策是否有据、子任务 DAG 是否可独立"
+    "实现且文件清单互不重叠、是否含实现代码（RFC 不应含实现代码）。\n" + _RUBRIC_TAIL
+)
+_CODE_REVIEW_TASK = (
+    "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"
+    "用 `git diff` 查看本分支相对 base 的改动并读涉及文件的完整上下文。判定：是否"
+    "真的实现了对应 RFC 的子任务与验收标准、有无 tautological test / 绕过真实路径、"
+    "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
+    "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n" + _RUBRIC_TAIL
+)
+
+
+@dataclass(frozen=True)
+class ReviewDecision:
+    """RFC-0012 决策 1：N 个 reviewer 的聚合裁决。
+
+    passed: 是否全票 PASS。
+    feedback: 聚合的非 PASS 反馈（喂给 refine_rfc / iterate）；passed=True 时为空串。
+    """
+
+    passed: bool
+    feedback: str
+
+
+def configured_reviewers() -> int:
+    """RFC-0012 决策 6：从 env 读 reviewer 并发数；缺省/非法回落到 DEFAULT_REVIEWERS。
+
+    下限 1——n<1 没有意义（至少要有一个 reviewer 给出裁决）。供编排层调 review 时传 n。
+    """
+    raw = os.environ.get(REVIEWERS_ENV)
+    if not raw:
+        return DEFAULT_REVIEWERS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_REVIEWERS
+    return value if value >= 1 else DEFAULT_REVIEWERS
+
+
+def review(
+    *, backend: AgentBackend, work_dir: Path, kind: str, pr_number: int, n: int
+) -> ReviewDecision:
+    """RFC-0012 T1：以 review 任务模板调 backend.run 共 n 次（线程池并行），聚合裁决。
+
+    kind ∈ {"rfc", "code"}：选择评 RFC 文档 vs 评代码 diff 的任务模板。
+    聚合规则（决策 1）：全部解析为 PASS → passed=True；否则 passed=False，feedback 汇总
+    各非 PASS（含无法解析裁决）的反馈正文。n<1 视为 1（至少一个 reviewer）。
+    """
+    task = _task_for(kind=kind, pr_number=pr_number)
+    summaries = _run_reviewers(backend=backend, work_dir=work_dir, task=task, n=max(1, n))
+    verdicts = [_parse_verdict(summary=s) for s in summaries]
+    if verdicts and all(v == "PASS" for v in verdicts):
+        return ReviewDecision(passed=True, feedback="")
+    # 非 PASS（含 REWORK/RETHINK/无法解析）的摘要原文汇总为反馈，喂回 refine/iterate。
+    parts = [
+        (summary.strip() or "（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）")
+        for summary, verdict in zip(summaries, verdicts, strict=True)
+        if verdict != "PASS"
+    ]
+    return ReviewDecision(passed=False, feedback="\n\n---\n\n".join(parts))
+
+
+def _task_for(*, kind: str, pr_number: int) -> str:
+    """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。"""
+    if kind == "rfc":
+        return _RFC_REVIEW_TASK.format(pr_number=pr_number)
+    if kind == "code":
+        return _CODE_REVIEW_TASK.format(pr_number=pr_number)
+    raise ValueError(f"未知的 review kind：{kind!r}（应为 'rfc' 或 'code'）")
+
+
+def _run_reviewers(*, backend: AgentBackend, work_dir: Path, task: str, n: int) -> list[str]:
+    """并行派 n 个 reviewer，返回各自 AgentResult.summary（保持入参顺序）。
+
+    n==1 时直接同步调用，避免无谓起线程池；n>1 用 ThreadPoolExecutor 并发——backend.run
+    是子进程调用（IO 密集），线程并行即可缩短墙钟（决策 1 缺点缓解：N 默认 1）。
+    """
+    if n == 1:
+        return [backend.run(work_dir=work_dir, task=task, context="").summary]
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        futures = [
+            pool.submit(backend.run, work_dir=work_dir, task=task, context="") for _ in range(n)
+        ]
+        return [future.result().summary for future in futures]
+
+
+def _parse_verdict(*, summary: str) -> str | None:
+    """从 summary 解析裁决 token；无法解析返回 None（聚合时按非 PASS 处理，疑罪从严）。
+
+    优先匹配 `VERDICT: <token>`（rubric 约定格式），回退到正文里第一处裸 token——
+    兼容模型偶尔漏写 `VERDICT:` 前缀。大小写无关，统一大写返回。
+    """
+    match = _VERDICT_RE.search(summary or "") or _BARE_VERDICT_RE.search(summary or "")
+    return match.group(1).upper() if match else None

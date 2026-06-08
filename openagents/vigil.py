@@ -46,6 +46,10 @@ class Vigil:
     def run(self, *, interval: int, labels: list[str], base: str, once: bool) -> None:
         """守夜人主循环：每轮先发现+派单，再 poll 已开 PR；持续到 Ctrl-C（决策 6）。
 
+        RFC-0012 决策 2：base 由调用方（CLI）传入，默认值已随 CLI 改为长期 test 分支
+        ——派单起草的 RFC 以 test 为基线/PR base，守候段 poll 的 reviewer 闸驱动其
+        自动合回 test。本方法签名不变，仅默认值随上游 CLI 调整。
+
         once=True 跑一轮即返回（适配 cron/CI 周期触发）；否则 sleep(interval) 续循环。
         KeyboardInterrupt 是人类的停止信号 → 干净退出，不抛出（决策 8）。
 

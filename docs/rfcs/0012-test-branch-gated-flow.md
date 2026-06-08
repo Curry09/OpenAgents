@@ -1,6 +1,6 @@
 # RFC-0012: test 分支门控流程 —— 人只在「提 issue」与「promote」介入
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `cli`, `dx`
 - **影响模块**: `openagents/reviewer.py`(新增)、`openagents/promote.py`(新增)、`openagents/messages.py`、`openagents/orchestrator.py`、`openagents/github.py`、`openagents/state.py`、`openagents/cli.py`、`openagents/vigil.py`
@@ -210,12 +210,12 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | reviewer 编排模块（N 并行 + 裁决聚合） | - | `openagents/reviewer.py`、`tests/test_reviewer.py` | pending |
-| T2 | github 扩展（base/merge/label/branch） | - | `openagents/github.py`、`tests/test_github.py` | pending |
-| T3 | state 扩展（rounds + STATUS_BLOCKED） | - | `openagents/state.py`、`tests/test_state.py` | pending |
-| T4 | promote 模块（预检 + 快进 main） | T2, T3 | `openagents/promote.py`、`tests/test_promote.py` | pending |
-| T5 | 闸接入（messages 路由 + orchestrator 评审/base） | T1, T2, T3 | `openagents/messages.py`、`openagents/orchestrator.py`、`tests/test_messages.py`、`tests/test_orchestrator.py` | blocked |
-| T6 | CLI/vigil 接线（promote 命令 + base 默认 + init 兜底） | T4, T5 | `openagents/cli.py`、`openagents/vigil.py`、`tests/test_cli.py`、`scripts/e2e-rfc-0012-gated-flow.sh` | blocked |
+| T1 | reviewer 编排模块（N 并行 + 裁决聚合） | - | `openagents/reviewer.py`、`tests/test_reviewer.py` | implemented |
+| T2 | github 扩展（base/merge/label/branch） | - | `openagents/github.py`、`tests/test_github.py` | implemented |
+| T3 | state 扩展（rounds + STATUS_BLOCKED） | - | `openagents/state.py`、`tests/test_state.py` | implemented |
+| T4 | promote 模块（预检 + 快进 main） | T2, T3 | `openagents/promote.py`、`tests/test_promote.py` | implemented |
+| T5 | 闸接入（messages 路由 + orchestrator 评审/base） | T1, T2, T3 | `openagents/messages.py`、`openagents/orchestrator.py`、`tests/test_messages.py`、`tests/test_orchestrator.py` | implemented |
+| T6 | CLI/vigil 接线（promote 命令 + base 默认 + init 兜底） | T4, T5 | `openagents/cli.py`、`openagents/vigil.py`、`tests/test_cli.py`、`scripts/e2e-rfc-0012-gated-flow.sh` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 

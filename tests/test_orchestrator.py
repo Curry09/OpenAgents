@@ -108,7 +108,7 @@ def test_start_rfc_opens_draft_pr_and_sets_rfc_review(tmp_path, monkeypatch):
     captured = {}
     created = PR(number=5, url="https://github.com/acme/widget/pull/5")
 
-    def _create_pr(*, branch, title, body, draft):
+    def _create_pr(*, branch, title, body, base, draft):
         captured.update(branch=branch, draft=draft)
         return created
 
@@ -132,7 +132,7 @@ def test_start_rfc_invokes_backend_with_rfc_task_in_worktree(tmp_path, monkeypat
     monkeypatch.setattr(
         orch_module.github,
         "create_pr",
-        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+        lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
 
     orch.start_rfc(issue_number=3)
@@ -153,7 +153,7 @@ def test_start_rfc_drafts_from_origin_base_and_commits_docs(tmp_path, monkeypatc
     monkeypatch.setattr(
         orch_module.github,
         "create_pr",
-        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+        lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
 
     orch.start_rfc(issue_number=3, base="main")
@@ -174,7 +174,7 @@ def test_start_rfc_writes_rfc_review_in_single_record_run(tmp_path, monkeypatch)
     monkeypatch.setattr(
         orch_module.github,
         "create_pr",
-        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+        lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
     statuses = []
     orig_record = state.record_run
@@ -207,7 +207,7 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
     monkeypatch.setattr(
         orch_module.github,
         "create_pr",
-        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+        lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
     begin_calls = []
     monkeypatch.setattr(
@@ -216,8 +216,9 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
 
     orch.start_rfc(issue_number=3, resume=False)
 
+    # RFC-0012 决策 2：默认基线由 main 改为 test。
     assert fake_ws.prepare_calls == [
-        {"issue_number": 3, "branch": "openagents/issue-3", "base": "main"}
+        {"issue_number": 3, "branch": "openagents/issue-3", "base": "test"}
     ]
     assert fake_ws.ensure_calls == []
     assert begin_calls == [3]
@@ -232,7 +233,7 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
     monkeypatch.setattr(
         orch_module.github,
         "create_pr",
-        lambda *, branch, title, body, draft: PR(number=5, url="u/pull/5"),
+        lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
     begin_calls = []
     monkeypatch.setattr(
@@ -274,7 +275,7 @@ def test_start_rfc_pr_body_includes_e2e_signpost(tmp_path, monkeypatch):
     monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: rfc_file)
     captured = {}
 
-    def _create_pr(*, branch, title, body, draft):
+    def _create_pr(*, branch, title, body, base, draft):
         captured.update(body=body)
         return PR(number=5, url="u/pull/5")
 
@@ -298,7 +299,7 @@ def test_start_rfc_pr_body_omits_e2e_when_no_rfc(tmp_path, monkeypatch):
     monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: None)
     captured = {}
 
-    def _create_pr(*, branch, title, body, draft):
+    def _create_pr(*, branch, title, body, base, draft):
         captured.update(body=body)
         return PR(number=5, url="u/pull/5")
 
@@ -554,6 +555,59 @@ def test_iterate_unknown_pr_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     with pytest.raises(OrchestratorError):
         orch.iterate(pr_number=999, reason="comment", detail="x")
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0012 T5：implement 清零 rounds + review_rfc / review_code 评审闸
+# --------------------------------------------------------------------------- #
+
+
+def test_implement_resets_rounds(tmp_path, monkeypatch):
+    # RFC-0012 决策 6：进入代码闸前清零回合数（K 对每个闸独立计）。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    state.increment_rounds(issue_number=3)
+    state.increment_rounds(issue_number=3)
+    monkeypatch.setattr(orch_module.github, "mark_ready", lambda *, pr_number: None)
+
+    orch.implement(pr_number=5)
+
+    assert state.all_runs()[0].rounds == 0
+
+
+def test_review_rfc_pass_returns_decision(tmp_path, monkeypatch):
+    # reviewer backend 返回 PASS → review_rfc 聚合为 passed=True。
+    backend = _FakeBackend(summary="VERDICT: PASS\nREASON: 对齐需求")
+    orch, _, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+
+    decision = orch.review_rfc(pr_number=5)
+
+    assert decision.passed is True
+    # reviewer 在 PR 的 worktree 内、用 rfc 模板评审。
+    assert "RFC" in backend.calls[0]["task"]
+
+
+def test_review_code_non_pass_carries_feedback(tmp_path, monkeypatch):
+    backend = _FakeBackend(summary="VERDICT: REWORK\nISSUES:\n- foo.py:1 缺测试\nNEXT: 补单测")
+    orch, _, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+
+    decision = orch.review_code(pr_number=5)
+
+    assert decision.passed is False
+    assert "缺测试" in decision.feedback
+    assert "git diff" in backend.calls[0]["task"]
+
+
+def test_review_unknown_pr_raises(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    with pytest.raises(OrchestratorError):
+        orch.review_rfc(pr_number=999)
 
 
 if __name__ == "__main__":
