@@ -21,8 +21,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import e2e, github, identity, rfc
+from openagents import e2e, github, identity, reviewer, rfc
 from openagents.backends.base import AgentBackend
+from openagents.reviewer import ReviewDecision
 from openagents.state import (
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -35,8 +36,10 @@ from openagents.workspace import Workspace
 # 分支命名前缀：单 issue → 单分支（RFC-0001 概述数据流，RFC-0005 沿用）。
 _BRANCH_PREFIX = "openagents/issue-"
 
-# RFC-0003 决策 2：分支基线默认锁定到最新 origin/main。
-DEFAULT_BASE = "main"
+# RFC-0003 决策 2：分支基线默认锁定到最新 origin/<base>。
+# RFC-0012 决策 2：由 main 改为长期 test 分支——PR 的 worktree 基线与 PR base 都锁 test，
+# issue→PR 全程在 test 上自动闭环；main 只被 promote 快进，不参与日常流转。
+DEFAULT_BASE = "test"
 
 # RFC-0005：各原子操作喂给后端的任务模板（prompt）。后端为 cli-agent（如 Claude Code），
 # 自带 rfc-driven-development skill，故任务只需指明意图与约束，细节交由其遵循该 skill。
@@ -125,6 +128,7 @@ class Orchestrator:
         self._progress(message="▶ 开 draft PR …")
         pr = github.create_pr(
             branch=branch,
+            base=base,  # RFC-0012 决策 2：PR base 锁定到 test（与 worktree 基线同源）。
             title=f"docs: RFC for issue #{issue.number} {issue.title}".strip(),
             body=self._pr_body(
                 issue_number=issue.number,
@@ -190,6 +194,36 @@ class Orchestrator:
         self._progress(message="▶ 取消 draft，PR 转正 …")
         github.mark_ready(pr_number=pr_number)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
+        # RFC-0012 决策 6：进入代码闸前清零回合数，使 K 对 RFC 闸 / 代码闸独立计
+        # （RFC 闸耗掉的回合不挤占代码闸的预算）。
+        self._state.reset_rounds(issue_number=record.issue_number)
+
+    # --- 评审闸：调 reviewer agent 给 RFC / 代码裁决（RFC-0012 决策 5）------ #
+    def review_rfc(self, *, pr_number: int) -> ReviewDecision:
+        """RFC-0012 决策 5：在 PR 的 worktree 内调 reviewer 评审 RFC 文档，返回聚合裁决。
+
+        reviewer.review 需要 worktree + backend，而二者只有 Orchestrator 持有；故由本方法
+        ensure worktree 后转调，messages 只拿 ReviewDecision 决策（保持 messages 薄路由层）。
+        N（reviewer 并发数）从 env 读（reviewer.configured_reviewers，决策 6）。
+        """
+        return self._review(pr_number=pr_number, kind="rfc")
+
+    def review_code(self, *, pr_number: int) -> ReviewDecision:
+        """RFC-0012 决策 5：在 PR 的 worktree 内调 reviewer 评审代码 diff，返回聚合裁决。"""
+        return self._review(pr_number=pr_number, kind="code")
+
+    def _review(self, *, pr_number: int, kind: str) -> ReviewDecision:
+        """review_rfc / review_code 的共用骨架：ensure worktree → reviewer.review。"""
+        record = self._require_run(pr_number=pr_number)
+        worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
+        self._progress(message=f"▶ 调 reviewer 评审 PR #{pr_number}（{kind}）…")
+        return reviewer.review(
+            backend=self._backend,
+            work_dir=worktree,
+            kind=kind,
+            pr_number=pr_number,
+            n=reviewer.configured_reviewers(),
+        )
 
     def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
         """RFC-0013：定位本分支 RFC 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。

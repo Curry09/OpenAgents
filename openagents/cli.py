@@ -37,8 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     # RFC-0005：取消一站式 solve，改为四个可单独触发的原子步骤（决策 1）。
     p_rfc = sub.add_parser("rfc", help="为一个 issue 起草 RFC 并开 draft PR")
     p_rfc.add_argument("issue", type=int, help="issue 编号")
-    # RFC-0003 决策 2/3：分支基线，默认 main；issue 分支从最新 origin/<base> 拉出。
-    p_rfc.add_argument("--base", default="main", help="分支基线（默认 main）")
+    # RFC-0003 决策 2/3：分支基线，issue 分支从最新 origin/<base> 拉出。
+    # RFC-0012 决策 2：默认由 main 改为长期 test 分支（体验服），PR base 同源锁 test。
+    p_rfc.add_argument("--base", default="test", help="分支基线（默认 test）")
 
     p_refine = sub.add_parser("refine-rfc", help="按 PR 最新评审评论精炼 RFC")
     p_refine.add_argument("pr", type=int, help="PR 编号")
@@ -95,8 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LABEL",
         help="issue 发现的标签门控（可重复），默认 openagents",
     )
-    p_vigil.add_argument("--base", default="main", help="派单起草 RFC 的分支基线（默认 main）")
+    # RFC-0012 决策 2：派单起草 RFC 的分支基线默认改为 test。
+    p_vigil.add_argument("--base", default="test", help="派单起草 RFC 的分支基线（默认 test）")
     p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+poll）后退出")
+
+    # RFC-0012 决策 7：promote —— 人唯一的宏观决策点：预检通过则把 test 快进到 main。
+    sub.add_parser("promote", help="把 test 体验服快进到 main（预检通过后扬升）")
 
     return parser
 
@@ -153,6 +158,11 @@ def _vigil_for(*, ctx: ProjectContext):
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0012 决策 8：兜底建 test 体验服分支（幂等：已存在即 no-op），消除首个 PR
+    # 找不到 base=test 的冷启动失败。
+    from openagents import github
+
+    github.ensure_branch(name="test", from_ref="main")
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
     return 0
 
@@ -252,6 +262,19 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_promote(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # RFC-0012 决策 7：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + test CI 绿）
+    # 通过则把 test 快进到 main。失败按预检原因设非零退出码，不动 main。
+    from openagents.promote import promote
+
+    result = promote(state=_state_for(repo_root=ctx.repo_root))
+    if result.promoted:
+        print("✓ main 已快进到 test（promoted）")
+        return 0
+    print(f"✗ promote 预检未通过：{result.reason}", file=sys.stderr)
+    return 1
+
+
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
     from openagents.results import board
@@ -280,6 +303,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "watch": _cmd_watch,
         "sync-prs": _cmd_sync_prs,
         "vigil": _cmd_vigil,
+        "promote": _cmd_promote,
     }
     return handlers[args.command](args, ctx)
 

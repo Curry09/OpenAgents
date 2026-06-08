@@ -1,23 +1,26 @@
-"""RFC-0001 T5 + RFC-0005: PR 消息机制 + CI 监控，按**阶段**路由 GitHub 事件。
+"""RFC-0001 T5 + RFC-0005 + RFC-0012: PR 消息机制 + CI 监控，按**阶段**路由 GitHub 事件。
 
-poll 对每个 open 状态的 run 做一次扫描，先判 merge，再按 run 所处阶段路由
-（RFC-0005 决策 5）：
+poll 对每个 open 状态的 run 做一次扫描，先判 merge/close，再按 run 所处阶段路由
+（RFC-0005 决策 5）。RFC-0012 把两处「等人」的判定换成「调 reviewer 闸 + 自动推进」，
+让人的触点收敛到「提 issue」与「promote」：
 
-  1. github.is_merged：已合并 → State 置 done，跳过（决策 8）。
+  1. github.is_merged：已合并 → State 置 done，跳过（决策 8）+ 合并后扇出 rebase（RFC-0009）。
   1b. github.is_closed：关闭未合并 → State 置 closed，跳过（RFC-0006，merged 优先）。
-  2. 阶段 rfc-review（PR 为 draft、承载 RFC）：
-     a. 带 rfc-approved 标签 → Orchestrator.implement（转入 coding）。
-     b. 否则有「游标后的新评论」→ Orchestrator.refine_rfc（精炼 RFC 并回贴说明），
-        随后把游标推进到**触发评论本身**的 created_at（RFC-0011 决策 5）。
-  3. 阶段 coding（pr-open / iterating）：
-     a. CI 失败 → Orchestrator.iterate(reason="ci")（决策 11）。
-     b. 否则有「游标后的新评论」→ Orchestrator.iterate(reason="comment")（决策 5）。
+  2. 阶段 rfc-review（PR 为 draft、承载 RFC）—— RFC 评审闸（RFC-0012 决策 1/3）：
+     a. 已带 rfc-approved 标签（人/agent 谁打都认，向后兼容）→ Orchestrator.implement。
+     b. 否则调 Orchestrator.review_rfc：
+        - 全票 PASS → 自动打 rfc-approved → implement（转入 coding）。
+        - 非 PASS → rounds++；未超 K → refine_rfc（喂 reviewer 反馈）；超 K → BLOCKED+needs-human。
+  3. 阶段 coding（pr-open / iterating）—— 代码评审闸（RFC-0012 决策 1）：
+     a. CI 失败 → Orchestrator.iterate(reason="ci")（行为保持，CI 回合不计入 rounds）。
+     b. CI 进行中 → 等待（本轮不动）。
+     c. CI 全绿 → 调 Orchestrator.review_code：
+        - 全票 PASS → github.merge_pr（合入 test）→ DONE → 扇出 rebase 其余 PR。
+        - 非 PASS → rounds++；未超 K → iterate(reason="review")；超 K → BLOCKED+needs-human。
 
-「新评论」= created_at 晚于游标、且**不带本实例签名**的最新一条评论
-（RFC-0011 决策 1）：判定粒度收敛为「自己 vs 非自己」——只剔除「带我自己
-agent=<my_id> 签名」的评论；其他 agent 的签名评论与无签名的真人评论都照常处理。
-不按 GitHub 账号过滤（人机可能共用账号，会误杀真人）；自循环由签名过滤根治，
-不再靠「把游标推进到 agent 回贴之后」消费自评论（RFC-0011 取代 RFC-0005 决策 6）。
+卡住兜底（RFC-0012 决策 5）：rounds（每个闸独立计，implement 时清零）达到 MAX_ROUNDS 时
+置 STATUS_BLOCKED + 打 needs-human 标签 + **PR 不关**；STATUS_BLOCKED 不在 _OPEN_STATUSES，
+下一轮 poll 自动跳过（软挂起），等人据标签介入。
 
 watch：每隔 interval 秒循环调用 poll，无 open PR 或用户中断时退出（决策 6）。
 
@@ -27,11 +30,14 @@ watch：每隔 interval 秒循环调用 poll，无 open PR 或用户中断时退
 
 from __future__ import annotations
 
+import os
 import time
 
-from openagents import github, identity, rebase
+from openagents import github, rebase
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
+    BLOCKED_LABEL,
+    STATUS_BLOCKED,
     STATUS_CLOSED,
     STATUS_DONE,
     STATUS_ITERATING,
@@ -42,27 +48,49 @@ from openagents.state import (
 )
 
 # 需要继续轮询的状态（决策 8：done 终止，solving 尚未开 PR）。rfc-review 也在轮询范围。
+# RFC-0012：blocked（评审超 K 轮挂起）与 closed/done 一样不在此集合，poll 自动跳过。
 _OPEN_STATUSES = {STATUS_RFC_REVIEW, STATUS_PR_OPEN, STATUS_ITERATING}
 
-# RFC-0005 决策 4：批准信号——人在 draft PR 上打这个标签即视为 RFC 通过。
+# RFC-0005 决策 4：批准信号——带这个标签即视为 RFC 通过。RFC-0012 决策 3：reviewer 闸
+# 全票 PASS 时由 add_label 自动打它，与人工打标签走同一下游路径（向后兼容）。
 APPROVAL_LABEL = "rfc-approved"
+
+# RFC-0012 决策 6：每个闸的最大评审回合数旋钮——env OPENAGENTS_MAX_ROUNDS，默认 3。
+# 模块常量在 import 时定值；测试可 monkeypatch messages.MAX_ROUNDS 覆盖（方法内按全局取值）。
+MAX_ROUNDS_ENV = "OPENAGENTS_MAX_ROUNDS"
+_DEFAULT_MAX_ROUNDS = 3
+
+
+def _configured_max_rounds() -> int:
+    """读 OPENAGENTS_MAX_ROUNDS；缺省/非法/<1 回落到默认值（至少给一回合迭代机会）。"""
+    raw = os.environ.get(MAX_ROUNDS_ENV)
+    if not raw:
+        return _DEFAULT_MAX_ROUNDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_ROUNDS
+    return value if value >= 1 else _DEFAULT_MAX_ROUNDS
+
+
+MAX_ROUNDS = _configured_max_rounds()
 
 
 class Messages:
-    """RFC-0001 T5 + RFC-0005：按阶段轮询 PR 的 merge/标签/CI/comment，路由回编排层。"""
+    """RFC-0001 T5 + RFC-0005 + RFC-0012：按阶段轮询 PR 的 merge/CI/评审闸，路由回编排层。"""
 
     def __init__(self, *, orchestrator: Orchestrator, state: State, agent_id: str) -> None:
         self._orchestrator = orchestrator
         self._state = state
-        # RFC-0011 决策 1/7：本实例身份，由 CLI 接线处解析后注入。_latest_new_comment 据此
-        # 剔除自己的签名评论；poll 合并分支再透传给 rebase.rebase_open_prs（保持 rebase 无状态）。
+        # RFC-0011 决策 7：本实例身份，由 CLI 接线处解析后注入；poll 合并分支时透传给
+        # rebase.rebase_open_prs（冲突留言据此盖章、保持 rebase 无状态）。
         self._agent_id = agent_id
 
     def poll(self) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
 
-        返回本轮事件列表，每个事件含 pr_number 与 reason
-        （reason ∈ {"merged", "approved", "refine", "ci", "comment"}），便于日志与测试断言。
+        返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
+        "approved", "rfc-pass", "refine", "ci", "review", "blocked"}），便于日志与测试断言。
         """
         events: list[dict] = []
         for record in self._state.all_runs():
@@ -90,13 +118,12 @@ class Messages:
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
-            # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 main 并入其余
+            # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 base 并入其余
             # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 由 rebase 层留言。
             synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
 
-        # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过，不触发任何
-        # 编排动作。closed 不在 _OPEN_STATUSES，下一轮直接被跳过。merged 优先于 closed。
+        # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过。merged 优先于 closed。
         if github.is_closed(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
             return {"pr_number": pr_number, "reason": "closed"}
@@ -107,60 +134,61 @@ class Messages:
         return self._process_coding(record=record)
 
     def _process_rfc_review(self, *, record: RunRecord) -> dict | None:
-        """rfc-review 阶段：批准标签 → implement；否则游标后的新评论 → refine_rfc。"""
+        """RFC 评审闸（RFC-0012 决策 1/3）：标签 / reviewer 全票 PASS → implement；非 PASS → refine 或 BLOCKED。"""
         pr_number = record.pr_number
-        # 2a. 批准标签优先：转入实现（决策 4）。
+        # 2a. 已带批准标签（人或上一轮 reviewer 打的）优先：直接转入实现（向后兼容）。
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
-        # 2b. 游标后、非本实例签名的最新评论 → 精炼 RFC（RFC-0011 决策 1）。
-        comment = self._latest_new_comment(pr_number=pr_number)
-        if comment is None:
-            return None
-        self._orchestrator.refine_rfc(pr_number=pr_number, detail=comment.body)
-        # RFC-0011 决策 5：游标只推进到**触发评论本身**的 created_at（与 coding 阶段一致）。
-        # refine 回贴的「已更新 RFC」自评论带本实例签名，下一轮由 _latest_new_comment 的
-        # 签名过滤剔除，不靠推游标越过——与游标是否推进无关，故抗崩溃、不误跳真人、不撞秒。
-        self._state.set_cursor(pr_number=pr_number, comment_id=comment.created_at)
+        # 2b. 主动调 reviewer 评审 RFC（决策 3：不再等人打标签）。
+        decision = self._orchestrator.review_rfc(pr_number=pr_number)
+        if decision.passed:
+            github.add_label(pr_number=pr_number, name=APPROVAL_LABEL)
+            self._orchestrator.implement(pr_number=pr_number)
+            return {"pr_number": pr_number, "reason": "rfc-pass"}
+        # 非 PASS：回合 +1，未超 K 则按 reviewer 反馈精炼 RFC，超 K 则挂起等人（决策 5）。
+        rounds = self._state.increment_rounds(issue_number=record.issue_number)
+        if rounds >= MAX_ROUNDS:
+            return self._block(record=record, gate="rfc")
+        self._orchestrator.refine_rfc(pr_number=pr_number, detail=decision.feedback)
         return {"pr_number": pr_number, "reason": "refine"}
 
     def _process_coding(self, *, record: RunRecord) -> dict | None:
-        """coding 阶段（pr-open / iterating）：CI 失败 → iterate(ci)；否则人类新评论 → iterate(comment)。"""
+        """代码评审闸（RFC-0012 决策 1）：CI 失败→iterate(ci)；CI 绿+reviewer PASS→merge；非 PASS→iterate 或 BLOCKED。"""
         pr_number = record.pr_number
-        # 3a. CI 失败：以失败日志喂回 agent（决策 11）。
+        # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
         status = github.check_status(pr_number=pr_number)
         if status.state == "fail":
             detail = "\n".join(status.failed_logs)
             self._orchestrator.iterate(pr_number=pr_number, reason="ci", detail=detail)
             return {"pr_number": pr_number, "reason": "ci"}
-        # 3b. 游标后的新评论 → 迭代代码（决策 5）。iterate 不回贴评论，故游标推进到
-        # 触发评论即可（无 agent 自评论需消费）。
-        comment = self._latest_new_comment(pr_number=pr_number)
-        if comment is None:
+        # 3b. CI 进行中：等下一轮（不评审、不动状态）。
+        if status.state == "pending":
             return None
-        self._orchestrator.iterate(pr_number=pr_number, reason="comment", detail=comment.body)
-        self._state.set_cursor(pr_number=pr_number, comment_id=comment.created_at)
-        return {"pr_number": pr_number, "reason": "comment"}
+        # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
+        decision = self._orchestrator.review_code(pr_number=pr_number)
+        if decision.passed:
+            github.merge_pr(pr_number=pr_number)
+            self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
+            synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
+            return {"pr_number": pr_number, "reason": "merged", "synced": synced}
+        # 非 PASS：回合 +1，未超 K 则按 reviewer 反馈迭代代码，超 K 则挂起等人（决策 5）。
+        rounds = self._state.increment_rounds(issue_number=record.issue_number)
+        if rounds >= MAX_ROUNDS:
+            return self._block(record=record, gate="code")
+        self._orchestrator.iterate(pr_number=pr_number, reason="review", detail=decision.feedback)
+        return {"pr_number": pr_number, "reason": "review"}
 
-    def _latest_new_comment(self, *, pr_number: int) -> github.Comment | None:
-        """取晚于游标、且非本实例签名的最新评论；无则 None（RFC-0011 决策 1）。
+    def _block(self, *, record: RunRecord, gate: str) -> dict:
+        """RFC-0012 决策 5：评审超 K 轮 → 置 STATUS_BLOCKED + 打 needs-human + PR 不关。
 
-        comment id 是 node id 字符串、不可排序，故用 created_at（ISO 8601，
-        字典序即时间序）判断「新」并供调用方推进游标。判定粒度是「自己 vs 非自己」：
-        只剔除 identity.parse_agent_id(body) == 我自己 agent_id 的评论；其他 agent 的
-        签名评论、无签名的真人评论都保留。这样既根治自循环，又不依赖按账号区分人/机。
+        STATUS_BLOCKED 不在 _OPEN_STATUSES，下一轮 poll 自动跳过（软挂起）；needs-human
+        标签是给人/promote 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
         """
-        cursor = self._state.get_cursor(pr_number=pr_number)
-        comments = github.list_comments(pr_number=pr_number)
-        fresh = [
-            c
-            for c in comments
-            if (cursor is None or c.created_at > cursor)
-            and identity.parse_agent_id(body=c.body) != self._agent_id
-        ]
-        if not fresh:
-            return None
-        return max(fresh, key=lambda c: c.created_at)
+        pr_number = record.pr_number
+        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
 
     def _has_open_pr(self) -> bool:
         """是否还有 rfc-review/pr-open/iterating 的 run（watch 循环的退出条件）。"""

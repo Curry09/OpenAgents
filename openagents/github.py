@@ -49,6 +49,13 @@ _GH_TRANSIENT_MARKERS = (
 _CHECK_FAIL_STATES = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"}
 _CHECK_PASS_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
+# RFC-0012：check-runs API 的 conclusion 取值——视为「绿」的集合（与 _CHECK_PASS_STATES
+# 同义，但 REST check-runs 用 conclusion 字段、取值小写）。其余 conclusion 或未完成 → 非绿。
+_CHECK_RUN_PASS_CONCLUSIONS = {"success", "skipped", "neutral"}
+
+# RFC-0012：gh api 的 owner/repo 占位符——gh 会按当前仓库自动替换，无需显式拼 owner/repo。
+_REPO_PLACEHOLDER = "repos/{owner}/{repo}"
+
 
 class GithubError(Exception):
     """gh CLI 调用失败（返回非零）时抛出，携带可读的失败原因。"""
@@ -244,13 +251,16 @@ def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> 
         raise
 
 
-def create_pr(*, branch: str, title: str, body: str, draft: bool = False) -> PR:
+def create_pr(*, branch: str, title: str, body: str, base: str = "test", draft: bool = False) -> PR:
     """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。
 
     RFC-0005 决策 2：draft=True 时追加 `--draft`，使 PR 先以草稿形态承载 RFC，
     待人评审/批准后由 mark_ready 转正。默认 False，保持既有调用向后兼容。
+
+    RFC-0012 决策 2：新增 base 形参（→ `--base`），默认 test——长期 test 分支是体验服，
+    issue→PR 全程以 test 为 base、合回 test，main 只在 promote 时被快进。start_rfc 透传基线。
     """
-    args = ["pr", "create", "--head", branch, "--title", title, "--body", body]
+    args = ["pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body]
     if draft:
         args.append("--draft")
     result = _run_gh(args, allow_returncodes=set())
@@ -335,6 +345,85 @@ def has_label(*, pr_number: int, name: str) -> bool:
         raise GithubError("gh pr view 返回了非预期的结构")
     labels = data.get("labels") or []
     return any((label or {}).get("name") == name for label in labels)
+
+
+def merge_pr(*, pr_number: int, method: str = "merge") -> None:
+    """RFC-0012 决策 1：代码闸全票 PASS 后自动合入（`gh pr merge <n> --<method>`）。
+
+    method ∈ {"merge", "squash", "rebase"}（默认 merge，见未解决问题 4）；合入其 base（=test），
+    使 test 成为不断累加的体验服。失败由 _run_gh 抛 GithubError。
+    """
+    _run_gh(["pr", "merge", str(pr_number), f"--{method}"], allow_returncodes=set())
+
+
+def add_label(*, pr_number: int, name: str) -> None:
+    """RFC-0012 决策 1/3：给 PR 打标签（`gh pr edit <n> --add-label <name>`）。
+
+    供 reviewer 闸自动打 rfc-approved（RFC 全票 PASS）、或卡住兜底打 needs-human（决策 5）。
+    与 has_label 对称：标签是结构化信号，不与讨论评论混淆。
+    """
+    _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
+
+
+def ensure_branch(*, name: str, from_ref: str) -> None:
+    """RFC-0012 决策 8：幂等确保远端存在分支 name（不存在则从 from_ref 建）。
+
+    消除「首个 PR 找不到 base=test」的冷启动失败：init / promote 都先调它兜底建 test。
+    实现走 `gh api` git refs（零额外依赖，与决策 3「一律走 gh」一致）：
+      1. 查 refs/heads/<name> 是否存在——存在即 no-op（幂等，与 ensure_label 吞 already exists 同风格）；
+      2. 不存在（not found / 404）→ 取 from_ref 的 sha → POST 新 ref；
+      3. 其它错误（含瞬时，由 _run_gh 重试后仍败）照常抛 GithubError。
+    """
+    try:
+        _run_gh(["api", f"{_REPO_PLACEHOLDER}/git/refs/heads/{name}"], allow_returncodes=set())
+        return  # 已存在 → 幂等 no-op
+    except GithubError as exc:
+        if not _is_not_found(reason=str(exc)):
+            raise  # 非「不存在」的错误（鉴权/瞬时穿透等）不吞，照常上抛
+    sha = _run_gh(
+        ["api", f"{_REPO_PLACEHOLDER}/git/refs/heads/{from_ref}", "--jq", ".object.sha"],
+        allow_returncodes=set(),
+    ).stdout.strip()
+    if not sha:
+        raise GithubError(f"无法取得 {from_ref} 的 sha 以创建分支 {name}")
+    _run_gh(
+        [
+            "api",
+            f"{_REPO_PLACEHOLDER}/git/refs",
+            "-f",
+            f"ref=refs/heads/{name}",
+            "-f",
+            f"sha={sha}",
+        ],
+        allow_returncodes=set(),
+    )
+
+
+def branch_ci_green(*, branch: str) -> bool:
+    """RFC-0012 决策 7：分支 HEAD 的 check-runs 是否全绿（promote 预检的低成本兜底）。
+
+    走 `gh api repos/{owner}/{repo}/commits/<branch>/check-runs`，逐个 check-run 判定：
+    任一未完成（status != completed）→ False（pending 不算绿）；任一 conclusion 不在
+    _CHECK_RUN_PASS_CONCLUSIONS → False；全部通过（或无 check）→ True（与 check_status
+    「无 check 视为 pass」一致：green-by-construction 下 test 通常本就绿）。
+    """
+    runs = _gh_json(
+        ["api", f"{_REPO_PLACEHOLDER}/commits/{branch}/check-runs", "--jq", ".check_runs"],
+        allow_returncodes=set(),
+    )
+    rows = runs if isinstance(runs, list) else []
+    for run in rows:
+        if str(run.get("status") or "").lower() != "completed":
+            return False
+        if str(run.get("conclusion") or "").lower() not in _CHECK_RUN_PASS_CONCLUSIONS:
+            return False
+    return True
+
+
+def _is_not_found(*, reason: str) -> bool:
+    """gh api 的「资源不存在」识别（404 / not found）——用于 ensure_branch 区分幂等 no-op。"""
+    lowered = reason.lower()
+    return "not found" in lowered or "404" in lowered
 
 
 def check_status(*, pr_number: int) -> CheckStatus:

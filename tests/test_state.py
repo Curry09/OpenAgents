@@ -8,7 +8,14 @@
 import json
 
 from openagents.github import PR
-from openagents.state import STATUS_PR_OPEN, STATUS_RFC_REVIEW, RunRecord, State
+from openagents.state import (
+    BLOCKED_LABEL,
+    STATUS_BLOCKED,
+    STATUS_PR_OPEN,
+    STATUS_RFC_REVIEW,
+    RunRecord,
+    State,
+)
 
 
 def _new_state(tmp_path):
@@ -271,6 +278,109 @@ def test_get_agent_id_none_when_file_missing(tmp_path):
     # RFC-0011 T1：文件缺失容错为 None（与 cursors/runs 同风格）。
     state = _new_state(tmp_path)
     assert state.get_agent_id() is None
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0012 T3：rounds 计数 + STATUS_BLOCKED 向后兼容
+# --------------------------------------------------------------------------- #
+
+
+def test_blocked_constants():
+    assert STATUS_BLOCKED == "blocked"
+    assert BLOCKED_LABEL == "needs-human"
+
+
+def test_new_record_defaults_rounds_zero(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    assert state.all_runs()[0].rounds == 0
+
+
+def test_load_old_record_without_rounds_key(tmp_path):
+    # RFC-0012 决策 6：加载缺 rounds 键的旧 state.json 不抛错且 rounds=0（向后兼容）。
+    path = tmp_path / ".openagents" / "state.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = {
+        "runs": [
+            {
+                "issue_number": 3,
+                "branch": "openagents/issue-3",
+                "pr_number": 5,
+                "pr_url": "u/pull/5",
+                "status": "rfc-review",
+                "summary": "",
+            }
+        ],
+        "cursors": {},
+    }
+    path.write_text(json.dumps(old), encoding="utf-8")
+
+    state = State(path=path)
+    runs = state.all_runs()
+    assert len(runs) == 1
+    assert runs[0].rounds == 0
+
+
+def test_increment_rounds_returns_and_persists(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+
+    assert state.increment_rounds(issue_number=3) == 1
+    assert state.increment_rounds(issue_number=3) == 2
+    assert state.all_runs()[0].rounds == 2
+
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.all_runs()[0].rounds == 2
+
+
+def test_increment_rounds_on_old_record_without_key(tmp_path):
+    # 缺 rounds 键的旧记录上递增也从 0 起算。
+    path = tmp_path / ".openagents" / "state.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = {
+        "runs": [
+            {
+                "issue_number": 3,
+                "branch": "b",
+                "pr_number": 5,
+                "pr_url": "u",
+                "status": "pr-open",
+                "summary": "",
+            }
+        ],
+        "cursors": {},
+    }
+    path.write_text(json.dumps(old), encoding="utf-8")
+
+    state = State(path=path)
+    assert state.increment_rounds(issue_number=3) == 1
+
+
+def test_reset_rounds_zeroes(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    state.increment_rounds(issue_number=3)
+    state.increment_rounds(issue_number=3)
+
+    state.reset_rounds(issue_number=3)
+
+    assert state.all_runs()[0].rounds == 0
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.all_runs()[0].rounds == 0
+
+
+def test_blocked_status_persists_and_reads_back(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    state.update_status(issue_number=3, status=STATUS_BLOCKED)
+
+    assert state.all_runs()[0].status == STATUS_BLOCKED
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.all_runs()[0].status == "blocked"
 
 
 def test_record_run_multiple_runs(tmp_path):

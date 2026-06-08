@@ -31,6 +31,14 @@ STATUS_DONE = "done"
 # RFC-0006：PR 被关闭但未合并的终态（人主动放弃）；不在 messages._OPEN_STATUSES 内，
 # 故置 closed 后该 run 不再被守夜人轮询处理。与 done（合并成功）语义相反。
 STATUS_CLOSED = "closed"
+# RFC-0012 决策 5：评审超 K 轮挂起的终态（卡住兜底）；同样不在 _OPEN_STATUSES，poll 自动
+# 跳过该 run（软挂起），且 PR 不关——等人据 needs-human 标签介入。与 closed 区别：closed 是
+# 人主动放弃，blocked 是 agent 反复评审不过、显式把无解工作交还给人。
+STATUS_BLOCKED = "blocked"
+
+# RFC-0012 决策 5：卡住兜底打给 PR 的标签——与 STATUS_BLOCKED 配对的结构化「求救」信号。
+# 定义在 state（而非 messages）便于 promote 预检与 messages 路由共用同一真源、无循环依赖。
+BLOCKED_LABEL = "needs-human"
 
 
 @dataclass
@@ -47,6 +55,10 @@ class RunRecord:
     pr_url: str
     status: str
     summary: str
+    # RFC-0012 决策 6：当前闸内已迭代回合数。默认 0 使 RunRecord(**旧记录) 不报错（向后
+    # 兼容缺该键的旧 state.json）。每次 refine_rfc/iterate（评审未过一回合）令其 +1；
+    # implement（RFC 闸→代码闸的阶段切换）清零，使 K 按「每个闸」独立计。
+    rounds: int = 0
 
 
 class State:
@@ -114,6 +126,29 @@ class State:
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["status"] = status
+        self._save(data=data)
+
+    def increment_rounds(self, *, issue_number: int) -> int:
+        """RFC-0012 决策 6：把某 issue 对应 run 的 rounds +1 并落盘，返回新值。
+
+        用 record.get("rounds", 0) 兜底缺该键的旧记录（向后兼容）。供闸口每判一次「评审
+        未过」即递增；调用方据返回值与 MAX_ROUNDS 比较决定 refine/iterate 还是 BLOCKED。
+        """
+        data = self._load()
+        new_value = 0
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                new_value = record.get("rounds", 0) + 1
+                record["rounds"] = new_value
+        self._save(data=data)
+        return new_value
+
+    def reset_rounds(self, *, issue_number: int) -> None:
+        """RFC-0012 决策 6：把某 issue 对应 run 的 rounds 归零（阶段切换时调，如 implement）。"""
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["rounds"] = 0
         self._save(data=data)
 
     def get_agent_id(self) -> str | None:
