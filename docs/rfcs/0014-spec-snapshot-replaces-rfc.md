@@ -1,6 +1,6 @@
 # RFC-0014: 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
 
-- **状态**: draft
+- **状态**: implementing
 - **优先级**: P1
 - **标签**: `architecture`, `dx`, `cli`, `tooling`
 - **影响模块**: `openagents/spec/`（新增包：model / schema / validate / render / mutate / cli）、`pyproject.toml`、`scripts/`（migrate + check-spec-number-conflicts + e2e）、`.github/workflows/ci.yml`、`.claude/skills/spec-driven-development/`（新增，取代 rfc-driven-development）、`docs/specs/`（新增源数据树）
@@ -281,7 +281,7 @@ def main(argv: list[str] | None) -> int: ...
 #### `scripts/`（独立脚本）
 
 ```text
-migrate-rfc-to-spec.py        # 一次性：docs/rfcs/NNNN-*.md → docs/specs/NNNN-slug/{metadata.yaml,tasks/,history/}
+migrate-rfc-to-spec.py        # 一次性：docs/rfcs/NNNN-*.md → docs/specs/NNNN-slug/{metadata.yaml,tasks/,origin.md}（history 初始为空）
 check-spec-number-conflicts.py# check-rfc 的 spec 版：匹配 docs/specs/(NNNN)-slug/，本地+open PR 并集查冲突
 ```
 
@@ -367,14 +367,20 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | 数据层 + JSON Schema + 依赖/入口声明 | - | `openagents/spec/__init__.py`、`openagents/spec/model.py`、`openagents/spec/schema.py`、`pyproject.toml`、`tests/test_spec_model.py` | pending |
-| T2 | spec validate（schema + 语义校验） | T1 | `openagents/spec/validate.py`、`tests/test_spec_validate.py` | blocked |
-| T3 | spec render → OVERVIEW.md（看板/关系图/冲突/DAG/演化图） | T1 | `openagents/spec/render.py`、`tests/test_spec_render.py` | blocked |
-| T4 | spec amend / abandon（历史追加 + 自动 render） | T1, T3 | `openagents/spec/mutate.py`、`tests/test_spec_mutate.py` | blocked |
-| T5 | spec CLI + 编号校验脚本 + CI 接线 | T2, T3, T4 | `openagents/spec/cli.py`、`scripts/check-spec-number-conflicts.py`、`.github/workflows/ci.yml`、`tests/test_spec_cli.py` | blocked |
-| T6 | 迁移脚本 + spec-driven skill + specs README + e2e | T2, T3 | `scripts/migrate-rfc-to-spec.py`、`tests/test_migrate_rfc_to_spec.py`、`.claude/skills/spec-driven-development/SKILL.md`、`.claude/skills/spec-driven-development/references/`、`docs/specs/README.md`、`scripts/e2e-spec-0014-spec-driven.sh` | blocked |
+| T1 | 数据层 + JSON Schema + 依赖/入口声明 | - | `openagents/spec/__init__.py`、`openagents/spec/model.py`、`openagents/spec/schema.py`、`pyproject.toml`、`tests/test_spec_model.py` | implemented |
+| T2 | spec validate（schema + 语义校验） | T1 | `openagents/spec/validate.py`、`tests/test_spec_validate.py` | implemented |
+| T3 | spec render → OVERVIEW.md（看板/关系图/冲突/DAG/演化图） | T1 | `openagents/spec/render.py`、`tests/test_spec_render.py` | implemented |
+| T4 | spec amend / abandon（历史追加 + 自动 render） | T1, T3 | `openagents/spec/mutate.py`、`tests/test_spec_mutate.py` | implemented |
+| T5 | spec CLI + 编号校验脚本 + CI 接线 | T2, T3, T4 | `openagents/spec/cli.py`、`scripts/check-spec-number-conflicts.py`、`.github/workflows/ci.yml`、`tests/test_spec_cli.py` | implemented |
+| T6 | 迁移脚本 + spec-driven skill + specs README + e2e | T2, T3 | `scripts/migrate-rfc-to-spec.py`、`tests/test_migrate_rfc_to_spec.py`、`.claude/skills/spec-driven-development/SKILL.md`、`.claude/skills/spec-driven-development/references/`、`docs/specs/README.md`、`scripts/e2e-spec-0014-spec-driven.sh` | in-progress |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
+
+> **T6 实现备注（2026-06-10）**：迁移脚本 + 单测、`docs/specs/README.md`、`OVERVIEW.md`、e2e
+> 脚本均已落地并自测通过；唯独 `.claude/skills/spec-driven-development/`（SKILL.md + references）
+> 因 worktree 对 `.claude/` 的写入需人工授权而暂未落盘，内容已就绪，待授权后补齐。故 T6 暂记
+> `in-progress`。另：依 D9，本 PR 暂只提交 `docs/specs/README.md` 与（空组的）`OVERVIEW.md`；
+> 全量迁移 docs/rfcs → docs/specs 待未解决问题 1/2 人工确认后再执行（迁移能力已由脚本/e2e/单测覆盖）。
 
 > **并行提示**: T1 完成后，T2、T3 无相互依赖且文件互不重叠，可并行；T4 需 T3（amend 调 render）；T6 仅需 T2、T3，可与 T4、T5 并行（文件互不重叠）。
 
@@ -410,9 +416,9 @@ graph LR
 - **依赖**: T2, T3, T4
 
 **T6: 迁移脚本 + spec-driven skill + specs README + e2e**
-- **范围**: `scripts/migrate-rfc-to-spec.py`：每份 `docs/rfcs/NNNN-*.md` → 一个 spec 组（metadata.yaml + tasks/ + history/v1）；RFC 头部（优先级/标签）+ 子任务表每行 → `tasks/T*.yaml`（status/files/depends-on 映射，`implemented`→`done`）；设计/接口契约/权衡/参考资料从正文分配进对应 Task 字段，无法归属的整体留组内 `origin.md`（只读）；history 写 v1 初始版。改写 skill：`.claude/skills/spec-driven-development/`（SKILL.md + references，含 Task JSON Schema 说明、`# Spec-NNNN/T*` 注释约定、三阶段工作流：clarify→设计→实施验证）。`docs/specs/README.md`（目录说明 + 编号规则）。`scripts/e2e-spec-0014-spec-driven.sh`（端到端：迁移→validate→render→amend→再 validate/render 幂等）。
+- **范围**: `scripts/migrate-rfc-to-spec.py`：每份 `docs/rfcs/NNNN-*.md` → 一个 spec 组（metadata.yaml + tasks/ + origin.md）；RFC 头部（优先级/标签/issue）+ 子任务表每行 → `tasks/T*.yaml`（status 映射 `implemented`→`done`、`blocked`→`pending`；files/depends-on 解析，**整 RFC 级依赖 `RFC-NNNN` 形态不构成 Task 依赖故丢弃**；每行的 `范围`/`验收标准` 从「子任务定义」块抽进 `scope`/`acceptance`）；设计/动机/接口契约/权衡/参考资料等组级正文整体留组内 `origin.md`（只读，render 不读取）。**迁移产出 `version: 1` 的当前版 Task，history 目录初始为空——首次 `amend` 才落 v1（与 amend「先 append 当前版再 bump」语义自洽，避免 history 出现重复 v1，见 D6）。** 改写 skill：`.claude/skills/spec-driven-development/`（SKILL.md + references，含 Task JSON Schema 说明、`# Spec-NNNN/T*` 注释约定、三阶段工作流：clarify→设计→实施验证）。`docs/specs/README.md`（目录说明 + 编号规则）。`scripts/e2e-spec-0014-spec-driven.sh`（端到端：迁移→validate→render→amend→再 validate/render 幂等）。
 - **涉及文件**: `scripts/migrate-rfc-to-spec.py`（新增）、`tests/test_migrate_rfc_to_spec.py`（新增）、`.claude/skills/spec-driven-development/SKILL.md`（新增）、`.claude/skills/spec-driven-development/references/`（新增目录）、`docs/specs/README.md`（新增）、`scripts/e2e-spec-0014-spec-driven.sh`（新增）
-- **验收标准**: 单测：用 1~2 份真实 RFC 跑迁移，断言产出通过 `spec validate`、Task 数 = 原子任务行数、`implemented` 映射为 `done`、history 含 v1；全 13 份 RFC 迁移后 `spec render` 幂等（两次无 diff）。skill SKILL.md 含三阶段 + Task schema + 新注释约定；`docs/specs/README.md` 含编号规则。e2e 脚本可独立运行（见测试方案）。
+- **验收标准**: 单测：用 1~2 份真实 RFC 跑迁移，断言产出通过 `spec validate`、Task 数 = 原子任务行数、`implemented` 映射为 `done`、`blocked` 映射为 `pending`、产出 `version: 1` 且 history 初始为空；全 13 份 RFC 迁移后 `spec validate` 全绿（仅跨组文件 warning）且 `spec render` 幂等（两次无 diff）。skill SKILL.md 含三阶段 + Task schema + 新注释约定；`docs/specs/README.md` 含编号规则。e2e 脚本可独立运行（见测试方案）。
 - **依赖**: T2, T3
 
 ## 测试方案

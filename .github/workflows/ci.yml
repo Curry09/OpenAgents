@@ -60,8 +60,9 @@ jobs:
           fetch-depth: 0
       - uses: wagoid/commitlint-github-action@v6
 
-  rfc-conflicts:
-    name: RFC Number Conflicts
+  # Spec-0014/T5：RFC 编号校验改为 spec 组编号校验（决策 D11）。
+  spec-conflicts:
+    name: Spec Number Conflicts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,34 +71,57 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check RFC number conflicts
+      - name: Check spec number conflicts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python scripts/check-rfc-number-conflicts.py \
+          python scripts/check-spec-number-conflicts.py \
             --open-prs \
             --require-open-pr-scan \
             --current-pr "${{ github.event.pull_request.number }}"
+
+  # Spec-0014/T5：spec 校验 + OVERVIEW 幂等漂移检查（决策 D9）。
+  spec-validate:
+    name: Spec Validate & Drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Validate specs
+        run: |
+          uv sync --extra dev
+          uv run spec validate --specs-root docs/specs
+
+      - name: OVERVIEW drift check
+        run: |
+          uv run spec render --specs-root docs/specs
+          git diff --exit-code docs/specs/OVERVIEW.md
 
   # --- 唯一的必需状态检查：聚合所有任务结果 ---
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [lint, test, commitlint, rfc-conflicts]
+    needs: [lint, test, commitlint, spec-conflicts, spec-validate]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
         run: |
-          echo "lint:          ${{ needs.lint.result }}"
-          echo "test:          ${{ needs.test.result }}"
-          echo "commitlint:    ${{ needs.commitlint.result }}"
-          echo "rfc-conflicts: ${{ needs.rfc-conflicts.result }}"
+          echo "lint:           ${{ needs.lint.result }}"
+          echo "test:           ${{ needs.test.result }}"
+          echo "commitlint:     ${{ needs.commitlint.result }}"
+          echo "spec-conflicts: ${{ needs.spec-conflicts.result }}"
+          echo "spec-validate:  ${{ needs.spec-validate.result }}"
 
           results=(
             "${{ needs.lint.result }}"
             "${{ needs.test.result }}"
             "${{ needs.commitlint.result }}"
-            "${{ needs.rfc-conflicts.result }}"
+            "${{ needs.spec-conflicts.result }}"
+            "${{ needs.spec-validate.result }}"
           )
           for r in "${results[@]}"; do
             if [[ "$r" != "success" && "$r" != "skipped" ]]; then
