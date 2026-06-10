@@ -1,6 +1,6 @@
 # RFC-0017: PR 合进 test 后框架显式关 issue（`Closes #N` 对非默认分支失效的补偿）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `workflow`, `dx`
 - **影响模块**: `openagents/github.py`、`openagents/messages.py`、`tests/`
@@ -157,8 +157,8 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | `github.close_issue` —— `gh issue close` + 幂等容错 | - | `openagents/github.py`, `tests/test_github.py` | pending |
-| T2 | `messages` 两条 `STATUS_DONE` 路径显式调 `close_issue` | T1 | `openagents/messages.py`, `tests/test_messages.py` | pending |
+| T1 | `github.close_issue` —— `gh issue close` + 幂等容错 | - | `openagents/github.py`, `tests/test_github.py` | implemented |
+| T2 | `messages` 两条 `STATUS_DONE` 路径显式调 `close_issue` | T1 | `openagents/messages.py`, `tests/test_messages.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
