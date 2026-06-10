@@ -9,6 +9,8 @@
 - 未知 kind 抛错。
 """
 
+import threading
+
 import pytest
 
 from openagents.backends.base import AgentResult
@@ -37,11 +39,16 @@ class _ScriptedBackend:
         self._summaries = list(summaries)
         self._index = 0
         self.calls = []
+        # review(n>1) 在 ThreadPoolExecutor 里并发调本 run，_index/_calls 是共享可变状态；
+        # 用锁把「取 summary + 自增 index + 记 call」串行化，保证每条 summary 恰好被派发一次
+        # （否则非原子的 _index += 1 在竞态下会跳号/重号，使 n=3 的断言不确定地翻红）。
+        self._lock = threading.Lock()
 
     def run(self, *, work_dir, task, context):
-        self.calls.append({"work_dir": work_dir, "task": task, "context": context})
-        summary = self._summaries[self._index % len(self._summaries)]
-        self._index += 1
+        with self._lock:
+            self.calls.append({"work_dir": work_dir, "task": task, "context": context})
+            summary = self._summaries[self._index % len(self._summaries)]
+            self._index += 1
         return AgentResult(changed=False, summary=summary)
 
 
@@ -197,10 +204,20 @@ def test_verdicts_length_matches_reviewer_count(tmp_path):
     assert decision.verdicts == ("PASS", "PASS", "PASS")
 
 
-def test_verdicts_map_each_token(tmp_path):
-    # PASS / REWORK / RETHINK 分别映射到对应 token，保持入参顺序。
-    backend = _backend("VERDICT: PASS", "VERDICT: REWORK", "VERDICT: RETHINK")
-    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=7, n=3)
+def test_verdicts_map_each_token(tmp_path, monkeypatch):
+    # PASS / REWORK / RETHINK 分别映射到对应 token，保持 summaries 顺序。
+    # 这里要断言的是 review() 的「逐位 summary→verdict」纯映射逻辑，而非并发调度：
+    # 真并行下哪条 summary 落在哪个 future 由线程调度决定（即便给 backend 加锁也只保证
+    # 每条 summary 派发一次、不保证 summary→future 的对应），故打桩 _run_reviewers 固定
+    # 按序返回 summaries，把映射断言与线程时序解耦——避免 CI 不确定地翻红（核对：「PR 的 CI 全通过」）。
+    summaries = ["VERDICT: PASS", "VERDICT: REWORK", "VERDICT: RETHINK"]
+    monkeypatch.setattr(
+        "openagents.reviewer._run_reviewers",
+        lambda *, backend, work_dir, task, n: summaries,
+    )
+    decision = review(
+        backend=_backend("unused"), work_dir=tmp_path, kind="code", pr_number=7, n=3
+    )
     assert decision.verdicts == ("PASS", "REWORK", "RETHINK")
 
 
