@@ -1,0 +1,3 @@
+title: gh 瞬时错误重试 + 守夜循环单轮容错
+issue: 0
+slug: gh-transient-retry-and-vigil-round-guard

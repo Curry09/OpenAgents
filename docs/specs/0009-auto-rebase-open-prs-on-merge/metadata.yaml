@@ -1,0 +1,3 @@
+title: 合并后自动 rebase 其他 open PR
+issue: 24
+slug: auto-rebase-open-prs-on-merge

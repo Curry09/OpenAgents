@@ -1,0 +1,3 @@
+title: 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+issue: 31
+slug: implement-e2e-run-result-comment

@@ -1,0 +1,35 @@
+id: T2
+title: spec validate（schema + 语义校验）
+status: done
+priority: P1
+tags:
+  - architecture
+  - dx
+  - cli
+  - tooling
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/spec/validate.py
+  - tests/test_spec_validate.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `validate.py`：`ValidationIssue`/`ValidationReport` + `validate()`，依序跑 JSON Schema 校验 → status 合法且与 history 末态自洽 → 同组 files 不重叠(error) → 全局（含跨组）depends-on DAG 无环(error) → 血缘/跨组引用存在(error) → 跨组 files 重叠(warning)。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测用临时 specs 树覆盖每条规则的正反例：schema 不合规→error；同组 files 重叠→error；构造环→检测到环 error；跨组 depends-on 指向不存在 Task→error；跨组 files 重叠→仅 warning 且 `ok=True`；全合规→`ok=True` 无 issue。
+tests: ''
+references: ''
+open-questions: ''

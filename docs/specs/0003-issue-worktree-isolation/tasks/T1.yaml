@@ -1,0 +1,35 @@
+id: T1
+title: solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项
+status: done
+priority: P1
+tags:
+  - architecture
+  - backend
+  - cli
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/orchestrator.py
+  - openagents/cli.py
+  - tests/test_orchestrator.py
+  - tests/test_cli.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  重写 `Orchestrator` 的工作区逻辑——`solve` 先 `fetch origin <base>`，在 `<repo_root>/.openagents/worktrees/issue-<n>` 建从 `origin/<base>` 拉出的 worktree（建前幂等清理残留），在该 worktree 内调后端、`add/commit/push`、开 PR；`iterate` 复用/重建同一 worktree 后续写。`cli.py` 的 `solve` 子命令新增 `--base`（默认 `main`）并透传给 `Orchestrator.solve`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  `solve` 调用序列含 `git fetch origin main` 与 `git worktree add -b openagents/issue-<n> <path> origin/main`，**不再**在主树 `checkout -b`；后端 `work_dir` 为 worktree 路径；`commit/push` 正常且不 force-push；`solve --base <ref>` 时 worktree 自 `origin/<ref>` 拉出；`iterate` 在 worktree 内追加 commit；CLI 将 `--base` 透传、默认 `main`；`ruff check`/`ruff format --check`/`pytest` 全通过。
+tests: ''
+references: ''
+open-questions: ''

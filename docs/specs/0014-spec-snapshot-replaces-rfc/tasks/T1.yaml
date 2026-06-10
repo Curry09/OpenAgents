@@ -1,0 +1,37 @@
+id: T1
+title: 数据层 + JSON Schema + 依赖/入口声明
+status: done
+priority: P1
+tags:
+  - architecture
+  - dx
+  - cli
+  - tooling
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/spec/__init__.py
+  - openagents/spec/model.py
+  - openagents/spec/schema.py
+  - pyproject.toml
+  - tests/test_spec_model.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新建 `openagents/spec/` 包；`model.py` 定义 `RelatesTo`/`Task`/`Metadata`/`Group` 与 `load_group`/`load_all`/`dump_task`/`qualified_id`（用 `ruamel.yaml` round-trip 读写，保留块标量与键序）；`schema.py` 定义 `TASK_SCHEMA`/`METADATA_SCHEMA`/`HISTORY_SCHEMA`（JSON Schema draft 2020-12，覆盖 Task 全字段 + 枚举）。`pyproject.toml`：`dependencies` 增 `ruamel.yaml`、`jsonschema`；`[project.scripts]` 增 `spec = "openagents.spec.cli:main"`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖：往返 load→dump→load 保真（块标量、键序、`relates-to` 列表）；缺省可选字段（tags/tests/open-questions 等）有合理默认；`load_all` 聚合多组；`qualified_id` 拼出 `NNNN/T*`；`schema.py` 三个 schema 本身是合法 JSON Schema（`jsonschema` 可编译）。`pip install -e .` 后 `spec` 入口可解析（即便 cli 由 T5 落地，入口声明先就位）。
+tests: ''
+references: ''
+open-questions: ''

@@ -1,0 +1,34 @@
+id: T2
+title: '`rebase_open_prs` 扇出模块'
+status: done
+priority: P1
+tags:
+  - cli
+  - ci
+  - automation
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/rebase.py
+  - tests/test_rebase.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新建 `openagents/rebase.py`，实现 `rebase_open_prs(*, merged_pr_number=None, rebase=False)`：调 `github.list_open_prs`、排除 `merged_pr_number`、逐个 `github.update_branch`；冲突（`GithubError`）时 `github.post_comment` 贴冲突提示评论并继续；返回 `[{pr_number, result}]`。冲突评论文案以模块常量定义。注释引用 `RFC-0009`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测（monkeypatch `github.list_open_prs` / `update_branch` / `post_comment`）覆盖：正常更新、排除已合并 PR、`up-to-date` 归类、冲突→留言且不中断后续、空 open 列表；ruff + pytest 全绿。
+tests: ''
+references: ''
+open-questions: ''

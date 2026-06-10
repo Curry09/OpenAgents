@@ -376,11 +376,17 @@ graph LR
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
-> **T6 实现备注（2026-06-10）**：迁移脚本 + 单测、`docs/specs/README.md`、`OVERVIEW.md`、e2e
-> 脚本均已落地并自测通过；唯独 `.claude/skills/spec-driven-development/`（SKILL.md + references）
-> 因 worktree 对 `.claude/` 的写入需人工授权而暂未落盘，内容已就绪，待授权后补齐。故 T6 暂记
-> `in-progress`。另：依 D9，本 PR 暂只提交 `docs/specs/README.md` 与（空组的）`OVERVIEW.md`；
-> 全量迁移 docs/rfcs → docs/specs 待未解决问题 1/2 人工确认后再执行（迁移能力已由脚本/e2e/单测覆盖）。
+> **T6 实现备注（2026-06-10，PR #36 review rework）**：依 review 反馈，本次 rework 已**执行
+> 全量迁移**——`docs/rfcs/` 全部 14 份 RFC（含本 meta-RFC 0014）迁移为 `docs/specs/NNNN-slug/`
+> spec 组并提交：`spec validate` 全绿（仅跨组 `files` warning，属协作信号）、`spec render` 幂等、
+> 379 单测 + e2e 全通过。依未解决问题 1 默认，`docs/rfcs/` 与 `check-rfc-number-conflicts.py`
+> 保留为只读归档（每组正文存 `origin.md`）。**至此 review 第 2 条（「活快照为空」）已闭环。**
+>
+> 唯一未落盘项：`.claude/skills/spec-driven-development/`（SKILL.md + 4 篇 references）。内容
+> 已全部就绪，但 worktree 对 `.claude/` 的写入需人工授权，本会话尝试 3 次均被 permission gate 拦下
+> （`.claude/skills/` 目录本身已纳入 git 跟踪，与 `rfc-driven-development` 同级，故落盘后即随 PR
+> 一并交付）。待授权后写入这 5 个文件、`spec validate`/`render` 复核、即可将 T6 翻 `implemented`。
+> 故 T6 仍记 `in-progress`。
 
 > **并行提示**: T1 完成后，T2、T3 无相互依赖且文件互不重叠，可并行；T4 需 T3（amend 调 render）；T6 仅需 T2、T3，可与 T4、T5 并行（文件互不重叠）。
 

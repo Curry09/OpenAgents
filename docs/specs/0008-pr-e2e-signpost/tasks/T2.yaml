@@ -1,0 +1,32 @@
+id: T2
+title: 定位本分支新增的 RFC 文件
+status: done
+priority: P1
+tags:
+  - dx
+  - cli
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/workspace.py
+  - tests/test_workspace.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `Workspace` 增 `changed_rfc_path`，用 `git diff --name-only origin/<base>...HEAD -- docs/rfcs/` 取首个 `NNNN-*.md`（排除 `README.md`）返回绝对 `Path`，无则 `None`； 复用既有 `_git` 封装。方法 docstring 引用 `RFC-0008`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测——在临时 git 仓库造 base 与含新 RFC 的分支，方法返回该 RFC 路径； 无新增 RFC 时返回 `None`；不把 `README.md` 误判为 RFC。ruff + pytest 通过。
+tests: ''
+references: ''
+open-questions: ''

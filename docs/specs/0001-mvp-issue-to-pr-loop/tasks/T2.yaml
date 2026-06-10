@@ -1,0 +1,34 @@
+id: T2
+title: Claude Code 后端适配器
+status: done
+priority: P0
+tags:
+  - architecture
+  - cli
+  - protocol
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/backends/claude_code.py
+  - tests/test_backend_claude_code.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  实现 `ClaudeCodeBackend`，以子进程方式非交互调用 Claude Code，在给定工作目录按任务描述改代码，返回 `AgentResult`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  给定一个临时仓库与任务，适配器能驱动 Claude Code 产生文件改动并正确报告 `changed/summary`；子进程调用被 mock 的单测通过。
+tests: ''
+references: ''
+open-questions: ''

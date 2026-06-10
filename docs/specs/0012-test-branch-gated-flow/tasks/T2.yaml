@@ -1,0 +1,33 @@
+id: T2
+title: github 扩展（base/merge/label/branch）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - dx
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/github.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `create_pr` 增 `base` 形参（→ `--base`）；新增 `merge_pr`、`add_label`、`ensure_branch`（幂等）、`branch_ci_green`。复用 `_run_gh`/`_gh_json`（RFC-0010 重试）与既有 `_classify_checks`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测打桩子进程，验证各函数拼出正确 `gh` 参数；`ensure_branch` 在分支已存在时不报错（幂等）；`branch_ci_green` 全绿→True、有失败→False；`create_pr(base=...)` 透传 `--base`。
+tests: ''
+references: ''
+open-questions: ''

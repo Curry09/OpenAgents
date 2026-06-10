@@ -1,0 +1,33 @@
+id: T1
+title: state 层 agent_id 持久化
+status: done
+priority: P1
+tags:
+  - architecture
+  - protocol
+  - dx
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/state.py
+  - tests/test_state.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `State` 上新增 `get_agent_id` / `set_agent_id`，state.json 顶层增可选键 `"agent_id"`；`_load` 容错（缺键返回不含 agent_id 的状态），保持既有 runs/cursors 不变。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  set 后 get 取回同值；未设过时 get 返回 None；写入不破坏既有 runs/cursors；文件缺失/损坏仍容错为空状态。
+tests: ''
+references: ''
+open-questions: ''

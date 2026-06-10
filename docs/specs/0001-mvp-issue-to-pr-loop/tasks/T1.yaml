@@ -1,0 +1,40 @@
+id: T1
+title: 包骨架 + CLI 框架 + 后端接口契约
+status: done
+priority: P0
+tags:
+  - architecture
+  - cli
+  - protocol
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/__init__.py
+  - openagents/cli.py
+  - openagents/config.py
+  - openagents/backends/__init__.py
+  - openagents/backends/base.py
+  - pyproject.toml
+  - tests/test_cli.py
+  - tests/test_config.py
+  - tests/test_base.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  建 `openagents/` 包；`cli.py` 注册 `init`/`solve`/`poll`/`watch`/`board` 五个子命令（命令体内延迟 import 业务模块，本子任务只放可运行的骨架与占位提示）；`config.py` 实现项目绑定 `resolve_project`/`ensure_project`（决策 10：cwd 解析 git root + remote，缺失时交互式新建；`gh repo create` 部分通过延迟 import 调用 `github.create_repo`）；`backends/base.py` 定义 `AgentBackend` 协议与 `AgentResult`；在 `pyproject.toml` 声明 CLI entry point 与必要依赖（CLI 框架）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  `openagents --help` 列出五个子命令；`AgentBackend` 协议可被导入；`resolve_project` 能从 cwd 正确识别 git root 与 remote、非仓库返回 `None`，`ensure_project(interactive=False)` 缺失时抛错（交互分支与 `git init`/`gh` 被 mock）；`ruff check`/`ruff format --check` 通过；`tests/test_cli.py` 验证子命令注册与 preflight 调用。
+tests: ''
+references: ''
+open-questions: ''

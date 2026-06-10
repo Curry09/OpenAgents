@@ -1,0 +1,35 @@
+id: T3
+title: poll 判定剔除自评论 + 游标简化
+status: done
+priority: P1
+tags:
+  - architecture
+  - protocol
+  - dx
+depends-on:
+  - T2
+  - T5
+relates-to: []
+parallel: false
+files:
+  - openagents/messages.py
+  - tests/test_messages.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `Messages.__init__` 增 `agent_id`；`_latest_new_comment` 额外剔除「我自己签名」的评论；`_process_rfc_review` 游标只推进到触发评论；删除 `_newest_comment_id`；`poll` 合并分支把 `agent_id` 透传给 `rebase.rebase_open_prs`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  自己签名的评论不触发处理（含「post 后未推游标即崩溃重启」场景）；其他 agent 签名 / 无签名评论照常触发；refine 后游标等于触发评论的 `created_at`；干活期间到达的真人评论下一轮被处理。
+tests: ''
+references: ''
+open-questions: ''

@@ -1,0 +1,34 @@
+id: T4
+title: '`openagents sync-prs` 手动命令'
+status: done
+priority: P1
+tags:
+  - cli
+  - ci
+  - automation
+depends-on:
+  - T2
+relates-to: []
+parallel: false
+files:
+  - openagents/cli.py
+  - tests/test_cli.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `cli.build_parser` 注册 `sync-prs` 子命令（`--merged`、`--rebase`），新增 `_cmd_sync_prs` handler 延迟 import 并调 `rebase.rebase_open_prs`，打印结果摘要；接入 `_dispatch` handlers 表。注释引用 `RFC-0009`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测断言参数解析与 handler 透传（monkeypatch `rebase.rebase_open_prs`，校验 `merged_pr_number` / `rebase` 入参与退出码）；ruff + pytest 全绿。
+tests: ''
+references: ''
+open-questions: ''

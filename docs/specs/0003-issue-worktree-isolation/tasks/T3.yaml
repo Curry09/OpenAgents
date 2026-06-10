@@ -1,0 +1,36 @@
+id: T3
+title: solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底
+status: done
+priority: P1
+tags:
+  - architecture
+  - backend
+  - cli
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/state.py
+  - openagents/github.py
+  - tests/test_state.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `solve` 入口 `state.find_by_issue` 反查并按决策 7 分流——续写复用分支/worktree（不走决策 4 的清理）、追加 commit、`find_pr_by_branch` 复用或补开 PR；全新走决策 1/2/4 并 `begin_run` 先记 `solving`。`_commit_and_push` 容忍「无改动可提交」（跳过 commit 仍 push）。`state.py` 加 `begin_run` / `find_by_issue`；`github.py` 加 `find_pr_by_branch`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  该 issue 已有 open PR 时 `solve` 走续写、复用 PR（不调用 `create_pr`）、不重建分支、状态置 `iterating`；`begin_run` 后崩溃场景（无 PR）重跑能补开 PR；`find_by_issue`/`begin_run`/`find_pr_by_branch` 单测通过。
+tests: ''
+references: ''
+open-questions: ''
