@@ -56,6 +56,16 @@ _CHECK_RUN_PASS_CONCLUSIONS = {"success", "skipped", "neutral"}
 # RFC-0012：gh api 的 owner/repo 占位符——gh 会按当前仓库自动替换，无需显式拼 owner/repo。
 _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 
+# RFC-0015：流程标签——单一来源。三个标签常量原散在三处（cli.DISCOVERY_LABEL /
+# messages.APPROVAL_LABEL / state.BLOCKED_LABEL），同一字符串散落易漂移。落点选 github：
+# 它是依赖图的叶子模块（不 import 任何 openagents 内部模块），cli/messages/state 反向引用
+# 它零循环依赖风险；ensure_prerequisites 与标签同处一文件，引用最直接。三处既有公共名改为
+# 从此 re-import 的别名，所有调用点零改动（见 RFC-0015 决策 2）。
+DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
+APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
+BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
+PROCESS_LABELS: tuple[str, ...] = (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL)
+
 
 class GithubError(Exception):
     """gh CLI 调用失败（返回非零）时抛出，携带可读的失败原因。"""
@@ -397,6 +407,23 @@ def ensure_branch(*, name: str, from_ref: str) -> None:
         ],
         allow_returncodes=set(),
     )
+
+
+def ensure_prerequisites() -> None:
+    """RFC-0015：幂等确保流程结构性 prerequisite 就位：test 分支 + 全部流程标签。
+
+    单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/promote/vigil 三入口统一
+    调用，根除各入口零散且不完整的兜底（缺 test 分支致 prepare 永久失败、缺 needs-human/
+    rfc-approved 标签致 add_label 报 not found）。
+
+    缺分支或缺标签就新建，已存在就 no-op：本函数只编排既有幂等函数，不新造任何容错——
+    幂等性、瞬时错误重试（RFC-0010）、already exists / not found 归一化全由 ensure_branch /
+    ensure_label / _run_gh 既有实现承担。重复调用对已存在者均 no-op、不覆盖既有颜色/描述；
+    非「已存在」的 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
+    """
+    ensure_branch(name="test", from_ref="main")
+    for label in PROCESS_LABELS:
+        ensure_label(name=label)
 
 
 def branch_ci_green(*, branch: str) -> bool:

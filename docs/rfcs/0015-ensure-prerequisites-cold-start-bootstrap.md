@@ -1,6 +1,6 @@
 # RFC-0015: 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P0
 - **标签**: `architecture`, `cli`, `dx`, `reliability`
 - **影响模块**: `openagents/github.py`、`openagents/cli.py`、`openagents/promote.py`、`openagents/messages.py`、`openagents/state.py`、`tests/`
@@ -169,10 +169,10 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | `github.py`：标签常量单一来源 + `PROCESS_LABELS` + `ensure_prerequisites` | - | `openagents/github.py` | pending |
-| T2 | `messages`/`state` 标签常量改为从 `github` re-import 别名 | T1 | `openagents/messages.py`, `openagents/state.py` | pending |
-| T3 | 三入口接线 + `cli.DISCOVERY_LABEL` 改别名 | T1 | `openagents/cli.py`, `openagents/promote.py` | pending |
-| T4 | 单测：`ensure_prerequisites` 幂等 + 三入口各调一次 | T1, T3 | `tests/` | blocked |
+| T1 | `github.py`：标签常量单一来源 + `PROCESS_LABELS` + `ensure_prerequisites` | - | `openagents/github.py` | implemented |
+| T2 | `messages`/`state` 标签常量改为从 `github` re-import 别名 | T1 | `openagents/messages.py`, `openagents/state.py` | implemented |
+| T3 | 三入口接线 + `cli.DISCOVERY_LABEL` 改别名 | T1 | `openagents/cli.py`, `openagents/promote.py` | implemented |
+| T4 | 单测：`ensure_prerequisites` 幂等 + 三入口各调一次 | T1, T3 | `tests/` | implemented |
 
 > **并行提示**：T2、T3 无相互依赖且文件清单不重叠，可在不同 Agent 会话中并行实现。
 
