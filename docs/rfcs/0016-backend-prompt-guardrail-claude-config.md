@@ -1,6 +1,6 @@
 # RFC-0016: 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `backend`, `dx`, `protocol`
 - **影响模块**: `openagents/backends/claude_code.py`、`tests/test_backend_claude_code.py`
@@ -117,7 +117,7 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | `_GUARDRAIL` 常量 + `_build_prompt` 前置约束 + 单测 | - | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | pending |
+| T1 | `_GUARDRAIL` 常量 + `_build_prompt` 前置约束 + 单测 | - | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
