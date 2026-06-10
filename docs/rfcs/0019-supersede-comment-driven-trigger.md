@@ -1,6 +1,6 @@
 # RFC-0019: 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012）
 
-- **状态**: draft
+- **状态**: accepted
 - **优先级**: P1
 - **标签**: `architecture`, `process`, `dx`
 - **影响模块**: `docs/rfcs/0011-agent-identity-comment-signature.md`、`docs/rfcs/0012-test-branch-gated-flow.md`、`docs/rfcs/README.md`、`.claude/skills/rfc-driven-development/references/rfc-template.md`、`openagents/identity.py`、`openagents/cli.py`
