@@ -610,5 +610,71 @@ def test_review_unknown_pr_raises(tmp_path, monkeypatch):
         orch.review_rfc(pr_number=999)
 
 
+# --------------------------------------------------------------------------- #
+# RFC-0018：评审闸裁决回贴签名评论（旁路）
+# --------------------------------------------------------------------------- #
+
+
+def _spy_post_comment(monkeypatch):
+    """monkeypatch identity.post_signed_comment，记录回贴入参，返回记录器。"""
+    posted = {}
+
+    def _post(*, pr_number, body, agent_id):
+        posted.update({"pr_number": pr_number, "body": body, "agent_id": agent_id})
+
+    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _post)
+    return posted
+
+
+def test_review_rfc_posts_signed_decision_comment(tmp_path, monkeypatch):
+    # RFC-0018 验收标准 1：返回裁决前回贴一条签名评论，正文含整体裁决与票数。
+    backend = _FakeBackend(summary="VERDICT: PASS\nREASON: 对齐需求")
+    orch, _, state = _make(tmp_path, backend=backend, agent_id="agent-018")
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    posted = _spy_post_comment(monkeypatch)
+
+    decision = orch.review_rfc(pr_number=5)
+
+    assert decision.passed is True
+    assert posted["pr_number"] == 5
+    assert posted["agent_id"] == "agent-018"
+    assert "评审闸裁决" in posted["body"]
+    assert "PASS" in posted["body"]
+    assert "1 票中 1 票 PASS" in posted["body"]
+
+
+def test_review_code_rework_comment_carries_votes_and_feedback(tmp_path, monkeypatch):
+    backend = _FakeBackend(summary="VERDICT: REWORK\nISSUES:\n- foo.py:1 缺测试\nNEXT: 补单测")
+    orch, _, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    posted = _spy_post_comment(monkeypatch)
+
+    decision = orch.review_code(pr_number=5)
+
+    assert decision.passed is False
+    assert "REWORK" in posted["body"]
+    assert "缺测试" in posted["body"]
+
+
+def test_review_comment_failure_does_not_block_decision(tmp_path, monkeypatch):
+    # RFC-0018 验收标准 2：post_signed_comment 抛错时 _review 仍返回原裁决、不抛出。
+    backend = _FakeBackend(summary="VERDICT: PASS")
+    orch, _, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+
+    def _boom(*, pr_number, body, agent_id):
+        raise RuntimeError("gh 故障")
+
+    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _boom)
+
+    decision = orch.review_rfc(pr_number=5)
+
+    # 回贴抛错被吞掉，裁决照常返回（不阻断下游 refine/iterate/merge）。
+    assert decision.passed is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

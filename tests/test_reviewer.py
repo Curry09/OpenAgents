@@ -15,10 +15,12 @@ from openagents.backends.base import AgentResult
 from openagents.reviewer import (
     DEFAULT_REVIEWERS,
     REVIEWERS_ENV,
+    UNPARSED_VERDICT,
     ReviewDecision,
     _parse_verdict,
     _task_for,
     configured_reviewers,
+    render_decision,
     review,
 )
 
@@ -181,3 +183,68 @@ def test_review_n_below_one_runs_once(tmp_path):
     decision = review(backend=backend, work_dir=tmp_path, kind="rfc", pr_number=1, n=0)
     assert decision.passed is True
     assert len(backend.calls) == 1
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0018: verdicts 暴露 + render_decision 渲染
+# --------------------------------------------------------------------------- #
+
+
+def test_verdicts_length_matches_reviewer_count(tmp_path):
+    # RFC-0018 决策 3：verdicts 与 N 等长且元素为合法 token。
+    backend = _backend("VERDICT: PASS")
+    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=7, n=3)
+    assert decision.verdicts == ("PASS", "PASS", "PASS")
+
+
+def test_verdicts_map_each_token(tmp_path):
+    # PASS / REWORK / RETHINK 分别映射到对应 token，保持入参顺序。
+    backend = _backend("VERDICT: PASS", "VERDICT: REWORK", "VERDICT: RETHINK")
+    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=7, n=3)
+    assert decision.verdicts == ("PASS", "REWORK", "RETHINK")
+
+
+def test_verdicts_unparsed_normalized(tmp_path):
+    # 无法解析裁决 → 归一化为 UNPARSED（疑罪从严，非 PASS）。
+    backend = _backend("我觉得还行吧，没什么大问题")
+    decision = review(backend=backend, work_dir=tmp_path, kind="rfc", pr_number=1, n=1)
+    assert decision.verdicts == (UNPARSED_VERDICT,)
+
+
+def test_review_decision_verdicts_defaults_empty():
+    # 向后兼容：既有构造点不传 verdicts 时默认空元组。
+    decision = ReviewDecision(passed=True, feedback="")
+    assert decision.verdicts == ()
+
+
+def test_render_decision_pass_contains_kind_and_votes():
+    decision = ReviewDecision(passed=True, feedback="", verdicts=("PASS", "PASS"))
+    body = render_decision(decision=decision, kind="rfc")
+    assert "RFC 文档" in body
+    assert "PASS" in body
+    assert "2 票中 2 票 PASS" in body
+
+
+def test_render_decision_rework_contains_feedback_summary():
+    decision = ReviewDecision(
+        passed=False,
+        feedback="foo.py:10 缺边界处理",
+        verdicts=("PASS", "REWORK"),
+    )
+    body = render_decision(decision=decision, kind="code")
+    assert "代码" in body
+    assert "REWORK" in body
+    assert "2 票中 1 票 PASS" in body
+    assert "缺边界处理" in body
+
+
+def test_render_decision_renders_unparsed_vote_type():
+    # 含 UNPARSED 的混合票型：票数正确、票型逐项展示。
+    decision = ReviewDecision(
+        passed=False,
+        feedback="（reviewer 未给出可解析的裁决）",
+        verdicts=("PASS", UNPARSED_VERDICT),
+    )
+    body = render_decision(decision=decision, kind="rfc")
+    assert "2 票中 1 票 PASS" in body
+    assert UNPARSED_VERDICT in body

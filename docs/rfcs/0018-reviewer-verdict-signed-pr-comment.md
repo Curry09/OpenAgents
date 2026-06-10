@@ -1,6 +1,6 @@
 # RFC-0018: reviewer 闸裁决回贴 PR——把每轮 PASS/REWORK + 反馈作为签名评论（人的可观测性）
 
-- **状态**: draft
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `observability`, `architecture`
 - **影响模块**: `openagents/orchestrator.py`、`openagents/reviewer.py`、`tests/`
@@ -191,9 +191,9 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | reviewer 暴露 `verdicts` + `render_decision` | - | `openagents/reviewer.py` | pending |
-| T2 | orchestrator `_review` 回贴签名裁决评论（旁路） | T1 | `openagents/orchestrator.py` | pending |
-| T3 | 单测：渲染/票数 + 回贴调用 + 失败不阻断 | T1, T2 | `tests/test_reviewer.py`、`tests/test_orchestrator.py` | blocked |
+| T1 | reviewer 暴露 `verdicts` + `render_decision` | - | `openagents/reviewer.py` | implemented |
+| T2 | orchestrator `_review` 回贴签名裁决评论（旁路） | T1 | `openagents/orchestrator.py` | implemented |
+| T3 | 单测：渲染/票数 + 回贴调用 + 失败不阻断 | T1, T2 | `tests/test_reviewer.py`、`tests/test_orchestrator.py` | implemented |
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
