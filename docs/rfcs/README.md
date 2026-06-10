@@ -42,6 +42,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0012](./0012-test-branch-gated-flow.md) | test 分支门控流程——人只在「提 issue」与「promote」介入（reviewer agent 接管 RFC/代码评审闸） | implemented | P1 |
 | [RFC-0013](./0013-implement-e2e-run-result-comment.md) | 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸） | implemented | P1 |
 | [RFC-0015](./0015-ensure-prerequisites-cold-start-bootstrap.md) | 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等） | draft | P0 |
+| [RFC-0017](./0017-explicit-close-issue-on-test-merge.md) | PR 合进 test 后框架显式关 issue（`Closes #N` 对非默认分支失效的补偿） | draft | P1 |
 
 ## RFC 编号规则
 
