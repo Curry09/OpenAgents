@@ -215,9 +215,7 @@ def test_verdicts_map_each_token(tmp_path, monkeypatch):
         "openagents.reviewer._run_reviewers",
         lambda *, backend, work_dir, task, n: summaries,
     )
-    decision = review(
-        backend=_backend("unused"), work_dir=tmp_path, kind="code", pr_number=7, n=3
-    )
+    decision = review(backend=_backend("unused"), work_dir=tmp_path, kind="code", pr_number=7, n=3)
     assert decision.verdicts == ("PASS", "REWORK", "RETHINK")
 
 
