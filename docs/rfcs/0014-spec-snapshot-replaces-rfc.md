@@ -35,7 +35,8 @@
 
 调研了两个成熟仓库（均 MIT），**借其思想，不照搬**：
 
-- 借鉴 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 的 **delta 记法**（历史记「改了什么」而非整块复制）与**机器校验**；借鉴 [spec-kit](https://github.com/github/spec-kit) 的 **`[P]` 并行标记 + 依赖分组**、**clarify 阶段**、**Living Spec 哲学**。
+- 借鉴 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 的 **delta 记法**（历史记「改了什么」而非整块复制）与**机器校验**；借鉴 [spec-kit](https://github.com/github/spec-kit) 的 **`[P]` 并行标记 + 依赖分组**、**clarify 阶段**。
+- **「活快照」是本 RFC 自创的北极星概念**（见上「北极星」节），非借自 spec-kit——实地核验 spec-kit 文档仅自述「Spec-Driven Development」，未提出「活快照 / Living Spec」此术语，故不归属于它（理念 7 证据驱动）。
 - **关键不同**：OpenSpec 快照装的是「需求」，且**做完的 task 会被 archive 搬出快照**（导致快照看不到已完成工作 + archive 堆旧 task）——这正是本设计要避免的 legacy 问题。**本设计快照装的是 Task 本身，做完的 task 留在快照，只有旧版本 / 废弃才进历史。**
 
 | 维度 | OpenSpec | 本设计 |
@@ -447,7 +448,7 @@ graph LR
 ## 参考资料
 
 - [OpenSpec](https://github.com/Fission-AI/OpenSpec)（MIT）：借鉴 delta 历史记法与机器校验；本设计与其「做完 task 被 archive 搬出快照」的关键分歧见动机表格。
-- [spec-kit](https://github.com/github/spec-kit)（MIT）：借鉴 `[P]` 并行标记 + 依赖分组、clarify 阶段、Living Spec 哲学。
+- [spec-kit](https://github.com/github/spec-kit)（MIT）：借鉴 `[P]` 并行标记 + 依赖分组、clarify 阶段。（实地核验其文档仅自述「Spec-Driven Development」，未提出「活快照 / Living Spec」概念，故未据此归属——「活快照」为本 RFC 自创北极星，见摘要「北极星」节。）
 - RFC-0008（`openagents/rfc.py`）：「只懂文档结构的纯模块」定位的先例，`spec` 包沿用其解耦风格。
 - RFC-0012：「人只在『提 issue』与『promote』介入」的两 gate 模型——本 RFC 的工作流（clarify / 设计 / 实施验证）与之对齐。
 - `scripts/check-rfc-number-conflicts.py`、`.github/workflows/ci.yml` `rfc-conflicts` job：编号校验脚本与 CI 接线的改造基线。
