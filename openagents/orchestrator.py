@@ -162,8 +162,8 @@ class Orchestrator:
             message=f"docs: refine RFC for PR #{pr_number} per review",
         )
         # 决策 6：回贴评论说明改动，让人类知道 RFC 已据评审更新。
-        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，
-        # 使下一轮 poll 据签名剔除这条自评论，不再对自己的回贴触发 refine（防自循环）。
+        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计
+        # （RFC-0019：评论驱动读侧已退役，poll 不读评论；自动流转由 reviewer 闸驱动，无自循环）。
         identity.post_signed_comment(
             pr_number=pr_number,
             body=_REFINE_COMMENT.format(summary=result.summary or "（无摘要）"),

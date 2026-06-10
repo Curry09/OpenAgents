@@ -1,6 +1,6 @@
 # RFC-0019: 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012）
 
-- **状态**: accepted
+- **状态**: implementing
 - **优先级**: P1
 - **标签**: `architecture`, `process`, `dx`
 - **影响模块**: `docs/rfcs/0011-agent-identity-comment-signature.md`、`docs/rfcs/0012-test-branch-gated-flow.md`、`docs/rfcs/README.md`、`.claude/skills/rfc-driven-development/references/rfc-template.md`、`openagents/identity.py`、`openagents/cli.py`
@@ -184,10 +184,12 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | supersession 纪律落地（模板字段 + README 规则 + 0019 行） | - | `.claude/skills/rfc-driven-development/references/rfc-template.md`、`docs/rfcs/README.md` | pending |
-| T2 | RFC-0011 partial supersession 标注 | T1 | `docs/rfcs/0011-agent-identity-comment-signature.md` | pending |
-| T3 | RFC-0012 依赖叙述对齐（第 289 行 + 取代字段） | T1 | `docs/rfcs/0012-test-branch-gated-flow.md` | pending |
-| T4 | 代码层死叙述清理（保留 API，不改行为） | T2, T3 | `openagents/identity.py`、`openagents/cli.py` | blocked |
+| T1 | supersession 纪律落地（模板字段 + README 规则 + 0019 行） | - | `.claude/skills/rfc-driven-development/references/rfc-template.md`、`docs/rfcs/README.md` | in-progress（README 已完成；模板字段待权限） |
+| T2 | RFC-0011 partial supersession 标注 | T1 | `docs/rfcs/0011-agent-identity-comment-signature.md` | implemented |
+| T3 | RFC-0012 依赖叙述对齐（第 289 行 + 取代字段） | T1 | `docs/rfcs/0012-test-branch-gated-flow.md` | implemented |
+| T4 | 代码层死叙述清理（保留 API，不改行为） | T2, T3 | `openagents/identity.py`、`openagents/cli.py`、`openagents/orchestrator.py`、`openagents/rebase.py`（见下方 Phase 3 修正） | implemented |
+
+> **T1 阻塞说明（2026-06-10）**：T1 的 `docs/rfcs/README.md` 部分（Supersession 纪律小节 + 0019 行 + RFC-0011 行作废注记）已完成；`.claude/skills/.../rfc-template.md` 的两个可选头部字段因仓库对 `.claude/` 目录的写入需显式授权而暂未落地。README 的纪律小节已对字段格式作出规范说明，模板字段为「文档化样例」性质，待授权后补齐即可完成 T1。
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
@@ -212,8 +214,10 @@ graph LR
 
 **T4: 代码层死叙述清理（保留 API）**
 - **范围**：更正 `identity.py` 中声称「poll 用 `parse_agent_id` 剔除自评论」的 docstring，改述为「`parse_agent_id` 是 `sign` 的验证逆函数 / 写侧盖章服务于溯源」并引用 RFC-0019；更正 `cli._latest_comment_body` 注释中「与 messages 自动 poll 同样按签名区分」的失真句，改述为「仅供手动 refine/iterate；自动流转由 reviewer 闸驱动」。**不删除** `sign`/`parse_agent_id`/`post_signed_comment`/`resolve_agent_id`，**不改任何签名或行为**。
-- **涉及文件**：`openagents/identity.py`（修改注释）、`openagents/cli.py`（修改注释）
+- **涉及文件**：`openagents/identity.py`（修改注释）、`openagents/cli.py`（修改注释）、`openagents/orchestrator.py`（修改注释，Phase 3 修正补入）、`openagents/rebase.py`（修改注释，Phase 3 修正补入）
 - **验收标准**：全仓 grep 无残留声称「poll 读评论/读签名过滤/`_latest_new_comment`」的注释；`ruff check` + `ruff format --check` 通过；现有 `pytest` 全绿（行为零变更，签名往返测试仍作为写侧 API 的契约存在）。
+
+> **Phase 3 修正（2026-06-10）**：起草期 T4 文件清单只列了 `identity.py`/`cli.py`，但全仓 grep 发现同款「下一轮 poll 据签名剔除自评论（防自循环）」的死叙述也存在于 `orchestrator.py`（refine 回贴处）与 `rebase.py`（冲突留言处）。为满足「全仓 grep 无残留」验收标准，将这两个文件补入 T4 范围，仅改注释、不改任何签名或行为。两处改述为「盖章用于溯源/审计；poll 不读评论，自动流转由 reviewer 闸驱动」，与 identity/cli 的改述口径一致。
 
 ## 测试方案
 

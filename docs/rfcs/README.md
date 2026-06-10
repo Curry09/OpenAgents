@@ -38,11 +38,11 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0008](./0008-pr-e2e-signpost.md) | PR 正文「端到端验证」指路牌（从 RFC 自动生成） | implemented | P1 |
 | [RFC-0009](./0009-auto-rebase-open-prs-on-merge.md) | 合并后自动 rebase 其他 open PR | implemented | P1 |
 | [RFC-0010](./0010-gh-transient-retry-and-vigil-round-guard.md) | gh 瞬时错误重试 + 守夜循环单轮容错 | implemented | P1 |
-| [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环） | implemented | P1 |
+| [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）<br/>（评论驱动触发模型部分 superseded-by [RFC-0019](./0019-supersede-comment-driven-trigger.md)；身份/盖章写侧仍有效） | implemented | P1 |
 | [RFC-0012](./0012-test-branch-gated-flow.md) | test 分支门控流程——人只在「提 issue」与「promote」介入（reviewer agent 接管 RFC/代码评审闸） | implemented | P1 |
 | [RFC-0013](./0013-implement-e2e-run-result-comment.md) | 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸） | implemented | P1 |
 | [RFC-0015](./0015-ensure-prerequisites-cold-start-bootstrap.md) | 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等） | draft | P0 |
-| [RFC-0019](./0019-supersede-comment-driven-trigger.md) | 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012） | accepted | P1 |
+| [RFC-0019](./0019-supersede-comment-driven-trigger.md) | 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012） | implementing | P1 |
 
 ## RFC 编号规则
 
@@ -50,3 +50,20 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 - 编号顺序分配，不跳号、不复用（CI 会校验本地与 open PR 之间的编号冲突）
 - 被 superseded 的 RFC 保留原编号
 - 文件名为 `NNNN-slug.md`，slug 用 kebab-case 英文短名
+
+## Supersession 纪律
+
+RFC 是跨任务记忆的单一事实源（理念 4）。当一个新 RFC **改动了旧 RFC 所依赖的地基假设**
+（推翻其设计决策、接口契约或触发模型）时，必须**向前追溯**并显式标注作废范围，避免旧 RFC
+变成与现状矛盾的死叙述（RFC-0019 即对此类历史欠账的补录）。
+
+- **向前追溯义务**：新 RFC 在头部 `取代 (Supersedes)` 字段回指被作废的旧 RFC 并括注范围；
+  同时在被作废的旧 RFC 头部补 `被取代 (Superseded-By)` 字段指向新 RFC。两侧互相指向，单一事实源。
+- **整体作废**：旧 RFC 的设计被完全推翻时，把其状态改为 `superseded`，并补 `被取代` 字段。
+- **部分作废（partial supersession）**：旧 RFC 只有**一部分**被推翻、其余仍生效时，
+  **不**整体翻成 `superseded`（那会误导成「全死了」）。改为：保留原状态，补 `被取代` 字段
+  并在字段值里**括注被作废的具体范围**，且在受影响的段落（摘要、相关设计/接口契约/子任务）
+  打 `⚠️ 已被 RFC-NNNN 取代：<范围>` 行内横幅，明确哪部分死了、哪部分仍有效。
+- 头部两字段为**可选**字段（无 supersession 关系时省略），格式见 `rfc-template.md`。
+- 当前纪律仅靠文本字段与人工自觉，无机器强校验（CI 仅校验编号冲突）；是否增双向一致性
+  校验留待后续评估。

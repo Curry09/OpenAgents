@@ -206,8 +206,9 @@ def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _latest_comment_body(*, pr_number: int) -> str | None:
-    # RFC-0005 决策 6 / RFC-0011：手动触发取最新一条评论作上下文（不按作者过滤——手动由人
-    # 显式发起、无自循环风险；与 messages 自动 poll 同样不按账号过滤，改由签名区分自/非自）。
+    # RFC-0005 决策 6 / RFC-0019：仅供**手动** refine_rfc / iterate 取最近一条评论作上下文
+    # （人显式发起、无自循环风险，故不做任何过滤）。自动流转不走这里——它由 reviewer 闸驱动，
+    # messages.poll 不读 PR 评论（评论驱动读侧已退役，见 RFC-0012 / RFC-0019）。
     comments = github.list_comments(pr_number=pr_number)
     if not comments:
         return None

@@ -36,8 +36,9 @@ def rebase_open_prs(
     merged_pr_number：刚合并的 PR 编号——合并后它已不在 open 列表，但合并瞬间存在竞态，
     故再显式排除一次兜底；None 表示不排除、同步全部 open PR（手动入口缺省）。
     rebase：True 用 rebase、False（默认）用 merge 方式同步（决策 2）。
-    agent_id：RFC-0011 T5 新增必填——冲突留言据此盖本实例签名，使下一轮 poll 据签名
-    剔除这条自评论（保持无状态：rebase 不读 state，agent_id 由 messages/CLI 透传，理念 10）。
+    agent_id：RFC-0011 T5 新增必填——冲突留言据此盖本实例签名，用于评论溯源/审计
+    （RFC-0019：poll 不再读评论做签名过滤，自动流转由 reviewer 闸驱动）。
+    保持无状态：rebase 不读 state，agent_id 由 messages/CLI 透传（理念 10）。
 
     返回事件列表，每项 {"pr_number": int, "result": str}，
     result ∈ {RESULT_UPDATED, RESULT_UP_TO_DATE, RESULT_CONFLICT}（供日志/测试断言）。
