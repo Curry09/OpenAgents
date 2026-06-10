@@ -41,8 +41,8 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0011](./0011-agent-identity-comment-signature.md) | 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）<br/>（评论驱动触发模型部分 superseded-by [RFC-0019](./0019-supersede-comment-driven-trigger.md)；身份/盖章写侧仍有效） | implemented | P1 |
 | [RFC-0012](./0012-test-branch-gated-flow.md) | test 分支门控流程——人只在「提 issue」与「promote」介入（reviewer agent 接管 RFC/代码评审闸） | implemented | P1 |
 | [RFC-0013](./0013-implement-e2e-run-result-comment.md) | 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸） | implemented | P1 |
-| [RFC-0015](./0015-ensure-prerequisites-cold-start-bootstrap.md) | 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等） | draft | P0 |
-| [RFC-0019](./0019-supersede-comment-driven-trigger.md) | 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012） | implementing | P1 |
+| [RFC-0015](./0015-ensure-prerequisites-cold-start-bootstrap.md) | 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等） | implemented | P0 |
+| [RFC-0019](./0019-supersede-comment-driven-trigger.md) | 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012） | implemented | P1 |
 
 ## RFC 编号规则
 
@@ -67,6 +67,6 @@ RFC 是跨任务记忆的单一事实源（理念 4）。当一个新 RFC **改�
 - 头部两字段为**可选**字段（无 supersession 关系时省略），写在头部元信息块，格式如下（整行省略表示无）：
   - 取代：`- **取代 (Supersedes)**: RFC-NNNN（括注作废范围）`
   - 被取代：`- **被取代 (Superseded-By)**: RFC-NNNN（括注被作废范围）`
-  （本小节为该格式的单一事实源；`rfc-template.md` 待补同款样例字段，见 RFC-0019 T1。）
+  （**本小节为该格式的唯一单一事实源**；`rfc-template.md` 的同款样例字段为非阻塞 follow-up，待 `.claude/` 写授权后补齐并与本小节保持一致，详见 RFC-0019「T1 收口裁定」。）
 - 当前纪律仅靠文本字段与人工自觉，无机器强校验（CI 仅校验编号冲突）；是否增双向一致性
   校验留待后续评估。

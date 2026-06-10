@@ -1,9 +1,9 @@
 # RFC-0019: 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012）
 
-- **状态**: implementing
+- **状态**: implemented
 - **优先级**: P1
 - **标签**: `architecture`, `process`, `dx`
-- **影响模块**: `docs/rfcs/0011-agent-identity-comment-signature.md`、`docs/rfcs/0012-test-branch-gated-flow.md`、`docs/rfcs/README.md`、`.claude/skills/rfc-driven-development/references/rfc-template.md`、`openagents/identity.py`、`openagents/cli.py`
+- **影响模块**: `docs/rfcs/0011-agent-identity-comment-signature.md`、`docs/rfcs/0012-test-branch-gated-flow.md`、`docs/rfcs/README.md`、`openagents/identity.py`、`openagents/cli.py`（`rfc-template.md` 样例字段裁定为非阻塞 follow-up，见 T1 收口裁定，不在本 RFC 交付范围）
 - **取代 (Supersedes)**: RFC-0011 —— 仅其「评论驱动触发模型 + poll 读签名过滤」一端（读侧）；RFC-0011 的身份解析与评论盖章（写侧）继续生效
 - **被取代 (Superseded-By)**: —
 - **负责人**: openagents（issue #42）
@@ -73,8 +73,8 @@ RFC-0011（本地 Agent 身份 + 评论签名）与 RFC-0012（test 分支门控
 
 5. **D5 supersession 纪律最小落地，深层改造留给 #35**
    - 本 RFC 只引入**纪律**（向前追溯 + 部分作废标注），不引入新机制/新模块（解耦、理念 1）。具体：
-     - `rfc-template.md` 头部新增可选字段 `取代 (Supersedes)` / `被取代 (Superseded-By)`，值为 `RFC-NNNN（作废范围说明）`。
-     - `README.md` 增一段规则：**新 RFC 若改动旧 RFC 依赖的地基假设，必须在旧 RFC 头部补 `被取代` 字段并指明被作废的范围（可为部分作废），并在受影响段落打行内横幅**。
+     - `README.md` 增一段规则：**新 RFC 若改动旧 RFC 依赖的地基假设，必须在旧 RFC 头部补 `被取代` 字段并指明被作废的范围（可为部分作废），并在受影响段落打行内横幅**；并**内联** `取代 (Supersedes)` / `被取代 (Superseded-By)` 两可选字段（值为 `RFC-NNNN（作废范围说明）`）的格式作为单一事实源。
+     - `rfc-template.md` 头部同款样例字段属「文档化样例」，因 `.claude/` 写授权约束裁定为非阻塞 follow-up（见 T1 收口裁定），单独 issue 跟踪，不阻塞本 RFC。
    - issue #42 附带的「Spec 活快照取代 RFC」结构性方案与 issue #35 同源 —— 本 RFC 明确**不**实现活快照，只在关联里指向 #35，避免范围蔓延。
 
 ### 接口契约
@@ -83,16 +83,16 @@ RFC-0011（本地 Agent 身份 + 评论签名）与 RFC-0012（test 分支门控
 
 #### 文档契约
 
-**`.claude/skills/rfc-driven-development/references/rfc-template.md`（修改）**
-- 头部元信息块新增两个**可选**字段（缺省可省略）：
+**`docs/rfcs/README.md`（修改）**
+- 「RFC 状态」表保持不变；新增「Supersession 纪律」小节，规定向前追溯 + 部分作废标注义务，并**内联**两个**可选**字段（缺省可省略）的格式作为单一事实源：
   ```
   - **取代 (Supersedes)**: RFC-NNNN（作废范围说明） | —
   - **被取代 (Superseded-By)**: RFC-NNNN（作废范围说明） | —
   ```
-
-**`docs/rfcs/README.md`（修改）**
-- 「RFC 状态」表保持不变；新增「Supersession 纪律」小节，规定向前追溯 + 部分作废标注义务。
 - 「RFC 列表」新增 RFC-0019 行；RFC-0011 行状态标注补「（评论驱动部分 superseded-by RFC-0019）」。
+
+**`.claude/skills/rfc-driven-development/references/rfc-template.md`（非阻塞 follow-up，不在本 RFC 交付）**
+- 头部同款可选字段样例，因 `.claude/` 写授权约束裁定为非阻塞 follow-up（见 T1 收口裁定），单独 issue 跟踪。README 内联格式已为单一事实源，模板补齐后与之一致即可。
 
 **`docs/rfcs/0011-agent-identity-comment-signature.md`（修改，文档标注）**
 - 头部增 `被取代 (Superseded-By): RFC-0019（评论驱动触发模型 + poll 读签名过滤）`。
@@ -184,12 +184,12 @@ graph LR
 
 | ID | 标题 | 依赖 | 涉及文件 | 状态 |
 |----|------|------|---------|------|
-| T1 | supersession 纪律落地（模板字段 + README 规则 + 0019 行） | - | `.claude/skills/rfc-driven-development/references/rfc-template.md`、`docs/rfcs/README.md` | in-progress（README 已完成且内联字段格式、无悬空引用；模板字段待 `.claude/` 写授权） |
+| T1 | supersession 纪律落地（README 规则 + 字段格式单一事实源 + 0019 行） | - | `docs/rfcs/README.md`（模板样例字段裁定为非阻塞 follow-up，见下方说明） | implemented |
 | T2 | RFC-0011 partial supersession 标注 | T1 | `docs/rfcs/0011-agent-identity-comment-signature.md` | implemented |
 | T3 | RFC-0012 依赖叙述对齐（第 289 行 + 取代字段） | T1 | `docs/rfcs/0012-test-branch-gated-flow.md` | implemented |
 | T4 | 代码层死叙述清理（保留 API，不改行为） | T2, T3 | `openagents/identity.py`、`openagents/cli.py`、`openagents/orchestrator.py`、`openagents/rebase.py`（见下方 Phase 3 修正） | implemented |
 
-> **T1 阻塞说明（2026-06-10，PR #46 review 修订）**：T1 的 `docs/rfcs/README.md` 部分（Supersession 纪律小节 + 0019 行 + RFC-0011 行作废注记）已完成；`.claude/skills/.../rfc-template.md` 的两个可选头部字段因仓库对 `.claude/` 目录的写入需显式授权而暂未落地。**为消除「README 指向尚不存在的模板字段」这一悬空引用（PR #46 review 指出）**，README 纪律小节已把字段格式**内联**为单一事实源、并明确「`rfc-template.md` 待补同款样例字段」，使 README 自洽、不再悬空指向。模板字段为「文档化样例」性质，待授权后补齐即可关闭 T1。
+> **T1 收口裁定（2026-06-10，PR #46 review 二轮）**：review 指出 T1 验收标准原写「`rfc-template.md` 含两新字段」未满足、致 RFC 悬置在 `implementing`。根因是仓库对 `.claude/` 目录的写入需显式授权（真实环境约束），`rfc-template.md` 不在本 PR 可写范围内。**裁定**（采纳 review 提供的收口选项）：**README「Supersession 纪律」小节的内联字段格式为该格式的唯一单一事实源**；`rfc-template.md` 的同款样例字段降级为「文档化样例」性质的**非阻塞 follow-up**，单独开 issue 跟踪、待 `.claude/` 写授权后补齐，**不再阻塞 T1 与本 RFC 的交付**。据此 T1 验收标准已相应收敛（见下），T1 与 RFC-0019 置 `implemented`，消除「implementing」悬置。
 
 状态: `pending` | `in-progress`（代码修改中） | `implemented`（代码修改完毕） | `blocked`
 
@@ -198,9 +198,9 @@ graph LR
 #### 子任务定义
 
 **T1: supersession 纪律落地**
-- **范围**：在 `rfc-template.md` 头部元信息块加 `取代 (Supersedes)` / `被取代 (Superseded-By)` 两个可选字段；在 `README.md` 增「Supersession 纪律」小节（向前追溯 + 部分作废标注义务），并在「RFC 列表」加 RFC-0019 行、给 RFC-0011 行补「（评论驱动部分 superseded-by RFC-0019）」。
-- **涉及文件**：`.claude/skills/rfc-driven-development/references/rfc-template.md`（修改）、`docs/rfcs/README.md`（修改）
-- **验收标准**：模板含两新字段且标注「可选」；README 纪律小节明确「部分作废」也需标注；README 表格含 0019 行、RFC-0011 行带评论驱动作废注记；Markdown 渲染无破损。
+- **范围**：在 `README.md` 增「Supersession 纪律」小节（向前追溯 + 部分作废标注义务），**内联** `取代 (Supersedes)` / `被取代 (Superseded-By)` 两个可选字段的格式作为单一事实源；在「RFC 列表」加 RFC-0019 行、给 RFC-0011 行补「（评论驱动部分 superseded-by RFC-0019）」。`rfc-template.md` 的同款样例字段裁定为非阻塞 follow-up（见上方「T1 收口裁定」），不在本 RFC 交付范围内。
+- **涉及文件**：`docs/rfcs/README.md`（修改）
+- **验收标准**：README 纪律小节内联两可选字段格式并标注「可选」、明确「部分作废」也需标注，且该小节自洽不悬空指向尚不存在的模板字段；README 表格含 0019 行、RFC-0011 行带评论驱动作废注记；Markdown 渲染无破损。（模板样例字段的补齐由 follow-up issue 跟踪，非本验收项。）
 
 **T2: RFC-0011 partial supersession 标注**
 - **范围**：RFC-0011 头部加 `被取代 (Superseded-By): RFC-0019（评论驱动触发模型 + poll 读签名过滤）`；在摘要、设计「Poll 判定/游标简化」、接口契约（`_latest_new_comment`/`messages` 块）、子任务 T3 处加行内横幅，明确读侧作废、写侧（身份/盖章）仍有效。不删除原内容（保留历史可读性）。
@@ -248,6 +248,7 @@ graph LR
 1. **写侧是否最终彻底下线**：本 RFC 默认保留盖章/身份写侧（可逆 + 溯源）。是否在确认长期不复活评论驱动后，另开小 RFC 删除 `sign`/`parse_agent_id`/`post_signed_comment`/`resolve_agent_id`？（issue 标注「盖章是否保留另议」。）
 2. **supersession 纪律是否需机器校验**：当前仅靠文本字段与人工自觉。是否在 CI 增「`取代`/`被取代` 双向一致性」校验（类似现有编号冲突校验）？建议留待 #35 评估，避免与「活快照」方案重复造轮子。
 3. **与 issue #35 的边界**：本 RFC 的纪律是 #35「Spec 活快照取代 RFC」的退化前身。#35 落地后，本 RFC 引入的字段/规则应被吸收还是并存？建议在 #35 设计时统一裁定。
+4. **`rfc-template.md` 样例字段补齐（非阻塞 follow-up）**：因 `.claude/` 目录写入需显式授权，本 RFC 未在 `rfc-template.md` 落地 `取代`/`被取代` 样例字段。已裁定 README「Supersession 纪律」小节为格式单一事实源，模板补齐降级为单独 issue 跟踪（待 `.claude/` 写授权后补齐并与 README 保持一致）。属文档化样例，不影响纪律生效。
 
 ## 参考资料
 
