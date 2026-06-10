@@ -244,7 +244,8 @@ def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
     from openagents import rebase
 
-    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖章，防自循环）。
+    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖本实例签名，用于
+    # 溯源/审计；RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动）。
     events = rebase.rebase_open_prs(
         merged_pr_number=args.merged, rebase=args.rebase, agent_id=_agent_id_for(ctx=ctx)
     )

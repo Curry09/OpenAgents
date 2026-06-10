@@ -52,7 +52,8 @@ def rebase_open_prs(
             updated = github.update_branch(pr_number=pr.number, rebase=rebase)
         except github.GithubError:
             # 决策 4：无法自动并入（冲突等）→ 留言提示人工处理，记 conflict 后继续下一个。
-            # RFC-0011 T5：走 identity.post_signed_comment 盖签名，避免自评论触发自循环。
+            # RFC-0011 T5：走 identity.post_signed_comment 给留言盖本实例签名，用于评论溯源/审计
+            # （RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动，无自循环）。
             identity.post_signed_comment(
                 pr_number=pr.number, body=CONFLICT_COMMENT, agent_id=agent_id
             )
