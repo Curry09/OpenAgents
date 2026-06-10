@@ -24,6 +24,7 @@ from openagents.github import (
     add_label,
     branch_ci_green,
     check_status,
+    close_issue,
     create_issue,
     create_pr,
     create_repo,
@@ -237,6 +238,51 @@ def test_ensure_label_reraises_other_errors(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="HTTP 500 server error"))
     with pytest.raises(GithubError):
         ensure_label(name="openagents")
+
+
+# --------------------------------------------------------------------------- #
+# close_issue（RFC-0017 T1：合进 test 后框架显式关 issue + 幂等容错）
+# --------------------------------------------------------------------------- #
+
+
+def test_close_issue_invokes_gh(monkeypatch):
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    close_issue(number=41)
+
+    cmd = runner.calls[-1]
+    assert cmd == ["gh", "issue", "close", "41"]
+
+
+def test_close_issue_ignores_already_closed(monkeypatch):
+    # gh issue close 对已关闭的 issue 以非零退出并报 "already closed" → 幂等 no-op，不抛。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(returncode=1, stderr="! Issue #41 (foo) is already closed"),
+    )
+    close_issue(number=41)  # 不应抛异常
+
+
+def test_close_issue_ignores_absent(monkeypatch):
+    # 不存在的 issue：gh 走 GraphQL，报 "Could not resolve to an Issue ..." → 幂等 no-op。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(
+            returncode=1, stderr="GraphQL: Could not resolve to an Issue with the number of 99999."
+        ),
+    )
+    close_issue(number=99999)  # 不应抛异常
+
+
+def test_close_issue_reraises_other_errors(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", _fake_run(returncode=1, stderr="HTTP 401 must authenticate")
+    )
+    with pytest.raises(GithubError):
+        close_issue(number=41)
 
 
 # --------------------------------------------------------------------------- #
