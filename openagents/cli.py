@@ -17,12 +17,15 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from openagents import github
 from openagents.config import ProjectContext, ensure_project, resolve_project
 
 # RFC-0002 决策 5 / RFC-0004 决策 2：发现标签——单一真源。
 # `openagents issue` 提 issue 时自动附加它（使 issue 可被发现），vigil 发现段默认按它门控；
 # 两端共用同一常量，保证「提 issue 用的标签」与「vigil 发现用的标签」永远一致。
-DISCOVERY_LABEL = "openagents"
+# RFC-0015：字面量上移至 github（流程标签单一来源），此处改为别名引用，保留
+# cli.DISCOVERY_LABEL 公共名向后兼容（github 为叶子模块，顶层 import 无循环依赖风险）。
+DISCOVERY_LABEL = github.DISCOVERY_LABEL
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -158,11 +161,10 @@ def _vigil_for(*, ctx: ProjectContext):
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0012 决策 8：兜底建 test 体验服分支（幂等：已存在即 no-op），消除首个 PR
-    # 找不到 base=test 的冷启动失败。
-    from openagents import github
-
-    github.ensure_branch(name="test", from_ref="main")
+    # RFC-0015：统一冷启动兜底——一次性确保 test 分支 + 全部流程标签就位（幂等：已存在
+    # 即 no-op）。取代原先只兜底 test 分支的裸 ensure_branch（RFC-0012 决策 8），同时补齐
+    # rfc-approved / needs-human 标签的预建，消除后续 add_label 报 not found。
+    github.ensure_prerequisites()
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
     return 0
 
@@ -194,8 +196,6 @@ def _cmd_implement(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0005：coding 阶段就 comment/CI 反馈手动迭代（与 poll 自动驱动同一操作）。
-    from openagents import github
-
     if args.reason == "ci":
         detail = "\n".join(github.check_status(pr_number=args.pr).failed_logs)
     else:
@@ -208,8 +208,6 @@ def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _latest_comment_body(*, pr_number: int) -> str | None:
     # RFC-0005 决策 6 / RFC-0011：手动触发取最新一条评论作上下文（不按作者过滤——手动由人
     # 显式发起、无自循环风险；与 messages 自动 poll 同样不按账号过滤，改由签名区分自/非自）。
-    from openagents import github
-
     comments = github.list_comments(pr_number=pr_number)
     if not comments:
         return None
@@ -218,8 +216,6 @@ def _latest_comment_body(*, pr_number: int) -> str | None:
 
 def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0002 T2：把 title/body/labels 透传给 github 层提 issue（决策 1）。
-    from openagents import github
-
     # RFC-0002 决策 5：在用户标签之外追加发现标签并去重（保留出现顺序），
     # 使 openagents 自己提的 issue 总能被守夜人发现。dict.fromkeys 既去重又保序。
     labels = list(dict.fromkeys([*args.label, DISCOVERY_LABEL]))
@@ -258,6 +254,10 @@ def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
     labels = args.label if args.label else [DISCOVERY_LABEL]
+    # RFC-0015：进主循环前自举一次结构性 prerequisite（test 分支 + 流程标签），使无人值守
+    # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段，根除「缺 test 分支
+    # 致 prepare 永久死循环」。只在进循环前一次，不进每轮循环（vigil「无人值守自恢复」定位）。
+    github.ensure_prerequisites()
     _vigil_for(ctx=ctx).run(interval=args.interval, labels=labels, base=args.base, once=args.once)
     return 0
 

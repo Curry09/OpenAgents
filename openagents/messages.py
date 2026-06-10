@@ -53,7 +53,9 @@ _OPEN_STATUSES = {STATUS_RFC_REVIEW, STATUS_PR_OPEN, STATUS_ITERATING}
 
 # RFC-0005 决策 4：批准信号——带这个标签即视为 RFC 通过。RFC-0012 决策 3：reviewer 闸
 # 全票 PASS 时由 add_label 自动打它，与人工打标签走同一下游路径（向后兼容）。
-APPROVAL_LABEL = "rfc-approved"
+# RFC-0015：字面量上移至 github（流程标签单一来源），此处改为别名引用，保留
+# messages.APPROVAL_LABEL 公共名向后兼容，消除「同一字符串散落三处」的漂移风险。
+APPROVAL_LABEL = github.APPROVAL_LABEL
 
 # RFC-0012 决策 6：每个闸的最大评审回合数旋钮——env OPENAGENTS_MAX_ROUNDS，默认 3。
 # 模块常量在 import 时定值；测试可 monkeypatch messages.MAX_ROUNDS 覆盖（方法内按全局取值）。
