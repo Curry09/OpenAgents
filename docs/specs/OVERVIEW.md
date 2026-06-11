@@ -65,7 +65,7 @@
 | 0014 | 0014/T3 | spec render → OVERVIEW.md（看板/关系图/冲突/DAG/演化图） | done | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
 | 0014 | 0014/T4 | spec amend / abandon（历史追加 + 自动 render） | done | T1, T3 | openagents/spec/mutate.py<br>tests/test_spec_mutate.py |
 | 0014 | 0014/T5 | spec CLI + 编号校验脚本 + CI 接线 | done | T2, T3, T4 | openagents/spec/cli.py<br>scripts/check-spec-number-conflicts.py<br>.github/workflows/ci.yml<br>tests/test_spec_cli.py |
-| 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | in-progress | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
+| 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | done | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
 
 ## 跨 feature 关系图
 
@@ -659,6 +659,8 @@ graph LR
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
     v_T6_1["T6 v1"]
+    v_T6_2["T6 v2"]
+    v_T6_1 -->|redefined| v_T6_2
     classDef st_done fill:#b7e4c7;
     classDef st_in_progress fill:#fff3b0;
     class v_T1_1 st_done;
@@ -667,4 +669,5 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_in_progress;
+    class v_T6_2 st_done;
 ```

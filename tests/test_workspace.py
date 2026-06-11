@@ -143,43 +143,43 @@ def test_remote_branch_exists_false_when_empty(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# RFC-0008 T2: changed_rfc_path
+# issue #53: changed_spec_group（取代 RFC-0008 changed_rfc_path）
 # --------------------------------------------------------------------------- #
 
 
-def test_changed_rfc_path_returns_added_rfc(tmp_path, monkeypatch):
-    # git diff 列出本分支新增的 RFC 文件，方法返回其绝对路径。
-    recorder = _GitRecorder(stdout="docs/rfcs/0008-pr-e2e-signpost.md\n")
+def test_changed_spec_group_returns_group_dir(tmp_path, monkeypatch):
+    # git diff 列出本分支改动的 spec 文件，方法返回其所属组目录绝对路径。
+    recorder = _GitRecorder(stdout="docs/specs/0008-pr-e2e-signpost/tasks/T1.yaml\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
 
-    path = ws.changed_rfc_path(worktree=tmp_path, base="main")
+    path = ws.changed_spec_group(worktree=tmp_path, base="main")
 
-    assert path == tmp_path / "docs/rfcs/0008-pr-e2e-signpost.md"
+    assert path == tmp_path / "docs/specs/0008-pr-e2e-signpost"
     joined = _joined(recorder)
-    assert any("diff --name-only origin/main...HEAD -- docs/rfcs/" in c for c in joined)
+    assert any("diff --name-only origin/main...HEAD -- docs/specs/" in c for c in joined)
 
 
-def test_changed_rfc_path_none_when_no_rfc(tmp_path, monkeypatch):
+def test_changed_spec_group_none_when_no_spec(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", _GitRecorder(stdout=""))
     ws = Workspace(work_dir=tmp_path)
-    assert ws.changed_rfc_path(worktree=tmp_path, base="main") is None
+    assert ws.changed_spec_group(worktree=tmp_path, base="main") is None
 
 
-def test_changed_rfc_path_excludes_readme(tmp_path, monkeypatch):
-    # README.md 改动不应被误判为新增 RFC。
-    recorder = _GitRecorder(stdout="docs/rfcs/README.md\n")
+def test_changed_spec_group_excludes_top_level_files(tmp_path, monkeypatch):
+    # 顶层 OVERVIEW.md / README.md 改动不属于任何组，不应被误判。
+    recorder = _GitRecorder(stdout="docs/specs/OVERVIEW.md\ndocs/specs/README.md\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
-    assert ws.changed_rfc_path(worktree=tmp_path, base="main") is None
+    assert ws.changed_spec_group(worktree=tmp_path, base="main") is None
 
 
-def test_changed_rfc_path_picks_rfc_over_readme(tmp_path, monkeypatch):
-    # 同时改了 README 与新 RFC 时，挑出 RFC 文件。
-    recorder = _GitRecorder(stdout="docs/rfcs/README.md\ndocs/rfcs/0008-x.md\n")
+def test_changed_spec_group_picks_group_over_overview(tmp_path, monkeypatch):
+    # 同时改了 OVERVIEW 与组内文件时，挑出组目录。
+    recorder = _GitRecorder(stdout="docs/specs/OVERVIEW.md\ndocs/specs/0008-x/metadata.yaml\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
-    assert ws.changed_rfc_path(worktree=tmp_path, base="main") == tmp_path / "docs/rfcs/0008-x.md"
+    assert ws.changed_spec_group(worktree=tmp_path, base="main") == tmp_path / "docs/specs/0008-x"
 
 
 def test_module_exposes_workspace_error():

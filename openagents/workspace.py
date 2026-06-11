@@ -19,7 +19,8 @@ from pathlib import Path
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
 
 # RFC-0008 决策 4：RFC 文件名形如 NNNN-slug.md，用于把本分支改动里的 RFC 文件挑出来。
-_RFC_FILENAME_RE = re.compile(r"^\d{4}-.*\.md$")
+# issue #53：spec 组目录名形如 NNNN-slug（四位编号前缀）。
+_SPEC_GROUP_DIR_RE = re.compile(r"^\d{4}-")
 
 
 class WorkspaceError(Exception):
@@ -70,30 +71,29 @@ class Workspace:
         self._git(args=["commit", "-m", message], cwd=worktree, check=False)
         self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
 
-    def changed_rfc_path(self, *, worktree: Path, base: str) -> Path | None:
-        """Locate the RFC file this branch adds, via git diff against the base.
+    def changed_spec_group(self, *, worktree: Path, base: str) -> Path | None:
+        """Locate the spec group dir this branch touches, via git diff against the base.
 
-        RFC-0008 决策 4：worktree 含 main 上既有的全部 RFC，无法靠 glob 区分本次新增的
-        那一个；用 `git diff --name-only origin/<base>...HEAD -- docs/rfcs/` 取本分支改动的
-        首个 `NNNN-*.md`（排除 README.md），返回其在 worktree 下的绝对路径；无则 None。
-        只读 git，不抛业务错。
+        issue #53（取代 changed_rfc_path）：worktree 含 base 上既有的全部 spec，用
+        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的首个
+        `NNNN-slug/` 组目录（排除 OVERVIEW.md / README.md），返回其在 worktree 下的绝对
+        路径；无则 None。只读 git，不抛业务错。
         """
-        # 1. 列出本分支相对 base 改动的 docs/rfcs/ 文件（三点 diff：仅本分支侧的改动）。
+        # 1. 列出本分支相对 base 改动的 docs/specs/ 文件（三点 diff：仅本分支侧的改动）。
         result = self._git(
-            args=["diff", "--name-only", f"origin/{base}...HEAD", "--", "docs/rfcs/"],
+            args=["diff", "--name-only", f"origin/{base}...HEAD", "--", "docs/specs/"],
             cwd=worktree,
             check=False,
         )
-        # 2. 取首个 NNNN-*.md（排除 README.md），拼成 worktree 下的绝对路径。
+        # 2. 取首个 NNNN-slug 组目录（路径第三段是组目录名；排除顶层 OVERVIEW.md/README.md）。
         for line in result.stdout.splitlines():
             rel = line.strip()
             if not rel:
                 continue
-            name = Path(rel).name
-            if name == "README.md":
-                continue
-            if _RFC_FILENAME_RE.match(name):
-                return worktree / rel
+            parts = Path(rel).parts
+            if len(parts) >= 3 and parts[0] == "docs" and parts[1] == "specs":
+                if _SPEC_GROUP_DIR_RE.match(parts[2]):
+                    return worktree / "docs" / "specs" / parts[2]
         return None
 
     def remote_branch_exists(self, *, branch: str) -> bool:
