@@ -17,8 +17,68 @@ from datetime import date
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import Task
+from openagents.spec.model import Metadata, Task
 from openagents.spec.render import write_overview
+
+
+def create_group(
+    *, specs_root: Path, slug: str, title: str, issue: int, number: str | None
+) -> Path:
+    """Scaffold a new spec group dir (metadata.yaml + empty tasks/), return its path.
+
+    issue #53：新 issue 起草 spec 的入口（取代旧 RFC 流程「在 docs/rfcs 建 NNNN-slug.md」）。
+    number 缺省取本地下一号（model.next_number）；目录已存在则抛 FileExistsError，不动磁盘。
+    """
+    group_number = number or model.next_number(specs_root=specs_root)
+    group_dir = specs_root / f"{group_number}-{slug}"
+    if group_dir.exists():
+        raise FileExistsError(f"spec 组目录已存在：{group_dir}")
+    (group_dir / "tasks").mkdir(parents=True)
+    model.dump_metadata(
+        metadata=Metadata(title=title, issue=issue, slug=slug),
+        path=group_dir / "metadata.yaml",
+    )
+    write_overview(specs_root=specs_root)  # 决策 D3/D9：OVERVIEW 永不过期。
+    return group_dir
+
+
+def add_task(
+    *,
+    specs_root: Path,
+    group: str,
+    task_id: str,
+    title: str,
+    priority: str,
+    status: str,
+    files: list[str],
+    depends_on: list[str],
+    scope: str,
+    acceptance: str,
+) -> Task:
+    """Add a new Task (tasks/T*.yaml) to an existing group, return it; auto-render.
+
+    issue #53：往 spec 组里加一个子任务（取代旧 RFC 子任务表里加一行）。组不存在抛
+    FileNotFoundError；task 已存在抛 FileExistsError（改既有 task 请用 `spec amend`）。
+    """
+    group_dir = _group_dir(specs_root=specs_root, group=group)
+    task_path = group_dir / "tasks" / f"{task_id}.yaml"
+    if task_path.exists():
+        qid = model.qualified_id(group=group_dir.name[:4], task_id=task_id)
+        raise FileExistsError(f"Task 已存在：{qid}（改既有 task 请用 spec amend）")
+    task = Task(
+        id=task_id,
+        title=title,
+        status=status,
+        priority=priority,
+        files=list(files),
+        depends_on=list(depends_on),
+        updated=_today(),
+        scope=scope,
+        acceptance=acceptance,
+    )
+    model.dump_task(task=task, path=task_path)
+    write_overview(specs_root=specs_root)
+    return task
 
 
 def amend(*, specs_root: Path, group: str, task_id: str, reason: str) -> Task:

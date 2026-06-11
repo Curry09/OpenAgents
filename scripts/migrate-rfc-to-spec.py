@@ -265,14 +265,8 @@ def _parse_definitions(*, text: str) -> dict[str, dict]:
 
 
 def _write_metadata(*, metadata: Metadata, path: Path) -> None:
-    """写 metadata.yaml（固定键序 title/issue/slug）。"""
-    from ruamel.yaml.comments import CommentedMap
-
-    payload = CommentedMap(
-        [("title", metadata.title), ("issue", metadata.issue), ("slug", metadata.slug)]
-    )
-    with path.open("w", encoding="utf-8") as handle:
-        model._yaml.dump(payload, handle)
+    """写 metadata.yaml。issue #53：委托 model.dump_metadata（固定键序的单一来源）。"""
+    model.dump_metadata(metadata=metadata, path=path)
 
 
 def main() -> int:

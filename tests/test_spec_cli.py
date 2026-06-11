@@ -122,3 +122,39 @@ def test_conflict_script_extract_identity() -> None:
         "spec-snapshot",
     )
     assert mod._extract_spec_identity("docs/rfcs/0014-x.md") is None
+
+
+def test_new_subcommand_creates_group(tmp_path: Path) -> None:
+    code = main(
+        argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)]
+    )
+    assert code == 0
+    group = model.load_group(group_dir=tmp_path / "0001-alpha")
+    assert group.metadata.issue == 7
+
+
+def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
+    main(argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)])
+    code = main(
+        argv=[
+            "add-task",
+            "0001",
+            "--id",
+            "T1",
+            "--title",
+            "Task one",
+            "--priority",
+            "P1",
+            "--files",
+            "a.py, b.py",
+            "--depends-on",
+            "T0",
+            "--specs-root",
+            str(tmp_path),
+        ]
+    )
+    assert code == 0
+    task = model.load_group(group_dir=tmp_path / "0001-alpha").tasks[0]
+    assert task.files == ["a.py", "b.py"]
+    assert task.depends_on == ["T0"]
+    assert task.status == "pending"  # 默认
