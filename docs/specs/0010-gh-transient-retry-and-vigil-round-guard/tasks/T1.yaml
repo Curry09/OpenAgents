@@ -1,0 +1,33 @@
+id: T1
+title: '`_run_gh` 瞬时错误重试 + 指数退避'
+status: done
+priority: P1
+tags:
+  - reliability
+  - cli
+  - resilience
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/github.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `_run_gh` 内部加重试循环；新增 `_is_transient_gh_error` 纯函数与模块级常量 （`_GH_RETRY_MAX_ATTEMPTS`、`_GH_RETRY_BACKOFF_BASE`、`_GH_TRANSIENT_MARKERS`）；捕获并 归一化 `subprocess.TimeoutExpired` 为 `GithubError`。对外签名/返回类型不变（决策 1–4）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  - stderr 含 `HTTP 504` / `Gateway Timeout` 等：首次失败、第二次成功 → 最终成功， `subprocess.run` 被调用 2 次，`time.sleep` 被调用 1 次（退避）。 - 持续瞬时失败 → 重试 `_GH_RETRY_MAX_ATTEMPTS` 次后抛 `GithubError`。 - `subprocess.TimeoutExpired` → 视为瞬时、重试，耗尽后抛 `GithubError`（非 TimeoutExpired）。 - 非瞬时非零（如 `not found`）→ **不重试**，立即抛 `GithubError`，`subprocess.run` 仅调 1 次。 - `allow_returncodes` 放行的退出码（如 pending=8）→ 不触发重试，行为与现状一致。 - `time.sleep` 在测试中被 monkeypatch，零真实等待。 - 既有 `tests/test_github.py` 全部用例仍通过（向后兼容）。
+tests: ''
+references: ''
+open-questions: ''

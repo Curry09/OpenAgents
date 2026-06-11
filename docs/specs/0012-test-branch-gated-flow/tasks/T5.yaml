@@ -1,0 +1,38 @@
+id: T5
+title: 闸接入（messages 路由 + orchestrator 评审/base）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - dx
+depends-on:
+  - T1
+  - T2
+  - T3
+relates-to: []
+parallel: false
+files:
+  - openagents/messages.py
+  - openagents/orchestrator.py
+  - tests/test_messages.py
+  - tests/test_orchestrator.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `orchestrator`：`DEFAULT_BASE="test"`、`start_rfc` 透传 base 给 `create_pr`、新增 `review_rfc`/`review_code`、`implement` 末尾 `reset_rounds`。`messages`：`_process_rfc_review`/`_process_coding` 接入评审闸（PASS→加标签/merge、非 PASS→rounds++ 后 refine/iterate、超 K→BLOCKED+needs-human），新增 `MAX_ROUNDS`/`BLOCKED_LABEL`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测打桩 reviewer/github/state：rfc 闸 PASS→打 rfc-approved 并 implement；rfc 闸非 PASS 且 rounds<K→refine 且 rounds++；coding 闸 CI 绿+PASS→merge_pr+DONE+rebase；coding 闸非 PASS 超 K→STATUS_BLOCKED+needs-human 且 PR 不关；CI fail/pending 行为保持。
+tests: ''
+references: ''
+open-questions: ''

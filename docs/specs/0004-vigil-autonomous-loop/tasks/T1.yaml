@@ -1,0 +1,33 @@
+id: T1
+title: github 层 `list_issues`（标签门控的 issue 发现）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - automation
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/github.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `openagents/github.py` 增加 `list_issues(*, labels, state="open")`，调用 `gh issue list --state <state> [--label L ...] --json number,title,body`，解析为既有 `Issue` 列表；复用 `_gh_json`/`GithubError`，不新增数据类型。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖——无 label 时命令不含 `--label` 且正确解析多条 issue；带多个 label 时命令含对应多个 `--label`；空结果返回 `[]`；gh 非零退出抛 `GithubError`；`ruff check`/`ruff format --check`/`pytest` 通过。
+tests: ''
+references: ''
+open-questions: ''

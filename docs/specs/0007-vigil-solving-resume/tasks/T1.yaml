@@ -1,0 +1,34 @@
+id: T1
+title: state：record_run 增 status 形参（一次写 rfc-review）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - dx
+  - reliability
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/state.py
+  - tests/test_state.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  给 `record_run` 增加 `status: str = STATUS_PR_OPEN` 关键字形参，一次 `_save` 落盘带 `pr_number/pr_url` 且 `status=<给定值>` 的 run；更新 `find_by_issue` docstring 为「供发现段分流 fresh / resume」与 `RunRecord` docstring 的状态枚举说明（无新增状态）。不改 `begin_run` / `update_status` 签名。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖 `record_run(status=STATUS_RFC_REVIEW)` 一次落盘即得 `rfc-review` + 非零 `pr_number`；默认（不传 status）仍落 `pr-open`（既有用例不回归）；ruff 通过；注释引用 `RFC-0007`。
+tests: ''
+references: ''
+open-questions: ''

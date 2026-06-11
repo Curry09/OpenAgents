@@ -3,7 +3,13 @@ name = "openagents"
 version = "0.1.0"
 description = "RFC 驱动的多 Agent 框架"
 requires-python = ">=3.12"
-dependencies = []
+# Spec-0014/T1：spec 工具需要 YAML round-trip 保真（块标量/键序/注释）与声明式校验。
+# ruamel.yaml —— 读写保留块标量样式与键序，是「源码树保持干净」的前提（决策 D8）。
+# jsonschema —— 用 JSON Schema draft 2020-12 声明式校验 Task/metadata/history（决策 D8）。
+dependencies = [
+    "ruamel.yaml>=0.18",
+    "jsonschema>=4.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -14,6 +20,8 @@ dev = [
 [project.scripts]
 # RFC-0001 T1: CLI 入口
 openagents = "openagents.cli:main"
+# Spec-0014/T1：spec 工具独立 console_script（决策 D10），实现在 openagents.spec 包内。
+spec = "openagents.spec.cli:main"
 
 [build-system]
 requires = ["hatchling"]

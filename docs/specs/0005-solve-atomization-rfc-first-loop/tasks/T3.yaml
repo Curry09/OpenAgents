@@ -1,0 +1,34 @@
+id: T3
+title: github 扩展（draft / mark_ready / has_label / current_login）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - protocol
+  - dx
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/github.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `create_pr` 增加 `draft: bool = False`（透传 `gh pr create --draft`）；新增 `mark_ready`（`gh pr ready`）、`has_label`（`gh pr view --json labels`）、`current_login`（`gh api user --jq .login`）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测 monkeypatch gh 子进程，覆盖 draft 透传、mark_ready、has_label（命中/未命中）、current_login 解析；`create_pr` 旧调用（不传 draft）行为不变；ruff 通过。
+tests: ''
+references: ''
+open-questions: ''

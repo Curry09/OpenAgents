@@ -1,0 +1,32 @@
+id: T1
+title: github 层 create_issue
+status: done
+priority: P1
+tags:
+  - cli
+  - github
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/github.py
+  - tests/test_github.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `openagents/github.py` 增加 `create_issue(*, title, body, labels)`，调用 `gh issue create`，解析 issue number，返回 `Issue`；增加 `_parse_issue_number` 助手。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖——成功解析 number、带 labels 时命令含 `--label`、url 不可解析时抛 `GithubError`、gh 非零退出时抛 `GithubError`。
+tests: ''
+references: ''
+open-questions: ''

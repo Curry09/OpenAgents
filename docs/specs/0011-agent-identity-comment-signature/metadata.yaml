@@ -1,0 +1,3 @@
+title: 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+issue: 28
+slug: agent-identity-comment-signature

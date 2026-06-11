@@ -1,0 +1,32 @@
+id: T4
+title: CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback）
+status: done
+priority: P1
+tags:
+  - architecture
+  - backend
+  - cli
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files: []
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `cli` 在分发外层捕获 `OrchestratorError` / `GithubError` / `RuntimeError`，打印 `✗ <消息>` 到 stderr 并返回非零退出码；未知异常仍向上抛出。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  `solve` 抛 `OrchestratorError` 时 `main` 返回 1、stderr 含 `✗` 与原因、无 traceback；单测通过。
+tests: ''
+references: ''
+open-questions: ''

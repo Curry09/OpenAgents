@@ -1,0 +1,34 @@
+id: T3
+title: 接线进 PR 正文编排
+status: done
+priority: P1
+tags:
+  - dx
+  - cli
+depends-on:
+  - T1
+  - T2
+relates-to: []
+parallel: false
+files:
+  - openagents/orchestrator.py
+  - tests/test_orchestrator.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  改 `orchestrator`：`import rfc`；扩展 `_pr_body` 增 `e2e_section`（无默认值）； `start_rfc` 在 `commit_and_push` 后、`create_pr` 前定位 RFC 文件→渲染指路牌→拼进正文。 定位失败/渲染为 `None` 时正文回退为原样、不抛错。新增/改动处注释引用 `RFC-0008`。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测（假 backend + 假 Workspace + monkeypatch github）——`start_rfc` 传给 `create_pr` 的 body 含「## 端到端验证」段且内容来自 RFC；`changed_rfc_path` 返回 `None` 时 body 不含该段且不抛错。ruff + pytest 通过。
+tests: ''
+references: ''
+open-questions: ''

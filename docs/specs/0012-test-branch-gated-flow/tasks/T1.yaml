@@ -1,0 +1,33 @@
+id: T1
+title: reviewer 编排模块（N 并行 + 裁决聚合）
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - dx
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/reviewer.py
+  - tests/test_reviewer.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新建 `reviewer.py`：`ReviewDecision` 数据模型、`review()` 函数（线程池并行派 N 个 backend.run、解析每个 `AgentResult.summary` 的裁决 token、聚合「全票 PASS」）；内置 rfc/code 两套 review 任务模板（移植 vigil-reviewer 的 PASS/REWORK/RETHINK rubric）；N 从 `OPENAGENTS_REVIEWERS`(默认1) 读取。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测打桩 `AgentBackend`，覆盖：N=1 PASS→passed=True；N=3 含一个 REWORK→passed=False 且 feedback 含该反馈；RETHINK 同 REWORK 归为非 PASS；裁决 token 解析鲁棒（大小写/前后缀）。
+tests: ''
+references: ''
+open-questions: ''

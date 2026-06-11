@@ -1,0 +1,34 @@
+id: T5
+title: 端到端脚本
+status: done
+priority: P1
+tags:
+  - cli
+  - ci
+  - automation
+depends-on:
+  - T3
+  - T4
+relates-to: []
+parallel: false
+files:
+  - scripts/e2e-rfc-0009-auto-rebase.sh
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新增 `scripts/e2e-rfc-0009-auto-rebase.sh`：在一个测试仓库建两个 open PR、合并其一、运行 `openagents sync-prs --merged <n>`（或一轮 poll），校验另一 PR 分支已并入最新 main（`gh pr view --json mergeStateStatus` 或对比 commits），并演示冲突场景下的留言。脚本含前置条件与运行说明（对齐既有 `scripts/e2e-rfc-000X-*.sh` 风格）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  脚本可独立运行并打印每步结果；README/RFC 给出启动说明；`bash -n` 语法检查通过。
+tests: ''
+references: ''
+open-questions: ''

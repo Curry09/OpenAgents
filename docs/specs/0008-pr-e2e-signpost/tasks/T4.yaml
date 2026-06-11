@@ -1,0 +1,33 @@
+id: T4
+title: 端到端脚本 + RFC 索引
+status: done
+priority: P1
+tags:
+  - dx
+  - cli
+depends-on:
+  - T3
+relates-to: []
+parallel: false
+files:
+  - scripts/e2e-rfc-0008-pr-e2e-signpost.sh
+  - docs/rfcs/README.md
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新增 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（沿用既有 e2e 脚本两段式：默认离线 `ruff check`/`ruff format --check`/`pytest`；`OPENAGENTS_E2E_REAL=1` + `OPENAGENTS_E2E_ISSUE` 时真实演练 `openagents rfc <issue>` 并断言其 draft PR 正文含「## 端到端验证」段）。 在 `docs/rfcs/README.md` 的 RFC 列表追加 RFC-0008 行。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  离线段在干净仓库通过；脚本可执行（`set -euo pipefail`、`chmod +x`）； README 列表含 RFC-0008 条目。
+tests: ''
+references: ''
+open-questions: ''

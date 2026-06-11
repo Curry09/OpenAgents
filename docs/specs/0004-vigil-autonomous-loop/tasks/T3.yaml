@@ -1,0 +1,35 @@
+id: T3
+title: CLI `vigil` 子命令 + 端到端脚本
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - automation
+depends-on:
+  - T2
+relates-to: []
+parallel: false
+files:
+  - openagents/cli.py
+  - tests/test_cli.py
+  - scripts/e2e-rfc-0004-vigil.sh
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `openagents/cli.py` 注册 `vigil` 子命令（`--interval` 默认 60、可重复 `--label` 默认 `["openagents"]`、`--base` 默认 `main`、`--once` 旗标），实现 `_cmd_vigil` 走 preflight、构造 `Vigil`（新增 `_vigil_for` 工厂，复用既有 `_orchestrator_for`/`_messages_for`/`_state_for`）并调用 `run`，挂入 `_dispatch` handlers；运行期异常由既有 `_run` 统一处理。新增 `scripts/e2e-rfc-0004-vigil.sh`（离线确定性段 + 可选真实冒烟段，仿 `e2e-rfc-0002`）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖——`vigil` 出现在子命令集合；默认 `interval=60`/`labels=["openagents"]`/`base="main"`/`once=False`；`vigil --once --interval 5 --label a --label b --base dev` 正确解析并透传给打桩的 `Vigil.run`；`_cmd_vigil` 先跑 preflight；返回码 0。e2e 脚本离线段（`ruff` + `pytest`）可独立跑通。
+tests: ''
+references: ''
+open-questions: ''

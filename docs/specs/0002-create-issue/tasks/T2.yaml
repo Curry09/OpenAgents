@@ -1,0 +1,33 @@
+id: T2
+title: CLI issue 子命令
+status: done
+priority: P1
+tags:
+  - cli
+  - github
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/cli.py
+  - tests/test_cli.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  在 `openagents/cli.py` 注册 `issue` 子命令（positional title + `--body` + 可重复 `--label`），实现 `_cmd_issue` 走 preflight 并调用 `github.create_issue`，挂入 `_dispatch` handlers。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖——parser 注册了 `issue`、`issue "T" --body B --label x --label y` 正确透传给打桩的 `create_issue` 且走 preflight、返回码 0。
+tests: ''
+references: ''
+open-questions: ''

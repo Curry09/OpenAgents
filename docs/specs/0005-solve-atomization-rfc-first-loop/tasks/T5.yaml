@@ -1,0 +1,36 @@
+id: T5
+title: messages 阶段化 + 过滤自评论
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - protocol
+  - dx
+depends-on:
+  - T2
+  - T4
+relates-to: []
+parallel: false
+files:
+  - openagents/messages.py
+  - tests/test_messages.py
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  `_process_run` 按 run 状态分阶段路由（见接口契约）；新增 `APPROVAL_LABEL`；评论处理取「游标之后的最新评论」（不论作者）；`rfc-review` 阶段命中标签调 `implement`、否则最新评论调 `refine_rfc` 并把游标推进到回贴后 PR 上最新评论之后（消费掉 agent 自己的回贴）。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  单测覆盖：rfc-review + 标签 → implement；rfc-review + 新评论 → refine_rfc 且游标推进到 PR 最新评论；游标已越过最新评论 → 不重复触发（防自循环）；coding 阶段 CI/comment → iterate；merged → done；ruff 通过。
+tests: ''
+references: ''
+open-questions: ''

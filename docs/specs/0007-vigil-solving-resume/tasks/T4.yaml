@@ -1,0 +1,35 @@
+id: T4
+title: e2e 崩溃恢复脚本 + README 登记
+status: done
+priority: P1
+tags:
+  - architecture
+  - cli
+  - dx
+  - reliability
+depends-on:
+  - T3
+relates-to: []
+parallel: false
+files:
+  - scripts/e2e-rfc-0007-resume.sh
+  - docs/rfcs/README.md
+version: 1
+updated: ''
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: ''
+motivation: ''
+scope: |-
+  新增 `scripts/e2e-rfc-0007-resume.sh`：构造一条 `solving/pr=0` 的 run + 残留 worktree（模拟起草阶段崩溃），跑一轮 `openagents vigil --once`，断言该 issue 被自动恢复并最终开出 draft PR（state 落 `rfc-review`），无需人工干预。`docs/rfcs/README.md` 增加 RFC-0007 行。
+design: ''
+interface: ''
+tradeoffs: ''
+acceptance: |-
+  脚本可读、步骤完整（崩溃模拟 → discover 恢复 → 验证 draft PR + rfc-review）；README 列表含 RFC-0007 条目。
+tests: ''
+references: ''
+open-questions: ''
