@@ -19,6 +19,10 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+# RFC-0015：BLOCKED_LABEL 从 github re-import（标签单一来源），保留 state.BLOCKED_LABEL
+# 公共名向后兼容；github 是叶子模块，此 import 无循环依赖风险。`as BLOCKED_LABEL` 的显式
+# 再导出形式让 ruff 不把它当未使用（state 内不引用，仅供 promote 等外部模块经 state 访问）。
+from openagents.github import BLOCKED_LABEL as BLOCKED_LABEL
 from openagents.github import PR
 
 # 状态机取值（决策 8：PR 被 merge 时置 done）。
@@ -37,8 +41,8 @@ STATUS_CLOSED = "closed"
 STATUS_BLOCKED = "blocked"
 
 # RFC-0012 决策 5：卡住兜底打给 PR 的标签——与 STATUS_BLOCKED 配对的结构化「求救」信号。
-# 定义在 state（而非 messages）便于 promote 预检与 messages 路由共用同一真源、无循环依赖。
-BLOCKED_LABEL = "needs-human"
+# RFC-0015：字面量定义上移至 github（流程标签单一来源），此处经上面的 re-import 别名暴露
+# state.BLOCKED_LABEL（向后兼容，promote 预检与 messages 路由的既有引用零改动）。
 
 
 @dataclass

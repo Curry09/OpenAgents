@@ -12,7 +12,12 @@ from pathlib import Path
 import pytest
 
 from openagents.backends.base import AgentBackend, AgentResult
-from openagents.backends.claude_code import CLAUDE_BIN, ClaudeCodeBackend
+from openagents.backends.claude_code import (
+    _GUARDRAIL,
+    CLAUDE_BIN,
+    ClaudeCodeBackend,
+    _build_prompt,
+)
 
 
 def _assistant_text(text):
@@ -71,6 +76,29 @@ def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", fake_run)
     return popen_calls, run_calls
+
+
+# RFC-0016: 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`）。
+
+
+def test_prompt_starts_with_guardrail():
+    # RFC-0016: 约束前置——_build_prompt 输出以 _GUARDRAIL 开头。
+    prompt = _build_prompt(task="改 foo", context="issue 正文")
+    assert prompt.startswith(_GUARDRAIL)
+
+
+def test_prompt_contains_claude_config_guardrail():
+    # RFC-0016: 约束语义——明确禁止改 Claude Code 自身配置、不写 `.claude/`。
+    prompt = _build_prompt(task="t", context="c")
+    assert ".claude/" in prompt
+    assert "禁止修改 Claude Code 自身" in prompt
+
+
+def test_guardrail_does_not_drop_task_and_context():
+    # RFC-0016 回归保护：前置约束后，原有 task/context 仍完整出现（不破坏 RFC-0001 契约）。
+    prompt = _build_prompt(task="修复 bug", context="历史 comment")
+    assert "修复 bug" in prompt
+    assert "历史 comment" in prompt
 
 
 def test_backend_satisfies_protocol():

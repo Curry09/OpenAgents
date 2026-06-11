@@ -35,10 +35,23 @@ _SUMMARY_MAX_LEN = 2000
 # 工具动作里用于提取「一句话提示」的常见入参键（按优先级）。
 _TOOL_HINT_KEYS = ("file_path", "path", "command", "pattern", "url", "query")
 
+# RFC-0016: 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`）。
+# 前置到每条 prompt 开头，从源头避免无人值守循环走向 `.claude/` 写入而撞上权限门卡死。
+_GUARDRAIL = (
+    "【全局硬约束】禁止修改 Claude Code 自身的任何配置。"
+    "不得写入或改动 `.claude/` 目录下的任何内容（包括 skills、hooks、settings、commands 等）。"
+    "如果遇到看似需要写入 `.claude/`（例如把某个 skill 写进 `.claude/skills/`）的任务，"
+    "必须跳过该步骤并在输出中说明原因，绝不尝试写入——这是不可违反的边界。"
+)
+
 
 def _build_prompt(*, task, context):
-    """RFC-0001 T2: 把 task 与 context 拼成喂给 claude 的单条 prompt。"""
-    return f"任务：\n{task}\n\n上下文：\n{context}"
+    """RFC-0001 T2: 把 task 与 context 拼成喂给 claude 的单条 prompt。
+
+    RFC-0016: 前置 `_GUARDRAIL` 全局硬约束，使「不可改 `.claude/`」出现在每条
+    prompt 的开头（所有原子操作的唯一收敛点），对所有调用方透明生效。
+    """
+    return f"{_GUARDRAIL}\n\n任务：\n{task}\n\n上下文：\n{context}"
 
 
 def _summarize(*, stdout, changed):

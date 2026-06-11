@@ -53,7 +53,9 @@ _OPEN_STATUSES = {STATUS_RFC_REVIEW, STATUS_PR_OPEN, STATUS_ITERATING}
 
 # RFC-0005 决策 4：批准信号——带这个标签即视为 RFC 通过。RFC-0012 决策 3：reviewer 闸
 # 全票 PASS 时由 add_label 自动打它，与人工打标签走同一下游路径（向后兼容）。
-APPROVAL_LABEL = "rfc-approved"
+# RFC-0015：字面量上移至 github（流程标签单一来源），此处改为别名引用，保留
+# messages.APPROVAL_LABEL 公共名向后兼容，消除「同一字符串散落三处」的漂移风险。
+APPROVAL_LABEL = github.APPROVAL_LABEL
 
 # RFC-0012 决策 6：每个闸的最大评审回合数旋钮——env OPENAGENTS_MAX_ROUNDS，默认 3。
 # 模块常量在 import 时定值；测试可 monkeypatch messages.MAX_ROUNDS 覆盖（方法内按全局取值）。
@@ -118,6 +120,10 @@ class Messages:
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
+            # RFC-0017：合进 test（非默认分支）GitHub 不会自动关 issue，由框架显式关——
+            # 与 STATUS_DONE「工作落进体验分支即完成」语义一致。close_issue 幂等，多轮 poll
+            # 重复命中已合并分支重复调用安全（决策 2）。
+            github.close_issue(number=record.issue_number)
             # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 base 并入其余
             # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 由 rebase 层留言。
             synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
@@ -170,6 +176,8 @@ class Messages:
         if decision.passed:
             github.merge_pr(pr_number=pr_number)
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
+            # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
+            github.close_issue(number=record.issue_number)
             synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
         # 非 PASS：回合 +1，未超 K 则按 reviewer 反馈迭代代码，超 K 则挂起等人（决策 5）。

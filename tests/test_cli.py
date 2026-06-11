@@ -385,6 +385,9 @@ def test_sync_prs_reports_error_cleanly(monkeypatch, capsys):
 def test_vigil_runs_preflight_with_defaults(monkeypatch):
     # RFC-0004 T3：vigil 先跑 preflight，未传参时用默认值。
     calls = _patch_ensure(monkeypatch)
+    # RFC-0015：vigil 进主循环前自举一次 prerequisite——打桩避免触达真实 gh。
+    bootstrapped = []
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: bootstrapped.append(True))
     seen = {}
 
     class _FakeVigil:
@@ -395,12 +398,16 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     code = main(["vigil"])
     assert code == 0
     assert calls == [True]
+    # RFC-0015：进主循环前自举恰一次。
+    assert bootstrapped == [True]
     # RFC-0012 决策 2：vigil 默认基线改为 test。
     assert seen == {"interval": 60, "labels": ["openagents"], "base": "test", "once": False}
 
 
 def test_vigil_passes_all_overrides(monkeypatch):
     _patch_ensure(monkeypatch)
+    # RFC-0015：打桩 vigil 进循环前的自举，避免触达真实 gh。
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
     seen = {}
 
     class _FakeVigil:
@@ -417,16 +424,17 @@ def test_vigil_passes_all_overrides(monkeypatch):
 
 def test_init_runs_interactive_preflight(monkeypatch):
     calls = _patch_ensure(monkeypatch)
-    # RFC-0012 决策 8：init 兜底建 test 分支——打桩 ensure_branch 避免触达真实 gh。
-    ensured = []
+    # RFC-0015：init 统一兜底——调 ensure_prerequisites（test 分支 + 流程标签）。打桩记录
+    # 调用次数避免触达真实 gh（取代原先对 ensure_branch 的打桩）。
+    bootstrapped = []
     monkeypatch.setattr(
-        "openagents.github.ensure_branch",
-        lambda *, name, from_ref: ensured.append((name, from_ref)),
+        "openagents.github.ensure_prerequisites",
+        lambda: bootstrapped.append(True),
     )
     code = main(["init"])
     assert code == 0
     assert calls == [True]
-    assert ensured == [("test", "main")]
+    assert bootstrapped == [True]
 
 
 # --------------------------------------------------------------------------- #

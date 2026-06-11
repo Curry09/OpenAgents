@@ -61,8 +61,10 @@ def promote(*, state: State, source: str = "test", target: str = "main") -> Prom
     if not github.branch_ci_green(branch=source):
         return PromoteResult(promoted=False, reason=f"{source} 分支 CI 未全绿")
 
-    # 决策 8：快进前兜底确保 source 存在（首个 PR 冷启动场景）。
-    github.ensure_branch(name=source, from_ref=target)
+    # RFC-0015：快进前统一兜底——一次性确保 test 分支 + 全部流程标签就位（取代原先只
+    # 兜底 source 分支的裸 ensure_branch，RFC-0012 决策 8）。默认 source=test/target=main
+    # 时与原 ensure_branch(test←main) 等价，并顺带补齐流程标签的预建。
+    github.ensure_prerequisites()
     _push_fast_forward(source=source, target=target)
     return PromoteResult(promoted=True, reason="ok")
 

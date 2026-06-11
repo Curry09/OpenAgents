@@ -56,6 +56,16 @@ _CHECK_RUN_PASS_CONCLUSIONS = {"success", "skipped", "neutral"}
 # RFC-0012：gh api 的 owner/repo 占位符——gh 会按当前仓库自动替换，无需显式拼 owner/repo。
 _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 
+# RFC-0015：流程标签——单一来源。三个标签常量原散在三处（cli.DISCOVERY_LABEL /
+# messages.APPROVAL_LABEL / state.BLOCKED_LABEL），同一字符串散落易漂移。落点选 github：
+# 它是依赖图的叶子模块（不 import 任何 openagents 内部模块），cli/messages/state 反向引用
+# 它零循环依赖风险；ensure_prerequisites 与标签同处一文件，引用最直接。三处既有公共名改为
+# 从此 re-import 的别名，所有调用点零改动（见 RFC-0015 决策 2）。
+DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
+APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
+BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
+PROCESS_LABELS: tuple[str, ...] = (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL)
+
 
 class GithubError(Exception):
     """gh CLI 调用失败（返回非零）时抛出，携带可读的失败原因。"""
@@ -365,6 +375,28 @@ def add_label(*, pr_number: int, name: str) -> None:
     _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
 
 
+def close_issue(*, number: int) -> None:
+    """RFC-0017 T1：显式关闭 issue（`gh issue close <number>`）。
+
+    背景（RFC-0017）：`Closes #N` 关键字只在 PR 合入**默认分支**时自动关 issue，而
+    RFC-0012 起 PR 以 test（非默认分支）为 base、合回 test，关键字永不触发——故由框架
+    在「工作落进 test → STATUS_DONE」时显式关。与决策 3「一律走 gh CLI」一致，经唯一收口
+    点 _run_gh 调用，自带 RFC-0010 的瞬时错误重试，零额外依赖、零新数据类型（理念 1）。
+
+    幂等容错（决策 2）：issue 已是 CLOSED 或不存在 → 视为成功 no-op、静默返回，与
+    ensure_label 吞 "already exists"、update_branch 吞 "already up to date" 同一风格。
+    两条合并路径会在多轮 poll 重复触发同一 issue，重复关闭不能把守夜循环打断。容错判定要
+    「窄」——只吞「已关闭/不存在」这两类业务性结果，其它 gh 错误（鉴权、瞬时穿透重试后
+    仍败）照常抛 GithubError。
+    """
+    try:
+        _run_gh(["issue", "close", str(number)], allow_returncodes=set())
+    except GithubError as exc:
+        if _is_already_closed_or_absent(reason=str(exc)):
+            return  # issue 已关闭 / 不存在 → 幂等 no-op
+        raise
+
+
 def ensure_branch(*, name: str, from_ref: str) -> None:
     """RFC-0012 决策 8：幂等确保远端存在分支 name（不存在则从 from_ref 建）。
 
@@ -399,6 +431,23 @@ def ensure_branch(*, name: str, from_ref: str) -> None:
     )
 
 
+def ensure_prerequisites() -> None:
+    """RFC-0015：幂等确保流程结构性 prerequisite 就位：test 分支 + 全部流程标签。
+
+    单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/promote/vigil 三入口统一
+    调用，根除各入口零散且不完整的兜底（缺 test 分支致 prepare 永久失败、缺 needs-human/
+    rfc-approved 标签致 add_label 报 not found）。
+
+    缺分支或缺标签就新建，已存在就 no-op：本函数只编排既有幂等函数，不新造任何容错——
+    幂等性、瞬时错误重试（RFC-0010）、already exists / not found 归一化全由 ensure_branch /
+    ensure_label / _run_gh 既有实现承担。重复调用对已存在者均 no-op、不覆盖既有颜色/描述；
+    非「已存在」的 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
+    """
+    ensure_branch(name="test", from_ref="main")
+    for label in PROCESS_LABELS:
+        ensure_label(name=label)
+
+
 def branch_ci_green(*, branch: str) -> bool:
     """RFC-0012 决策 7：分支 HEAD 的 check-runs 是否全绿（promote 预检的低成本兜底）。
 
@@ -424,6 +473,20 @@ def _is_not_found(*, reason: str) -> bool:
     """gh api 的「资源不存在」识别（404 / not found）——用于 ensure_branch 区分幂等 no-op。"""
     lowered = reason.lower()
     return "not found" in lowered or "404" in lowered
+
+
+def _is_already_closed_or_absent(*, reason: str) -> bool:
+    """RFC-0017 决策 2：close_issue 的「幂等 no-op」识别——issue 已关闭或不存在。
+
+    判定要「窄」（与 _is_not_found / _is_already_up_to_date 同风格）：只认这两类业务性
+    结果。gh issue close 对已关闭的 issue 报 "already closed"；对不存在的 issue 走 GraphQL，
+    报 "Could not resolve to an Issue ..."（不含 "not found" 字样），故在 _is_not_found 之外
+    再补 "could not resolve"。其它 gh 错误一律不命中、照常上抛。
+    """
+    lowered = reason.lower()
+    if "already closed" in lowered or "could not resolve" in lowered:
+        return True
+    return _is_not_found(reason=reason)
 
 
 def check_status(*, pr_number: int) -> CheckStatus:

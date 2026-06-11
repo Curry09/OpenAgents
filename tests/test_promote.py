@@ -2,7 +2,7 @@
 
 打桩 github.* / state / subprocess（git push），保持 hermetic（不触达真实 gh/git）。
 覆盖：有 BLOCKED run → False；有 needs-human PR → False；CI 非绿 → False；
-全过 → 执行 push 且 promoted=True，并先 ensure_branch 兜底。
+全过 → 执行 push 且 promoted=True，并先 ensure_prerequisites 统一兜底（RFC-0015）。
 """
 
 import subprocess
@@ -40,13 +40,15 @@ def _patch_github(monkeypatch, *, open_prs=(), labeled=(), ci_green=True):
         lambda *, pr_number, name: pr_number in labeled,
     )
     monkeypatch.setattr(promote_module.github, "branch_ci_green", lambda *, branch: ci_green)
-    ensured = []
+    # RFC-0015：promote 改为调统一兜底 ensure_prerequisites（取代裸 ensure_branch）；
+    # 打桩记录调用次数，避免触达真实 gh。
+    bootstrapped = []
     monkeypatch.setattr(
         promote_module.github,
-        "ensure_branch",
-        lambda *, name, from_ref: ensured.append((name, from_ref)),
+        "ensure_prerequisites",
+        lambda: bootstrapped.append(True),
     )
-    return ensured
+    return bootstrapped
 
 
 def _patch_push(monkeypatch, *, returncode=0, stderr=""):
@@ -116,15 +118,15 @@ def test_ci_not_green_blocks_promote(tmp_path, monkeypatch):
 
 def test_all_checks_pass_pushes_and_promotes(tmp_path, monkeypatch):
     state = _state(tmp_path, runs=[(3, STATUS_PR_OPEN)])
-    ensured = _patch_github(monkeypatch, open_prs=[8], labeled=[])
+    bootstrapped = _patch_github(monkeypatch, open_prs=[8], labeled=[])
     push_calls = _patch_push(monkeypatch)
 
     result = promote(state=state)
 
     assert result.promoted is True
     assert result.reason == "ok"
-    # 先 ensure_branch 兜底 test，再 push test:main。
-    assert ensured == [("test", "main")]
+    # RFC-0015：先 ensure_prerequisites 统一兜底（test 分支 + 流程标签），再 push test:main。
+    assert bootstrapped == [True]
     assert push_calls == [["git", "push", "origin", "test:main"]]
 
 
