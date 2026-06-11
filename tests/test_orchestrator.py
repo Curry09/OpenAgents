@@ -74,8 +74,8 @@ class _FakeWorkspace:
     def commit_and_push(self, *, worktree, branch, message):
         pass
 
-    def changed_rfc_path(self, *, worktree, base):
-        # RFC-0008：start_rfc 开 PR 前会查本分支新增的 RFC 以拼端到端指路牌。
+    def changed_spec_group(self, *, worktree, base):
+        # issue #53：start_rfc 开 PR 前会查本分支改动的 spec 组以拼端到端指路牌。
         # 这两个用例只断言 prepare/ensure/begin_run 路径，返回 None 让正文回退即可。
         return None
 
@@ -253,26 +253,37 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
 
 # RFC-0008 T3: PR 正文端到端验证指路牌
 
-_RFC_WITH_E2E = """# RFC-0008: 示例
 
-### 集成测试
+def _spec_group_with_e2e(*, root):
+    """造一个带 e2e 脚本（写在 Task tests 字段）的 spec 组目录，供指路牌抽取。"""
+    from openagents.spec import model as spec_model
+    from openagents.spec.model import Task
 
-- `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`：默认离线跑 ruff + pytest。
-
-### 手动验证
-
-1. `openagents rfc <issue>` → 检查生成的 draft PR 正文含「## 端到端验证」段。
-"""
+    group_dir = root / "0008-pr-e2e-signpost"
+    (group_dir / "tasks").mkdir(parents=True)
+    (group_dir / "metadata.yaml").write_text(
+        "title: 示例\nissue: 8\nslug: pr-e2e-signpost\n", encoding="utf-8"
+    )
+    spec_model.dump_task(
+        task=Task(
+            id="T1",
+            title="t",
+            status="done",
+            priority="P1",
+            tests="离线跑 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（ruff + pytest）。",
+        ),
+        path=group_dir / "tasks" / "T1.yaml",
+    )
+    return group_dir
 
 
 def test_start_rfc_pr_body_includes_e2e_signpost(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     _patch_get_issue(monkeypatch)
-    # 造一份带测试方案的 RFC，并让 changed_rfc_path 指向它。
-    rfc_file = tmp_path / "0008-pr-e2e-signpost.md"
-    rfc_file.write_text(_RFC_WITH_E2E, encoding="utf-8")
-    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: rfc_file)
+    # 造一份带 e2e 脚本的 spec 组，并让 changed_spec_group 指向它。
+    group_dir = _spec_group_with_e2e(root=tmp_path)
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_dir)
     captured = {}
 
     def _create_pr(*, branch, title, body, base, draft):
@@ -286,17 +297,17 @@ def test_start_rfc_pr_body_includes_e2e_signpost(tmp_path, monkeypatch):
     body = captured["body"]
     assert "## 端到端验证" in body
     assert "`bash scripts/e2e-rfc-0008-pr-e2e-signpost.sh`" in body
-    assert "RFC-0008「手动验证」" in body
+    assert "docs/specs/0008-pr-e2e-signpost" in body
     # 指路牌追加在原有 Closes + 摘要之后，不替换它们。
     assert body.startswith("Closes #3")
 
 
-def test_start_rfc_pr_body_omits_e2e_when_no_rfc(tmp_path, monkeypatch):
+def test_start_rfc_pr_body_omits_e2e_when_no_spec(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     _patch_get_issue(monkeypatch)
-    # changed_rfc_path 取不到 RFC 文件时正文回退为原样、不抛错。
-    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: None)
+    # changed_spec_group 取不到 spec 组时正文回退为原样、不抛错。
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: None)
     captured = {}
 
     def _create_pr(*, branch, title, body, base, draft):
@@ -413,10 +424,10 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", rfc_path="/tmp/0013.md"):
+def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", spec_group="/tmp/0013"):
     """给 implement 接好 RFC-0013 旁路所需的全部替身，返回事件记录器。
 
-    monkeypatch：changed_rfc_path / rfc.script_path_for / e2e.run_e2e_script /
+    monkeypatch：changed_spec_group / signpost.script_path_for_group / e2e.run_e2e_script /
     e2e.render_result / identity.post_signed_comment / github.mark_ready，并记录调用顺序。
     """
     from openagents.e2e import E2EResult
@@ -424,8 +435,10 @@ def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", rfc_path="
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
     events = {"order": [], "comment": None, "run_e2e": [], "mark_ready": None}
 
-    monkeypatch.setattr(orch._workspace, "changed_rfc_path", lambda *, worktree, base: rfc_path)
-    monkeypatch.setattr(orch_module.rfc, "script_path_for", lambda *, rfc_path: "scripts/x.sh")
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: spec_group)
+    monkeypatch.setattr(
+        orch_module.signpost, "script_path_for_group", lambda *, group_dir: "scripts/x.sh"
+    )
 
     def _run_e2e(*, worktree, script_path, timeout_seconds, tail_lines):
         events["order"].append("run_e2e")
@@ -486,14 +499,14 @@ def test_implement_e2e_failed_still_marks_ready(tmp_path, monkeypatch):
     assert state.all_runs()[0].status == "pr-open"
 
 
-def test_implement_no_rfc_runs_skipped_still_posts_and_marks_ready(tmp_path, monkeypatch):
+def test_implement_no_spec_runs_skipped_still_posts_and_marks_ready(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
-    events = _arm_implement(orch, state, monkeypatch, rfc_path=None)
+    events = _arm_implement(orch, state, monkeypatch, spec_group=None)
 
     orch.implement(pr_number=5)
 
-    # changed_rfc_path 为 None → script_path=None 传入 run_e2e_script，仍发评论且转正。
+    # changed_spec_group 为 None → script_path=None 传入 run_e2e_script，仍发评论且转正。
     assert events["run_e2e"][0]["script_path"] is None
     assert events["comment"] is not None
     assert events["mark_ready"] == 5

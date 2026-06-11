@@ -21,9 +21,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import e2e, github, identity, reviewer, rfc
+from openagents import e2e, github, identity, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
+from openagents.spec import signpost
 from openagents.state import (
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -125,8 +126,8 @@ class Orchestrator:
 
         # RFC-0008：开 PR 前，从本分支新增的 RFC 抽取「端到端验证」指路牌拼进正文。
         # 定位失败 / 渲染为 None 时正文回退为原样、不抛错（决策 5，验收标准 2）。
-        rfc_path = self._workspace.changed_rfc_path(worktree=worktree, base=base)
-        e2e_section = rfc.signpost_for(rfc_path=rfc_path) if rfc_path else None
+        spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
+        e2e_section = signpost.signpost_for_group(group_dir=spec_group) if spec_group else None
 
         self._progress(message="▶ 开 draft PR …")
         pr = github.create_pr(
@@ -252,16 +253,16 @@ class Orchestrator:
             self._progress(message=f"⚠ 裁决评论发送失败（已忽略）：{error}")
 
     def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
-        """RFC-0013：定位本分支 RFC 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。
+        """RFC-0013：定位本分支 spec 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。
 
-        脚本定位单一来源于 RFC（复用 RFC-0008 的 changed_rfc_path + rfc.script_path_for，决策 2）；
+        脚本定位单一来源于 spec（issue #53：changed_spec_group + signpost.script_path_for_group）；
         run_e2e_script 契约上绝不抛错；渲染/发评论一步若因 gh 故障抛错，只记进度并吞掉，
         绝不把整条 implement 流程拖崩或拦住 mark_ready（决策 6）。
         """
         self._progress(message="▶ 转正前实跑端到端脚本（ruff + pytest）…")
-        # 1. 单一来源定位脚本：本分支新增 RFC → 集成测试段脚本相对路径（None 即 skipped）。
-        rfc_path = self._workspace.changed_rfc_path(worktree=worktree, base=DEFAULT_BASE)
-        script_path = rfc.script_path_for(rfc_path=rfc_path) if rfc_path else None
+        # 1. 单一来源定位脚本：本分支改动的 spec 组 → 各 Task tests 里的脚本路径（None 即 skipped）。
+        spec_group = self._workspace.changed_spec_group(worktree=worktree, base=DEFAULT_BASE)
+        script_path = signpost.script_path_for_group(group_dir=spec_group) if spec_group else None
         # 2. 实跑离线段并截退出码与日志末尾（绝不抛错）。
         result = e2e.run_e2e_script(
             worktree=worktree,

@@ -1,6 +1,6 @@
 id: T6
 title: 迁移脚本 + spec-driven skill + specs README + e2e
-status: in-progress
+status: done
 priority: P1
 tags:
   - architecture
@@ -19,9 +19,9 @@ files:
   - .claude/skills/spec-driven-development/references/
   - docs/specs/README.md
   - scripts/e2e-spec-0014-spec-driven.sh
-version: 1
-updated: ''
-change-reason: ''
+version: 2
+updated: '2026-06-11'
+change-reason: 'issue #53：spec-driven skill 已建、migrate 完成使命并随 docs/rfcs 退役、e2e 改为创作流程；运行时全面切到 spec'
 supersedes: []
 split-from:
 merged-from: []
