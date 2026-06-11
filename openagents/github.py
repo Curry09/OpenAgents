@@ -375,6 +375,28 @@ def add_label(*, pr_number: int, name: str) -> None:
     _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
 
 
+def close_issue(*, number: int) -> None:
+    """RFC-0017 T1：显式关闭 issue（`gh issue close <number>`）。
+
+    背景（RFC-0017）：`Closes #N` 关键字只在 PR 合入**默认分支**时自动关 issue，而
+    RFC-0012 起 PR 以 test（非默认分支）为 base、合回 test，关键字永不触发——故由框架
+    在「工作落进 test → STATUS_DONE」时显式关。与决策 3「一律走 gh CLI」一致，经唯一收口
+    点 _run_gh 调用，自带 RFC-0010 的瞬时错误重试，零额外依赖、零新数据类型（理念 1）。
+
+    幂等容错（决策 2）：issue 已是 CLOSED 或不存在 → 视为成功 no-op、静默返回，与
+    ensure_label 吞 "already exists"、update_branch 吞 "already up to date" 同一风格。
+    两条合并路径会在多轮 poll 重复触发同一 issue，重复关闭不能把守夜循环打断。容错判定要
+    「窄」——只吞「已关闭/不存在」这两类业务性结果，其它 gh 错误（鉴权、瞬时穿透重试后
+    仍败）照常抛 GithubError。
+    """
+    try:
+        _run_gh(["issue", "close", str(number)], allow_returncodes=set())
+    except GithubError as exc:
+        if _is_already_closed_or_absent(reason=str(exc)):
+            return  # issue 已关闭 / 不存在 → 幂等 no-op
+        raise
+
+
 def ensure_branch(*, name: str, from_ref: str) -> None:
     """RFC-0012 决策 8：幂等确保远端存在分支 name（不存在则从 from_ref 建）。
 
@@ -451,6 +473,20 @@ def _is_not_found(*, reason: str) -> bool:
     """gh api 的「资源不存在」识别（404 / not found）——用于 ensure_branch 区分幂等 no-op。"""
     lowered = reason.lower()
     return "not found" in lowered or "404" in lowered
+
+
+def _is_already_closed_or_absent(*, reason: str) -> bool:
+    """RFC-0017 决策 2：close_issue 的「幂等 no-op」识别——issue 已关闭或不存在。
+
+    判定要「窄」（与 _is_not_found / _is_already_up_to_date 同风格）：只认这两类业务性
+    结果。gh issue close 对已关闭的 issue 报 "already closed"；对不存在的 issue 走 GraphQL，
+    报 "Could not resolve to an Issue ..."（不含 "not found" 字样），故在 _is_not_found 之外
+    再补 "could not resolve"。其它 gh 错误一律不命中、照常上抛。
+    """
+    lowered = reason.lower()
+    if "already closed" in lowered or "could not resolve" in lowered:
+        return True
+    return _is_not_found(reason=reason)
 
 
 def check_status(*, pr_number: int) -> CheckStatus:

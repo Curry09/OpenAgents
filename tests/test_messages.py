@@ -119,8 +119,8 @@ def _make(*, runs, rfc_decision=_PASS, code_decision=_PASS, agent_id=_AGENT_ID):
 
 
 def _patch_github(monkeypatch, *, merged=False, closed=False, has_label=False, check=None):
-    """统一 monkeypatch github 模块函数；返回 merge_pr / add_label 调用的记录器。"""
-    rec = {"merged": [], "labels": []}
+    """统一 monkeypatch github 模块函数；返回 merge_pr / add_label / close_issue 调用的记录器。"""
+    rec = {"merged": [], "labels": [], "closed_issues": []}
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
@@ -139,6 +139,12 @@ def _patch_github(monkeypatch, *, merged=False, closed=False, has_label=False, c
         "add_label",
         lambda *, pr_number, name: rec["labels"].append((pr_number, name)),
     )
+    # RFC-0017：两条 STATUS_DONE 路径会显式关 issue；桩为记录器，断言以正确 issue_number 调用。
+    monkeypatch.setattr(
+        messages_module.github,
+        "close_issue",
+        lambda *, number: rec["closed_issues"].append(number),
+    )
     # 合并分支会扇出 rebase；默认桩为 no-op，保持 hermetic。
     monkeypatch.setattr(
         messages_module.rebase,
@@ -155,13 +161,15 @@ def _patch_github(monkeypatch, *, merged=False, closed=False, has_label=False, c
 
 def test_merged_pr_set_done_and_not_routed(monkeypatch):
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
-    _patch_github(monkeypatch, merged=True, has_label=True)
+    rec = _patch_github(monkeypatch, merged=True, has_label=True)
 
     events = msgs.poll()
 
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
     assert orch.implement_calls == []
     assert any(e["reason"] == "merged" for e in events)
+    # RFC-0017 T2：检测到已合并（合进 test）分支同样显式关联 issue（以 issue_number 调一次）。
+    assert rec["closed_issues"] == [3]
 
 
 def test_closed_pr_set_closed_and_not_routed(monkeypatch):
@@ -320,6 +328,8 @@ def test_coding_ci_green_reviewer_pass_merges_and_fans_out(monkeypatch):
     assert orch.review_code_calls == [5]
     assert rec["merged"] == [5]
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+    # RFC-0017 T2：代码闸 PASS → merge_pr 合进 test → 显式关联 issue（以 issue_number 调一次）。
+    assert rec["closed_issues"] == [3]
     assert seen == {"merged_pr_number": 5, "agent_id": _AGENT_ID}
     merged_event = next(e for e in events if e["reason"] == "merged")
     assert merged_event["synced"] == [{"pr_number": 8, "result": "updated"}]
