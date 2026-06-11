@@ -129,6 +129,35 @@ def test_rfc_reports_error_cleanly_without_traceback(monkeypatch, capsys):
     assert "non-fast-forward" in err
 
 
+def test_missing_dependency_prints_actionable_hint(monkeypatch, capsys):
+    # RFC-0003 决策 9（精炼）：缺第三方依赖（如 venv 没装 ruamel）→ 一行可操作提示，非 traceback。
+    _patch_ensure(monkeypatch)
+
+    def _boom(args):
+        raise ModuleNotFoundError("No module named 'ruamel'", name="ruamel")
+
+    monkeypatch.setattr("openagents.cli._dispatch", _boom)
+    code = main(["rfc", "3"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "✗" in err
+    assert "ruamel" in err
+    assert "uv pip install -e ." in err
+
+
+def test_internal_module_error_still_raises_traceback(monkeypatch):
+    # RFC-0003 决策 9：`openagents.*` 自身模块缺失是真 bug，不该被吞，仍抛出。
+    _patch_ensure(monkeypatch)
+
+    def _boom(args):
+        raise ModuleNotFoundError("No module named 'openagents.foo'", name="openagents.foo")
+
+    monkeypatch.setattr("openagents.cli._dispatch", _boom)
+    with pytest.raises(ModuleNotFoundError):
+        main(["rfc", "3"])
+
+
 # --------------------------------------------------------------------------- #
 # refine-rfc
 # --------------------------------------------------------------------------- #

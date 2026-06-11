@@ -328,6 +328,19 @@ def _run(args: argparse.Namespace) -> int:
 
     try:
         return _dispatch(args)
+    except ModuleNotFoundError as exc:
+        # RFC-0003 决策 9（精炼）：宣告过的第三方依赖缺失，不是「真实 bug」而是装环境漏了
+        # （如 venv 未 `uv pip install -e .` 时 import ruamel/jsonschema 失败）——转成可操作的
+        # 一行提示而非深层 traceback。但 `openagents.*` 自身模块缺失仍是真 bug，照旧抛 traceback。
+        top = (exc.name or "").split(".", 1)[0]
+        if top == "openagents":
+            raise
+        print(
+            f"✗ 缺少依赖 '{exc.name}'：请在项目根目录重装依赖后重试："
+            f"uv pip install -e .（或 uv sync）",
+            file=sys.stderr,
+        )
+        return 1
     except (OrchestratorError, GithubError, WorkspaceError, RuntimeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 1
