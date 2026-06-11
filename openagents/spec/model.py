@@ -217,6 +217,34 @@ def dump_history(*, versions: list[Task], path: Path) -> None:
         _yaml.dump(payload, handle)
 
 
+def dump_metadata(*, metadata: Metadata, path: Path) -> None:
+    """Write metadata.yaml with fixed key order (title/issue/slug).
+
+    issue #53：组级元数据的规范化写入单一来源——migrate 与 `spec new` 共用，避免键序漂移。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = CommentedMap(
+        [("title", metadata.title), ("issue", metadata.issue), ("slug", metadata.slug)]
+    )
+    with path.open("w", encoding="utf-8") as handle:
+        _yaml.dump(payload, handle)
+
+
+def next_number(*, specs_root: Path) -> str:
+    """Return the next free 4-digit group number (max existing + 1, "0001" if none).
+
+    issue #53：`spec new` 缺省取本地最大组号 +1（与旧 RFC 流程「扫描取下一号」同构）。
+    跨 PR 的编号冲突由 CI 的 check-spec-number-conflicts 兜底（本函数只看本地）。
+    """
+    highest = 0
+    for group in load_all(specs_root=specs_root):
+        try:
+            highest = max(highest, int(group.number))
+        except ValueError:
+            continue
+    return f"{highest + 1:04d}"
+
+
 def task_to_mapping(*, task: Task) -> CommentedMap:
     """Convert a Task to a canonical-ordered CommentedMap (prose as block scalars).
 
