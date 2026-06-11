@@ -338,7 +338,8 @@ def test_refine_rfc_feeds_detail_posts_comment_and_keeps_rfc_review(tmp_path, mo
     assert "请补充权衡章节" in backend.calls[0]["task"]
     assert posted["pr_number"] == 5
     assert "done" in posted["body"]  # 回贴评论含后端摘要
-    # RFC-0011 T4：回贴评论盖本实例签名，下一轮 poll 据此剔除（防自循环）。
+    # RFC-0011 T4：回贴评论盖本实例签名，用于溯源/审计（RFC-0019：poll 不读评论，
+    # 自动流转由 reviewer 闸驱动）。
     from openagents.identity import parse_agent_id
 
     assert parse_agent_id(body=posted["body"]) == "agent-x"

@@ -1,10 +1,13 @@
 """RFC-0011 T2: 本地 agent 身份 + 评论签名。
 
-把「区分自评论 vs 非自评论」的判定收口到一个去中心化的本地身份：每个 OpenAgents
-实例持有一个稳定 `agent_id`，并给自己经 OpenAgents 发出的每条 PR 评论盖一个隐藏
-HTML 注释签名 `<!-- openagents:agent=<agent_id> -->`。poll 据此剔除自己的回贴，
-不再依赖「按 GitHub 账号过滤」（人机共用账号会误杀真人）或「推游标吃自评论」
-（非原子、抗崩溃差），根治崩溃自循环 / 误跳真人 / 同秒撞车三个缺陷（决策 1）。
+每个 OpenAgents 实例持有一个稳定 `agent_id`，并给自己经 OpenAgents 发出的每条 PR 评论盖一个
+隐藏 HTML 注释签名 `<!-- openagents:agent=<agent_id> -->`。
+
+RFC-0019 现状对账：RFC-0011 原设计的「读侧」——poll 读 PR 评论 → 按签名剔除自评论 → 触发
+`refine_rfc`/`iterate`——已被 RFC-0012 的 reviewer 闸取代且从未在 `messages.poll` 落地
+（poll 不读 PR 评论）。因此本模块的活跃职责收敛为**写侧**：盖章（`sign` / `post_signed_comment`）
+服务于评论**溯源/审计**，并为未来若复活读侧保留零成本接口。`parse_agent_id` 是 `sign` 的
+验证逆函数，由测试断言盖章往返、并作为公开 API 留给未来读侧；当前无生产 poll 调用它做过滤。
 
 身份解析优先级（决策 2）：env OPENAGENTS_AGENT_ID > state 已存值 > 首次自动生成并落盘。
 盖章逻辑收口在本模块（决策 4）：所有「agent 主动发评论」的调用方走 post_signed_comment，
@@ -65,7 +68,9 @@ def sign(*, body: str, agent_id: str) -> str:
 def parse_agent_id(*, body: str) -> str | None:
     """RFC-0011：从 body 中解析签名里的 agent_id；无签名返回 None（纯函数）。
 
-    poll 用它判定「这条评论是不是我自己发的」：parse_agent_id(body) == 我的 id 即剔除。
+    RFC-0019：`sign` 的验证逆函数。当前无生产 poll 调用它过滤评论（评论驱动读侧已退役，
+    poll 不读 PR 评论，自动流转由 reviewer 闸驱动）；保留作为公开 API + 测试盖章往返的断言对象，
+    并为未来若复活读侧留接口。
     """
     match = _SIGNATURE_RE.search(body)
     return match.group(1) if match else None
@@ -74,6 +79,7 @@ def parse_agent_id(*, body: str) -> str | None:
 def post_signed_comment(*, pr_number: int, body: str, agent_id: str) -> None:
     """RFC-0011 决策 4：盖章后调用 github.post_comment——所有「agent 主动发评论」的唯一出口。
 
-    收口盖章逻辑，使 github.post_comment 保持纯薄封装；下一轮 poll 即可据签名剔除本回贴。
+    收口盖章逻辑，使 github.post_comment 保持纯薄封装。RFC-0019：签名服务于评论溯源/审计
+    （poll 不再读评论做过滤，自动流转由 reviewer 闸驱动）。
     """
     github.post_comment(pr_number=pr_number, body=sign(body=body, agent_id=agent_id))
