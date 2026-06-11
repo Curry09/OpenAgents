@@ -139,7 +139,7 @@ def test_start_rfc_invokes_backend_with_rfc_task_in_worktree(tmp_path, monkeypat
 
     assert len(backend.calls) == 1
     call = backend.calls[0]
-    assert "RFC" in call["task"]
+    assert "spec" in call["task"]
     assert "add feature" in call["task"]
     # 在每 issue 独立 worktree 内起草，而非主工作树。
     assert call["work_dir"] == tmp_path / ".openagents" / "worktrees" / "issue-3"
@@ -587,8 +587,8 @@ def test_review_rfc_pass_returns_decision(tmp_path, monkeypatch):
     decision = orch.review_rfc(pr_number=5)
 
     assert decision.passed is True
-    # reviewer 在 PR 的 worktree 内、用 rfc 模板评审。
-    assert "RFC" in backend.calls[0]["task"]
+    # reviewer 在 PR 的 worktree 内、用 spec 模板评审。
+    assert "spec" in backend.calls[0]["task"]
 
 
 def test_review_code_non_pass_carries_feedback(tmp_path, monkeypatch):

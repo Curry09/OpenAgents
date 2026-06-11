@@ -143,7 +143,7 @@ def test_parse_verdict_none_when_absent():
 def test_task_for_rfc_and_code_differ():
     rfc_task = _task_for(kind="rfc", pr_number=5)
     code_task = _task_for(kind="code", pr_number=5)
-    assert "RFC" in rfc_task
+    assert "spec" in rfc_task
     assert "git diff" in code_task
     assert "#5" in rfc_task and "#5" in code_task
 
@@ -235,7 +235,7 @@ def test_review_decision_verdicts_defaults_empty():
 def test_render_decision_pass_contains_kind_and_votes():
     decision = ReviewDecision(passed=True, feedback="", verdicts=("PASS", "PASS"))
     body = render_decision(decision=decision, kind="rfc")
-    assert "RFC 文档" in body
+    assert "Spec 文档" in body
     assert "PASS" in body
     assert "2 票中 2 票 PASS" in body
 
