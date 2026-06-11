@@ -4,6 +4,7 @@
 - **优先级**: P1
 - **标签**: `architecture`, `cli`, `dx`
 - **影响模块**: `openagents/reviewer.py`(新增)、`openagents/promote.py`(新增)、`openagents/messages.py`、`openagents/orchestrator.py`、`openagents/github.py`、`openagents/state.py`、`openagents/cli.py`、`openagents/vigil.py`
+- **取代 (Supersedes)**: RFC-0011（仅其**评论驱动触发模型 / 读侧**：本 RFC 的 reviewer 闸取而代之 —— 经 RFC-0019 对账确认；RFC-0011 身份/盖章写侧不受影响）
 - **负责人**: openagents (agent: issue-32)
 - **创建日期**: 2026-06-08
 - **更新日期**: 2026-06-08
@@ -286,6 +287,6 @@ graph LR
 - RFC-0005：solve 原子化拆分 + RFC-first 评审循环（本 RFC 复用其阶段路由骨架）
 - RFC-0009：合并后自动 rebase 其他 open PR（base=test 下 `update_branch` 自动正确）
 - RFC-0010：gh 瞬时错误重试 + 守夜循环单轮容错（github 新函数复用 `_run_gh`）
-- RFC-0011：本地 Agent 身份 + 评论签名（reviewer 回贴/refine 自评论的签名过滤前提）
+- RFC-0011：本地 Agent 身份 + 评论签名。本 RFC 的 **reviewer 闸取代了 RFC-0011 的评论驱动触发模型**（poll 不再读 PR 评论 → 自动流转由 `ReviewDecision` + 标签 + CI 推进，详见 RFC-0019 对账结论）。现存依赖仅剩：reviewer 回贴 / refine 自评论仍走 `post_signed_comment` 盖签名以**溯源/审计**，**不**再是「poll 读签名过滤」的前提（poll 不读评论）。
 - `vigil:vigil-reviewer` agent：现有 PASS/REWORK/RETHINK 评审 rubric 的来源（移植为 `reviewer.py` 的 task 模板）
 - 完整设计背景：`docs/superpowers/specs/2026-06-07-test-branch-gated-flow-design.md`（随实现 PR 一并入库）

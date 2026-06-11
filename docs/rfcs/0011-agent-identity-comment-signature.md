@@ -4,11 +4,17 @@
 - **优先级**: P1
 - **标签**: `architecture`, `protocol`, `dx`
 - **影响模块**: `openagents/identity.py`（新增）、`openagents/state.py`、`openagents/messages.py`、`openagents/orchestrator.py`、`openagents/rebase.py`、`openagents/cli.py`、`openagents/github.py`
+- **被取代 (Superseded-By)**: RFC-0019（仅**读侧**：评论驱动触发模型 + poll 读签名过滤；**身份解析 / 评论盖章写侧仍有效**）
 - **负责人**: openagents（issue #28）
 - **创建日期**: 2026-06-05
-- **更新日期**: 2026-06-05
+- **更新日期**: 2026-06-10
 
 ## 摘要
+
+> ⚠️ **已被 RFC-0019 取代（评论驱动触发模型 + poll 读签名过滤）**：评论驱动自动触发已正式退役，
+> `messages.poll` 不再读取任何 PR 评论，自动流转改由 RFC-0012 的 reviewer 闸驱动。本节描述的
+> **读侧机制**（poll 读评论 → 按签名剔除自评论 → 触发 `refine_rfc`/`iterate`）不再生效。
+> 身份解析（`resolve_agent_id`）与评论盖章（`sign` / `post_signed_comment`）**写侧仍有效**（用于溯源）。
 
 poll / watch / vigil 在轮询 PR 评论时无法区分「agent 自己发的评论」和「别人（真人或其他 agent）发的评论」，会把自己的回贴当成新反馈再次触发 `refine_rfc` / `iterate`，形成自循环。本 RFC 引入**本地稳定 agent 身份**与**评论隐藏签名**，把判定粒度收敛为「自己 vs 非自己」：agent 发的每条评论盖上 `<!-- openagents:agent=<agent_id> -->` 标记，poll 据此剔除自己的回贴，同时把游标语义简化为「只推进到触发评论本身」，一并修掉崩溃自循环、误跳真人评论、同秒撞车三个缺陷。
 
@@ -32,6 +38,8 @@ poll / watch / vigil 在轮询 PR 评论时无法区分「agent 自己发的评�
 - **评论签名**：agent 通过 OpenAgents 发出的每条 PR 评论，正文末尾追加一行隐藏 HTML 注释标记 `<!-- openagents:agent=<agent_id> -->`。GitHub 渲染时不可见，但 `gh pr view --json comments` 返回的 `body` 里能解析出来。
 
 判定与游标随之简化：
+
+> ⚠️ **已被 RFC-0019 取代：评论驱动自动触发退役，poll 不再读评论；本节描述的读侧机制（Poll 判定 + 游标简化）不再生效。** 现状 `messages.poll` 改由 reviewer 闸（`ReviewDecision`）+ 标签 + CI 推进（RFC-0012）。身份/盖章写侧仍有效。
 
 - **Poll 判定**：`messages._latest_new_comment` 在筛「游标后的新评论」时，额外剔除**带「我自己 agent=<my_id>」签名**的评论。别的 agent 的签名、以及无签名的（真人）评论都照常处理。
 - **游标简化**：不再「推到最新评论吃掉自己回贴」。游标只推进到**触发本次处理的那条评论**的 `created_at`；agent 自己的回贴由签名过滤掉，不靠游标越过。删除 `_newest_comment_id` 这条特例路径。
@@ -91,6 +99,8 @@ def set_agent_id(self, *, agent_id: str) -> None   # 落盘 agent_id
 ```
 
 #### `openagents/messages.py`（修改）
+
+> ⚠️ **已被 RFC-0019 取代：评论驱动自动触发退役，poll 不再读评论。** 下列 `_latest_new_comment`「按签名剔除自评论」的读侧契约**从未在 poll 中落地、亦不再生效**（`messages.poll` 不读 PR 评论，由 reviewer 闸驱动）。保留于此仅作历史记录。
 
 ```
 class Messages:
@@ -229,6 +239,9 @@ graph LR
 - **验收标准**: `sign` → `parse_agent_id` 往返一致；无签名/真人正文 `parse_agent_id` 返回 None；`resolve_agent_id` 三级优先级正确，自动生成时落盘且跨调用稳定；`post_signed_comment` 调 `github.post_comment` 且正文带签名（monkeypatch 断言）。
 
 **T3: poll 判定剔除自评论 + 游标简化**
+
+> ⚠️ **已被 RFC-0019 取代：评论驱动自动触发退役，poll 不再读评论。** 本子任务的读侧目标（poll 按签名剔除自评论）不再生效；现状 poll 由 reviewer 闸驱动（RFC-0012）。`Messages` 仍持有 `agent_id` 仅为透传给 `rebase` 盖章（写侧）。
+
 - **范围**: `Messages.__init__` 增 `agent_id`；`_latest_new_comment` 额外剔除「我自己签名」的评论；`_process_rfc_review` 游标只推进到触发评论；删除 `_newest_comment_id`；`poll` 合并分支把 `agent_id` 透传给 `rebase.rebase_open_prs`。
 - **涉及文件**: `openagents/messages.py`（修改）、`tests/test_messages.py`（改写相关用例，去掉对 `current_login` 的 monkeypatch）
 - **验收标准**: 自己签名的评论不触发处理（含「post 后未推游标即崩溃重启」场景）；其他 agent 签名 / 无签名评论照常触发；refine 后游标等于触发评论的 `created_at`；干活期间到达的真人评论下一轮被处理。

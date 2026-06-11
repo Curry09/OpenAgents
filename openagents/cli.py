@@ -206,8 +206,9 @@ def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _latest_comment_body(*, pr_number: int) -> str | None:
-    # RFC-0005 决策 6 / RFC-0011：手动触发取最新一条评论作上下文（不按作者过滤——手动由人
-    # 显式发起、无自循环风险；与 messages 自动 poll 同样不按账号过滤，改由签名区分自/非自）。
+    # RFC-0005 决策 6 / RFC-0019：仅供**手动** refine_rfc / iterate 取最近一条评论作上下文
+    # （人显式发起、无自循环风险，故不做任何过滤）。自动流转不走这里——它由 reviewer 闸驱动，
+    # messages.poll 不读 PR 评论（评论驱动读侧已退役，见 RFC-0012 / RFC-0019）。
     comments = github.list_comments(pr_number=pr_number)
     if not comments:
         return None
@@ -243,7 +244,8 @@ def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
     from openagents import rebase
 
-    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖章，防自循环）。
+    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖本实例签名，用于
+    # 溯源/审计；RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动）。
     events = rebase.rebase_open_prs(
         merged_pr_number=args.merged, rebase=args.rebase, agent_id=_agent_id_for(ctx=ctx)
     )
