@@ -193,14 +193,13 @@ def test_merged_takes_precedence_over_closed(monkeypatch):
     assert any(e["reason"] == "merged" for e in events)
 
 
-def test_blocked_and_terminal_runs_not_polled(monkeypatch):
-    # blocked / closed / done / solving 都不在 _OPEN_STATUSES，poll 跳过。
+def test_terminal_runs_not_polled(monkeypatch):
+    # closed / done / solving 都不在轮询范围，poll 跳过（issue #49 后 blocked 仍被扫描，单独测）。
     msgs, orch, state = _make(
         runs=[
             _run(issue_number=1, pr_number=11, status=STATUS_DONE),
             _run(issue_number=2, pr_number=22, status="solving"),
             _run(issue_number=3, pr_number=33, status=STATUS_CLOSED),
-            _run(issue_number=4, pr_number=44, status=STATUS_BLOCKED),
         ]
     )
     seen = []
@@ -545,6 +544,117 @@ def test_integration_real_orchestrator_rfc_pass_implements(monkeypatch, tmp_path
     run = state.all_runs()[0]
     assert run.status == STATUS_PR_OPEN
     assert run.rounds == 0  # implement 清零
+
+
+# --------------------------------------------------------------------------- #
+# issue #47：_block 先打标签后落盘——add_label 失败不留下「state=blocked 但无标签」
+# --------------------------------------------------------------------------- #
+
+
+def test_block_label_failure_leaves_status_unblocked(monkeypatch):
+    monkeypatch.setattr(messages_module, "MAX_ROUNDS", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING, rounds=1)],
+        code_decision=_FAIL,
+    )
+    _patch_github(monkeypatch)
+
+    def _boom(*, pr_number, name):
+        raise messages_module.github.GithubError("gh 瞬时失败 / 标签缺失")
+
+    monkeypatch.setattr(messages_module.github, "add_label", _boom)
+
+    with pytest.raises(messages_module.github.GithubError):
+        msgs.poll()
+
+    # 关键：异常上抛时 state 尚未变 blocked（先标签后落盘）——下一轮 poll 仍当 open 重试整个 _block。
+    assert {"issue_number": 3, "status": STATUS_BLOCKED} not in state.status_updates
+    assert state.all_runs()[0].status == STATUS_ITERATING
+
+
+# --------------------------------------------------------------------------- #
+# issue #49：blocked 可恢复——merged/closed reconcile + 人摘 needs-human 标签后解挂
+# --------------------------------------------------------------------------- #
+
+
+def _patch_github_labels(monkeypatch, *, merged=False, closed=False, labels=()):
+    """name 感知的 github 桩：labels 为 PR 当前所带标签集合（供解挂分支区分 needs-human / rfc-approved）。"""
+    rec = {"closed_issues": [], "labels": []}
+    monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
+    monkeypatch.setattr(
+        messages_module.github, "has_label", lambda *, pr_number, name: name in labels
+    )
+    monkeypatch.setattr(
+        messages_module.github,
+        "close_issue",
+        lambda *, number: rec["closed_issues"].append(number),
+    )
+    monkeypatch.setattr(
+        messages_module.github,
+        "add_label",
+        lambda *, pr_number, name: rec["labels"].append((pr_number, name)),
+    )
+    monkeypatch.setattr(
+        messages_module.rebase,
+        "rebase_open_prs",
+        lambda *, merged_pr_number=None, agent_id=None: [],
+    )
+    return rec
+
+
+def test_blocked_pr_merged_reconciled_to_done(monkeypatch):
+    msgs, orch, state = _make(runs=[_run(issue_number=4, pr_number=44, status=STATUS_BLOCKED)])
+    rec = _patch_github_labels(monkeypatch, merged=True)
+
+    events = msgs.poll()
+
+    assert state.all_runs()[0].status == STATUS_DONE
+    assert rec["closed_issues"] == [4]
+    assert any(e["reason"] == "merged" for e in events)
+
+
+def test_blocked_label_cleared_resumes_to_coding(monkeypatch):
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=4, pr_number=44, status=STATUS_BLOCKED, rounds=3)]
+    )
+    # needs-human 已摘、rfc-approved 仍在 → 回到代码闸（pr-open），rounds 清零。
+    _patch_github_labels(monkeypatch, labels=(APPROVAL_LABEL,))
+
+    events = msgs.poll()
+
+    run = state.all_runs()[0]
+    assert run.status == STATUS_PR_OPEN
+    assert run.rounds == 0
+    assert any(e["reason"] == "resumed" for e in events)
+
+
+def test_blocked_label_cleared_resumes_to_rfc_review(monkeypatch):
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=4, pr_number=44, status=STATUS_BLOCKED, rounds=3)]
+    )
+    # needs-human 与 rfc-approved 都不在 → 回到 RFC 闸。
+    _patch_github_labels(monkeypatch, labels=())
+
+    events = msgs.poll()
+
+    assert state.all_runs()[0].status == STATUS_RFC_REVIEW
+    assert any(e["reason"] == "resumed" for e in events)
+
+
+def test_blocked_label_present_stays_blocked(monkeypatch):
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=4, pr_number=44, status=STATUS_BLOCKED, rounds=3)]
+    )
+    # needs-human 仍在 → 保持挂起：不动状态、不产生事件。
+    _patch_github_labels(monkeypatch, labels=(BLOCKED_LABEL,))
+
+    events = msgs.poll()
+
+    run = state.all_runs()[0]
+    assert run.status == STATUS_BLOCKED
+    assert run.rounds == 3
+    assert events == []
 
 
 if __name__ == "__main__":

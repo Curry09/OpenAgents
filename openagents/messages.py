@@ -92,11 +92,12 @@ class Messages:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
 
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
-        "approved", "rfc-pass", "refine", "ci", "review", "blocked"}），便于日志与测试断言。
+        "approved", "rfc-pass", "refine", "ci", "review", "blocked", "resumed"}），便于日志与测试断言。
         """
         events: list[dict] = []
         for record in self._state.all_runs():
-            if record.status not in _OPEN_STATUSES:
+            # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
+            if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
                 continue
             event = self._process_run(record=record)
             if event is not None:
@@ -115,7 +116,7 @@ class Messages:
             return
 
     def _process_run(self, *, record: RunRecord) -> dict | None:
-        """处理单个 open run：merge 优先，其后按阶段（rfc-review / coding）路由。"""
+        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。"""
         pr_number = record.pr_number
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
@@ -133,6 +134,22 @@ class Messages:
         if github.is_closed(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
             return {"pr_number": pr_number, "reason": "closed"}
+
+        # 1c. issue #49：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile（人合掉修好的
+        # PR → done；人关掉 → closed）。若 PR 仍 open 但人已摘掉 needs-human 标签（语义：「我处理
+        # 好了，继续跑」），则解挂——rounds 清零，按是否已过 RFC 闸回到对应阶段重新流转；标签仍在
+        # 则保持挂起（返回 None，不动状态）。这消除了「进得去、出不来、promote 被永久焊死」。
+        if record.status == STATUS_BLOCKED:
+            if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
+                return None
+            self._state.reset_rounds(issue_number=record.issue_number)
+            resumed = (
+                STATUS_PR_OPEN
+                if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
+                else STATUS_RFC_REVIEW
+            )
+            self._state.update_status(issue_number=record.issue_number, status=resumed)
+            return {"pr_number": pr_number, "reason": "resumed"}
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
@@ -194,8 +211,11 @@ class Messages:
         标签是给人/promote 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
         """
         pr_number = record.pr_number
-        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        # issue #47：GitHub 副作用先行、state 落盘后行。add_label 失败（gh 瞬时错误 / 标签缺失）
+        # 时异常上抛，但此时 state 尚未变 blocked——下一轮 poll 仍把它当 open，自然重试整个 _block，
+        # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（promote 预检与人的可观测性都依赖标签）。
         github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
 
     def _has_open_pr(self) -> bool:
