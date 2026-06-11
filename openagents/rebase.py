@@ -14,6 +14,8 @@ messages.poll 的合并分支自动驱动（决策 1），也被 `openagents syn
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from openagents import github, identity
 
 # RFC-0009 决策 4：冲突时贴给 PR 的提示文案——以模块常量定义，便于测试断言与统一维护。
@@ -26,10 +28,16 @@ CONFLICT_COMMENT = (
 RESULT_UPDATED = "updated"
 RESULT_UP_TO_DATE = "up-to-date"
 RESULT_CONFLICT = "conflict"
+# issue #48：服务端合并冲突后被本地索引自愈消解（重渲 OVERVIEW + push），区别于人工 conflict。
+RESULT_HEALED = "healed"
 
 
 def rebase_open_prs(
-    *, merged_pr_number: int | None = None, rebase: bool = False, agent_id: str
+    *,
+    merged_pr_number: int | None = None,
+    rebase: bool = False,
+    agent_id: str,
+    heal: Callable[..., bool] | None = None,
 ) -> list[dict]:
     """RFC-0009 T2：对每个 open PR（排除 merged_pr_number）执行 github.update_branch。
 
@@ -51,7 +59,11 @@ def rebase_open_prs(
         try:
             updated = github.update_branch(pr_number=pr.number, rebase=rebase)
         except github.GithubError:
-            # 决策 4：无法自动并入（冲突等）→ 留言提示人工处理，记 conflict 后继续下一个。
+            # issue #48：服务端合并冲突——先试本地索引自愈（仅 OVERVIEW 冲突即重渲消解 + push）。
+            # heal 安全降级：返回 True=已自愈、False/未注入=回落到既有人工留言路径（决策 4）。
+            if heal is not None and heal(pr_number=pr.number):
+                events.append({"pr_number": pr.number, "result": RESULT_HEALED})
+                continue
             # RFC-0011 T5：走 identity.post_signed_comment 给留言盖本实例签名，用于评论溯源/审计
             # （RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动，无自循环）。
             identity.post_signed_comment(

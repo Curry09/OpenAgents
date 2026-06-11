@@ -140,11 +140,15 @@ def _orchestrator_for(*, ctx: ProjectContext):
 
 def _messages_for(*, ctx: ProjectContext):
     from openagents.messages import Messages
+    from openagents.orchestrator import DEFAULT_BASE
 
     return Messages(
         orchestrator=_orchestrator_for(ctx=ctx),
         state=_state_for(repo_root=ctx.repo_root),
         agent_id=_agent_id_for(ctx=ctx),
+        # issue #48：注入 work_dir + base，使 poll 的合并扇出在冲突时先试索引自愈。
+        work_dir=str(ctx.repo_root),
+        base=DEFAULT_BASE,
     )
 
 
@@ -242,12 +246,17 @@ def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
-    from openagents import rebase
+    from openagents import indexheal, rebase
+    from openagents.orchestrator import DEFAULT_BASE
 
     # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖本实例签名，用于
     # 溯源/审计；RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动）。
+    # issue #48：手动入口同样注入索引自愈，冲突先重渲 OVERVIEW 自动消解、不了再留言。
     events = rebase.rebase_open_prs(
-        merged_pr_number=args.merged, rebase=args.rebase, agent_id=_agent_id_for(ctx=ctx)
+        merged_pr_number=args.merged,
+        rebase=args.rebase,
+        agent_id=_agent_id_for(ctx=ctx),
+        heal=indexheal.make_healer(work_dir=str(ctx.repo_root), base=DEFAULT_BASE),
     )
     print(f"✓ sync-prs 完成，同步 {len(events)} 个 open PR")
     return 0
