@@ -44,6 +44,7 @@ RFC 是一种用于记录技术设计决策的文档格式。每个 RFC 描述�
 | [RFC-0015](./0015-ensure-prerequisites-cold-start-bootstrap.md) | 冷启动兜底统一——`ensure_prerequisites` 自举 test 分支与流程标签（三入口幂等） | implemented | P0 |
 | [RFC-0016](./0016-backend-prompt-guardrail-claude-config.md) | 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`） | implemented | P1 |
 | [RFC-0017](./0017-explicit-close-issue-on-test-merge.md) | PR 合进 test 后框架显式关 issue（`Closes #N` 对非默认分支失效的补偿） | implemented | P1 |
+| [RFC-0018](./0018-reviewer-verdict-signed-pr-comment.md) | reviewer 闸裁决回贴 PR——每轮 PASS/REWORK + 反馈作为签名评论（人的可观测性） | implemented | P1 |
 | [RFC-0019](./0019-supersede-comment-driven-trigger.md) | 评论驱动触发模型正式作废 + 补全 RFC supersession 纪律（对齐 RFC-0011 与 RFC-0012） | implemented | P1 |
 
 ## RFC 编号规则
