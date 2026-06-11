@@ -342,7 +342,7 @@ def test_sync_prs_runs_preflight_with_defaults(monkeypatch):
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
 
-    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id):
+    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id, heal=None):
         seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
         return [{"pr_number": 8, "result": "updated"}]
 
@@ -358,7 +358,7 @@ def test_sync_prs_passes_merged_and_rebase(monkeypatch):
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
 
-    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id):
+    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id, heal=None):
         seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
         return []
 
@@ -373,7 +373,7 @@ def test_sync_prs_reports_error_cleanly(monkeypatch, capsys):
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     from openagents.github import GithubError
 
-    def boom(*, merged_pr_number, rebase, agent_id):
+    def boom(*, merged_pr_number, rebase, agent_id, heal=None):
         raise GithubError("gh pr list 失败")
 
     monkeypatch.setattr("openagents.rebase.rebase_open_prs", boom)

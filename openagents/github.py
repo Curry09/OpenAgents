@@ -523,6 +523,20 @@ def is_merged(*, pr_number: int) -> bool:
     return str(data.get("state") or "").upper() == "MERGED"
 
 
+def pr_head_branch(*, pr_number: int) -> str:
+    """issue #48：取 PR 的 head 分支名（`gh pr view <n> --json headRefName`）。
+
+    供索引冲突自愈在本地 checkout 该分支、把 base 并入后重渲 OVERVIEW 再 push。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "headRefName"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict) or not data.get("headRefName"):
+        raise GithubError("gh pr view 未返回 headRefName")
+    return str(data["headRefName"])
+
+
 def is_closed(*, pr_number: int) -> bool:
     """RFC-0006：PR 是否被关闭但未合并（`gh pr view <n> --json state` == "CLOSED"）。
 

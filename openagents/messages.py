@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import time
 
-from openagents import github, rebase
+from openagents import github, indexheal, rebase
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
     BLOCKED_LABEL,
@@ -81,22 +81,35 @@ MAX_ROUNDS = _configured_max_rounds()
 class Messages:
     """RFC-0001 T5 + RFC-0005 + RFC-0012：按阶段轮询 PR 的 merge/CI/评审闸，路由回编排层。"""
 
-    def __init__(self, *, orchestrator: Orchestrator, state: State, agent_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        orchestrator: Orchestrator,
+        state: State,
+        agent_id: str,
+        work_dir: str | None = None,
+        base: str | None = None,
+    ) -> None:
         self._orchestrator = orchestrator
         self._state = state
         # RFC-0011 决策 7：本实例身份，由 CLI 接线处解析后注入；poll 合并分支时透传给
         # rebase.rebase_open_prs（冲突留言据此盖章、保持 rebase 无状态）。
         self._agent_id = agent_id
+        # issue #48：work_dir + base 用于构造索引冲突自愈 heal（同步 base 后自动重渲 OVERVIEW）。
+        # 二者缺一则不注入 heal——退回既有「冲突留言等人」行为（向后兼容老调用方/测试夹具）。
+        self._work_dir = work_dir
+        self._base = base
 
     def poll(self) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
 
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
-        "approved", "rfc-pass", "refine", "ci", "review", "blocked"}），便于日志与测试断言。
+        "approved", "rfc-pass", "refine", "ci", "review", "blocked", "resumed"}），便于日志与测试断言。
         """
         events: list[dict] = []
         for record in self._state.all_runs():
-            if record.status not in _OPEN_STATUSES:
+            # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
+            if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
                 continue
             event = self._process_run(record=record)
             if event is not None:
@@ -115,7 +128,7 @@ class Messages:
             return
 
     def _process_run(self, *, record: RunRecord) -> dict | None:
-        """处理单个 open run：merge 优先，其后按阶段（rfc-review / coding）路由。"""
+        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。"""
         pr_number = record.pr_number
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
@@ -125,14 +138,33 @@ class Messages:
             # 重复命中已合并分支重复调用安全（决策 2）。
             github.close_issue(number=record.issue_number)
             # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 base 并入其余
-            # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 由 rebase 层留言。
-            synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
+            # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 先试索引自愈（issue #48），
+            # 自愈不了再由 rebase 层留言。
+            synced = rebase.rebase_open_prs(
+                merged_pr_number=pr_number, agent_id=self._agent_id, heal=self._make_heal()
+            )
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
 
         # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过。merged 优先于 closed。
         if github.is_closed(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
             return {"pr_number": pr_number, "reason": "closed"}
+
+        # 1c. issue #49：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile（人合掉修好的
+        # PR → done；人关掉 → closed）。若 PR 仍 open 但人已摘掉 needs-human 标签（语义：「我处理
+        # 好了，继续跑」），则解挂——rounds 清零，按是否已过 RFC 闸回到对应阶段重新流转；标签仍在
+        # 则保持挂起（返回 None，不动状态）。这消除了「进得去、出不来、promote 被永久焊死」。
+        if record.status == STATUS_BLOCKED:
+            if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
+                return None
+            self._state.reset_rounds(issue_number=record.issue_number)
+            resumed = (
+                STATUS_PR_OPEN
+                if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
+                else STATUS_RFC_REVIEW
+            )
+            self._state.update_status(issue_number=record.issue_number, status=resumed)
+            return {"pr_number": pr_number, "reason": "resumed"}
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
@@ -194,9 +226,18 @@ class Messages:
         标签是给人/promote 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
         """
         pr_number = record.pr_number
-        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        # issue #47：GitHub 副作用先行、state 落盘后行。add_label 失败（gh 瞬时错误 / 标签缺失）
+        # 时异常上抛，但此时 state 尚未变 blocked——下一轮 poll 仍把它当 open，自然重试整个 _block，
+        # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（promote 预检与人的可观测性都依赖标签）。
         github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
+
+    def _make_heal(self):
+        """issue #48：当 work_dir + base 都已注入时构造索引冲突自愈 heal，否则 None（退回留言）。"""
+        if self._work_dir is None or self._base is None:
+            return None
+        return indexheal.make_healer(work_dir=self._work_dir, base=self._base)
 
     def _has_open_pr(self) -> bool:
         """是否还有 rfc-review/pr-open/iterating 的 run（watch 循环的退出条件）。"""

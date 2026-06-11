@@ -14,6 +14,7 @@ from openagents.identity import parse_agent_id
 from openagents.rebase import (
     CONFLICT_COMMENT,
     RESULT_CONFLICT,
+    RESULT_HEALED,
     RESULT_UP_TO_DATE,
     RESULT_UPDATED,
     rebase_open_prs,
@@ -114,6 +115,32 @@ def test_rebase_flag_passed_through(monkeypatch):
     rebase_open_prs(rebase=True, agent_id=_AGENT_ID)
 
     assert updates == [{"pr_number": 5, "rebase": True}]
+
+
+def test_conflict_healed_skips_comment(monkeypatch):
+    # issue #48：服务端冲突先试索引自愈，成功 → RESULT_HEALED 且不留言。
+    _, comments = _patch(monkeypatch, open_prs=[_pr(5)], update={5: GithubError("merge conflict")})
+    healed = []
+
+    def _heal(*, pr_number):
+        healed.append(pr_number)
+        return True
+
+    events = rebase_open_prs(agent_id=_AGENT_ID, heal=_heal)
+
+    assert events == [{"pr_number": 5, "result": RESULT_HEALED}]
+    assert healed == [5]
+    assert comments == []
+
+
+def test_conflict_heal_fails_falls_back_to_comment(monkeypatch):
+    # issue #48：自愈不了（含真实冲突）→ 回落到既有人工留言路径。
+    _, comments = _patch(monkeypatch, open_prs=[_pr(5)], update={5: GithubError("merge conflict")})
+
+    events = rebase_open_prs(agent_id=_AGENT_ID, heal=lambda *, pr_number: False)
+
+    assert events == [{"pr_number": 5, "result": RESULT_CONFLICT}]
+    assert [c["pr_number"] for c in comments] == [5]
 
 
 def test_empty_open_list_is_noop(monkeypatch):
