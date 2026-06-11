@@ -2,9 +2,11 @@
 # 仅 "CI Gate" 作为分支保护的必需状态检查。
 name: CI
 
+# issue #50：除合入 main 的 PR 外，也覆盖 test 分支门控流程里以 test 为 base 的 PR——
+# 否则这些 PR「no checks reported」，check_status 真空判 pass，代码闸的 CI 前置形同虚设。
 on:
   pull_request:
-    branches: [main]
+    branches: [main, test]
 
 permissions:
   contents: read
