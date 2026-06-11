@@ -506,8 +506,8 @@ def test_integration_real_orchestrator_rfc_pass_implements(monkeypatch, tmp_path
         def commit_and_push(self, *, worktree, branch, message):
             pass
 
-        def changed_rfc_path(self, *, worktree, base):
-            # RFC-0013：implement 转正前实跑 e2e 需先定位本分支 RFC；本用例只验放行链路，
+        def changed_spec_group(self, *, worktree, base):
+            # issue #53：implement 转正前实跑 e2e 需先定位本分支 spec 组；本用例只验放行链路，
             # 返回 None 让脚本定位降级为 skipped（不起子进程）。
             return None
 

@@ -1,0 +1,40 @@
+  - id: T6
+    title: 迁移脚本 + spec-driven skill + specs README + e2e
+    status: in-progress
+    priority: P1
+    tags:
+      - architecture
+      - dx
+      - cli
+      - tooling
+    depends-on:
+      - T2
+      - T3
+    relates-to: []
+    parallel: false
+    files:
+      - scripts/migrate-rfc-to-spec.py
+      - tests/test_migrate_rfc_to_spec.py
+      - .claude/skills/spec-driven-development/SKILL.md
+      - .claude/skills/spec-driven-development/references/
+      - docs/specs/README.md
+      - scripts/e2e-spec-0014-spec-driven.sh
+    version: 1
+    updated: ''
+    change-reason: ''
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: ''
+    motivation: ''
+    scope: |-
+      `scripts/migrate-rfc-to-spec.py`：每份 `docs/rfcs/NNNN-*.md` → 一个 spec 组（metadata.yaml + tasks/ + origin.md）；RFC 头部（优先级/标签/issue）+ 子任务表每行 → `tasks/T*.yaml`（status 映射 `implemented`→`done`、`blocked`→`pending`；files/depends-on 解析，**整 RFC 级依赖 `RFC-NNNN` 形态不构成 Task 依赖故丢弃**；每行的 `范围`/`验收标准` 从「子任务定义」块抽进 `scope`/`acceptance`）；设计/动机/接口契约/权衡/参考资料等组级正文整体留组内 `origin.md`（只读，render 不读取）。**迁移产出 `version: 1` 的当前版 Task，history 目录初始为空——首次 `amend` 才落 v1（与 amend「先 append 当前版再 bump」语义自洽，避免 history 出现重复 v1，见 D6）。** 改写 skill：`.claude/skills/spec-driven-development/`（SKILL.md + references，含 Task JSON Schema 说明、`# Spec-NNNN/T*` 注释约定、三阶段工作流：clarify→设计→实施验证）。`docs/specs/README.md`（目录说明 + 编号规则）。`scripts/e2e-spec-0014-spec-driven.sh`（端到端：迁移→validate→render→amend→再 validate/render 幂等）。
+    design: ''
+    interface: ''
+    tradeoffs: ''
+    acceptance: |-
+      单测：用 1~2 份真实 RFC 跑迁移，断言产出通过 `spec validate`、Task 数 = 原子任务行数、`implemented` 映射为 `done`、`blocked` 映射为 `pending`、产出 `version: 1` 且 history 初始为空；全 13 份 RFC 迁移后 `spec validate` 全绿（仅跨组文件 warning）且 `spec render` 幂等（两次无 diff）。skill SKILL.md 含三阶段 + Task schema + 新注释约定；`docs/specs/README.md` 含编号规则。e2e 脚本可独立运行（见测试方案）。
+    tests: ''
+    references: ''
+    open-questions: ''
