@@ -41,15 +41,16 @@ _RUBRIC_TAIL = (
     "或：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
 )
 _RFC_REVIEW_TASK = (
-    "你是独立的 RFC 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 RFC 文档。\n"
-    "按顺序读：CLAUDE.md（需求/设计理念）→ docs/rfcs/ 下本 PR 新增/改动的 RFC →"
-    "其引用的来源。判定：设计是否对齐需求、关键决策是否有据、子任务 DAG 是否可独立"
-    "实现且文件清单互不重叠、是否含实现代码（RFC 不应含实现代码）。\n" + _RUBRIC_TAIL
+    "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
+    "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
+    "（metadata.yaml + tasks/T*.yaml）→ 其引用的来源。判定：设计是否对齐需求、关键决策是否"
+    "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
+    "实现代码）。\n" + _RUBRIC_TAIL
 )
 _CODE_REVIEW_TASK = (
     "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"
     "用 `git diff` 查看本分支相对 base 的改动并读涉及文件的完整上下文。判定：是否"
-    "真的实现了对应 RFC 的子任务与验收标准、有无 tautological test / 绕过真实路径、"
+    "真的实现了对应 spec 的 Task 与验收标准、有无 tautological test / 绕过真实路径、"
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
     "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n" + _RUBRIC_TAIL
 )
@@ -117,7 +118,8 @@ def review(
 
 
 # RFC-0018 决策 4：kind → 评论里的中文展示名（未知 kind 原样回显，不抛错——渲染是旁路）。
-_KIND_LABELS = {"rfc": "RFC 文档", "code": "代码"}
+# issue #53：kind 内部标识仍沿用 "rfc"（= 设计评审闸的历史名），展示名改为「Spec 文档」。
+_KIND_LABELS = {"rfc": "Spec 文档", "code": "代码"}
 
 
 def render_decision(*, decision: ReviewDecision, kind: str) -> str:

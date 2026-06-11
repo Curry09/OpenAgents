@@ -41,24 +41,27 @@ _BRANCH_PREFIX = "openagents/issue-"
 # issue→PR 全程在 test 上自动闭环；main 只被 promote 快进，不参与日常流转。
 DEFAULT_BASE = "test"
 
-# RFC-0005：各原子操作喂给后端的任务模板（prompt）。后端为 cli-agent（如 Claude Code），
-# 自带 rfc-driven-development skill，故任务只需指明意图与约束，细节交由其遵循该 skill。
+# RFC-0005 + Spec-0014（issue #53 运行时切换）：各原子操作喂给后端的任务模板（prompt）。
+# 后端为 cli-agent（如 Claude Code），自带 spec-driven-development skill（取代 rfc-driven-
+# development），故任务只需指明意图与约束，细节交由其遵循该 skill。设计产物从「docs/rfcs/
+# 单个 RFC.md」改为「docs/specs/ 下的 spec 活快照组」，用 `spec` CLI 创作（见 #53）。
 _DRAFT_RFC_TASK = (
-    "为 issue #{number}「{title}」起草一份 RFC，遵循 rfc-driven-development skill 的 Phase 2：\n"
-    "扫描 local 与 open PR 取下一个未占用编号，在 docs/rfcs/ 下创建 NNNN-slug.md，"
-    "填写设计、关键决策、接口契约与子任务 DAG（含文件清单）。\n"
-    "只产出 RFC 文档，不要写实现代码。\n\nissue 正文：\n{body}"
+    "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2：\n"
+    "用 `spec new <slug> --issue {number} --title ...` 建组，再用 `spec add-task` 逐个加子任务"
+    "（含文件清单、依赖、范围、验收），并填写各 Task 的设计 prose；最后 `spec validate` + `spec render`。\n"
+    "只产出 spec（docs/specs/ 下），不要写实现代码。\n\nissue 正文：\n{body}"
 )
 _REFINE_RFC_TASK = (
-    "本 issue 的 RFC 收到了评审意见，请据此更新 docs/rfcs/ 下对应的 RFC 文档"
-    "（只改 RFC，不写实现代码）。改完用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
+    "本 issue 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
+    "（用 `spec amend` 改 Task，只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
+    "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
 )
 _IMPLEMENT_TASK = (
-    "issue #{number} 的 RFC 已获批准（rfc-approved）。请阅读 docs/rfcs/ 下对应 RFC，"
-    "按其子任务实现代码并自测（ruff + pytest），代码注释引用对应 RFC ID。"
+    "issue #{number} 的 spec 已获批准（rfc-approved）。请阅读 docs/specs/ 下对应 spec 组，"
+    "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。"
 )
-# refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 RFC」（决策 6）。
-_REFINE_COMMENT = "🤖 已根据评审意见更新 RFC：\n\n{summary}"
+# refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
+_REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
 
 
 class OrchestratorError(Exception):
@@ -117,7 +120,7 @@ class Orchestrator:
         self._workspace.commit_and_push(
             worktree=worktree,
             branch=branch,
-            message=f"docs: draft RFC for issue #{issue.number}",
+            message=f"docs: draft spec for issue #{issue.number}",
         )
 
         # RFC-0008：开 PR 前，从本分支新增的 RFC 抽取「端到端验证」指路牌拼进正文。
@@ -129,10 +132,10 @@ class Orchestrator:
         pr = github.create_pr(
             branch=branch,
             base=base,  # RFC-0012 决策 2：PR base 锁定到 test（与 worktree 基线同源）。
-            title=f"docs: RFC for issue #{issue.number} {issue.title}".strip(),
+            title=f"docs: spec for issue #{issue.number} {issue.title}".strip(),
             body=self._pr_body(
                 issue_number=issue.number,
-                summary="RFC 草稿待评审。",
+                summary="spec 草稿待评审。",
                 e2e_section=e2e_section,
             ),
             draft=True,
