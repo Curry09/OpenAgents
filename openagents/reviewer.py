@@ -55,16 +55,25 @@ _CODE_REVIEW_TASK = (
 )
 
 
+# RFC-0018：无法解析裁决 token 时归一化为该占位 token，使 verdicts 与 reviewer 数等长、
+# 票数渲染不丢项（疑罪从严：UNPARSED 与 REWORK/RETHINK 同属非 PASS）。
+UNPARSED_VERDICT = "UNPARSED"
+
+
 @dataclass(frozen=True)
 class ReviewDecision:
     """RFC-0012 决策 1：N 个 reviewer 的聚合裁决。
 
     passed: 是否全票 PASS。
     feedback: 聚合的非 PASS 反馈（喂给 refine_rfc / iterate）；passed=True 时为空串。
+    verdicts: RFC-0018 决策 3——各 reviewer 解析出的裁决 token 序列（与 N 等长，
+        `None` 归一化为 `"UNPARSED"`）。默认 `()` 保证既有构造点向后兼容；编排层据此
+        渲染「N 中几票 PASS」的票型回贴 PR（理念 8 可观测性）。
     """
 
     passed: bool
     feedback: str
+    verdicts: tuple[str, ...] = ()
 
 
 def configured_reviewers() -> int:
@@ -93,16 +102,51 @@ def review(
     """
     task = _task_for(kind=kind, pr_number=pr_number)
     summaries = _run_reviewers(backend=backend, work_dir=work_dir, task=task, n=max(1, n))
-    verdicts = [_parse_verdict(summary=s) for s in summaries]
+    # RFC-0018 决策 3：把解析出的裁决 token 全程保留（None→UNPARSED），既供聚合判定，
+    # 也作为 ReviewDecision.verdicts 暴露给编排层渲染票型（不再聚合后即丢弃）。
+    verdicts = tuple(_parse_verdict(summary=s) or UNPARSED_VERDICT for s in summaries)
     if verdicts and all(v == "PASS" for v in verdicts):
-        return ReviewDecision(passed=True, feedback="")
+        return ReviewDecision(passed=True, feedback="", verdicts=verdicts)
     # 非 PASS（含 REWORK/RETHINK/无法解析）的摘要原文汇总为反馈，喂回 refine/iterate。
     parts = [
         (summary.strip() or "（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）")
         for summary, verdict in zip(summaries, verdicts, strict=True)
         if verdict != "PASS"
     ]
-    return ReviewDecision(passed=False, feedback="\n\n---\n\n".join(parts))
+    return ReviewDecision(passed=False, feedback="\n\n---\n\n".join(parts), verdicts=verdicts)
+
+
+# RFC-0018 决策 4：kind → 评论里的中文展示名（未知 kind 原样回显，不抛错——渲染是旁路）。
+_KIND_LABELS = {"rfc": "RFC 文档", "code": "代码"}
+
+
+def render_decision(*, decision: ReviewDecision, kind: str) -> str:
+    """RFC-0018 决策 4：把裁决渲染成 PR 评论 Markdown 正文（纯函数，不含签名）。
+
+    含：kind（rfc/code 中文化）、整体 PASS/REWORK、票数（N 中几票 PASS）；`passed=False`
+    时附聚合 feedback 摘要。纯字符串函数、无副作用、不依赖 github/identity——保持 reviewer
+    模块「只依赖 AgentBackend 协议」的解耦定位（理念 10），与 e2e.render_result 同构。
+    """
+    label = _KIND_LABELS.get(kind, kind)
+    total = len(decision.verdicts)
+    pass_count = sum(1 for v in decision.verdicts if v == "PASS")
+    overall = "✅ PASS" if decision.passed else "❌ REWORK"
+    lines = [
+        "## 评审闸裁决",
+        f"- 类型：{label}",
+        f"- 裁决：{overall}",
+        f"- 票数：{total} 票中 {pass_count} 票 PASS",
+    ]
+    # 暴露逐 reviewer 票型，使 passed=False 时人能看清是 REWORK 还是 RETHINK/UNPARSED。
+    if decision.verdicts:
+        lines.append(f"- 票型：{' / '.join(decision.verdicts)}")
+    # 非 PASS 时附聚合反馈摘要，让人盯 PR 即知卡在哪条验证标准（理念 8）。
+    if not decision.passed and decision.feedback:
+        lines.append("- 反馈摘要：")
+        lines.append("```")
+        lines.append(decision.feedback)
+        lines.append("```")
+    return "\n".join(lines)
 
 
 def _task_for(*, kind: str, pr_number: int) -> str:

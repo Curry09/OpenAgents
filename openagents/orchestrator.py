@@ -162,8 +162,8 @@ class Orchestrator:
             message=f"docs: refine RFC for PR #{pr_number} per review",
         )
         # 决策 6：回贴评论说明改动，让人类知道 RFC 已据评审更新。
-        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，
-        # 使下一轮 poll 据签名剔除这条自评论，不再对自己的回贴触发 refine（防自循环）。
+        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计
+        # （RFC-0019：评论驱动读侧已退役，poll 不读评论；自动流转由 reviewer 闸驱动，无自循环）。
         identity.post_signed_comment(
             pr_number=pr_number,
             body=_REFINE_COMMENT.format(summary=result.summary or "（无摘要）"),
@@ -213,17 +213,40 @@ class Orchestrator:
         return self._review(pr_number=pr_number, kind="code")
 
     def _review(self, *, pr_number: int, kind: str) -> ReviewDecision:
-        """review_rfc / review_code 的共用骨架：ensure worktree → reviewer.review。"""
+        """review_rfc / review_code 的共用骨架：ensure worktree → reviewer.review。
+
+        RFC-0018：拿到裁决后、返回前，把裁决作为签名评论旁路回贴 PR（best-effort）——
+        裁决产生地即回贴地，单点收口，不污染 messages 路由层。
+        """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
         self._progress(message=f"▶ 调 reviewer 评审 PR #{pr_number}（{kind}）…")
-        return reviewer.review(
+        decision = reviewer.review(
             backend=self._backend,
             work_dir=worktree,
             kind=kind,
             pr_number=pr_number,
             n=reviewer.configured_reviewers(),
         )
+        # RFC-0018：把裁决回贴 PR（恢复人对评审闸的可观测性，理念 8），旁路尽力而为。
+        self._post_review_decision(pr_number=pr_number, kind=kind, decision=decision)
+        return decision
+
+    def _post_review_decision(self, *, pr_number: int, kind: str, decision: ReviewDecision) -> None:
+        """RFC-0018：渲染裁决 → RFC-0011 盖章发评论（尽力而为）。失败仅 _progress、不抛出。
+
+        结构镜像 RFC-0013 的 `_post_e2e_result`（决策 1/2）：渲染由 reviewer.render_decision
+        负责（票数语义属 reviewer 领域知识），盖章复用 identity.post_signed_comment（RFC-0011
+        唯一出口）；任何 gh 故障都不得阻断评审闸与下游 refine/iterate/merge（决策 2）。
+        """
+        try:
+            identity.post_signed_comment(
+                pr_number=pr_number,
+                body=reviewer.render_decision(decision=decision, kind=kind),
+                agent_id=self._agent_id,
+            )
+        except Exception as error:  # noqa: BLE001 — 旁路尽力而为，任何 gh 故障都不得阻断评审闸
+            self._progress(message=f"⚠ 裁决评论发送失败（已忽略）：{error}")
 
     def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
         """RFC-0013：定位本分支 RFC 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。
