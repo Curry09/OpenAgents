@@ -48,6 +48,7 @@ CLAUDE.md 理念 5 要求「issue 层面并行」，理念 6「单 issue 派发�
 8. **分步落 State + gh 兜底恢复绑定**：State 从「最后才写」改为**进入即写**——`solve` 一开始 `begin_run`（状态 `solving`、PR 待开），开 PR 后 `record_run`（`pr-open`），续写后置 `iterating`。于是 push 后崩、开 PR 前崩、开 PR 后崩各种中断都能恢复。续写补开 PR 前先 `github.find_pr_by_branch` 复用分支上已有的 open PR（避免重复 `gh pr create`，并在 State 丢失时恢复 issue↔PR 绑定）。
 
 9. **CLI 统一错误处理**：`cli` 把已知运行期异常（`OrchestratorError` / `GithubError` / `RuntimeError`）转成 `✗ <消息>` 到 stderr + 非零退出码，不再把 Python traceback 抛给用户。理由：traceback 对用户无用且观感差；未知异常仍向上抛出（暴露真实 bug）。
+   - **精炼（依赖缺失友好化）**：宣告过的第三方依赖缺失（`ModuleNotFoundError`，顶层模块名 ≠ `openagents`，如 venv 未 `uv pip install -e .` 时 import `ruamel`/`jsonschema` 失败）不是真实 bug，而是装环境漏了——转成 `✗ 缺少依赖 '<name>'：…uv pip install -e .（或 uv sync）` 的一行可操作提示。而 `openagents.*` 自身模块缺失仍是真 bug，照旧抛 traceback。
 
 ### 接口契约（相对 RFC-0001 的变更）
 
