@@ -1,0 +1,49 @@
+id: T4
+title: 人读视图：render 顶部 TL;DR 区块
+status: pending
+priority: P1
+tags: []
+depends-on:
+  - T1
+relates-to: []
+parallel: false
+files:
+  - openagents/spec/render.py
+  - tests/test_spec_render.py
+version: 1
+updated: '2026-06-17'
+change-reason: ''
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: |-
+  让 OVERVIEW.md 顶部多一段人话 TL;DR——逐 feature 列出 summary，人一眼看懂每个 feature 在干嘛，而不必先读密表。
+motivation: |-
+  OVERVIEW.md 现在开头就是「全局看板」密表（组/任务/状态/文件），对人极不友好。issue 要的是「OVERVIEW.md 顶部能一眼看懂每个 feature」。把 metadata.summary 渲染到顶部，OVERVIEW 才真正有了给人看的入口。
+design: |-
+  `render()` 现在按顺序拼四块：标题/警示 → 全局看板 → 跨 feature 关系图 → 文件冲突 → 各 feature 详情。本 Task 在**全局看板表之前**插入第五块 `_render_tldr`：
+
+  - 标题用固定常量 `_TLDR_HEADING = "## TL;DR（人话速览）"`（与现有 `_BOARD_HEADING` 等同构，便于测试断言「区块齐全」）。
+  - 逐 group（已按编号排序）输出一段：`### {number} {title}` 后跟该组 `metadata.summary`。title 取 `metadata.title or metadata.slug`（与各 feature 详情段一致）。summary 经 `_cell`/换行归一以保持确定性。
+  - 放在 `render()` 的 blocks 列表里、`_render_board` 之前。
+
+  **位置决策（D3）**：选「顶部独立区块」，而非塞进底部「各 feature 详情」段。issue 反复强调「OVERVIEW.md **顶部**」「**顶部**一眼看懂」，独立顶部区块最直给；详情段在文末，达不到「顶部速览」效果。保持纯函数 + 幂等（决策 D3/D9）：同源数据两次 render 字节级一致；空仓库 groups=[] 时区块只剩标题，不报错。
+interface: |-
+  - 新增内部函数 `_render_tldr(*, groups: list[Group]) -> str`，签名风格同 `_render_board`。
+  - `render()` 的 blocks 列表在 `_render_board` 前插入 `_render_tldr(groups=groups)`。
+  - 新增常量 `_TLDR_HEADING`。输出仍以单换行连接、整体换行结尾（确定性不变）。
+tradeoffs: |-
+  - **顶部独立区块 vs 各 feature 详情段开头**：选顶部独立区块（贴合 issue「顶部」原话、速览集中）。代价是与文末详情段有轻度信息重复，但速览与详情读者诉求不同，可接受。
+  - **表格 vs 标题+段落**：选标题+段落。TL;DR 是成段人话，硬塞进表格单元格会被压成一行、可读性差；标题+段落更像「给人看的简介」。
+acceptance: |-
+  render 输出在看板表前含 TL;DR 区块且每个 feature 一段 summary；两次 render 字节级一致；空仓库不报错；ruff + pytest 通过。
+tests: |-
+  - `tests/test_spec_render.py`：渲染含 summary 的多组 specs 树 → 输出含 `_TLDR_HEADING`，且 TL;DR 区块出现在 `_BOARD_HEADING` 之前（位置断言）；
+  - 每个组的 summary 文本出现在 TL;DR 区块内；
+  - 幂等：连续两次 `render` 字节级一致；
+  - 空仓库：`render` 不报错且仍含 TL;DR 标题（骨架）。
+references: |-
+  - issue #58 范围「spec render 在 OVERVIEW.md 顶部为每个 feature 输出这段 summary」、验收「OVERVIEW.md 顶部能一眼看懂每个 feature」。
+  - 现有渲染管线：`openagents/spec/render.py`（render / _render_board / 固定标题常量）。
+open-questions: ''

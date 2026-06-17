@@ -66,6 +66,11 @@
 | 0014 | 0014/T4 | spec amend / abandon（历史追加 + 自动 render） | done | T1, T3 | openagents/spec/mutate.py<br>tests/test_spec_mutate.py |
 | 0014 | 0014/T5 | spec CLI + 编号校验脚本 + CI 接线 | done | T2, T3, T4 | openagents/spec/cli.py<br>scripts/check-spec-number-conflicts.py<br>.github/workflows/ci.yml<br>tests/test_spec_cli.py |
 | 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | done | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
+| 0015 | 0015/T1 | 数据层：metadata 增 group 级 summary 字段 | pending | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>tests/test_spec_model.py |
+| 0015 | 0015/T2 | 授权路径：spec new --summary（cli + mutate） | pending | T1 | openagents/spec/mutate.py<br>openagents/spec/cli.py<br>tests/test_spec_mutate.py<br>tests/test_spec_cli.py |
+| 0015 | 0015/T3 | 闸门：validate 强制 summary 非空 | pending | T1 | openagents/spec/validate.py<br>tests/test_spec_validate.py |
+| 0015 | 0015/T4 | 人读视图：render 顶部 TL;DR 区块 | pending | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
+| 0015 | 0015/T5 | 迁移：补齐 14 个现有 spec 的 summary + 重渲染 | pending | T3, T4 | docs/specs/OVERVIEW.md |
 
 ## 跨 feature 关系图
 
@@ -159,6 +164,13 @@ graph LR
         n0014_T5["T5 spec CLI + 编号校验脚本 + CI 接线"]
         n0014_T6["T6 迁移脚本 + spec-driven skill + specs README + e2e"]
     end
+    subgraph G0015[0015 spec-human-summary]
+        n0015_T1["T1 数据层：metadata 增 group 级 summary 字段"]
+        n0015_T2["T2 授权路径：spec new --summary（cli + mutate）"]
+        n0015_T3["T3 闸门：validate 强制 summary 非空"]
+        n0015_T4["T4 人读视图：render 顶部 TL;DR 区块"]
+        n0015_T5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -217,6 +229,11 @@ graph LR
     n0014_T5 --> n0014_T4
     n0014_T6 --> n0014_T2
     n0014_T6 --> n0014_T3
+    n0015_T2 --> n0015_T1
+    n0015_T3 --> n0015_T1
+    n0015_T4 --> n0015_T1
+    n0015_T5 --> n0015_T3
+    n0015_T5 --> n0015_T4
 ```
 
 ## 文件冲突报告
@@ -231,6 +248,12 @@ graph LR
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/rfc.py | 0008, 0013 |
+| openagents/spec/cli.py | 0014, 0015 |
+| openagents/spec/model.py | 0014, 0015 |
+| openagents/spec/mutate.py | 0014, 0015 |
+| openagents/spec/render.py | 0014, 0015 |
+| openagents/spec/schema.py | 0014, 0015 |
+| openagents/spec/validate.py | 0014, 0015 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012 |
 | openagents/workspace.py | 0005, 0008 |
@@ -242,6 +265,11 @@ graph LR
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_rfc.py | 0008, 0013 |
+| tests/test_spec_cli.py | 0014, 0015 |
+| tests/test_spec_model.py | 0014, 0015 |
+| tests/test_spec_mutate.py | 0014, 0015 |
+| tests/test_spec_render.py | 0014, 0015 |
+| tests/test_spec_validate.py | 0014, 0015 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012 |
 | tests/test_vigil.py | 0004, 0007, 0010 |
 | tests/test_workspace.py | 0005, 0008 |
@@ -670,4 +698,37 @@ graph LR
     class v_T5_1 st_done;
     class v_T6_1 st_in_progress;
     class v_T6_2 st_done;
+```
+
+### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR（issue #58）
+
+```mermaid
+graph LR
+    nT1["T1 数据层：metadata 增 group 级 summary 字段"]
+    nT2["T2 授权路径：spec new --summary（cli + mutate）"]
+    nT3["T3 闸门：validate 强制 summary 非空"]
+    nT4["T4 人读视图：render 顶部 TL;DR 区块"]
+    nT5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT1 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
