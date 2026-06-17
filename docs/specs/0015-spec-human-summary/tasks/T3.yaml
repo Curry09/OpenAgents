@@ -10,9 +10,9 @@ parallel: false
 files:
   - openagents/spec/validate.py
   - tests/test_spec_validate.py
-version: 1
+version: 2
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 评审响应：T3 编号措辞与代码「六条校验链」框架对齐——新链称「第七条校验链」而非「第七条语义链」（schema 为第一条校验链，故语义维度它是第六条、整体是第七条）
 supersedes: []
 split-from:
 merged-from: []
@@ -22,9 +22,9 @@ summary: |-
 motivation: |-
   T2 的 `--summary` 必填只能管住 `spec new` 这一条建组路径；一旦有人手改 metadata.yaml、或迁移期漏填，仍会冒出空 summary。validate 作为 CI 层的兜底闸门，把「每个 feature 都有人话 TL;DR」从「建组时的约定」升级为「仓库层面恒成立的不变量」——这正是 #59 人类监督闸门「看 spec 批准」能立起来的前提：闸门要能点头，先得保证有东西可看。
 scope: |-
-  新增一条语义校验链：每个组的 metadata.summary 去空白后为空 → error（覆盖缺字段与空串两种情形，一条清晰消息）。融入现有六链汇总。
+  在现有「六条校验链」（`validate.py` 模块 docstring 原话：第一条 JSON Schema + 五条语义链）之后追加**第七条校验链**——一条语义规则：每个组的 metadata.summary 去空白后为空 → error（覆盖缺字段与空串两种情形，一条清晰消息）。六链扩成七链。
 design: |-
-  validate 现在依序跑「JSON Schema + 五条语义链」，无 error 即 `ok=True`。本 Task 加**第七条语义链** `_summary_checks`：
+  validate 现在依序跑**六条校验链**（`validate.py` docstring 原话；决策 D7）：第一条是 JSON Schema 结构校验，第二至第六条是五条语义链；无 error 即 `ok=True`。本 Task 追加**第七条校验链** `_summary_checks`（语义维度上它是第六条语义规则，按代码 1–6 的整体校验链编号则排第七）：
 
   - 遍历 `model.load_all` 出的每个 Group，取 `group.metadata.summary`；`.strip()` 为空 → 产出一条 `ValidationIssue(level=error, where="<NNNN>/metadata.yaml", message="metadata.summary 为空（每个 feature 必须有人话 TL;DR）")`。
   - 在 `validate()` 主流程里把这条链的结果 `extend` 进 `issues`，紧跟在现有链之后；`ok` 的计算逻辑（任一 error 即不 ok）天然把它纳入。
