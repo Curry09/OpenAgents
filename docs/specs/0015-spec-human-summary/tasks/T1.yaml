@@ -23,6 +23,8 @@ motivation: |-
   一个 spec 现在没有给人看的入口：per-Task 的 `summary` prose 字段是 task 粒度的、且全空着；`OVERVIEW.md` 只有一张 task-id/文件/状态的密表。人想一眼搞懂「这个 spec 在干嘛」做不到。
 
   TL;DR 是 **feature/组** 级的概念（「这个 feature 是啥、为什么做、产出什么、不做什么」），不是 task 级。因此它的归属应是组级元数据 `metadata.yaml`，与 `title`/`issue`/`slug` 并列，而不是塞进某个代表性 Task 的 prose。本 Task 在数据层把这个字段立起来——schema 声明它、model 读写它、键序固定——后续 validate/render/迁移都建立在它之上。
+scope: |-
+  仅数据层：`schema.py` 给 METADATA_SCHEMA 增 summary 属性（string，不设 required）；`model.py` 的 Metadata dataclass 增 summary 字段、`_load_metadata` 兼容读旧文件、`dump_metadata` 固定键序 title/issue/slug/summary。不含 CLI、validate、render、内容迁移（分别由 T2–T5 负责）。
 design: |-
   **落点决策（D1）**：summary 放 `metadata.yaml` 组级，而非复用 per-Task 的 `summary` prose 字段。理由：TL;DR 是 feature 级的，「group/feature 级 summary」是 issue #58 的原话；per-Task summary 语义是 task 粒度，复用会迫使「指定代表 Task / 聚合多个 task summary」的额外规则，违反奥卡姆。per-Task `summary` 字段保持原样、互不影响。
 
@@ -39,6 +41,8 @@ tradeoffs: |-
   - **组级 metadata vs 复用 per-Task summary**：选组级。复用 per-Task 改动看似更小，但语义错配（task 级 ≠ feature 级），且要凭空发明「哪个 task 的 summary 代表整组」的规则。组级落点一字段一职责，最简。
   - **「非空」放 schema 还是 validate**：选 validate（T3）。JSON Schema 可用 `required` + `minLength: 1`，但 `required` 缺失与空串会各报一次、消息也不友好；放 T3 一条语义链能用一条清晰中文消息覆盖「缺字段/空串/纯空白」三种情形。故此处 schema 只声明字段合法、**不设 required**。
   - **普通标量 vs 块标量**：选普通标量。TL;DR 短，块标量 `|` 会让 metadata.yaml 变啰嗦；若未来 summary 需要多段，再升级为块标量。
+acceptance: |-
+  带 summary 的 Metadata 经 dump_metadata → _load_metadata round-trip 内容保真；dump 输出键序为 title/issue/slug/summary；旧 metadata.yaml（无 summary 键）读出 summary == ''；schema 接受 string summary、拒非字符串；ruff + pytest 通过。
 tests: |-
   - 单测（`tests/test_spec_model.py`）：构造带 summary 的 `Metadata`，`dump_metadata` 后重新 `_load_metadata`，round-trip 内容保真；
   - 断言 dump 输出键序为 `title/issue/slug/summary`；

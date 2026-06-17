@@ -21,6 +21,8 @@ summary: |-
   给现存全部 spec 组补一段人话 summary，并重渲染 OVERVIEW.md——把闸门（T3）从「会报错」变成「绿灯」，让本特性真正落地。
 motivation: |-
   T3 的 validate 一旦上线，所有 summary 为空的现存组都会变红、CI 失败。本 Task 是必须与之同 PR 落地的「数据迁移」：逐组写出真实、人话、准确的 TL;DR（这是啥/为什么做/产出什么/不做什么），再 `spec render` 让 OVERVIEW 顶部 TL;DR 区块成型。没有它，特性是半成品（闸门挡住自己）。
+scope: |-
+  纯数据迁移：为 0001–0014 及本组 0015 的 `metadata.yaml` 逐一补写证据驱动的人话 summary，再 `spec render` 重生成 OVERVIEW.md、`spec validate` 确认 0 error。不改任何代码；唯一进 files 清单的产物是重生成的 OVERVIEW.md（各 metadata.yaml 的内容编辑见 design 的 files 归属说明，不进 files）。
 design: |-
   **执行顺序**（依赖 T1 字段、T3 闸门、T4 渲染都已就位）：
 

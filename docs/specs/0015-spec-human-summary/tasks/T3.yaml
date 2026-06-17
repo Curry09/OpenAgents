@@ -17,8 +17,10 @@ supersedes: []
 split-from:
 merged-from: []
 derived-from: []
-summary: ''
-motivation: ''
+summary: |-
+  给 validate 加一道闸门：任何组的 metadata.summary 为空（缺字段 / 空串 / 纯空白）就报 error，让 CI 挡住没填人话 TL;DR 的 spec。
+motivation: |-
+  T2 的 `--summary` 必填只能管住 `spec new` 这一条建组路径；一旦有人手改 metadata.yaml、或迁移期漏填，仍会冒出空 summary。validate 作为 CI 层的兜底闸门，把「每个 feature 都有人话 TL;DR」从「建组时的约定」升级为「仓库层面恒成立的不变量」——这正是 #59 人类监督闸门「看 spec 批准」能立起来的前提：闸门要能点头，先得保证有东西可看。
 scope: |-
   新增一条语义校验链：每个组的 metadata.summary 去空白后为空 → error（覆盖缺字段与空串两种情形，一条清晰消息）。融入现有六链汇总。
 design: |-

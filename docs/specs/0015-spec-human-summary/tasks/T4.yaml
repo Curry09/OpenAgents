@@ -21,6 +21,8 @@ summary: |-
   让 OVERVIEW.md 顶部多一段人话 TL;DR——逐 feature 列出 summary，人一眼看懂每个 feature 在干嘛，而不必先读密表。
 motivation: |-
   OVERVIEW.md 现在开头就是「全局看板」密表（组/任务/状态/文件），对人极不友好。issue 要的是「OVERVIEW.md 顶部能一眼看懂每个 feature」。把 metadata.summary 渲染到顶部，OVERVIEW 才真正有了给人看的入口。
+scope: |-
+  仅 render：在 `render()` 的全局看板表之前插入一个 TL;DR 顶部区块，逐 feature 输出 `metadata.summary`；新增 `_render_tldr` 与 `_TLDR_HEADING`。保持纯函数与幂等，空仓库不报错。不改 schema/model/validate/数据内容。
 design: |-
   `render()` 现在按顺序拼四块：标题/警示 → 全局看板 → 跨 feature 关系图 → 文件冲突 → 各 feature 详情。本 Task 在**全局看板表之前**插入第五块 `_render_tldr`：
 
