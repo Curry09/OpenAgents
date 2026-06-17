@@ -58,6 +58,13 @@ tradeoffs: |-
   - **hold 走 poll 方法参数 vs Messages 构造参数**（选方法参数）：构造参数更「一次注入」，但要改 cli 的 `_messages_for` 工厂、把 cli.py 卷进 T3 的文件边界；方法参数让 hold 顺着 vigil→poll 的调用链走，文件归属干净、也更贴合「hold 是本次运行的意图、非实例固有属性」。
   - **spec 闸 hold 时停掉 reviewer vs 保留 reviewer 仅不自动批**（选停掉）：保留 reviewer 能给人预审意见，但会持续消耗 backend、且与「等人批」语义混淆（人和 agent 谁说了算？）。停掉最简、最省、语义最干净——「hold spec 就是把这道闸完全交给人」。预审能力可由独立命令另行提供，不塞进本闸。
   - **merge 闸 hold 时不 merge 而保持 open**（vs 新增一种暂停状态）：复用「PR open + 本轮不动」已是软等待，无需引入新 State 状态；人 merge 后既有 is_merged reconcile 自然收口。
+acceptance: |-
+  - `vigil.run` 接收 hold 并逐轮透传给 `messages.poll`；可断言 poll 收到的 hold 即传入值。
+  - spec 闸 `hold.at_spec`：无 rfc-approved label → 不调自动 reviewer、不打 label、不 implement（停在 rfc-review）；带人工 rfc-approved label → 照常 implement 进 coding。
+  - merge 闸 `hold.at_merge`：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）；人手动 merge 后下一轮 is_merged 分支照常 reconcile 成 done。
+  - `spec,merge` 组合：两道闸都按各自规则停。
+  - **零回归**：默认 Hold（全不停）下既有 spec 闸自动评审 / merge 闸自动合并的 test_messages.py 用例全绿、行为逐字节不变。
+  - tests/test_vigil.py + tests/test_messages.py 全绿；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
 tests: |-
   单元（tests/test_vigil.py + tests/test_messages.py，monkeypatch github.* / orchestrator）：
   - vigil.run 把传入 hold 透传给 messages.poll（断言 poll 收到的 hold）。

@@ -36,6 +36,12 @@ interface: |-
 tradeoffs: |-
   - **布尔字段 vs 开放枚举 set**（选两个布尔）：set 更「可扩展」，但当前只有两道闸、issue 未要求更多，开放集合是过度设计；两个具名谓词读起来更直白、消费方分支更清晰。若将来闸门增多再重构。
   - **解析时严格报错 vs 静默忽略未知 token**（选严格）：静默忽略会让 `--hold spc`（拼错）被当成「全不停」从而悄悄丢掉监督，违背安全默认；严格报错让人立刻看到。
+acceptance: |-
+  - `parse_hold(*, raw)`：''/None → 默认 Hold（at_spec=at_merge=False，即现状全自动）；'spec' → 仅 at_spec；'merge' → 仅 at_merge；'spec,merge' 与 'merge,spec' → 两者皆 True。
+  - 未知 token（如 'foo'）→ 抛 ValueError 类错误，信息列出合法取值（spec / merge）。
+  - 容错：多余空格、大小写（如 ' Spec , Merge '）按设计归一化后正确解析。
+  - `Hold` 为不可变值对象，仅暴露 at_spec / at_merge 谓词；模块无 I/O、无 argparse、无 GitHub。
+  - tests/test_hold.py 全绿（纯函数）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
 tests: |-
   单元（tests/test_hold.py，纯函数无 I/O）：
   - 空串 / None → at_spec=at_merge=False（默认全不停）。

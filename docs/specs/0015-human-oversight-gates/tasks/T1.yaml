@@ -37,6 +37,11 @@ interface: |-
 tradeoffs: |-
   - **LLM 复述 vs 确定性模板**（选 LLM）：模板零依赖、可离线，但只能机械回显 title/body，给不出「归纳出的边界与非目标」，违背 issue 原意。选 LLM 复用既有 backend；用注入 + 打桩控制依赖与可测性。
   - **复述生成与确认判定合并 vs 拆分**（选拆分）：拆分多一个函数，但让 `--yes` 自动化路径无需 backend、让两条逻辑各自可测。
+acceptance: |-
+  - `restate(*, draft, backend)` 给定 issue 草稿，调注入的 backend 返回含 want（X）/ boundary（Y）/ non_goals（Z）三段的 Alignment；其人类可读渲染含三段标识。
+  - 确认判定是独立纯谓词：肯定应答 → 放行，否定/空应答 → 不放行；与复述生成解耦（判定不调 backend）。
+  - 模块不含任何 GitHub / argparse / stdin 读取；backend 以关键字参数注入。
+  - tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
 tests: |-
   单元（tests/test_align.py，打桩 backend，不触达真实 LLM）：
   - 给定草稿 → restate 产出含 X/Y/Z 三段的 Alignment；渲染文本包含三段标识。

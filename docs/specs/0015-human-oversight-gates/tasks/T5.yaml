@@ -41,6 +41,11 @@ interface: |-
 tradeoffs: |-
   - **离线 mock vs 真实 GitHub 往返**（选离线）：真实往返最贴近生产，但需凭证、不可在 CI 重复跑、慢且脆。既有全部 e2e 脚本均为离线打桩；沿用同范式保证可发现、可复跑、可纳入 CI。真实往返作为人工冒烟另行手动执行。
   - **只演 spec 闸 vs 同时演 merge 闸**（聚焦 spec）：issue 验收只点名「停在 spec → 人批 → 继续」，故主线演 spec 闸；merge 闸分流由 T3 单测覆盖，脚本可附带一行注释指向，不铺开以保持脚本聚焦。
+acceptance: |-
+  - scripts/e2e-spec-0015-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
+  - 演示时间线：以 `--hold spec` 跑一轮 → 断言停在 spec 闸（未自动评审、未自动打 label、未 implement，状态仍 rfc-review）；模拟人工打 rfc-approved label 后再跑一轮 → 断言继续推进（走 implement、进入 coding）。
+  - 打印人类可读的「停 → 批 → 继续」轨迹；全部断言通过则退出码 0，任一失败即非零退出。
+  - 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0015，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
 tests: |-
   - 脚本本身即测试：离线跑通、各断言通过、退出码 0。
   - 与既有 e2e 脚本一致地可被发现/调用（同目录同命名）。

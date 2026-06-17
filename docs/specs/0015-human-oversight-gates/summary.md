@@ -70,6 +70,13 @@ graph LR
 - **LLM 复述 vs 确定性模板**（选 LLM）：模板零依赖、可离线，但只能机械回显 title/body，给不出「归纳出的边界与非目标」，违背 issue 原意。选 LLM 复用既有 backend；用注入 + 打桩控制依赖与可测性。
 - **复述生成与确认判定合并 vs 拆分**（选拆分）：拆分多一个函数，但让 `--yes` 自动化路径无需 backend、让两条逻辑各自可测。
 
+**验收标准**
+
+- `restate(*, draft, backend)` 给定 issue 草稿，调注入的 backend 返回含 want（X）/ boundary（Y）/ non_goals（Z）三段的 Alignment；其人类可读渲染含三段标识。
+- 确认判定是独立纯谓词：肯定应答 → 放行，否定/空应答 → 不放行；与复述生成解耦（判定不调 backend）。
+- 模块不含任何 GitHub / argparse / stdin 读取；backend 以关键字参数注入。
+- tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
+
 **测试**
 
 单元（tests/test_align.py，打桩 backend，不触达真实 LLM）：
@@ -120,6 +127,14 @@ issue #59 要的是**分级监督**：默认全自动不变，但人可以选择
 
 - **布尔字段 vs 开放枚举 set**（选两个布尔）：set 更「可扩展」，但当前只有两道闸、issue 未要求更多，开放集合是过度设计；两个具名谓词读起来更直白、消费方分支更清晰。若将来闸门增多再重构。
 - **解析时严格报错 vs 静默忽略未知 token**（选严格）：静默忽略会让 `--hold spc`（拼错）被当成「全不停」从而悄悄丢掉监督，违背安全默认；严格报错让人立刻看到。
+
+**验收标准**
+
+- `parse_hold(*, raw)`：''/None → 默认 Hold（at_spec=at_merge=False，即现状全自动）；'spec' → 仅 at_spec；'merge' → 仅 at_merge；'spec,merge' 与 'merge,spec' → 两者皆 True。
+- 未知 token（如 'foo'）→ 抛 ValueError 类错误，信息列出合法取值（spec / merge）。
+- 容错：多余空格、大小写（如 ' Spec , Merge '）按设计归一化后正确解析。
+- `Hold` 为不可变值对象，仅暴露 at_spec / at_merge 谓词；模块无 I/O、无 argparse、无 GitHub。
+- tests/test_hold.py 全绿（纯函数）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
 
 **测试**
 
@@ -194,6 +209,15 @@ flowchart TD
 - **spec 闸 hold 时停掉 reviewer vs 保留 reviewer 仅不自动批**（选停掉）：保留 reviewer 能给人预审意见，但会持续消耗 backend、且与「等人批」语义混淆（人和 agent 谁说了算？）。停掉最简、最省、语义最干净——「hold spec 就是把这道闸完全交给人」。预审能力可由独立命令另行提供，不塞进本闸。
 - **merge 闸 hold 时不 merge 而保持 open**（vs 新增一种暂停状态）：复用「PR open + 本轮不动」已是软等待，无需引入新 State 状态；人 merge 后既有 is_merged reconcile 自然收口。
 
+**验收标准**
+
+- `vigil.run` 接收 hold 并逐轮透传给 `messages.poll`；可断言 poll 收到的 hold 即传入值。
+- spec 闸 `hold.at_spec`：无 rfc-approved label → 不调自动 reviewer、不打 label、不 implement（停在 rfc-review）；带人工 rfc-approved label → 照常 implement 进 coding。
+- merge 闸 `hold.at_merge`：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）；人手动 merge 后下一轮 is_merged 分支照常 reconcile 成 done。
+- `spec,merge` 组合：两道闸都按各自规则停。
+- **零回归**：默认 Hold（全不停）下既有 spec 闸自动评审 / merge 闸自动合并的 test_messages.py 用例全绿、行为逐字节不变。
+- tests/test_vigil.py + tests/test_messages.py 全绿；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
+
 **测试**
 
 单元（tests/test_vigil.py + tests/test_messages.py，monkeypatch github.* / orchestrator）：
@@ -252,6 +276,15 @@ cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，�
 - **issue 对齐默认开 vs 默认关**（选默认开、--yes 关）：issue #59 验收要求「创建前有一轮对齐确认（可被 --yes 跳过）」，故默认开、自动化显式跳过——把安全默认留给人、把跳过权交给脚本。
 - **issue 对齐 + vigil --hold 合一 Task vs 拆两 Task**（被迫合一）：二者都改 cli.py，spec 协同模式要求 Task 间文件不重叠，故必须同 Task。代价是本 Task 跨了两个特性；以「cli 是纯接线、逻辑都在被依赖模块」缓解耦合。
 
+**验收标准**
+
+- `openagents issue` 默认路径：建 issue 前调 T1 `align.restate` 复述并请人确认；确认（y）才 `create_issue`，否定（n）则不建且非零退出。
+- `openagents issue --yes`：跳过复述与确认，直接 `create_issue`（供 vigil/CI 自动化）。
+- `openagents vigil --hold spec|merge|spec,merge`：用 T2 `parse_hold` 解析后以该 Hold 调 `vigil.run(hold=...)`；无 `--hold` → 默认全不停 Hold。
+- `--hold` 非法值 → 干净一行错误 + 非零退出（不 traceback）。
+- cli.py 仅做参数解析/分发，业务逻辑在 align/hold/vigil；align/hold 延迟 import。
+- tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
+
 **测试**
 
 单元（tests/test_cli.py，打桩 align/github/vigil，hermetic 不触达真实 gh/LLM）：
@@ -306,6 +339,13 @@ CLAUDE.md 总则要求每个 RFC/spec 做完给出端到端测试启动脚本；
 
 - **离线 mock vs 真实 GitHub 往返**（选离线）：真实往返最贴近生产，但需凭证、不可在 CI 重复跑、慢且脆。既有全部 e2e 脚本均为离线打桩；沿用同范式保证可发现、可复跑、可纳入 CI。真实往返作为人工冒烟另行手动执行。
 - **只演 spec 闸 vs 同时演 merge 闸**（聚焦 spec）：issue 验收只点名「停在 spec → 人批 → 继续」，故主线演 spec 闸；merge 闸分流由 T3 单测覆盖，脚本可附带一行注释指向，不铺开以保持脚本聚焦。
+
+**验收标准**
+
+- scripts/e2e-spec-0015-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
+- 演示时间线：以 `--hold spec` 跑一轮 → 断言停在 spec 闸（未自动评审、未自动打 label、未 implement，状态仍 rfc-review）；模拟人工打 rfc-approved label 后再跑一轮 → 断言继续推进（走 implement、进入 coding）。
+- 打印人类可读的「停 → 批 → 继续」轨迹；全部断言通过则退出码 0，任一失败即非零退出。
+- 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0015，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
 
 **测试**
 

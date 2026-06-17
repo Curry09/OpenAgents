@@ -39,6 +39,13 @@ interface: |-
 tradeoffs: |-
   - **issue 对齐默认开 vs 默认关**（选默认开、--yes 关）：issue #59 验收要求「创建前有一轮对齐确认（可被 --yes 跳过）」，故默认开、自动化显式跳过——把安全默认留给人、把跳过权交给脚本。
   - **issue 对齐 + vigil --hold 合一 Task vs 拆两 Task**（被迫合一）：二者都改 cli.py，spec 协同模式要求 Task 间文件不重叠，故必须同 Task。代价是本 Task 跨了两个特性；以「cli 是纯接线、逻辑都在被依赖模块」缓解耦合。
+acceptance: |-
+  - `openagents issue` 默认路径：建 issue 前调 T1 `align.restate` 复述并请人确认；确认（y）才 `create_issue`，否定（n）则不建且非零退出。
+  - `openagents issue --yes`：跳过复述与确认，直接 `create_issue`（供 vigil/CI 自动化）。
+  - `openagents vigil --hold spec|merge|spec,merge`：用 T2 `parse_hold` 解析后以该 Hold 调 `vigil.run(hold=...)`；无 `--hold` → 默认全不停 Hold。
+  - `--hold` 非法值 → 干净一行错误 + 非零退出（不 traceback）。
+  - cli.py 仅做参数解析/分发，业务逻辑在 align/hold/vigil；align/hold 延迟 import。
+  - tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
 tests: |-
   单元（tests/test_cli.py，打桩 align/github/vigil，hermetic 不触达真实 gh/LLM）：
   - issue 默认路径：调 align.restate 复述、确认（打桩 y）后才 create_issue；打桩 n 则不建且非零退出。
