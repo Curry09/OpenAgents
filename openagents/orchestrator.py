@@ -48,7 +48,8 @@ DEFAULT_BASE = "test"
 # 单个 RFC.md」改为「docs/specs/ 下的 spec 活快照组」，用 `spec` CLI 创作（见 #53）。
 _DRAFT_RFC_TASK = (
     "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2：\n"
-    "用 `spec new <slug> --issue {number} --title ...` 建组，再用 `spec add-task` 逐个加子任务"
+    '用 `spec new <slug> --issue {number} --title ... --summary "<一句话 TL;DR>"` 建组'
+    "（`--summary` 为必填，写一句话 TL;DR 概述本组目标），再用 `spec add-task` 逐个加子任务"
     "（含文件清单、依赖、范围、验收），并填写各 Task 的设计 prose；最后 `spec validate` + `spec render`。\n"
     "只产出 spec（docs/specs/ 下），不要写实现代码。\n\nissue 正文：\n{body}"
 )
