@@ -9,9 +9,9 @@ parallel: false
 files:
   - openagents/align.py
   - tests/test_align.py
-version: 1
+version: 2
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'renumber 0015→0020: 避开 grandfathered RFC-0015~0019（代码注释中已占用），修正 Spec-0020 引用与脚本名'
 supersedes: []
 split-from:
 merged-from: []
@@ -21,7 +21,7 @@ summary: |-
 motivation: |-
   当前流程里人唯一的真实检查点是**审 PR**——也就是代码全写完之后才暴露理解偏差，这是最贵的纠错点。CLAUDE.md 理念 5「人负责宏观把控、不管细节」缺一个**意图层**的闸门：在想法落成正式 issue 之前，先用人能读懂的话把范围对齐一次。把这段复述逻辑独立成纯模块，是为了让它能被单测覆盖、且与 CLI 参数解析、GitHub 调用解耦（CLAUDE.md 设计理念 1/10）。
 scope: |-
-  新建纯模块 openagents/align.py：给定 issue 草稿（title/body），调注入的 backend 用大白话复述成结构化「我理解你要 X，边界是 Y，不做 Z」三段，供调用方拿去给人确认。仅做复述渲染 + 确认判定，不碰 GitHub、不碰 CLI argparse。模块 docstring 引用 Spec-0015。
+  新建纯模块 openagents/align.py：给定 issue 草稿（title/body），调注入的 backend 用大白话复述成结构化「我理解你要 X，边界是 Y，不做 Z」三段，供调用方拿去给人确认。仅做复述渲染 + 确认判定，不碰 GitHub、不碰 CLI argparse。模块 docstring 引用 Spec-0020。
 design: |-
   **职责边界**：align 是一段纯逻辑——「草稿进，复述出」+「确认判定」，不持有 I/O。它复用既有 backend（与 Orchestrator 同一个 ClaudeCodeBackend 抽象，依赖注入而非 import 具体实现），把草稿喂给 backend、要求它回出三段式复述（要做 X / 边界 Y / 不做 Z）。复述文本由本模块组织成稳定结构，调用方（T4 的 cli）负责把它打印给人、读人的 y/n。
 
@@ -41,7 +41,7 @@ acceptance: |-
   - `restate(*, draft, backend)` 给定 issue 草稿，调注入的 backend 返回含 want（X）/ boundary（Y）/ non_goals（Z）三段的 Alignment；其人类可读渲染含三段标识。
   - 确认判定是独立纯谓词：肯定应答 → 放行，否定/空应答 → 不放行；与复述生成解耦（判定不调 backend）。
   - 模块不含任何 GitHub / argparse / stdin 读取；backend 以关键字参数注入。
-  - tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
+  - tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0020。
 tests: |-
   单元（tests/test_align.py，打桩 backend，不触达真实 LLM）：
   - 给定草稿 → restate 产出含 X/Y/Z 三段的 Alignment；渲染文本包含三段标识。

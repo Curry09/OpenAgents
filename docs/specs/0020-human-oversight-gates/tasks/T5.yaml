@@ -9,10 +9,10 @@ depends-on:
 relates-to: []
 parallel: false
 files:
-  - scripts/e2e-spec-0015-hold-gate.sh
-version: 1
+  - scripts/e2e-spec-0020-hold-gate.sh
+version: 2
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'renumber 0015→0020: 避开 grandfathered RFC-0015~0019（代码注释中已占用），修正 Spec-0020 引用与脚本名'
 supersedes: []
 split-from:
 merged-from: []
@@ -22,7 +22,7 @@ summary: |-
 motivation: |-
   CLAUDE.md 总则要求每个 RFC/spec 做完给出端到端测试启动脚本；issue #59 验收明确要求「e2e 脚本演示一次『停在 spec → 人批 → 继续』」。单测证明各闸分流正确，但人需要一个**面向成果**的可视证据（CLAUDE.md 设计理念 8）看到「停—批—继续」这条完整时间线。
 scope: |-
-  新增离线 e2e 脚本（沿用现有 scripts/e2e-*.sh 风格，打桩/本地 state 模拟 GitHub，CI 可跑）：演示 vigil --hold spec 在 spec 写完后停住等人；模拟人工打 rfc-approved label 后再 poll 一轮，流水线继续进入 coding。脚本顶部注释引用 Spec-0015。
+  新增离线 e2e 脚本（沿用现有 scripts/e2e-*.sh 风格，打桩/本地 state 模拟 GitHub，CI 可跑）：演示 vigil --hold spec 在 spec 写完后停住等人；模拟人工打 rfc-approved label 后再 poll 一轮，流水线继续进入 coding。脚本顶部注释引用 Spec-0020。
 design: |-
   **沿用既有 e2e 范式**：参照 scripts/e2e-rfc-0012-gated-flow.sh 等——用打桩/本地 State 模拟 GitHub 远端，离线驱动 vigil/poll，断言可观测信号（State 状态、是否调用 implement/merge）。不触达真实 gh，保证 CI 可跑、可重复。
 
@@ -36,16 +36,16 @@ design: |-
   **软依赖标注**：脚本注释点明「真实场景里人批 spec 看的是 OVERVIEW 的人类可读 summary（#58）」——本脚本聚焦闸控时间线，summary 由 #58 提供。
 interface: |-
   契约（描述而非代码）：
-  - 可执行 shell 脚本 scripts/e2e-spec-0015-hold-gate.sh，与其余 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh），可被 CI/人直接 bash 运行。
+  - 可执行 shell 脚本 scripts/e2e-spec-0020-hold-gate.sh，与其余 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh），可被 CI/人直接 bash 运行。
   - 自洽：自带准备/打桩/断言/清理，无需外部凭证；任一断言失败即非零退出。
 tradeoffs: |-
   - **离线 mock vs 真实 GitHub 往返**（选离线）：真实往返最贴近生产，但需凭证、不可在 CI 重复跑、慢且脆。既有全部 e2e 脚本均为离线打桩；沿用同范式保证可发现、可复跑、可纳入 CI。真实往返作为人工冒烟另行手动执行。
   - **只演 spec 闸 vs 同时演 merge 闸**（聚焦 spec）：issue 验收只点名「停在 spec → 人批 → 继续」，故主线演 spec 闸；merge 闸分流由 T3 单测覆盖，脚本可附带一行注释指向，不铺开以保持脚本聚焦。
 acceptance: |-
-  - scripts/e2e-spec-0015-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
+  - scripts/e2e-spec-0020-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
   - 演示时间线：以 `--hold spec` 跑一轮 → 断言停在 spec 闸（未自动评审、未自动打 label、未 implement，状态仍 rfc-review）；模拟人工打 rfc-approved label 后再跑一轮 → 断言继续推进（走 implement、进入 coding）。
   - 打印人类可读的「停 → 批 → 继续」轨迹；全部断言通过则退出码 0，任一失败即非零退出。
-  - 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0015，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
+  - 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0020，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
 tests: |-
   - 脚本本身即测试：离线跑通、各断言通过、退出码 0。
   - 与既有 e2e 脚本一致地可被发现/调用（同目录同命名）。

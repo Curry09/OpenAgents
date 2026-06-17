@@ -12,9 +12,9 @@ parallel: false
 files:
   - openagents/cli.py
   - tests/test_cli.py
-version: 1
+version: 2
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'renumber 0015→0020: 避开 grandfathered RFC-0015~0019（代码注释中已占用），修正 Spec-0020 引用与脚本名'
 supersedes: []
 split-from:
 merged-from: []
@@ -24,7 +24,7 @@ summary: |-
 motivation: |-
   cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，业务逻辑下沉到各模块」。两道闸门的用户可见入口都在这里：issue 命令的对齐确认、vigil 的 --hold 标志。因为它们都改 cli.py 这一个文件，按 spec 协同模式「每个 Task 文件清单不重叠」的约束，二者必须合在同一个 Task（cli.py 是单一接线点）。本 Task 把 issue #59 的验收条款（issue 前对齐可被 --yes 跳过、--hold 各闸分流）落到真实命令行行为，故 P0。
 scope: |-
-  在 cli.py 这一处接线层：(1) openagents issue 在调 create_issue 前插一轮对齐确认——用 T1 align 复述、人确认才落 issue；加 --yes 跳过供自动化。(2) vigil 子命令加 --hold 标志，用 T2 hold 解析成 Hold，传给 T3 的 vigil.run(hold=...)。仅做参数解析与分发，业务逻辑下沉到 align/hold/vigil。改动处引用 Spec-0015。
+  在 cli.py 这一处接线层：(1) openagents issue 在调 create_issue 前插一轮对齐确认——用 T1 align 复述、人确认才落 issue；加 --yes 跳过供自动化。(2) vigil 子命令加 --hold 标志，用 T2 hold 解析成 Hold，传给 T3 的 vigil.run(hold=...)。仅做参数解析与分发，业务逻辑下沉到 align/hold/vigil。改动处引用 Spec-0020。
 design: |-
   **issue 前门对齐**：`_cmd_issue` 在调 `github.create_issue` 之前插一步——构造 backend、调 T1 `align.restate` 拿到复述、打印给人、读 y/n；确认才建 issue，否则干净中止（非零退出、不建）。新增 `--yes` 开关：置位时**跳过复述与确认**直接建（供 vigil/CI 等自动化路径，对齐 issue 验收「可被 --yes 之类跳过」）。复述生成是 align 的事，cli 只管「打印 + 读输入 + 决定建不建」，符合「业务下沉、cli 只编排」。
 
@@ -45,7 +45,7 @@ acceptance: |-
   - `openagents vigil --hold spec|merge|spec,merge`：用 T2 `parse_hold` 解析后以该 Hold 调 `vigil.run(hold=...)`；无 `--hold` → 默认全不停 Hold。
   - `--hold` 非法值 → 干净一行错误 + 非零退出（不 traceback）。
   - cli.py 仅做参数解析/分发，业务逻辑在 align/hold/vigil；align/hold 延迟 import。
-  - tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
+  - tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0020。
 tests: |-
   单元（tests/test_cli.py，打桩 align/github/vigil，hermetic 不触达真实 gh/LLM）：
   - issue 默认路径：调 align.restate 复述、确认（打桩 y）后才 create_issue；打桩 n 则不建且非零退出。

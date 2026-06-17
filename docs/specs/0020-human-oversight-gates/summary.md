@@ -1,4 +1,4 @@
-# 0015 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+# 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑。
 > 内容来源：本组 `metadata.yaml` 与 `tasks/T*.yaml`（关联 issue #59）。
@@ -47,7 +47,7 @@ graph LR
 
 **范围**
 
-新建纯模块 openagents/align.py：给定 issue 草稿（title/body），调注入的 backend 用大白话复述成结构化「我理解你要 X，边界是 Y，不做 Z」三段，供调用方拿去给人确认。仅做复述渲染 + 确认判定，不碰 GitHub、不碰 CLI argparse。模块 docstring 引用 Spec-0015。
+新建纯模块 openagents/align.py：给定 issue 草稿（title/body），调注入的 backend 用大白话复述成结构化「我理解你要 X，边界是 Y，不做 Z」三段，供调用方拿去给人确认。仅做复述渲染 + 确认判定，不碰 GitHub、不碰 CLI argparse。模块 docstring 引用 Spec-0020。
 
 **整体设计**
 
@@ -75,7 +75,7 @@ graph LR
 - `restate(*, draft, backend)` 给定 issue 草稿，调注入的 backend 返回含 want（X）/ boundary（Y）/ non_goals（Z）三段的 Alignment；其人类可读渲染含三段标识。
 - 确认判定是独立纯谓词：肯定应答 → 放行，否定/空应答 → 不放行；与复述生成解耦（判定不调 backend）。
 - 模块不含任何 GitHub / argparse / stdin 读取；backend 以关键字参数注入。
-- tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
+- tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0020。
 
 **测试**
 
@@ -102,11 +102,11 @@ graph LR
 
 **为什么**
 
-issue #59 要的是**分级监督**：默认全自动不变，但人可以选择让流水线停在 spec 闸或 merge 闸。把「字符串 → 闸门集合」这步独立成纯模型，是为了让 `--hold` 解析能被单测精确覆盖（验收明确要求），也让 CLI 与 messages 两端共用同一份解析、避免「同一字符串散落多处」的漂移（与 RFC-0015 把流程标签收敛到单一来源同一思路）。
+issue #59 要的是**分级监督**：默认全自动不变，但人可以选择让流水线停在 spec 闸或 merge 闸。把「字符串 → 闸门集合」这步独立成纯模型，是为了让 `--hold` 解析能被单测精确覆盖（验收明确要求），也让 CLI 与 messages 两端共用同一份解析、避免「同一字符串散落多处」的漂移（与既有、互不相关的 RFC-0015「流程标签单一来源」属同构思路——仅借鉴其单点定义模式，与本组 Spec-0020 无编号或范围关联）。
 
 **范围**
 
-新建纯模块 openagents/hold.py：把 --hold 的逗号分隔字符串（'spec' / 'merge' / 'spec,merge' / 空）解析成一个不可变的 Hold 配置（含 at_spec / at_merge 谓词）。非法 token 报清晰错误。无任何 I/O、无 argparse、无 GitHub。模块 docstring 引用 Spec-0015。
+新建纯模块 openagents/hold.py：把 --hold 的逗号分隔字符串（'spec' / 'merge' / 'spec,merge' / 空）解析成一个不可变的 Hold 配置（含 at_spec / at_merge 谓词）。非法 token 报清晰错误。无任何 I/O、无 argparse、无 GitHub。模块 docstring 引用 Spec-0020。
 
 **整体设计**
 
@@ -134,7 +134,7 @@ issue #59 要的是**分级监督**：默认全自动不变，但人可以选择
 - 未知 token（如 'foo'）→ 抛 ValueError 类错误，信息列出合法取值（spec / merge）。
 - 容错：多余空格、大小写（如 ' Spec , Merge '）按设计归一化后正确解析。
 - `Hold` 为不可变值对象，仅暴露 at_spec / at_merge 谓词；模块无 I/O、无 argparse、无 GitHub。
-- tests/test_hold.py 全绿（纯函数）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0015。
+- tests/test_hold.py 全绿（纯函数）；ruff check + ruff format --check 通过；模块 docstring 引用 Spec-0020。
 
 **测试**
 
@@ -147,7 +147,7 @@ issue #59 要的是**分级监督**：默认全自动不变，但人可以选择
 **参考**
 
 - issue #59 正文「vigil 分级监督（issue 已存在后）」与 `--hold` 取值表。
-- RFC-0015 / openagents/github.py：流程标签单一来源——单点定义、多处引用的同构思路。
+- RFC-0015「流程标签单一来源」（openagents/github.py，另一既有、与本组无关的设计）：仅作同构思路引用——借鉴其「单点定义、多处引用」模式，**不**与本组 Spec-0020 同号或同范围。
 
 ### T3 · 流水线分级闸：hold 穿到 poll 两道闸分流（P0 / pending）
 
@@ -168,7 +168,7 @@ issue #59 要的是**分级监督**：默认全自动不变，但人可以选择
 
 **范围**
 
-vigil.run 接收 Hold 并透传到 messages.poll；messages 在 spec 闸（_process_rfc_review）与 merge 闸（_process_coding）按 Hold 分流：hold.at_spec → 停掉自动 reviewer、只认人工 rfc-approved label；hold.at_merge → CI 绿 + review PASS 后不自动 merge_pr，留给人。默认 Hold（全不停）行为与现状逐字节一致。改动处引用 Spec-0015。
+vigil.run 接收 Hold 并透传到 messages.poll；messages 在 spec 闸（_process_rfc_review）与 merge 闸（_process_coding）按 Hold 分流：hold.at_spec → 停掉自动 reviewer、只认人工 rfc-approved label；hold.at_merge → CI 绿 + review PASS 后不自动 merge_pr，留给人。默认 Hold（全不停）行为与现状逐字节一致。改动处引用 Spec-0020。
 
 **整体设计**
 
@@ -216,7 +216,7 @@ flowchart TD
 - merge 闸 `hold.at_merge`：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）；人手动 merge 后下一轮 is_merged 分支照常 reconcile 成 done。
 - `spec,merge` 组合：两道闸都按各自规则停。
 - **零回归**：默认 Hold（全不停）下既有 spec 闸自动评审 / merge 闸自动合并的 test_messages.py 用例全绿、行为逐字节不变。
-- tests/test_vigil.py + tests/test_messages.py 全绿；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
+- tests/test_vigil.py + tests/test_messages.py 全绿；ruff check + ruff format --check 通过；改动处引用 Spec-0020。
 
 **测试**
 
@@ -254,7 +254,7 @@ cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，�
 
 **范围**
 
-在 cli.py 这一处接线层：(1) openagents issue 在调 create_issue 前插一轮对齐确认——用 T1 align 复述、人确认才落 issue；加 --yes 跳过供自动化。(2) vigil 子命令加 --hold 标志，用 T2 hold 解析成 Hold，传给 T3 的 vigil.run(hold=...)。仅做参数解析与分发，业务逻辑下沉到 align/hold/vigil。改动处引用 Spec-0015。
+在 cli.py 这一处接线层：(1) openagents issue 在调 create_issue 前插一轮对齐确认——用 T1 align 复述、人确认才落 issue；加 --yes 跳过供自动化。(2) vigil 子命令加 --hold 标志，用 T2 hold 解析成 Hold，传给 T3 的 vigil.run(hold=...)。仅做参数解析与分发，业务逻辑下沉到 align/hold/vigil。改动处引用 Spec-0020。
 
 **整体设计**
 
@@ -283,7 +283,7 @@ cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，�
 - `openagents vigil --hold spec|merge|spec,merge`：用 T2 `parse_hold` 解析后以该 Hold 调 `vigil.run(hold=...)`；无 `--hold` → 默认全不停 Hold。
 - `--hold` 非法值 → 干净一行错误 + 非零退出（不 traceback）。
 - cli.py 仅做参数解析/分发，业务逻辑在 align/hold/vigil；align/hold 延迟 import。
-- tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0015。
+- tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil，不触达真实 gh/LLM）；ruff check + ruff format --check 通过；改动处引用 Spec-0020。
 
 **测试**
 
@@ -302,7 +302,7 @@ cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，�
 
 **涉及文件**
 
-- `scripts/e2e-spec-0015-hold-gate.sh`
+- `scripts/e2e-spec-0020-hold-gate.sh`
 
 **做什么**
 
@@ -314,7 +314,7 @@ CLAUDE.md 总则要求每个 RFC/spec 做完给出端到端测试启动脚本；
 
 **范围**
 
-新增离线 e2e 脚本（沿用现有 scripts/e2e-*.sh 风格，打桩/本地 state 模拟 GitHub，CI 可跑）：演示 vigil --hold spec 在 spec 写完后停住等人；模拟人工打 rfc-approved label 后再 poll 一轮，流水线继续进入 coding。脚本顶部注释引用 Spec-0015。
+新增离线 e2e 脚本（沿用现有 scripts/e2e-*.sh 风格，打桩/本地 state 模拟 GitHub，CI 可跑）：演示 vigil --hold spec 在 spec 写完后停住等人；模拟人工打 rfc-approved label 后再 poll 一轮，流水线继续进入 coding。脚本顶部注释引用 Spec-0020。
 
 **整体设计**
 
@@ -332,7 +332,7 @@ CLAUDE.md 总则要求每个 RFC/spec 做完给出端到端测试启动脚本；
 **接口**
 
 契约（描述而非代码）：
-- 可执行 shell 脚本 scripts/e2e-spec-0015-hold-gate.sh，与其余 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh），可被 CI/人直接 bash 运行。
+- 可执行 shell 脚本 scripts/e2e-spec-0020-hold-gate.sh，与其余 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh），可被 CI/人直接 bash 运行。
 - 自洽：自带准备/打桩/断言/清理，无需外部凭证；任一断言失败即非零退出。
 
 **取舍**
@@ -342,10 +342,10 @@ CLAUDE.md 总则要求每个 RFC/spec 做完给出端到端测试启动脚本；
 
 **验收标准**
 
-- scripts/e2e-spec-0015-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
+- scripts/e2e-spec-0020-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub，无需凭证、CI 可跑、可重复）。
 - 演示时间线：以 `--hold spec` 跑一轮 → 断言停在 spec 闸（未自动评审、未自动打 label、未 implement，状态仍 rfc-review）；模拟人工打 rfc-approved label 后再跑一轮 → 断言继续推进（走 implement、进入 coding）。
 - 打印人类可读的「停 → 批 → 继续」轨迹；全部断言通过则退出码 0，任一失败即非零退出。
-- 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0015，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
+- 与既有 e2e 脚本同目录、同命名规约（e2e-spec-NNNN-<slug>.sh）可被发现/调用；脚本顶部注释引用 Spec-0020，并点明 spec 批准依据（OVERVIEW summary）的 #58 软依赖。
 
 **测试**
 
