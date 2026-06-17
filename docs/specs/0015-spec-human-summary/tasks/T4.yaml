@@ -1,6 +1,6 @@
 id: T4
 title: 人读视图：render 顶部 TL;DR 区块
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on:
@@ -10,9 +10,9 @@ parallel: false
 files:
   - openagents/spec/render.py
   - tests/test_spec_render.py
-version: 1
+version: 3
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'done: render 顶部 TL;DR 区块 + _render_tldr/_TLDR_HEADING，单测通过'
 supersedes: []
 split-from:
 merged-from: []

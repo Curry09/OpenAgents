@@ -2,7 +2,8 @@
 
 Spec-0014/T3: spec render → OVERVIEW.md
 
-纯函数、幂等（决策 D3/D9）：同一份源数据两次 render 字节级一致。生成四块：
+纯函数、幂等（决策 D3/D9）：同一份源数据两次 render 字节级一致。生成五块：
+  0. TL;DR 顶部速览（Spec-0015/T4：逐 feature 列 metadata.summary，人一眼看懂每个 feature）
   1. 全局看板表（组 | NNNN/T* | 标题 | 状态 | 依赖 | 涉及文件）
   2. 跨 feature 关系图（Mermaid，按 feature 分 subgraph；depends-on 实线、relates-to 虚线标 type）
   3. 文件冲突报告（跨组 files 重叠，协作信号）
@@ -26,7 +27,9 @@ _STATUS_FILL = {
     "abandoned": "#f4b8b8",
 }
 
-# Spec-0014/T3：固定标题，便于断言「四块齐全」。
+# Spec-0014/T3：固定标题，便于断言「各块齐全」。
+# Spec-0015/T4：TL;DR 顶部区块标题（与 _BOARD_HEADING 等同构，便于测试断言区块存在）。
+_TLDR_HEADING = "## TL;DR（人话速览）"
 _BOARD_HEADING = "## 全局看板"
 _RELATION_HEADING = "## 跨 feature 关系图"
 _CONFLICT_HEADING = "## 文件冲突报告"
@@ -42,6 +45,7 @@ def render(*, specs_root: Path) -> str:
     blocks = [
         "# Spec 总览（OVERVIEW）",
         "> 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。",
+        _render_tldr(groups=groups),  # Spec-0015/T4：顶部人话速览，先于全局看板。
         _render_board(groups=groups),
         _render_relations(groups=groups),
         _render_conflicts(groups=groups),
@@ -60,6 +64,21 @@ def write_overview(*, specs_root: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render(specs_root=specs_root), encoding="utf-8")
     return path
+
+
+def _render_tldr(*, groups: list[Group]) -> str:
+    """块 0：TL;DR 顶部速览——逐 feature 输出组级 summary（Spec-0015/T4）。
+
+    放在全局看板之前，人不必先读密表就能一眼看懂每个 feature 在干嘛。
+    空仓库时只剩标题（骨架），不报错；幂等由确定的 group 排序与 _cell 归一保证。
+    """
+    lines = [_TLDR_HEADING]
+    for group in groups:
+        title = group.metadata.title or group.metadata.slug
+        lines.append("")
+        lines.append(f"### {group.number} {_cell(title)}")
+        lines.append(_cell(group.metadata.summary))
+    return "\n".join(lines)
 
 
 def _render_board(*, groups: list[Group]) -> str:

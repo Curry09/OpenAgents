@@ -1,6 +1,6 @@
 id: T3
 title: 闸门：validate 强制 summary 非空
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on:
@@ -10,9 +10,9 @@ parallel: false
 files:
   - openagents/spec/validate.py
   - tests/test_spec_validate.py
-version: 2
+version: 4
 updated: '2026-06-17'
-change-reason: 评审响应：T3 编号措辞与代码「六条校验链」框架对齐——新链称「第七条校验链」而非「第七条语义链」（schema 为第一条校验链，故语义维度它是第六条、整体是第七条）
+change-reason: 'done: validate 第七条链 summary 非空闸门，单测覆盖空串/空白/多组定位'
 supersedes: []
 split-from:
 merged-from: []

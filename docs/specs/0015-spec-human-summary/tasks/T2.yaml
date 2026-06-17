@@ -1,6 +1,6 @@
 id: T2
 title: 授权路径：spec new --summary（cli + mutate）
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on:
@@ -12,9 +12,9 @@ files:
   - openagents/spec/cli.py
   - tests/test_spec_mutate.py
   - tests/test_spec_cli.py
-version: 1
+version: 3
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'done: spec new --summary 必填 + create_group 透传，单测通过'
 supersedes: []
 split-from:
 merged-from: []

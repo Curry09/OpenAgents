@@ -9,6 +9,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 from openagents.spec import model
 from openagents.spec.cli import main
 from openagents.spec.model import Task
@@ -17,8 +19,9 @@ from openagents.spec.model import Task
 def _write_group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
     group_dir = root / f"{number}-{slug}"
     (group_dir / "tasks").mkdir(parents=True)
+    # Spec-0015/T3：写非空 summary，满足 validate 的 summary 非空闸门。
     (group_dir / "metadata.yaml").write_text(
-        f"title: {slug}\nissue: 1\nslug: {slug}\n", encoding="utf-8"
+        f'title: {slug}\nissue: 1\nslug: {slug}\nsummary: "人话 TL;DR"\n', encoding="utf-8"
     )
     for task in tasks:
         model.dump_task(task=task, path=group_dir / "tasks" / f"{task.id}.yaml")
@@ -126,15 +129,50 @@ def test_conflict_script_extract_identity() -> None:
 
 def test_new_subcommand_creates_group(tmp_path: Path) -> None:
     code = main(
-        argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)]
+        argv=[
+            "new",
+            "alpha",
+            "--issue",
+            "7",
+            "--title",
+            "Alpha",
+            "--summary",
+            "人话 TL;DR",
+            "--specs-root",
+            str(tmp_path),
+        ]
     )
     assert code == 0
     group = model.load_group(group_dir=tmp_path / "0001-alpha")
     assert group.metadata.issue == 7
+    # Spec-0015/T2：--summary 落盘到组元数据。
+    assert group.metadata.summary == "人话 TL;DR"
+
+
+def test_new_subcommand_requires_summary(tmp_path: Path) -> None:
+    """Spec-0015/T2：省略 --summary 时 argparse 报错、退出码 2（SystemExit）。"""
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)]
+        )
+    assert excinfo.value.code == 2
 
 
 def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
-    main(argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)])
+    main(
+        argv=[
+            "new",
+            "alpha",
+            "--issue",
+            "7",
+            "--title",
+            "Alpha",
+            "--summary",
+            "人话 TL;DR",
+            "--specs-root",
+            str(tmp_path),
+        ]
+    )
     code = main(
         argv=[
             "add-task",

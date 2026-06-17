@@ -1,0 +1,94 @@
+  - id: T5
+    title: 迁移：补齐 14 个现有 spec 的 summary + 重渲染
+    status: pending
+    priority: P1
+    tags: []
+    depends-on:
+      - T3
+      - T4
+    relates-to: []
+    parallel: false
+    files:
+      - docs/specs/OVERVIEW.md
+    version: 1
+    updated: '2026-06-17'
+    change-reason: ''
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: |-
+      给现存全部 spec 组补一段人话 summary，并重渲染 OVERVIEW.md——把闸门（T3）从「会报错」变成「绿灯」，让本特性真正落地。
+    motivation: |-
+      T3 的 validate 一旦上线，所有 summary 为空的现存组都会变红、CI 失败。本 Task 是必须与之同 PR 落地的「数据迁移」：逐组写出真实、人话、准确的 TL;DR（这是啥/为什么做/产出什么/不做什么），再 `spec render` 让 OVERVIEW 顶部 TL;DR 区块成型。没有它，特性是半成品（闸门挡住自己）。
+    scope: |-
+      纯数据迁移：为 0001–0014 及本组 0015 的 `metadata.yaml` 逐一补写证据驱动的人话 summary，再 `spec render` 重生成 OVERVIEW.md、`spec validate` 确认 0 error。不改任何代码；唯一进 files 清单的产物是重生成的 OVERVIEW.md（各 metadata.yaml 的内容编辑见 design 的 files 归属说明，不进 files）。
+    design: |-
+      **执行顺序**（依赖 T1 字段、T3 闸门、T4 渲染都已就位）：
+
+      1. 逐个为 `docs/specs/<NNNN-slug>/metadata.yaml`（0001–0014）补 `summary`——内容须**证据驱动**：读该组 metadata.title + tasks/ 真实内容后用大白话概括，不可臆造；每段覆盖「这是啥 / 为什么做 / 产出什么 / 不做什么」中至少前三项。
+      2. 为本组 0015 自己的 metadata.yaml 也补 summary。
+      3. 跑 `spec render` 重生成 `docs/specs/OVERVIEW.md`；跑 `spec validate` 确认 0 error。
+
+      **files 归属说明（关键）**：各组的 `metadata.yaml` **不列进**本 Task（或任何 Task）的 `files` 清单——`files` 是「Task 拥有的代码文件、与 `# Spec-NNNN` 注释一一对应」的协同模式去冲突机制，而批量内容编辑不是代码归属。本 Task 的 `files` 只列其唯一产物 `docs/specs/OVERVIEW.md`（render 重生成物）。各 metadata.yaml 的编辑作为本 Task 的执行内容、在 scope/design 里点名，不进 files，从而与其它 Task 的代码文件天然不冲突。
+    interface: |-
+      无代码接口改动。产物：14 个现存组 + 本组的 `metadata.yaml` 各含非空 summary；重生成的 `OVERVIEW.md`。
+    tradeoffs: |-
+      - **本组迁移 vs 拆独立 PR**：选同 PR。T3 闸门与迁移必须原子落地，否则 main 上 CI 直接红。
+      - **metadata.yaml 是否进 files 清单**：不进。若把 14 个 metadata.yaml 塞进 files，会与「文件不重叠」语义和「files=代码归属」约定打架；批量内容迁移用 scope 描述、单一产物 OVERVIEW.md 进 files 即可。
+    acceptance: |-
+      所有现有组 metadata.yaml 有非空人话 summary；spec validate 全绿（0 error）；spec render 后 OVERVIEW.md 无 git drift；OVERVIEW 顶部一眼看懂每个 feature。
+    tests: |-
+      - 验证手段是 `spec validate`（0 error，含 T3 的 summary 非空检查全过）与 `spec render` 后 `git diff --exit-code docs/specs/OVERVIEW.md`（无漂移）。
+      - 人工抽查若干组 summary 是否准确、是否大白话（面向人不面向 agent）。
+    references: |-
+      - issue #58 范围「把 group/feature 级的 summary 填上（迁移现有 spec 时补齐）」、验收「每个现有 spec 有非空、人类可读的 summary」。
+      - CLAUDE.md 理念 7「证据驱动」：summary 内容须基于各组真实 metadata/tasks。
+    open-questions: ''
+  - id: T5
+    title: 迁移：补齐 14 个现有 spec 的 summary + 重渲染
+    status: pending
+    priority: P1
+    tags: []
+    depends-on:
+      - T3
+      - T4
+    relates-to: []
+    parallel: false
+    files:
+      - docs/specs/OVERVIEW.md
+    version: 2
+    updated: '2026-06-17'
+    change-reason: 'claim: 开始迁移补齐现有 spec summary'
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: |-
+      给现存全部 spec 组补一段人话 summary，并重渲染 OVERVIEW.md——把闸门（T3）从「会报错」变成「绿灯」，让本特性真正落地。
+    motivation: |-
+      T3 的 validate 一旦上线，所有 summary 为空的现存组都会变红、CI 失败。本 Task 是必须与之同 PR 落地的「数据迁移」：逐组写出真实、人话、准确的 TL;DR（这是啥/为什么做/产出什么/不做什么），再 `spec render` 让 OVERVIEW 顶部 TL;DR 区块成型。没有它，特性是半成品（闸门挡住自己）。
+    scope: |-
+      纯数据迁移：为 0001–0014 及本组 0015 的 `metadata.yaml` 逐一补写证据驱动的人话 summary，再 `spec render` 重生成 OVERVIEW.md、`spec validate` 确认 0 error。不改任何代码；唯一进 files 清单的产物是重生成的 OVERVIEW.md（各 metadata.yaml 的内容编辑见 design 的 files 归属说明，不进 files）。
+    design: |-
+      **执行顺序**（依赖 T1 字段、T3 闸门、T4 渲染都已就位）：
+
+      1. 逐个为 `docs/specs/<NNNN-slug>/metadata.yaml`（0001–0014）补 `summary`——内容须**证据驱动**：读该组 metadata.title + tasks/ 真实内容后用大白话概括，不可臆造；每段覆盖「这是啥 / 为什么做 / 产出什么 / 不做什么」中至少前三项。
+      2. 为本组 0015 自己的 metadata.yaml 也补 summary。
+      3. 跑 `spec render` 重生成 `docs/specs/OVERVIEW.md`；跑 `spec validate` 确认 0 error。
+
+      **files 归属说明（关键）**：各组的 `metadata.yaml` **不列进**本 Task（或任何 Task）的 `files` 清单——`files` 是「Task 拥有的代码文件、与 `# Spec-NNNN` 注释一一对应」的协同模式去冲突机制，而批量内容编辑不是代码归属。本 Task 的 `files` 只列其唯一产物 `docs/specs/OVERVIEW.md`（render 重生成物）。各 metadata.yaml 的编辑作为本 Task 的执行内容、在 scope/design 里点名，不进 files，从而与其它 Task 的代码文件天然不冲突。
+    interface: |-
+      无代码接口改动。产物：14 个现存组 + 本组的 `metadata.yaml` 各含非空 summary；重生成的 `OVERVIEW.md`。
+    tradeoffs: |-
+      - **本组迁移 vs 拆独立 PR**：选同 PR。T3 闸门与迁移必须原子落地，否则 main 上 CI 直接红。
+      - **metadata.yaml 是否进 files 清单**：不进。若把 14 个 metadata.yaml 塞进 files，会与「文件不重叠」语义和「files=代码归属」约定打架；批量内容迁移用 scope 描述、单一产物 OVERVIEW.md 进 files 即可。
+    acceptance: |-
+      所有现有组 metadata.yaml 有非空人话 summary；spec validate 全绿（0 error）；spec render 后 OVERVIEW.md 无 git drift；OVERVIEW 顶部一眼看懂每个 feature。
+    tests: |-
+      - 验证手段是 `spec validate`（0 error，含 T3 的 summary 非空检查全过）与 `spec render` 后 `git diff --exit-code docs/specs/OVERVIEW.md`（无漂移）。
+      - 人工抽查若干组 summary 是否准确、是否大白话（面向人不面向 agent）。
+    references: |-
+      - issue #58 范围「把 group/feature 级的 summary 填上（迁移现有 spec 时补齐）」、验收「每个现有 spec 有非空、人类可读的 summary」。
+      - CLAUDE.md 理念 7「证据驱动」：summary 内容须基于各组真实 metadata/tasks。
+    open-questions: ''

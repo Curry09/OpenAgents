@@ -1,6 +1,6 @@
 id: T5
 title: 迁移：补齐 14 个现有 spec 的 summary + 重渲染
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on:
@@ -10,9 +10,9 @@ relates-to: []
 parallel: false
 files:
   - docs/specs/OVERVIEW.md
-version: 1
+version: 3
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 'done: 补齐 0001-0015 人话 summary 并重渲染 OVERVIEW，spec validate 0 error'
 supersedes: []
 split-from:
 merged-from: []

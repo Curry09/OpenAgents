@@ -49,6 +49,7 @@ def main(*, argv: list[str] | None = None) -> int:
             slug=args.slug,
             title=args.title,
             issue=args.issue,
+            summary=args.summary,
             number=args.number,
         )
     if args.command == "add-task":
@@ -90,6 +91,8 @@ def _build_parser() -> argparse.ArgumentParser:
     new.add_argument("slug", help="组 slug（kebab-case 英文短名）")
     new.add_argument("--issue", type=int, required=True, help="关联 issue 编号")
     new.add_argument("--title", required=True, help="组标题")
+    # Spec-0015/T2：人话 TL;DR 必填——把「写 summary」做成建组硬步骤，从源头不漏。
+    new.add_argument("--summary", required=True, help="组级人话 TL;DR（必填）")
     new.add_argument("--number", default=None, help="组编号 NNNN（缺省取本地下一号）")
 
     add = sub.add_parser("add-task", help="往 spec 组加一个子任务", parents=[common])
@@ -119,10 +122,12 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cmd_new(*, specs_root: Path, slug: str, title: str, issue: int, number: str | None) -> int:
+def _cmd_new(
+    *, specs_root: Path, slug: str, title: str, issue: int, summary: str, number: str | None
+) -> int:
     """new 子命令：转发 mutate.create_group，打印新建组目录。"""
     group_dir = mutate.create_group(
-        specs_root=specs_root, slug=slug, title=title, issue=issue, number=number
+        specs_root=specs_root, slug=slug, title=title, issue=issue, summary=summary, number=number
     )
     print(f"✓ 已新建 spec 组 {group_dir.name}（{group_dir}）")
     return 0

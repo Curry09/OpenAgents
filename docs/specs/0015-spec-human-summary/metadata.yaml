@@ -1,3 +1,4 @@
 title: spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR
 issue: 58
 slug: spec-human-summary
+summary: '给每个 spec 加一段面向人的大白话 TL;DR：metadata 增组级 summary 字段、spec new 必填、validate 强制非空、render 在 OVERVIEW 顶部逐 feature 展示，并迁移补齐所有现存 spec。是 #59 人类监督闸门的地基。'

@@ -24,11 +24,14 @@ def _write_group(
     slug: str,
     issue: int,
     tasks: list[Task],
+    summary: str = "人话 TL;DR",
 ) -> Path:
+    # Spec-0015/T3：默认写非空 summary，避免触发 summary 非空闸门；空 summary 用例显式传 summary=""。
+    # 用引号写值，保证空串落成合法 string（`summary: ""`）而非 YAML null。
     group_dir = root / f"{number}-{slug}"
     (group_dir / "tasks").mkdir(parents=True)
     (group_dir / "metadata.yaml").write_text(
-        f"title: {slug}\nissue: {issue}\nslug: {slug}\n", encoding="utf-8"
+        f'title: {slug}\nissue: {issue}\nslug: {slug}\nsummary: "{summary}"\n', encoding="utf-8"
     )
     for task in tasks:
         _write_task(group_dir=group_dir, task=task)
@@ -197,3 +200,53 @@ def test_empty_specs_root_is_ok(tmp_path: Path) -> None:
     report = validate(specs_root=tmp_path)
     assert report.ok is True
     assert report.issues == []
+
+
+def test_empty_summary_reports_error(tmp_path: Path) -> None:
+    """Spec-0015/T3：summary 空串 → error 且 ok=False。"""
+    _write_group(
+        root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1")], summary=""
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("metadata.summary 为空" in m for m in _errors(report))
+
+
+def test_whitespace_summary_reports_error(tmp_path: Path) -> None:
+    """Spec-0015/T3：summary 纯空白 → 同样 error。"""
+    group_dir = _write_group(
+        root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1")]
+    )
+    # 显式写纯空白 summary（带引号，避免 YAML 把它读成 None/空）。
+    (group_dir / "metadata.yaml").write_text(
+        'title: alpha\nissue: 1\nslug: alpha\nsummary: "   "\n', encoding="utf-8"
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("metadata.summary 为空" in m for m in _errors(report))
+
+
+def test_non_empty_summary_has_no_summary_error(tmp_path: Path) -> None:
+    """Spec-0015/T3：summary 非空 → 无 summary 相关 error。"""
+    _write_group(
+        root=tmp_path,
+        number="0001",
+        slug="alpha",
+        issue=1,
+        tasks=[_task(id="T1")],
+        summary="一段人话",
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True
+    assert not any("metadata.summary" in m for m in _errors(report))
+
+
+def test_only_offending_group_is_located(tmp_path: Path) -> None:
+    """Spec-0015/T3：多组中仅一组空 summary → where 精确定位到该组。"""
+    _write_group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1")])
+    _write_group(
+        root=tmp_path, number="0002", slug="beta", issue=2, tasks=[_task(id="T1")], summary=""
+    )
+    report = validate(specs_root=tmp_path)
+    wheres = [i.where for i in report.issues if "metadata.summary 为空" in i.message]
+    assert wheres == ["0002/metadata.yaml"]

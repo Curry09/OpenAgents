@@ -2,13 +2,14 @@
 
 Spec-0014/T2: spec validate（schema + 语义校验）
 
-依序跑六条校验链（决策 D7：同组 files 重叠是 error，跨组 files 重叠仅 warning）：
+依序跑七条校验链（决策 D7：同组 files 重叠是 error，跨组 files 重叠仅 warning）：
   1. JSON Schema 校验所有 task / metadata / history（结构 + 枚举）   -> error
   2. status 与 history 自洽（快照不含 abandoned、历史版本单调递增）  -> error
   3. 同组 files 不重叠（协同模式无冲突前提）                        -> error
   4. 全局 depends-on DAG（含跨组）无环                              -> error
   5. 血缘 / 跨组引用（depends-on/relates-to/supersedes/...）指向存在 Task -> error
   6. 跨组 files 重叠（协作信号，进 OVERVIEW 文件冲突报告）          -> warning
+  7. metadata.summary 非空（每个 feature 必须有人话 TL;DR，Spec-0015/T3）-> error
 
 无 error 即 ok=True（warning 不影响 ok）。纯函数，不感知 git / GitHub（理念 10 解耦）。
 """
@@ -55,6 +56,7 @@ def validate(*, specs_root: Path) -> ValidationReport:
     """Run the full schema + semantic validation chain over a specs tree.
 
     Spec-0014/T2: 依序跑六条链，汇总 issues；无 error 即 ok=True。
+    Spec-0015/T3: 追加第七条链——metadata.summary 非空。
     """
     issues: list[ValidationIssue] = []
 
@@ -72,6 +74,8 @@ def validate(*, specs_root: Path) -> ValidationReport:
     issues.extend(_dag_acyclic_checks(groups=groups))
     # 5. 血缘 / 跨组引用指向存在的 Task。
     issues.extend(_reference_checks(groups=groups))
+    # 7. metadata.summary 非空（Spec-0015/T3：每个 feature 必须有人话 TL;DR）。
+    issues.extend(_summary_checks(groups=groups))
 
     ok = not any(issue.level == _ERROR for issue in issues)
     return ValidationReport(ok=ok, issues=issues)
@@ -245,6 +249,25 @@ def _reference_checks(*, groups: list[Group]) -> list[ValidationIssue]:
                             message=f"{field_name} 指向不存在的 Task：{ref}",
                         )
                     )
+    return issues
+
+
+def _summary_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """Spec-0015/T3：每个组的 metadata.summary 去空白后非空，否则 error。
+
+    缺字段与空串在 model._load_metadata 已归一为 ""，一条 .strip() 检查同时覆盖
+    缺字段 / 空串 / 纯空白三种情形，消息统一友好（决策见 T3 权衡）。
+    """
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        if not group.metadata.summary.strip():
+            issues.append(
+                ValidationIssue(
+                    level=_ERROR,
+                    where=f"{group.number}/metadata.yaml",
+                    message="metadata.summary 为空（每个 feature 必须有人话 TL;DR）",
+                )
+            )
     return issues
 
 

@@ -22,12 +22,13 @@ from openagents.spec.render import write_overview
 
 
 def create_group(
-    *, specs_root: Path, slug: str, title: str, issue: int, number: str | None
+    *, specs_root: Path, slug: str, title: str, issue: int, summary: str, number: str | None
 ) -> Path:
     """Scaffold a new spec group dir (metadata.yaml + empty tasks/), return its path.
 
     issue #53：新 issue 起草 spec 的入口（取代旧 RFC 流程「在 docs/rfcs 建 NNNN-slug.md」）。
     number 缺省取本地下一号（model.next_number）；目录已存在则抛 FileExistsError，不动磁盘。
+    Spec-0015/T2：summary 为必填入参（无默认、调用方显式传），把人话 TL;DR 前置到建组当下。
     """
     group_number = number or model.next_number(specs_root=specs_root)
     group_dir = specs_root / f"{group_number}-{slug}"
@@ -35,7 +36,7 @@ def create_group(
         raise FileExistsError(f"spec 组目录已存在：{group_dir}")
     (group_dir / "tasks").mkdir(parents=True)
     model.dump_metadata(
-        metadata=Metadata(title=title, issue=issue, slug=slug),
+        metadata=Metadata(title=title, issue=issue, slug=slug, summary=summary),
         path=group_dir / "metadata.yaml",
     )
     write_overview(specs_root=specs_root)  # 决策 D3/D9：OVERVIEW 永不过期。

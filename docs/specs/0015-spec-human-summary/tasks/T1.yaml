@@ -1,6 +1,6 @@
 id: T1
 title: 数据层：metadata 增 group 级 summary 字段
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on: []
@@ -10,9 +10,9 @@ files:
   - openagents/spec/schema.py
   - openagents/spec/model.py
   - tests/test_spec_model.py
-version: 2
+version: 4
 updated: '2026-06-17'
-change-reason: 评审响应：补记与 done 组 0014 共享 spec 测试模块的跨组重叠（warning 级、非冲突）的设计理由
+change-reason: 'done: schema/model summary 字段实现并通过单测'
 supersedes: []
 split-from:
 merged-from: []

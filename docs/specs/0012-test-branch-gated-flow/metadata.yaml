@@ -1,3 +1,4 @@
 title: test 分支门控流程 —— 人只在「提 issue」与「promote」介入
 issue: 32
 slug: test-branch-gated-flow
+summary: 改成 test 分支门控流程，人只在「提 issue」和「promote 上线」两处介入：N 个 reviewer 并行评审聚合裁决，promote 模块预检后快进 main，中间全自动。
