@@ -11,6 +11,8 @@ import pytest
 
 from openagents import github, vigil
 from openagents.github import GithubError, Issue
+from openagents.hold import NONE as NO_HOLD
+from openagents.hold import Hold
 from openagents.orchestrator import OrchestratorError
 from openagents.state import STATUS_SOLVING, RunRecord
 from openagents.vigil import Vigil
@@ -36,9 +38,12 @@ class _StubOrchestrator:
 class _StubMessages:
     def __init__(self):
         self.poll_count = 0
+        # Spec-0020/T3：记录每轮 poll 收到的 hold，用于断言 vigil 把意图逐轮透传下去。
+        self.holds = []
 
-    def poll(self):
+    def poll(self, *, hold=NO_HOLD):
         self.poll_count += 1
+        self.holds.append(hold)
         return []
 
 
@@ -224,6 +229,31 @@ def test_run_once_does_not_sleep(monkeypatch):
     assert slept == []  # once 模式不 sleep
 
 
+def test_run_passes_hold_through_to_poll(monkeypatch):
+    # Spec-0020/T3：vigil.run 把传入 hold 逐轮透传给 messages.poll。
+    _no_remote_branches(monkeypatch)
+    monkeypatch.setattr(github, "list_issues", lambda *, labels: [])
+    monkeypatch.setattr(vigil.time, "sleep", lambda s: None)
+    msgs = _StubMessages()
+    hold = Hold(at_spec=True, at_merge=False)
+
+    _vigil(messages=msgs).run(interval=60, labels=["openagents"], base="main", once=True, hold=hold)
+
+    assert msgs.holds == [hold]
+
+
+def test_run_defaults_to_no_hold(monkeypatch):
+    # Spec-0020/T3：不传 hold → 默认全不停，行为与现状一致。
+    _no_remote_branches(monkeypatch)
+    monkeypatch.setattr(github, "list_issues", lambda *, labels: [])
+    monkeypatch.setattr(vigil.time, "sleep", lambda s: None)
+    msgs = _StubMessages()
+
+    _vigil(messages=msgs).run(interval=60, labels=["openagents"], base="main", once=True)
+
+    assert msgs.holds == [NO_HOLD]
+
+
 def test_run_loops_until_keyboard_interrupt(monkeypatch):
     _no_remote_branches(monkeypatch)
     monkeypatch.setattr(github, "list_issues", lambda *, labels: [])
@@ -301,7 +331,7 @@ def test_run_long_running_swallows_generic_exception(monkeypatch):
         def __init__(self):
             self.poll_count = 0
 
-        def poll(self):
+        def poll(self, *, hold=NO_HOLD):
             self.poll_count += 1
             if self.poll_count == 1:
                 raise RuntimeError("unexpected boom")

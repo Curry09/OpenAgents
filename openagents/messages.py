@@ -34,6 +34,8 @@ import os
 import time
 
 from openagents import github, indexheal, rebase
+from openagents.hold import NONE as NO_HOLD
+from openagents.hold import Hold
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
     BLOCKED_LABEL,
@@ -100,18 +102,23 @@ class Messages:
         self._work_dir = work_dir
         self._base = base
 
-    def poll(self) -> list[dict]:
+    def poll(self, *, hold: Hold = NO_HOLD) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
 
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
-        "approved", "rfc-pass", "refine", "ci", "review", "blocked", "resumed"}），便于日志与测试断言。
+        "approved", "rfc-pass", "refine", "ci", "review", "blocked", "resumed",
+        "hold-spec", "hold-merge"}），便于日志与测试断言。
+
+        Spec-0020/T3：新增关键字参数 hold（Hold），默认「全不停」以保持现有调用与行为；
+        poll 内部把 hold 下传给两道闸的私有处理函数，spec / merge 闸据 hold 选择「停在闸门
+        等人」或现状自动推进分支。默认 Hold 下走原代码、行为逐字节不变（零回归）。
         """
         events: list[dict] = []
         for record in self._state.all_runs():
             # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
             if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
                 continue
-            event = self._process_run(record=record)
+            event = self._process_run(record=record, hold=hold)
             if event is not None:
                 events.append(event)
         return events
@@ -127,8 +134,12 @@ class Messages:
         except KeyboardInterrupt:
             return
 
-    def _process_run(self, *, record: RunRecord) -> dict | None:
-        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。"""
+    def _process_run(self, *, record: RunRecord, hold: Hold) -> dict | None:
+        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。
+
+        Spec-0020/T3：merge/close/blocked 的 reconcile 与 hold 无关（人已经合/关/解挂，
+        是终态信号，照常收口）；hold 只影响仍在 rfc-review / coding 阶段的两道意图闸。
+        """
         pr_number = record.pr_number
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
@@ -168,16 +179,21 @@ class Messages:
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
-            return self._process_rfc_review(record=record)
-        return self._process_coding(record=record)
+            return self._process_rfc_review(record=record, hold=hold)
+        return self._process_coding(record=record, hold=hold)
 
-    def _process_rfc_review(self, *, record: RunRecord) -> dict | None:
+    def _process_rfc_review(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """RFC 评审闸（RFC-0012 决策 1/3）：标签 / reviewer 全票 PASS → implement；非 PASS → refine 或 BLOCKED。"""
         pr_number = record.pr_number
         # 2a. 已带批准标签（人或上一轮 reviewer 打的）优先：直接转入实现（向后兼容）。
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
+        # Spec-0020/T3：spec 闸 hold——跳过下面的自动 reviewer（2b），只认上面 2a 的人工
+        # rfc-approved label。无 label 即本轮什么都不做、停在 spec 闸等人批（不评审、不打
+        # 标签、不 refine、不 block、不进 coding）——把这道闸完全交给人，复用既有 label 门控。
+        if hold.at_spec:
+            return {"pr_number": pr_number, "reason": "hold-spec"}
         # 2b. 主动调 reviewer 评审 RFC（决策 3：不再等人打标签）。
         decision = self._orchestrator.review_rfc(pr_number=pr_number)
         if decision.passed:
@@ -191,7 +207,7 @@ class Messages:
         self._orchestrator.refine_rfc(pr_number=pr_number, detail=decision.feedback)
         return {"pr_number": pr_number, "reason": "refine"}
 
-    def _process_coding(self, *, record: RunRecord) -> dict | None:
+    def _process_coding(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """代码评审闸（RFC-0012 决策 1）：CI 失败→iterate(ci)；CI 绿+reviewer PASS→merge；非 PASS→iterate 或 BLOCKED。"""
         pr_number = record.pr_number
         # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
@@ -206,6 +222,11 @@ class Messages:
         # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
         decision = self._orchestrator.review_code(pr_number=pr_number)
         if decision.passed:
+            # Spec-0020/T3：merge 闸 hold——CI / reviewer 评审照跑，但 reviewer PASS 后不自动
+            # merge_pr，停在「待人 merge」（PR 保持 open、本轮不动状态），把最后一下留给人。
+            # 人手动 merge 后，下一轮 poll 的 is_merged 分支照常 reconcile 成 done（既有逻辑）。
+            if hold.at_merge:
+                return {"pr_number": pr_number, "reason": "hold-merge"}
             github.merge_pr(pr_number=pr_number)
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。

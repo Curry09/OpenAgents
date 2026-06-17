@@ -66,6 +66,11 @@
 | 0014 | 0014/T4 | spec amend / abandon（历史追加 + 自动 render） | done | T1, T3 | openagents/spec/mutate.py<br>tests/test_spec_mutate.py |
 | 0014 | 0014/T5 | spec CLI + 编号校验脚本 + CI 接线 | done | T2, T3, T4 | openagents/spec/cli.py<br>scripts/check-spec-number-conflicts.py<br>.github/workflows/ci.yml<br>tests/test_spec_cli.py |
 | 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | done | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
+| 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | done | — | openagents/align.py<br>tests/test_align.py |
+| 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | done | — | openagents/hold.py<br>tests/test_hold.py |
+| 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
+| 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
 
 ## 跨 feature 关系图
 
@@ -159,6 +164,13 @@ graph LR
         n0014_T5["T5 spec CLI + 编号校验脚本 + CI 接线"]
         n0014_T6["T6 迁移脚本 + spec-driven skill + specs README + e2e"]
     end
+    subgraph G0020[0020 human-oversight-gates]
+        n0020_T1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
+        n0020_T2["T2 hold 配置模型：解析 spec,merge 成闸门集合"]
+        n0020_T3["T3 流水线分级闸：hold 穿到 poll 两道闸分流"]
+        n0020_T4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
+        n0020_T5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -217,6 +229,12 @@ graph LR
     n0014_T5 --> n0014_T4
     n0014_T6 --> n0014_T2
     n0014_T6 --> n0014_T3
+    n0020_T3 --> n0020_T2
+    n0020_T4 --> n0020_T1
+    n0020_T4 --> n0020_T2
+    n0020_T4 --> n0020_T3
+    n0020_T5 --> n0020_T3
+    n0020_T5 --> n0020_T4
 ```
 
 ## 文件冲突报告
@@ -225,25 +243,25 @@ graph LR
 |----|----|
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020 |
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012 |
-| tests/test_vigil.py | 0004, 0007, 0010 |
+| tests/test_vigil.py | 0004, 0007, 0010, 0020 |
 | tests/test_workspace.py | 0005, 0008 |
 
 ## 各 feature 详情
@@ -670,4 +688,54 @@ graph LR
     class v_T5_1 st_done;
     class v_T6_1 st_in_progress;
     class v_T6_2 st_done;
+```
+
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）
+
+```mermaid
+graph LR
+    nT1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
+    nT2["T2 hold 配置模型：解析 spec,merge 成闸门集合"]
+    nT3["T3 流水线分级闸：hold 穿到 poll 两道闸分流"]
+    nT4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
+    nT5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T3_1["T3 v1"]
+    v_T3_2["T3 v2"]
+    v_T3_1 -->|redefined| v_T3_2
+    v_T4_1["T4 v1"]
+    v_T4_2["T4 v2"]
+    v_T4_1 -->|redefined| v_T4_2
+    v_T5_1["T5 v1"]
+    v_T5_2["T5 v2"]
+    v_T5_1 -->|redefined| v_T5_2
+    classDef st_done fill:#b7e4c7;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T1_2 st_done;
+    class v_T2_1 st_pending;
+    class v_T2_2 st_done;
+    class v_T3_1 st_pending;
+    class v_T3_2 st_done;
+    class v_T4_1 st_pending;
+    class v_T4_2 st_done;
+    class v_T5_1 st_pending;
+    class v_T5_2 st_done;
 ```
