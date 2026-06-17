@@ -10,9 +10,9 @@ files:
   - openagents/spec/schema.py
   - openagents/spec/model.py
   - tests/test_spec_model.py
-version: 1
+version: 2
 updated: '2026-06-17'
-change-reason: ''
+change-reason: 评审响应：补记与 done 组 0014 共享 spec 测试模块的跨组重叠（warning 级、非冲突）的设计理由
 supersedes: []
 split-from:
 merged-from: []
@@ -41,6 +41,7 @@ tradeoffs: |-
   - **组级 metadata vs 复用 per-Task summary**：选组级。复用 per-Task 改动看似更小，但语义错配（task 级 ≠ feature 级），且要凭空发明「哪个 task 的 summary 代表整组」的规则。组级落点一字段一职责，最简。
   - **「非空」放 schema 还是 validate**：选 validate（T3）。JSON Schema 可用 `required` + `minLength: 1`，但 `required` 缺失与空串会各报一次、消息也不友好；放 T3 一条语义链能用一条清晰中文消息覆盖「缺字段/空串/纯空白」三种情形。故此处 schema 只声明字段合法、**不设 required**。
   - **普通标量 vs 块标量**：选普通标量。TL;DR 短，块标量 `|` 会让 metadata.yaml 变啰嗦；若未来 summary 需要多段，再升级为块标量。
+  - **与 done 组 0014 共享 spec 测试模块的跨组重叠**：可接受、不规避。本组 T1–T4 各扩写一个 0014 已创建的 spec 测试模块（`tests/test_spec_model.py`/`test_spec_mutate.py`/`test_spec_cli.py`/`test_spec_validate.py`/`test_spec_render.py`），`spec validate` 会报这些文件「跨组重叠：0014, 0015」——这是 **warning 级、非 error**，因为 0014 已 done、本组只是在同一模块上追加新测试（演进既有模块的自然结果），不是两个在途 Task 争抢同一文件。组内 `files` 仍两两不重叠（schema+model / mutate+cli / validate / render / OVERVIEW.md），协同模式的去冲突保证不受影响。若强行为消除该 warning 而新建独立测试文件，反会割裂同一模块的测试、违背奥卡姆，故保留现状。
 acceptance: |-
   带 summary 的 Metadata 经 dump_metadata → _load_metadata round-trip 内容保真；dump 输出键序为 title/issue/slug/summary；旧 metadata.yaml（无 summary 键）读出 summary == ''；schema 接受 string summary、拒非字符串；ruff + pytest 通过。
 tests: |-
