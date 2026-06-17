@@ -1,6 +1,6 @@
 id: T3
 title: 流水线分级闸：hold 穿到 poll 两道闸分流
-status: pending
+status: done
 priority: P0
 tags: []
 depends-on:

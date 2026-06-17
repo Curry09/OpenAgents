@@ -21,6 +21,7 @@ import pytest
 
 from openagents import messages as messages_module
 from openagents.github import CheckStatus
+from openagents.hold import Hold
 from openagents.messages import APPROVAL_LABEL, Messages, _configured_max_rounds
 from openagents.reviewer import ReviewDecision
 from openagents.state import (
@@ -413,6 +414,120 @@ def test_only_open_runs_are_polled(monkeypatch):
 
     # rfc-review(33) 走 has_label→implement；pr-open(44) 走 coding；done/solving 跳过。
     assert seen == [33, 44]
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0020/T3：分级监督闸——hold.at_spec / hold.at_merge 分流（默认 Hold 零回归）
+# --------------------------------------------------------------------------- #
+
+_HOLD_SPEC = Hold(at_spec=True, at_merge=False)
+_HOLD_MERGE = Hold(at_spec=False, at_merge=True)
+_HOLD_BOTH = Hold(at_spec=True, at_merge=True)
+
+
+def test_spec_gate_hold_without_label_stays_and_does_nothing(monkeypatch):
+    # spec 闸 hold：无 rfc-approved label → 不调自动 reviewer、不打 label、不 implement，
+    # 停在 rfc-review（状态不变）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    rec = _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll(hold=_HOLD_SPEC)
+
+    assert orch.review_rfc_calls == []
+    assert orch.implement_calls == []
+    assert rec["labels"] == []
+    assert state.status_updates == []
+    assert any(e["reason"] == "hold-spec" for e in events)
+
+
+def test_spec_gate_hold_with_human_label_still_implements(monkeypatch):
+    # spec 闸 hold：带人工 rfc-approved label → 照常 implement 进 coding（复用 label 门控）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)])
+    _patch_github(monkeypatch, has_label=True)
+
+    events = msgs.poll(hold=_HOLD_SPEC)
+
+    assert orch.implement_calls == [5]
+    assert orch.review_rfc_calls == []
+    assert any(e["reason"] == "approved" for e in events)
+
+
+def test_merge_gate_hold_does_not_merge_and_keeps_open(monkeypatch):
+    # merge 闸 hold：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_PASS
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll(hold=_HOLD_MERGE)
+
+    # reviewer 评审照跑，但不自动合并、不动状态。
+    assert orch.review_code_calls == [5]
+    assert rec["merged"] == []
+    assert rec["closed_issues"] == []
+    assert state.status_updates == []
+    assert any(e["reason"] == "hold-merge" for e in events)
+
+
+def test_merge_gate_hold_human_merge_reconciles_done_next_round(monkeypatch):
+    # merge 闸 hold 后人手动 merge → 下一轮 is_merged 分支照常 reconcile 成 done（既有逻辑）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    rec = _patch_github(monkeypatch, merged=True)
+
+    events = msgs.poll(hold=_HOLD_MERGE)
+
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+    assert rec["closed_issues"] == [3]
+    assert any(e["reason"] == "merged" for e in events)
+
+
+def test_both_gates_hold_stop_at_each(monkeypatch):
+    # spec,merge 组合：rfc-review 停在 spec 闸、pr-open 停在 merge 闸。
+    msgs, orch, state = _make(
+        runs=[
+            _run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW),
+            _run(issue_number=4, pr_number=6, status=STATUS_PR_OPEN),
+        ]
+    )
+    rec = _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll(hold=_HOLD_BOTH)
+
+    assert orch.review_rfc_calls == []
+    assert orch.implement_calls == []
+    assert rec["merged"] == []
+    assert state.status_updates == []
+    reasons = {e["reason"] for e in events}
+    assert reasons == {"hold-spec", "hold-merge"}
+
+
+def test_default_hold_keeps_auto_spec_review(monkeypatch):
+    # 零回归：默认 Hold（全不停）下 spec 闸照旧自动评审 + 打标 + implement。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)], rfc_decision=_PASS
+    )
+    rec = _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll()  # 默认 hold
+
+    assert orch.review_rfc_calls == [5]
+    assert (5, APPROVAL_LABEL) in rec["labels"]
+    assert orch.implement_calls == [5]
+    assert any(e["reason"] == "rfc-pass" for e in events)
+
+
+def test_default_hold_keeps_auto_merge(monkeypatch):
+    # 零回归：默认 Hold 下 merge 闸照旧 CI 绿 + reviewer PASS → 自动合并 → done。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_PASS
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll()  # 默认 hold
+
+    assert rec["merged"] == [5]
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
+    assert any(e["reason"] == "merged" for e in events)
 
 
 def test_approval_label_constant():

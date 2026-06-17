@@ -1,6 +1,6 @@
 id: T5
 title: e2e 脚本：演示停在 spec → 人批 → 继续
-status: pending
+status: done
 priority: P2
 tags: []
 depends-on:

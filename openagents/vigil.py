@@ -24,6 +24,8 @@ from pathlib import Path
 
 from openagents import github
 from openagents.github import GithubError
+from openagents.hold import NONE as NO_HOLD
+from openagents.hold import Hold
 from openagents.messages import Messages
 from openagents.orchestrator import Orchestrator, OrchestratorError
 from openagents.state import STATUS_SOLVING
@@ -43,12 +45,18 @@ class Vigil:
         self._state = state
         self._work_dir = Path(work_dir)
 
-    def run(self, *, interval: int, labels: list[str], base: str, once: bool) -> None:
+    def run(
+        self, *, interval: int, labels: list[str], base: str, once: bool, hold: Hold = NO_HOLD
+    ) -> None:
         """守夜人主循环：每轮先发现+派单，再 poll 已开 PR；持续到 Ctrl-C（决策 6）。
 
         RFC-0012 决策 2：base 由调用方（CLI）传入，默认值已随 CLI 改为长期 test 分支
         ——派单起草的 RFC 以 test 为基线/PR base，守候段 poll 的 reviewer 闸驱动其
         自动合回 test。本方法签名不变，仅默认值随上游 CLI 调整。
+
+        Spec-0020/T3：新增关键字参数 hold（Hold），默认取「全不停」实例以保持现有调用与
+        行为逐字节不变；vigil 自身不消费 hold，仅把人的意图逐轮透传给 messages.poll，由
+        真正分流的 messages 层在 spec / merge 闸据 hold 决定停或照常（vigil 仍是薄调度循环）。
 
         once=True 跑一轮即返回（适配 cron/CI 周期触发）；否则 sleep(interval) 续循环。
         KeyboardInterrupt 是人类的停止信号 → 干净退出，不抛出（决策 8）。
@@ -62,7 +70,7 @@ class Vigil:
         try:
             while True:
                 try:
-                    self._run_one_round(labels=labels, base=base)
+                    self._run_one_round(labels=labels, base=base, hold=hold)
                 except Exception as exc:  # noqa: BLE001 —— 决策 6：守夜第一要务是「活着进下一轮」
                     if once:
                         raise  # 决策 5：once 模式不吞，让 cron/CI 得到非零退出
@@ -75,14 +83,16 @@ class Vigil:
             self._log(message="✓ 守夜人已停止（Ctrl-C）")
             return
 
-    def _run_one_round(self, *, labels: list[str], base: str) -> None:
+    def _run_one_round(self, *, labels: list[str], base: str, hold: Hold) -> None:
         """RFC-0010 T2：单轮——发现+派单，再 poll 已开 PR。
 
         从既有 run 循环体中机械抽取的私有方法，行为不变；抽出后供长驻模式 try/except
         包裹（单轮失败兜底）与 once 模式直接调用（异常上抛）复用。
+
+        Spec-0020/T3：把本次运行的 hold 透传给 messages.poll，让分流落到真正的闸门处。
         """
         self.discover_and_dispatch(labels=labels, base=base)
-        self._messages.poll()
+        self._messages.poll(hold=hold)
 
     def discover_and_dispatch(self, *, labels: list[str], base: str) -> list[int]:
         """发现段：列出标签门控的 open issue，按本地 State 三路分流派单（RFC-0004/0007）。

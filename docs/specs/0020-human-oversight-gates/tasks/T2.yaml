@@ -1,6 +1,6 @@
 id: T2
 title: hold 配置模型：解析 spec,merge 成闸门集合
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on: []

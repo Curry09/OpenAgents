@@ -22,15 +22,15 @@ graph LR
 
 | 任务 | 标题 | 优先级 | 状态 | 依赖 |
 |----|----|----|----|----|
-| T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | P1 | pending | — |
-| T2 | hold 配置模型：解析 spec,merge 成闸门集合 | P1 | pending | — |
-| T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | P0 | pending | T2 |
-| T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | P0 | pending | T1, T2, T3 |
-| T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | P2 | pending | T3, T4 |
+| T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | P1 | done | — |
+| T2 | hold 配置模型：解析 spec,merge 成闸门集合 | P1 | done | — |
+| T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | P0 | done | T2 |
+| T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | P0 | done | T1, T2, T3 |
+| T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | P2 | done | T3, T4 |
 
 ## 各任务方案
 
-### T1 · 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z（P1 / pending）
+### T1 · 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z（P1 / done）
 
 **涉及文件**
 
@@ -89,7 +89,7 @@ graph LR
 - issue #59「feat: 人类监督闸门」正文「前门对齐（issue 创建前）」。
 - CLAUDE.md 设计理念 1（奥卡姆）、5（人宏观把控）、10（模块解耦）。
 
-### T2 · hold 配置模型：解析 spec,merge 成闸门集合（P1 / pending）
+### T2 · hold 配置模型：解析 spec,merge 成闸门集合（P1 / done）
 
 **涉及文件**
 
@@ -149,7 +149,7 @@ issue #59 要的是**分级监督**：默认全自动不变，但人可以选择
 - issue #59 正文「vigil 分级监督（issue 已存在后）」与 `--hold` 取值表。
 - RFC-0015「流程标签单一来源」（openagents/github.py，另一既有、与本组无关的设计）：仅作同构思路引用——借鉴其「单点定义、多处引用」模式，**不**与本组 Spec-0020 同号或同范围。
 
-### T3 · 流水线分级闸：hold 穿到 poll 两道闸分流（P0 / pending）
+### T3 · 流水线分级闸：hold 穿到 poll 两道闸分流（P0 / done）
 
 **涉及文件**
 
@@ -237,7 +237,7 @@ flowchart TD
 
 - 「看 spec 批准」依赖 #58 的人类可读 summary：人对着一坨技术 task YAML 没法点头。本 Task 只做闸控机制，**不**实现 summary；spec 闸停下时人看到的批准依据（OVERVIEW summary）由 #58 / Spec-0014 体系提供。若 #58 未就绪，hold spec 仍能停/放行，只是人的阅读体验降级——需在 T5 e2e 与上线说明里点明这条软依赖。
 
-### T4 · CLI 接线：issue 前门对齐 + vigil --hold 标志（P0 / pending）
+### T4 · CLI 接线：issue 前门对齐 + vigil --hold 标志（P0 / done）
 
 **涉及文件**
 
@@ -298,7 +298,7 @@ cli.py 的既定职责是「唯一命令入口，仅做参数解析与分发，�
 - issue #59 验收条款：「openagents issue 在创建前有一轮对齐确认（可被 --yes 之类跳过）」「vigil --hold ... 按预期停在对应闸门」。
 - openagents/cli.py：现有 `_cmd_issue` / `_cmd_vigil` / `build_parser` 与「延迟 import、cli 只分发」惯例。
 
-### T5 · e2e 脚本：演示停在 spec → 人批 → 继续（P2 / pending）
+### T5 · e2e 脚本：演示停在 spec → 人批 → 继续（P2 / done）
 
 **涉及文件**
 

@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from openagents.align import Alignment
 from openagents.cli import build_parser, main
 from openagents.config import ProjectContext
 from openagents.github import Comment, Issue
+from openagents.hold import Hold
 
 COMMANDS = [
     "init",
@@ -287,7 +289,10 @@ def test_issue_runs_preflight_then_creates_issue(monkeypatch):
 
     monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
-    code = main(["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1"])
+    # Spec-0020/T4：--yes 跳过前门对齐，专注断言既有 label/发现标签行为（hermetic）。
+    code = main(
+        ["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1", "--yes"]
+    )
     assert code == 0
     assert calls == [True]
     # RFC-0002 决策 5：用户标签之外总会追加发现标签 openagents（去重）。
@@ -305,7 +310,7 @@ def test_issue_defaults_empty_body_and_attaches_discovery_label(monkeypatch):
 
     monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
-    code = main(["issue", "Just a title"])
+    code = main(["issue", "Just a title", "--yes"])
     assert code == 0
     assert seen == {"title": "Just a title", "body": "", "labels": ["openagents"]}
 
@@ -321,7 +326,7 @@ def test_issue_does_not_duplicate_discovery_label(monkeypatch):
 
     monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
-    code = main(["issue", "T", "--label", "openagents", "--label", "bug"])
+    code = main(["issue", "T", "--label", "openagents", "--label", "bug", "--yes"])
     assert code == 0
     assert seen == {"labels": ["openagents", "bug"]}
 
@@ -340,10 +345,131 @@ def test_issue_ensures_discovery_label_before_create(monkeypatch):
         return Issue(number=5, title=title, body=body)
 
     monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
-    code = main(["issue", "测试"])
+    code = main(["issue", "测试", "--yes"])
     assert code == 0
     # ensure 必须发生在 create 之前，且确保的是发现标签。
     assert order == [("ensure", "openagents"), ("create", ["openagents"])]
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0020/T4：issue 前门对齐（默认确认 / --yes 跳过）+ vigil --hold 接线
+# --------------------------------------------------------------------------- #
+
+
+def _patch_align(monkeypatch):
+    # 打桩 align.restate（不触达真实 LLM）与 backend 工厂；返回 restate 调用记录。
+    seen = {}
+
+    def fake_restate(*, draft, backend):
+        seen["draft"] = draft
+        return Alignment(want="X", boundary="Y", non_goals="Z")
+
+    monkeypatch.setattr("openagents.align.restate", fake_restate)
+    monkeypatch.setattr("openagents.cli._backend_for", lambda: object())
+    return seen
+
+
+def test_issue_default_path_aligns_then_creates_on_yes(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _patch_align(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    created = []
+
+    def fake_create_issue(*, title, body, labels):
+        created.append((title, labels))
+        return Issue(number=21, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "登录功能", "--body", "想登录"])
+    assert code == 0
+    # 建 issue 前先复述对齐（restate 被调用），确认 y 后才 create。
+    assert seen["draft"].title == "登录功能"
+    assert created == [("登录功能", ["openagents"])]
+
+
+def test_issue_default_path_declined_does_not_create(monkeypatch):
+    _patch_ensure(monkeypatch)
+    _patch_align(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+    created = []
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr(
+        "openagents.github.create_issue",
+        lambda *, title, body, labels: created.append(title),
+    )
+    code = main(["issue", "登录功能"])
+    # 否定应答 → 不建且非零退出。
+    assert code == 1
+    assert created == []
+
+
+def test_issue_yes_skips_alignment(monkeypatch):
+    _patch_ensure(monkeypatch)
+    restate_calls = []
+    monkeypatch.setattr(
+        "openagents.align.restate",
+        lambda *, draft, backend: restate_calls.append(draft),
+    )
+    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    created = []
+
+    def fake_create_issue(*, title, body, labels):
+        created.append(title)
+        return Issue(number=22, title=title, body=body)
+
+    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    code = main(["issue", "自动化建的", "--yes"])
+    assert code == 0
+    # --yes 跳过复述：restate 不被调用，直接 create。
+    assert restate_calls == []
+    assert created == ["自动化建的"]
+
+
+def _patch_vigil_capture(monkeypatch):
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    seen = {}
+
+    class _FakeVigil:
+        def run(self, *, interval, labels, base, once, hold):
+            seen["hold"] = hold
+
+    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    return seen
+
+
+def test_vigil_hold_spec_parsed_and_passed(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _patch_vigil_capture(monkeypatch)
+    code = main(["vigil", "--once", "--hold", "spec"])
+    assert code == 0
+    assert seen["hold"] == Hold(at_spec=True, at_merge=False)
+
+
+def test_vigil_hold_merge_parsed_and_passed(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _patch_vigil_capture(monkeypatch)
+    code = main(["vigil", "--once", "--hold", "merge"])
+    assert code == 0
+    assert seen["hold"] == Hold(at_spec=False, at_merge=True)
+
+
+def test_vigil_hold_both_parsed_and_passed(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _patch_vigil_capture(monkeypatch)
+    code = main(["vigil", "--once", "--hold", "spec,merge"])
+    assert code == 0
+    assert seen["hold"] == Hold(at_spec=True, at_merge=True)
+
+
+def test_vigil_invalid_hold_errors_cleanly(monkeypatch, capsys):
+    _patch_ensure(monkeypatch)
+    # 非法 --hold → parse_hold 抛 ValueError → _run 转干净一行提示 + 非零退出（不 traceback）。
+    code = main(["vigil", "--once", "--hold", "nope"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "✗" in err
+    assert "nope" in err
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):
@@ -420,8 +546,8 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once):
-            seen.update(interval=interval, labels=labels, base=base, once=once)
+        def run(self, *, interval, labels, base, once, hold):
+            seen.update(interval=interval, labels=labels, base=base, once=once, hold=hold)
 
     monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
     code = main(["vigil"])
@@ -429,8 +555,14 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     assert calls == [True]
     # RFC-0015：进主循环前自举恰一次。
     assert bootstrapped == [True]
-    # RFC-0012 决策 2：vigil 默认基线改为 test。
-    assert seen == {"interval": 60, "labels": ["openagents"], "base": "test", "once": False}
+    # RFC-0012 决策 2：vigil 默认基线改为 test。Spec-0020/T4：无 --hold → 默认全不停 Hold。
+    assert seen == {
+        "interval": 60,
+        "labels": ["openagents"],
+        "base": "test",
+        "once": False,
+        "hold": Hold(),
+    }
 
 
 def test_vigil_passes_all_overrides(monkeypatch):
@@ -440,15 +572,21 @@ def test_vigil_passes_all_overrides(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once):
-            seen.update(interval=interval, labels=labels, base=base, once=once)
+        def run(self, *, interval, labels, base, once, hold):
+            seen.update(interval=interval, labels=labels, base=base, once=once, hold=hold)
 
     monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
     code = main(
         ["vigil", "--once", "--interval", "5", "--label", "a", "--label", "b", "--base", "dev"]
     )
     assert code == 0
-    assert seen == {"interval": 5, "labels": ["a", "b"], "base": "dev", "once": True}
+    assert seen == {
+        "interval": 5,
+        "labels": ["a", "b"],
+        "base": "dev",
+        "once": True,
+        "hold": Hold(),
+    }
 
 
 def test_init_runs_interactive_preflight(monkeypatch):

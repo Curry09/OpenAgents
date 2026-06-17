@@ -66,11 +66,11 @@
 | 0014 | 0014/T4 | spec amend / abandon（历史追加 + 自动 render） | done | T1, T3 | openagents/spec/mutate.py<br>tests/test_spec_mutate.py |
 | 0014 | 0014/T5 | spec CLI + 编号校验脚本 + CI 接线 | done | T2, T3, T4 | openagents/spec/cli.py<br>scripts/check-spec-number-conflicts.py<br>.github/workflows/ci.yml<br>tests/test_spec_cli.py |
 | 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | done | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
-| 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | pending | — | openagents/align.py<br>tests/test_align.py |
-| 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | pending | — | openagents/hold.py<br>tests/test_hold.py |
-| 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | pending | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
-| 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | pending | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
-| 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | pending | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
+| 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | done | — | openagents/align.py<br>tests/test_align.py |
+| 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | done | — | openagents/hold.py<br>tests/test_hold.py |
+| 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
+| 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
 
 ## 跨 feature 关系图
 
@@ -268,8 +268,6 @@ graph LR
 
 ### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环（issue #0）
 
-> 人读方案见 [`0001-mvp-issue-to-pr-loop/summary.md`](./0001-mvp-issue-to-pr-loop/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 包骨架 + CLI 框架 + 后端接口契约"]
@@ -308,8 +306,6 @@ graph LR
 
 ### 0002 OpenAgents 主动提 issue（issue #0）
 
-> 人读方案见 [`0002-create-issue/summary.md`](./0002-create-issue/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 github 层 create_issue"]
@@ -333,8 +329,6 @@ graph LR
 ```
 
 ### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main（issue #0）
-
-> 人读方案见 [`0003-issue-worktree-isolation/summary.md`](./0003-issue-worktree-isolation/summary.md)。
 
 ```mermaid
 graph LR
@@ -363,8 +357,6 @@ graph LR
 
 ### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）（issue #9）
 
-> 人读方案见 [`0004-vigil-autonomous-loop/summary.md`](./0004-vigil-autonomous-loop/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 github 层 `list_issues`（标签门控的 issue 发现）"]
@@ -388,8 +380,6 @@ graph LR
 ```
 
 ### 0005 solve 原子化拆分 + RFC-first 评审循环（issue #0）
-
-> 人读方案见 [`0005-solve-atomization-rfc-first-loop/summary.md`](./0005-solve-atomization-rfc-first-loop/summary.md)。
 
 ```mermaid
 graph LR
@@ -429,8 +419,6 @@ graph LR
 
 ### 0006 守夜人识别 PR/issue 关闭作为终止信号（issue #0）
 
-> 人读方案见 [`0006-closed-pr-issue-termination/summary.md`](./0006-closed-pr-issue-termination/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 closed PR 识别为终止信号"]
@@ -446,8 +434,6 @@ graph LR
 ```
 
 ### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run（issue #0）
-
-> 人读方案见 [`0007-vigil-solving-resume/summary.md`](./0007-vigil-solving-resume/summary.md)。
 
 ```mermaid
 graph LR
@@ -477,8 +463,6 @@ graph LR
 
 ### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）（issue #0）
 
-> 人读方案见 [`0008-pr-e2e-signpost/summary.md`](./0008-pr-e2e-signpost/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 RFC 解析与指路牌渲染（纯模块）"]
@@ -506,8 +490,6 @@ graph LR
 ```
 
 ### 0009 合并后自动 rebase 其他 open PR（issue #24）
-
-> 人读方案见 [`0009-auto-rebase-open-prs-on-merge/summary.md`](./0009-auto-rebase-open-prs-on-merge/summary.md)。
 
 ```mermaid
 graph LR
@@ -542,8 +524,6 @@ graph LR
 
 ### 0010 gh 瞬时错误重试 + 守夜循环单轮容错（issue #0）
 
-> 人读方案见 [`0010-gh-transient-retry-and-vigil-round-guard/summary.md`](./0010-gh-transient-retry-and-vigil-round-guard/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 `_run_gh` 瞬时错误重试 + 指数退避"]
@@ -562,8 +542,6 @@ graph LR
 ```
 
 ### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）（issue #28）
-
-> 人读方案见 [`0011-agent-identity-comment-signature/summary.md`](./0011-agent-identity-comment-signature/summary.md)。
 
 ```mermaid
 graph LR
@@ -604,8 +582,6 @@ graph LR
 
 ### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入（issue #32）
 
-> 人读方案见 [`0012-test-branch-gated-flow/summary.md`](./0012-test-branch-gated-flow/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 reviewer 编排模块（N 并行 + 裁决聚合）"]
@@ -644,8 +620,6 @@ graph LR
 
 ### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）（issue #31）
 
-> 人读方案见 [`0013-implement-e2e-run-result-comment/summary.md`](./0013-implement-e2e-run-result-comment/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 e2e 实跑封装 + 结果评论渲染（纯模块）"]
@@ -673,8 +647,6 @@ graph LR
 ```
 
 ### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史（issue #35）
-
-> 人读方案见 [`0014-spec-snapshot-replaces-rfc/summary.md`](./0014-spec-snapshot-replaces-rfc/summary.md)。
 
 ```mermaid
 graph LR
@@ -720,8 +692,6 @@ graph LR
 
 ### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）
 
-> 人读方案见 [`0020-human-oversight-gates/summary.md`](./0020-human-oversight-gates/summary.md)。
-
 ```mermaid
 graph LR
     nT1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
@@ -756,15 +726,16 @@ graph LR
     v_T5_1["T5 v1"]
     v_T5_2["T5 v2"]
     v_T5_1 -->|redefined| v_T5_2
+    classDef st_done fill:#b7e4c7;
     classDef st_pending fill:#eeeeee;
     class v_T1_1 st_pending;
-    class v_T1_2 st_pending;
+    class v_T1_2 st_done;
     class v_T2_1 st_pending;
-    class v_T2_2 st_pending;
+    class v_T2_2 st_done;
     class v_T3_1 st_pending;
-    class v_T3_2 st_pending;
+    class v_T3_2 st_done;
     class v_T4_1 st_pending;
-    class v_T4_2 st_pending;
+    class v_T4_2 st_done;
     class v_T5_1 st_pending;
-    class v_T5_2 st_pending;
+    class v_T5_2 st_done;
 ```

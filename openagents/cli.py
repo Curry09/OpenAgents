@@ -67,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LABEL",
         help=f"给 issue 打标签（可重复）；总会附带发现标签 {DISCOVERY_LABEL!r}（决策 5）",
     )
+    # Spec-0020/T4：建 issue 前默认先复述对齐、请人确认；--yes 跳过确认直接建（供自动化）。
+    p_issue.add_argument(
+        "--yes",
+        action="store_true",
+        help="跳过建 issue 前的对齐确认，直接创建（供 vigil/CI 等自动化路径）",
+    )
 
     sub.add_parser("poll", help="拉取并处理所有 PR 的新评论（一次性）")
 
@@ -102,6 +108,13 @@ def build_parser() -> argparse.ArgumentParser:
     # RFC-0012 决策 2：派单起草 RFC 的分支基线默认改为 test。
     p_vigil.add_argument("--base", default="test", help="派单起草 RFC 的分支基线（默认 test）")
     p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+poll）后退出")
+    # Spec-0020/T4：分级监督——在指定意图闸门停下等人。默认 None（全自动不停，行为不变）。
+    p_vigil.add_argument(
+        "--hold",
+        default=None,
+        metavar="GATE",
+        help="在指定闸门停下等人：spec / merge / spec,merge（默认全自动不停）",
+    )
 
     # RFC-0012 决策 7：promote —— 人唯一的宏观决策点：预检通过则把 test 快进到 main。
     sub.add_parser("promote", help="把 test 体验服快进到 main（预检通过后扬升）")
@@ -126,12 +139,19 @@ def _agent_id_for(*, ctx: ProjectContext) -> str:
     return identity.resolve_agent_id(state=_state_for(repo_root=ctx.repo_root))
 
 
-def _orchestrator_for(*, ctx: ProjectContext):
+# Spec-0020/T4：单列 backend 工厂——issue 前门对齐（align）与 Orchestrator 共用同一个
+# ClaudeCodeBackend 抽象，延迟 import 保持 cli 顶层轻、测试可对工厂打桩（不触达真实 LLM）。
+def _backend_for():
     from openagents.backends.claude_code import ClaudeCodeBackend
+
+    return ClaudeCodeBackend()
+
+
+def _orchestrator_for(*, ctx: ProjectContext):
     from openagents.orchestrator import Orchestrator
 
     return Orchestrator(
-        backend=ClaudeCodeBackend(),
+        backend=_backend_for(),
         state=_state_for(repo_root=ctx.repo_root),
         work_dir=ctx.repo_root,
         agent_id=_agent_id_for(ctx=ctx),
@@ -224,11 +244,28 @@ def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0002 决策 5：在用户标签之外追加发现标签并去重（保留出现顺序），
     # 使 openagents 自己提的 issue 总能被守夜人发现。dict.fromkeys 既去重又保序。
     labels = list(dict.fromkeys([*args.label, DISCOVERY_LABEL]))
+    # Spec-0020/T4：默认先做一轮前门对齐——用 align（延迟 import）调 backend 把草稿复述成
+    # 三段，打印给人、读 y/n；未确认则干净中止（不建、非零退出）。复述/拆解逻辑都在 align，
+    # cli 只管打印 + 读输入 + 决定建不建（业务下沉、cli 只编排）。--yes 跳过供自动化路径。
+    if not args.yes and not _confirm_issue_alignment(title=args.title, body=args.body):
+        print("✗ 未确认对齐，已取消创建 issue", file=sys.stderr)
+        return 1
     # RFC-0002 决策 6：gh issue create --label 要求标签预先存在，先确保发现标签已建。
     github.ensure_label(name=DISCOVERY_LABEL)
     issue = github.create_issue(title=args.title, body=args.body, labels=labels)
     print(f"✓ 已创建 issue #{issue.number}：{issue.title}")
     return 0
+
+
+def _confirm_issue_alignment(*, title: str, body: str) -> bool:
+    # Spec-0020/T4：建 issue 前的前门对齐——复述给人看，读应答判定是否放行。
+    from openagents import align
+
+    alignment = align.restate(draft=align.Draft(title=title, body=body), backend=_backend_for())
+    print("提 issue 前先对齐一下范围：")
+    print(alignment.render())
+    answer = input("看起来对吗？确认创建请输入 y / yes：")
+    return align.is_confirmed(answer=answer)
 
 
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
@@ -264,12 +301,19 @@ def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
+    from openagents.hold import parse_hold
+
     labels = args.label if args.label else [DISCOVERY_LABEL]
+    # Spec-0020/T4：把 --hold 原始串解析成 Hold（None → 默认全不停），传给 vigil.run；
+    # 非法值由 parse_hold 抛 ValueError，经 _run 的异常通道转干净一行提示（不 traceback）。
+    hold = parse_hold(raw=args.hold)
     # RFC-0015：进主循环前自举一次结构性 prerequisite（test 分支 + 流程标签），使无人值守
     # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段，根除「缺 test 分支
     # 致 prepare 永久死循环」。只在进循环前一次，不进每轮循环（vigil「无人值守自恢复」定位）。
     github.ensure_prerequisites()
-    _vigil_for(ctx=ctx).run(interval=args.interval, labels=labels, base=args.base, once=args.once)
+    _vigil_for(ctx=ctx).run(
+        interval=args.interval, labels=labels, base=args.base, once=args.once, hold=hold
+    )
     return 0
 
 
@@ -341,7 +385,9 @@ def _run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    except (OrchestratorError, GithubError, WorkspaceError, RuntimeError) as exc:
+    except (OrchestratorError, GithubError, WorkspaceError, RuntimeError, ValueError) as exc:
+        # Spec-0020/T4：ValueError 纳入已知运行期错误——vigil --hold 非法值由 hold.parse_hold
+        # 抛 ValueError，在此转成干净一行提示 + 非零退出，而非把 traceback 糊用户一脸。
         print(f"✗ {exc}", file=sys.stderr)
         return 1
 

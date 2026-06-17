@@ -1,6 +1,6 @@
 id: T4
 title: CLI 接线：issue 前门对齐 + vigil --hold 标志
-status: pending
+status: done
 priority: P0
 tags: []
 depends-on:
