@@ -29,7 +29,8 @@ trap 'rm -rf "$sandbox"' EXIT
 specs="$sandbox/specs"
 
 echo "--> 步骤 1：spec new 建组 + spec add-task 加两个子任务（${specs}）"
-uv run spec new mvp-issue-to-pr-loop --issue 1 --title "MVP 自举闭环" --specs-root "$specs"
+uv run spec new mvp-issue-to-pr-loop --issue 1 --title "MVP 自举闭环" \
+  --summary "从仓库拉 issue、派 agent 解决、提 PR 的最小自举闭环。" --specs-root "$specs"
 uv run spec add-task 0001 --id T1 --title "包骨架" --priority P0 \
   --files openagents/cli.py --specs-root "$specs"
 uv run spec add-task 0001 --id T2 --title "GitHub 集成" --priority P1 \
@@ -40,7 +41,7 @@ uv run spec validate --specs-root "$specs"
 
 echo "--> 步骤 3：spec render 生成 OVERVIEW.md 并断言四块齐全"
 uv run spec render --specs-root "$specs"
-for heading in "## 全局看板" "## 跨 feature 关系图" "## 文件冲突报告" "## 各 feature 详情"; do
+for heading in "## TL;DR（人话速览）" "## 全局看板" "## 跨 feature 关系图" "## 文件冲突报告" "## 各 feature 详情"; do
   grep -qF "$heading" "$specs/OVERVIEW.md" || { echo "缺少区块：$heading"; exit 1; }
 done
 
