@@ -15,13 +15,13 @@ graph LR
 
 | 任务 | 标题 | 优先级 | 状态 | 依赖 |
 |----|----|----|----|----|
-| T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | P1 | pending | — |
-| T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | P0 | pending | T1 |
-| T3 | 裁决评论幂等：同一裁决不每轮重发 | P1 | pending | — |
+| T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | P1 | done | — |
+| T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | P0 | done | T1 |
+| T3 | 裁决评论幂等：同一裁决不每轮重发 | P1 | done | — |
 
 ## 各任务方案
 
-### T1 · github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）（P1 / pending）
+### T1 · github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）（P1 / done）
 
 **涉及文件**
 
@@ -110,7 +110,7 @@ def mergeability(*, pr_number: int) -> Mergeability: ...
   （CLEAN/DIRTY/BLOCKED/BEHIND/DRAFT/HAS_HOOKS/UNKNOWN/UNSTABLE）枚举。
 - 实例：issue #62 根因复现 PR #61 / issue #58（DIRTY/CONFLICTING）。
 
-### T2 · 代码闸可合并性预检 + poll 单 PR 错误隔离（P0 / pending）
+### T2 · 代码闸可合并性预检 + poll 单 PR 错误隔离（P0 / done）
 
 **涉及文件**
 
@@ -225,7 +225,7 @@ try/except（沿用 RFC-0004 决策 8 / `rebase.rebase_open_prs` 的错误隔离
 - 依赖：本组 T1 `github.mergeability`。
 - 实例：issue #62 / PR #61（33 次重复 PASS、整轮 poll 崩）。
 
-### T3 · 裁决评论幂等：同一裁决不每轮重发（P1 / pending）
+### T3 · 裁决评论幂等：同一裁决不每轮重发（P1 / done）
 
 **涉及文件**
 
