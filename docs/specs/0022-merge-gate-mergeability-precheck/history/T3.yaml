@@ -1,0 +1,87 @@
+  - id: T3
+    title: 裁决评论幂等：同一裁决不每轮重发
+    status: pending
+    priority: P1
+    tags: []
+    depends-on: []
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/orchestrator.py
+      - tests/test_orchestrator.py
+    version: 1
+    updated: '2026-06-18'
+    change-reason: ''
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: |-
+      让裁决评论幂等：reviewer 闸每轮都回贴一条「## 评审闸裁决」评论，同一裁决连发会刷屏
+      （实例：33 条相同 PASS）。`_post_review_decision` 发评论前先查既有评论，若同类裁决结论
+      与上次相同则跳过重发，作为 T2 之外的兜底纵深防御。
+    motivation: |-
+      RFC-0018 让 reviewer 闸把裁决回贴 PR（恢复人对评审闸的可观测性）。但回贴是**无条件每轮发**：
+      只要 record 仍在 coding/rfc-review 阶段、每个 interval 重跑一次 reviewer，就重发一条裁决评论。
+      实例 PR #61 因 merge 反复失败、PR 长期 open，刷出 33 条一模一样的 `## 评审闸裁决 ✅ PASS`。
+
+      T2 的可合并性预检会让 PR #61 这类真冲突 PR 一次性进 blocked、不再重跑 reviewer——直接消灭该
+      实例的刷屏源头。本 Task 是**正交的纵深防御**：任何「PR 长期 open 且裁决不变」的场景（不限于
+      冲突）都不该把同一裁决刷成几十条。对应 issue 期望第 3 条「裁决评论去重 / 幂等」。
+    scope: ''
+    design: |-
+      只改 `openagents/orchestrator.py` 的 `_post_review_decision`（裁决产生即回贴的单点收口）。
+      发评论前先查 PR 既有评论，按裁决结论去重：
+
+      ```mermaid
+      flowchart TD
+        A["_post_review_decision(kind, decision)"] --> B["github.list_comments(pr_number)"]
+        B --> C{"最近一条同 kind 裁决评论<br/>结论与本轮相同？"}
+        C -->|"是"| S["跳过：_progress 记一句，不重发"]
+        C -->|"否 / 无既往裁决"| P["identity.post_signed_comment 照发"]
+        B -.->|"list_comments 抛错"| P
+      ```
+
+      - **识别裁决评论**：靠 `reviewer.render_decision` 输出的稳定抬头 `## 评审闸裁决`（已存在，
+        不改 reviewer），并结合 kind（rfc / code）区分两道闸——抬头/正文里已带 kind 语义即可，
+        必要时按渲染文本特征筛选。只读 `github.list_comments`（已存在），不改 github。
+      - **去重粒度 = 裁决结论（PASS / 非 PASS）**：比对「最近一条同 kind 裁决评论的结论」与本轮
+        `decision.passed`。相同 → 跳过；不同（PASS↔非 PASS 翻转）或此前无裁决评论 → 照发。
+        **不按正文逐字节比对**：票数渲染（「N 中 X 票 PASS」）或反馈措辞每轮可能微变，逐字节会
+        判「不同」而继续刷屏，违背意图；按结论去重才真正止血。
+      - **尽力而为，绝不阻断**（沿用 RFC-0018 决策 2）：`list_comments` 或比对中任何异常都
+        `except` 后**降级为照常发送**，仅 `_progress` 记一句——评审闸与下游 refine/iterate/merge
+        不得被去重逻辑拖崩或拦住。整个 `_post_review_decision` 本就是 best-effort 旁路。
+      - 与 T2 的关系：T2 用状态机短路（blocked 后不再进闸）止住冲突 PR 的源头；T3 用评论比对兜
+        所有其它「裁决不变仍重发」场景。两者正交、可独立验证、文件不相交。
+    interface: |-
+      - 无对外签名变更：`_post_review_decision(*, pr_number, kind, decision)` 行为内收敛为「同结论
+        跳过、否则照发」。
+      - 复用既有：`github.list_comments`（只读）、`reviewer.render_decision` 的稳定抬头、
+        `identity.post_signed_comment`、`self._agent_id`、`self._progress`。不新增模块/数据类型。
+    tradeoffs: |-
+      - **按裁决结论去重 vs 正文逐字节去重**：选结论。票数/措辞每轮微变会让逐字节比对失效、继续
+        刷屏；按 PASS/非 PASS 结论去重才命中「同一裁决不重发」的真实意图。代价：同结论但反馈正文
+        更新的那一版不会重贴——可接受（人需要的是「结论变了」的信号，细节在 worktree/日志可查）。
+      - **每轮多查一次 list_comments 的开销**：可接受。reviewer 闸本就每轮跑 N 个 agent（重得多），
+        一次只读 gh 查询微不足道，换来不刷屏的可观测性。
+      - **去重放 orchestrator vs reviewer**：放 orchestrator。回贴本就收口在 `_post_review_decision`；
+        reviewer 保持「输入 diff → 输出裁决」的纯函数，不沾 PR 评论状态（理念 10 解耦）。
+      - **去重失败时默认照发 vs 默认跳过**：默认照发（fail-open）。宁可偶尔多一条评论，也不能因查询
+        抖动而漏发裁决、损害可观测性；与 best-effort 旁路语义一致。
+    acceptance: ''
+    tests: |-
+      `tests/test_orchestrator.py`（monkeypatch `github.list_comments` / `identity.post_signed_comment`
+      / reviewer，hermetic）：
+      - **同结论跳过**：既有评论已含一条同 kind PASS 裁决 → 本轮 PASS 不再调 `post_signed_comment`。
+      - **结论翻转照发**：既有为 PASS、本轮非 PASS（或反之）→ 正常发新评论。
+      - **首次照发**：无既往裁决评论 → 正常发。
+      - **kind 隔离**：既有 rfc 裁决不抑制 code 裁决（反之亦然）。
+      - **降级**：`list_comments` 抛错 → 不抛出、降级为照发，且评审闸/返回的 ReviewDecision 不受影响。
+    references: |-
+      - 改动点：`openagents/orchestrator.py` `_post_review_decision`（239-253）、`_review`（219-237）。
+      - 复用：`openagents/github.py` `list_comments`（304）；`openagents/reviewer.py` `render_decision`
+        （裁决抬头 `## 评审闸裁决`）；`openagents/identity.py` `post_signed_comment`（79）。
+      - 背景：RFC-0018（裁决回贴 PR、best-effort 旁路）。
+      - 实例：issue #62 / PR #61（33 条相同 PASS 评论）。
+    open-questions: ''

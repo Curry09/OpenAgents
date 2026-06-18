@@ -9,9 +9,9 @@ parallel: false
 files:
   - openagents/orchestrator.py
   - tests/test_orchestrator.py
-version: 1
+version: 2
 updated: '2026-06-18'
-change-reason: ''
+change-reason: 评审意见：校准 _review 引用行号到精确值（止于 return decision）
 supersedes: []
 split-from:
 merged-from: []
@@ -28,6 +28,7 @@ motivation: |-
   T2 的可合并性预检会让 PR #61 这类真冲突 PR 一次性进 blocked、不再重跑 reviewer——直接消灭该
   实例的刷屏源头。本 Task 是**正交的纵深防御**：任何「PR 长期 open 且裁决不变」的场景（不限于
   冲突）都不该把同一裁决刷成几十条。对应 issue 期望第 3 条「裁决评论去重 / 幂等」。
+scope: ''
 design: |-
   只改 `openagents/orchestrator.py` 的 `_post_review_decision`（裁决产生即回贴的单点收口）。
   发评论前先查 PR 既有评论，按裁决结论去重：
@@ -68,6 +69,7 @@ tradeoffs: |-
     reviewer 保持「输入 diff → 输出裁决」的纯函数，不沾 PR 评论状态（理念 10 解耦）。
   - **去重失败时默认照发 vs 默认跳过**：默认照发（fail-open）。宁可偶尔多一条评论，也不能因查询
     抖动而漏发裁决、损害可观测性；与 best-effort 旁路语义一致。
+acceptance: ''
 tests: |-
   `tests/test_orchestrator.py`（monkeypatch `github.list_comments` / `identity.post_signed_comment`
   / reviewer，hermetic）：
@@ -77,7 +79,7 @@ tests: |-
   - **kind 隔离**：既有 rfc 裁决不抑制 code 裁决（反之亦然）。
   - **降级**：`list_comments` 抛错 → 不抛出、降级为照发，且评审闸/返回的 ReviewDecision 不受影响。
 references: |-
-  - 改动点：`openagents/orchestrator.py` `_post_review_decision`（239-253）、`_review`（219-237）。
+  - 改动点：`openagents/orchestrator.py` `_post_review_decision`（239-253）、`_review`（219-236）。
   - 复用：`openagents/github.py` `list_comments`（304）；`openagents/reviewer.py` `render_decision`
     （裁决抬头 `## 评审闸裁决`）；`openagents/identity.py` `post_signed_comment`（79）。
   - 背景：RFC-0018（裁决回贴 PR、best-effort 旁路）。

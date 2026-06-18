@@ -10,9 +10,9 @@ parallel: false
 files:
   - openagents/messages.py
   - tests/test_messages.py
-version: 1
+version: 2
 updated: '2026-06-18'
-change-reason: ''
+change-reason: 评审意见：校准证据行号到精确值（poll 循环体含 return events 收尾）
 supersedes: []
 split-from:
 merged-from: []
@@ -25,7 +25,7 @@ summary: |-
 motivation: |-
   根因（issue #62）：`_process_coding` 在 CI 绿 + reviewer PASS 后直接 `github.merge_pr`
   （messages.py:230），而 `merge_pr` 遇冲突由 `_run_gh` 抛 `GithubError`；该调用**无 try/except**，
-  `poll()` 逐 record（messages.py:117-124）也不兜异常 → 一旦某个 PR 不可合并，**整轮 poll 崩**。
+  `poll()` 逐 record（messages.py:117-125）也不兜异常 → 一旦某个 PR 不可合并，**整轮 poll 崩**。
   又因进闸前不查可合并性，每个 interval 重跑一遍 reviewer（白烧一次 agent 运行）→ 又判
   PASS → 又 merge 失败 → 又崩。实例 PR #61 由此重复判 PASS 33 次、刷 33 条相同 PASS 评论、
   永远合不进去（自动 rebase 救不回来：`update-branch` 非真 rebase，14 个 metadata.yaml 是内容
@@ -33,6 +33,7 @@ motivation: |-
 
   本 Task 对症两处：**预检**让真冲突的 PR 一次性进 blocked、停止空转；**错误隔离**把「单
   PR 失败」从「整轮崩」降级为「跳过这一个、其余照跑」，符合 issue 验收第二条。
+scope: ''
 design: |-
   改 `openagents/messages.py` 两处，均不新增模块、不改状态机定义（理念 1）。
 
@@ -89,6 +90,7 @@ tradeoffs: |-
     应有一处文案来源，避免 RFC-0009 与本组各写一句、日后漂移。
   - **「恰一条评论」靠状态机短路 vs 靠评论去重**：靠状态机（blocked 后 poll 跳过）。零新状态、
     天然幂等；比每轮查评论再比对更省、更不易错。
+acceptance: ''
 tests: |-
   `tests/test_messages.py`（monkeypatch `github.*` / `identity.*` / orchestrator，hermetic）：
   - **预检冲突**：`mergeability` 返回 DIRTY/CONFLICTING → 不调 `review_code`、不调 `merge_pr`；
@@ -102,7 +104,7 @@ tests: |-
   - 全程不触真实 gh。
 references: |-
   - 崩点：`openagents/messages.py` `_process_coding`（210）`github.merge_pr`（230，无 try/except）、
-    `poll` 逐 record 循环（117-124，不兜异常）、blocked 跳过分支 `_process_run`（168）、
+    `poll` 逐 record 循环（117-125，不兜异常）、blocked 跳过分支 `_process_run`（168）、
     兜底 `_block`（243）。
   - 错误隔离范式：`openagents/rebase.py` `rebase_open_prs`（55-76，单 PR 失败 continue），
     RFC-0004 决策 8。
