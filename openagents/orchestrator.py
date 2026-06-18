@@ -242,15 +242,51 @@ class Orchestrator:
         结构镜像 RFC-0013 的 `_post_e2e_result`（决策 1/2）：渲染由 reviewer.render_decision
         负责（票数语义属 reviewer 领域知识），盖章复用 identity.post_signed_comment（RFC-0011
         唯一出口）；任何 gh 故障都不得阻断评审闸与下游 refine/iterate/merge（决策 2）。
+
+        Spec-0022/T3：发评论前按「同 kind 同结论」去重——最近一条同类裁决评论结论与本轮相同
+        则跳过重发，止住「PR 长期 open、裁决不变」刷屏（实例 PR #61 的 33 条相同 PASS）。去重
+        是尽力而为旁路：查询/比对的任何异常都 fail-open 降级为照常发送（决策 2：宁可多发一条，
+        也不因查询抖动漏发裁决、损害可观测性）。
         """
+        body = reviewer.render_decision(decision=decision, kind=kind)
+        try:
+            if self._decision_already_posted(pr_number=pr_number, rendered=body):
+                self._progress(message=f"↩ PR #{pr_number} 同结论裁决评论已存在，跳过重发")
+                return
+        except Exception as error:  # noqa: BLE001 — 去重尽力而为，查询抖动不得漏发裁决
+            self._progress(message=f"⚠ 裁决去重查询失败（降级为照发）：{error}")
         try:
             identity.post_signed_comment(
                 pr_number=pr_number,
-                body=reviewer.render_decision(decision=decision, kind=kind),
+                body=body,
                 agent_id=self._agent_id,
             )
         except Exception as error:  # noqa: BLE001 — 旁路尽力而为，任何 gh 故障都不得阻断评审闸
             self._progress(message=f"⚠ 裁决评论发送失败（已忽略）：{error}")
+
+    def _decision_already_posted(self, *, pr_number: int, rendered: str) -> bool:
+        """Spec-0022/T3：本轮裁决是否与 PR 上最近一条同 kind 裁决评论结论相同。
+
+        从 rendered（reviewer.render_decision 输出）自身抽取「抬头 / 类型 / 裁决」三行作为匹配
+        特征——不重复 reviewer 文案、随其措辞自动同步（理念 10）。去重粒度 = 裁决结论（PASS /
+        非 PASS）：只比对类型行 + 裁决行，**不逐字节比对**票数/反馈措辞（它们每轮可能微变，逐字节
+        会判「不同」而继续刷屏）。只读 github.list_comments，不改任何状态。
+        """
+        lines = rendered.splitlines()
+        header_line = lines[0]  # "## 评审闸裁决"——reviewer 渲染的稳定抬头
+        kind_line = next(line for line in lines if line.startswith("- 类型："))
+        verdict_line = next(line for line in lines if line.startswith("- 裁决："))
+        # 同 kind 裁决评论：评论正文含抬头行 + 同类型行（区分 rfc / code 两道闸，互不抑制）。
+        same_kind = [
+            comment
+            for comment in github.list_comments(pr_number=pr_number)
+            if header_line in comment.body.splitlines() and kind_line in comment.body.splitlines()
+        ]
+        if not same_kind:
+            return False
+        # 取最近一条（created_at 为 ISO 8601，可按字典序比较）比对结论：含同一裁决行即重复。
+        latest = max(same_kind, key=lambda comment: comment.created_at)
+        return verdict_line in latest.body.splitlines()
 
     def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
         """RFC-0013：定位本分支 spec 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。

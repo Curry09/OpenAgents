@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import time
 
-from openagents import github, indexheal, rebase
+from openagents import github, identity, indexheal, rebase
 from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
 from openagents.orchestrator import Orchestrator
@@ -140,7 +140,16 @@ class Messages:
             # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
             if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
                 continue
-            event = self._process_run(record=record, hold=hold)
+            # Spec-0022/T2：单 record 错误隔离（沿用 RFC-0004 决策 8 / rebase_open_prs 风格）——
+            # 单个 PR 处理失败（含 merge_pr 抛 GithubError）只追加一条 error 事件并 continue，绝不让
+            # 异常冒泡掀翻整轮 poll。不改 state：失败可能是瞬时 gh 错误，记录可观测、下一轮自然重试。
+            try:
+                event = self._process_run(record=record, hold=hold)
+            except Exception as error:  # noqa: BLE001 — 错误隔离：单 record 失败不拖垮整轮
+                events.append(
+                    {"pr_number": record.pr_number, "reason": "error", "error": str(error)}
+                )
+                continue
             if event is not None:
                 events.append(event)
         return events
@@ -239,6 +248,22 @@ class Messages:
     def _process_coding(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """代码评审闸（RFC-0012 决策 1）：CI 失败→iterate(ci)；CI 绿+reviewer PASS→merge；非 PASS→iterate 或 BLOCKED。"""
         pr_number = record.pr_number
+        # Spec-0022/T2：跑 reviewer 前先做可合并性预检——真冲突的 PR 连 CI 都不必等，越早短路越省。
+        # 判定取「或」更稳：DIRTY 与 CONFLICTING 在冲突场景同时出现（实例 PR #61）。
+        merge_state = github.mergeability(pr_number=pr_number)
+        if merge_state.merge_state_status == "DIRTY" or merge_state.mergeable == "CONFLICTING":
+            # 真冲突：发一次 rebase 提示（复用 rebase.CONFLICT_COMMENT 单一文案来源，避免漂移），
+            # 再走既有 _block 置 BLOCKED+needs-human。「恰一条评论」由状态机短路天然保证：blocked
+            # 后下一轮 poll 经 _process_run 的 blocked 分支 return None，永不再进 _process_coding。
+            identity.post_signed_comment(
+                pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
+            )
+            self._block(record=record, gate="merge")
+            return {"pr_number": pr_number, "reason": "unmergeable"}
+        if merge_state.mergeable == "UNKNOWN":
+            # GitHub 异步尚未算完（刚 push 常见）：本轮不评审也不 block，下个 interval 重查——
+            # 避免「未就绪→误 block 正常 PR」与「白跑 reviewer」两头错。
+            return None
         # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
         status = github.check_status(pr_number=pr_number)
         if status.state == "fail":

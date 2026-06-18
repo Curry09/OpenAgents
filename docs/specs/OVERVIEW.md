@@ -73,6 +73,9 @@
 | 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
 | 0021 | 0021/T1 | reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0021 | 0021/T2 | 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级 | done | T1 | openagents/messages.py<br>tests/test_messages.py<br>openagents/state.py<br>tests/test_state.py |
+| 0022 | 0022/T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | done | — | openagents/github.py<br>tests/test_github.py |
+| 0022 | 0022/T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | done | T1 | openagents/messages.py<br>tests/test_messages.py |
+| 0022 | 0022/T3 | 裁决评论幂等：同一裁决不每轮重发 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 
 ## 跨 feature 关系图
 
@@ -177,6 +180,11 @@ graph LR
         n0021_T1["T1 reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析"]
         n0021_T2["T2 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级"]
     end
+    subgraph G0022[0022 merge-gate-mergeability-precheck]
+        n0022_T1["T1 github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）"]
+        n0022_T2["T2 代码闸可合并性预检 + poll 单 PR 错误隔离"]
+        n0022_T3["T3 裁决评论幂等：同一裁决不每轮重发"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -242,6 +250,7 @@ graph LR
     n0020_T5 --> n0020_T3
     n0020_T5 --> n0020_T4
     n0021_T2 --> n0021_T1
+    n0022_T2 --> n0022_T1
 ```
 
 ## 文件冲突报告
@@ -251,9 +260,9 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | openagents/backends/claude_code.py | 0001, 0003 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
@@ -263,9 +272,9 @@ graph LR
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_reviewer.py | 0012, 0021 |
 | tests/test_rfc.py | 0008, 0013 |
@@ -781,4 +790,43 @@ graph LR
     class v_T2_1 st_pending;
     class v_T2_2 st_in_progress;
     class v_T2_3 st_done;
+```
+
+### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等（issue #62）
+
+```mermaid
+graph LR
+    nT1["T1 github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）"]
+    nT2["T2 代码闸可合并性预检 + poll 单 PR 错误隔离"]
+    nT3["T3 裁决评论幂等：同一裁决不每轮重发"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_3["T2 v3"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T2_2 -->|redefined| v_T2_3
+    v_T3_1["T3 v1"]
+    v_T3_2["T3 v2"]
+    v_T3_3["T3 v3"]
+    v_T3_1 -->|redefined| v_T3_2
+    v_T3_2 -->|redefined| v_T3_3
+    classDef st_done fill:#b7e4c7;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T1_2 st_done;
+    class v_T2_1 st_pending;
+    class v_T2_2 st_pending;
+    class v_T2_3 st_done;
+    class v_T3_1 st_pending;
+    class v_T3_2 st_pending;
+    class v_T3_3 st_done;
 ```

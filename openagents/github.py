@@ -114,6 +114,22 @@ class CheckStatus:
     failed_logs: list[str]
 
 
+@dataclass(frozen=True)
+class Mergeability:
+    """Spec-0022/T1：PR 的可合并性快照——如实承载 GitHub 的两个原始字段，零业务判定。
+
+    mergeable: GitHub `mergeable` 原值——MERGEABLE / CONFLICTING / UNKNOWN。
+    merge_state_status: GitHub `mergeStateStatus` 原值——CLEAN / DIRTY / BLOCKED /
+        BEHIND / UNKNOWN / …（保持大写字符串，不在本层归一化或转布尔）。
+
+    用 frozen dataclass（仿 CheckStatus）而非裸 tuple/dict，让调用方按字段名读、避免
+    位置歧义；「哪种组合算不可合并」的判定留给调用方（理念 10：github 是薄 gh 封装）。
+    """
+
+    mergeable: str
+    merge_state_status: str
+
+
 def _is_transient_gh_error(*, stderr: str) -> bool:
     """RFC-0010 决策 2：stderr 是否命中瞬时服务端故障标记（HTTP 502/503/504 / Bad
     Gateway / Gateway Timeout / Service Unavailable）。纯函数，便于单测。"""
@@ -521,6 +537,33 @@ def is_merged(*, pr_number: int) -> bool:
     if not isinstance(data, dict):
         raise GithubError("gh pr view 返回了非预期的结构")
     return str(data.get("state") or "").upper() == "MERGED"
+
+
+def mergeability(*, pr_number: int) -> Mergeability:
+    """Spec-0022/T1：查 PR 可合并性（`gh pr view <n> --json mergeable,mergeStateStatus`）。
+
+    结构镜像 is_merged / is_closed：经唯一收口点 _gh_json 跑 gh（自带 RFC-0010 瞬时重试），
+    一次取回两字段（同源快照、省一次往返、避免读到不一致的中间态）。只如实回传 GitHub
+    原值大写字符串，不做任何归一化或布尔判定——「哪种组合算冲突」由调用方（Spec-0022/T2）决定。
+
+    UNKNOWN（GitHub 异步尚未算完，刚 push 常见）是**合法返回值**，照实回传、本层不视为错误。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "mergeable,mergeStateStatus"],
+        allow_returncodes=set(),
+    )
+    # 非 dict 或缺任一字段都算非预期结构（缺字段 ≠ UNKNOWN：后者是 gh 返回的合法大写值，
+    # 照实回传；前者是结构异常，比照 is_merged 抛 GithubError）。
+    if (
+        not isinstance(data, dict)
+        or data.get("mergeable") is None
+        or data.get("mergeStateStatus") is None
+    ):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return Mergeability(
+        mergeable=str(data["mergeable"]).upper(),
+        merge_state_status=str(data["mergeStateStatus"]).upper(),
+    )
 
 
 def pr_head_branch(*, pr_number: int) -> str:
