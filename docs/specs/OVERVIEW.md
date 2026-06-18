@@ -71,8 +71,8 @@
 | 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
 | 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
 | 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
-| 0021 | 0021/T1 | reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析 | pending | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0021 | 0021/T2 | 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级 | pending | T1 | openagents/messages.py<br>tests/test_messages.py<br>openagents/state.py<br>tests/test_state.py |
+| 0021 | 0021/T1 | reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0021 | 0021/T2 | 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级 | done | T1 | openagents/messages.py<br>tests/test_messages.py<br>openagents/state.py<br>tests/test_state.py |
 
 ## 跨 feature 关系图
 
@@ -763,8 +763,22 @@ graph LR
 ```mermaid
 graph LR
     v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_3["T1 v3"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T1_2 -->|redefined| v_T1_3
     v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_3["T2 v3"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T2_2 -->|redefined| v_T2_3
+    classDef st_done fill:#b7e4c7;
+    classDef st_in_progress fill:#fff3b0;
     classDef st_pending fill:#eeeeee;
     class v_T1_1 st_pending;
+    class v_T1_2 st_in_progress;
+    class v_T1_3 st_done;
     class v_T2_1 st_pending;
+    class v_T2_2 st_in_progress;
+    class v_T2_3 st_done;
 ```

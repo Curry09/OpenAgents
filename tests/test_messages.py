@@ -38,7 +38,12 @@ from openagents.state import (
 _AGENT_ID = "agent-self"
 
 _PASS = ReviewDecision(passed=True, feedback="")
-_FAIL = ReviewDecision(passed=False, feedback="补单测；处理空输入")
+# Spec-0021/T2：真 REWORK（actionable）—— reviewer 解析出 REWORK 且带可操作反馈正文。
+_FAIL = ReviewDecision(passed=False, feedback="补单测；处理空输入", actionable=True)
+# Spec-0021/T2：评审无效—— 非 PASS 但 actionable=False（裁决无法解析/无可操作反馈）。
+_INVALID = ReviewDecision(
+    passed=False, feedback="（reviewer 未给出可解析的裁决）", actionable=False
+)
 
 
 class _FakeOrchestrator:
@@ -94,13 +99,23 @@ class _FakeState:
                 return record.rounds
         return 0
 
+    def increment_review_invalid(self, *, issue_number):
+        # Spec-0021/T2：镜像 increment_rounds，但计「评审无效」轮次（独立于 rounds）。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.review_invalid += 1
+                return record.review_invalid
+        return 0
+
     def reset_rounds(self, *, issue_number):
+        # Spec-0021/T2：reset_rounds 同点把 review_invalid 一并归零。
         for record in self._runs:
             if record.issue_number == issue_number:
                 record.rounds = 0
+                record.review_invalid = 0
 
 
-def _run(*, issue_number, pr_number, status, rounds=0):
+def _run(*, issue_number, pr_number, status, rounds=0, review_invalid=0):
     return RunRecord(
         issue_number=issue_number,
         branch=f"openagents/issue-{issue_number}",
@@ -109,6 +124,7 @@ def _run(*, issue_number, pr_number, status, rounds=0):
         status=status,
         summary="",
         rounds=rounds,
+        review_invalid=review_invalid,
     )
 
 
@@ -387,6 +403,108 @@ def test_rounds_boundary_k_minus_one_does_not_block(monkeypatch):
     assert state.all_runs()[0].rounds == 2
     assert any(e["reason"] == "refine" for e in events)
     assert all(e["reason"] != "blocked" for e in events)
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0021/T2：评审无效不吃 round、不空转、独立重试上限后诚实升级
+# --------------------------------------------------------------------------- #
+
+
+def test_spec_gate_invalid_review_no_round_no_refine(monkeypatch):
+    # 截断好评（passed=False、actionable=False）在 spec 闸：不 increment_rounds、不 refine_rfc，
+    # 返回 review-invalid 事件；只递增独立的 review_invalid 计数。
+    monkeypatch.setattr(messages_module, "MAX_REVIEW_RETRIES", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)], rfc_decision=_INVALID
+    )
+    _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll()
+
+    assert orch.refine_calls == []
+    assert orch.implement_calls == []
+    assert state.all_runs()[0].rounds == 0  # 不吃 round
+    assert state.all_runs()[0].review_invalid == 1  # 独立计数 +1
+    assert any(e["reason"] == "review-invalid" for e in events)
+
+
+def test_merge_gate_invalid_review_no_round_no_iterate(monkeypatch):
+    # 截断好评在 merge 闸：CI 绿但 reviewer 评审无效 → 不 iterate、不计 round、不 merge。
+    monkeypatch.setattr(messages_module, "MAX_REVIEW_RETRIES", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_INVALID
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll()
+
+    assert orch.iterate_calls == []
+    assert rec["merged"] == []
+    assert state.all_runs()[0].rounds == 0
+    assert state.all_runs()[0].review_invalid == 1
+    assert any(e["reason"] == "review-invalid" for e in events)
+
+
+def test_invalid_review_over_retries_blocks_with_unparseable_gate(monkeypatch):
+    # 连续达 MAX_REVIEW_RETRIES 次评审无效 → _block 打 needs-human，gate 标识为 reviewer 输出无法解析
+    # （可断言区别于真 REWORK 的 block：gate=rfc-unparseable，而非 rfc）。
+    monkeypatch.setattr(messages_module, "MAX_REVIEW_RETRIES", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW, review_invalid=1)],
+        rfc_decision=_INVALID,
+    )
+    rec = _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll()
+
+    assert orch.refine_calls == []
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
+    assert (5, BLOCKED_LABEL) in rec["labels"]
+    blocked = next(e for e in events if e["reason"] == "blocked")
+    assert blocked["gate"] == "rfc-unparseable"
+    # rounds 始终不被评审无效偷吃。
+    assert state.all_runs()[0].rounds == 0
+
+
+def test_code_gate_invalid_over_retries_blocks_code_unparseable(monkeypatch):
+    monkeypatch.setattr(messages_module, "MAX_REVIEW_RETRIES", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_ITERATING, review_invalid=1)],
+        code_decision=_INVALID,
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll()
+
+    assert rec["merged"] == []
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
+    blocked = next(e for e in events if e["reason"] == "blocked")
+    assert blocked["gate"] == "code-unparseable"
+
+
+def test_real_rework_still_increments_rounds_not_review_invalid(monkeypatch):
+    # 零回归 + 预算独立：真 REWORK（actionable）照旧吃 rounds，且绝不动 review_invalid 计数。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)], rfc_decision=_FAIL
+    )
+    _patch_github(monkeypatch, has_label=False)
+
+    msgs.poll()
+
+    assert state.all_runs()[0].rounds == 1
+    assert state.all_runs()[0].review_invalid == 0
+    assert orch.refine_calls == [{"pr_number": 5, "detail": _FAIL.feedback}]
+
+
+def test_configured_max_review_retries_env(monkeypatch):
+    monkeypatch.delenv(messages_module.MAX_REVIEW_RETRIES_ENV, raising=False)
+    assert messages_module._configured_max_review_retries() == 2
+    monkeypatch.setenv(messages_module.MAX_REVIEW_RETRIES_ENV, "4")
+    assert messages_module._configured_max_review_retries() == 4
+    monkeypatch.setenv(messages_module.MAX_REVIEW_RETRIES_ENV, "oops")
+    assert messages_module._configured_max_review_retries() == 2
+    monkeypatch.setenv(messages_module.MAX_REVIEW_RETRIES_ENV, "0")
+    assert messages_module._configured_max_review_retries() == 2
 
 
 # --------------------------------------------------------------------------- #

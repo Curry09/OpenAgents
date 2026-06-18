@@ -1,6 +1,6 @@
 id: T2
 title: 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级
-status: pending
+status: done
 priority: P0
 tags:
   - backend
@@ -14,9 +14,9 @@ files:
   - tests/test_messages.py
   - openagents/state.py
   - tests/test_state.py
-version: 1
+version: 3
 updated: '2026-06-18'
-change-reason: ''
+change-reason: 'done: 编排层评审无效分流(不吃round/不空转/独立重试上限后诚实升级) + state review_invalid 计数 已实现并自测'
 supersedes: []
 split-from:
 merged-from: []
@@ -67,6 +67,7 @@ tradeoffs: |-
   - **达上限后 _block vs 永不 block(只重试)**(选 _block):永不 block 最贴近「绝不误判好评」,但极端持续截断会无限轮询、持续烧 backend。给评审无效一个独立小上限,达上限后以**真实**理由(reviewer 输出无法解析)升级给人,既兜住成本、又不冒充假 REWORK——人介入时看到的是「评审坏了,去看 reviewer/截断」,而非「代码被打回 3 轮」。
   - **评审无效本轮返回事件等下一轮 vs 同轮立即重评**(选等下一轮):同轮立即重跑 review 会拉长单次 poll 墙钟、且 T1 已在 reviewer 内做过一次重解析(分层不重复)。poll 是周期性的,等下一轮重评天然、简单,符合 messages「薄路由」定位。
   - **零回归优先**:所有改动是在既有 not-passed 路径上「按 actionable 劈成两支」,默认/真 REWORK 支走原代码——把回归风险压到最低(既有用例即护栏)。
+acceptance: ''
 tests: |-
   单元(tests/test_messages.py,monkeypatch github.* + 注入打桩 orchestrator 返回构造好的 ReviewDecision):
   - 截断好评(passed=False、actionable=False)在 spec 闸 / merge 闸:不调 `increment_rounds`、不调 `refine_rfc` / `iterate`(空转消除),返回 `reason="review-invalid"` 事件。
