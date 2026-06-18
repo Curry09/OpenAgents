@@ -2,6 +2,56 @@
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。
 
+## TL;DR（人话速览）
+
+### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
+
+
+### 0002 OpenAgents 主动提 issue
+
+
+### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
+
+
+### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
+
+
+### 0005 solve 原子化拆分 + RFC-first 评审循环
+
+
+### 0006 守夜人识别 PR/issue 关闭作为终止信号
+
+
+### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
+
+
+### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）
+
+
+### 0009 合并后自动 rebase 其他 open PR
+
+
+### 0010 gh 瞬时错误重试 + 守夜循环单轮容错
+
+
+### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+
+
+### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入
+
+
+### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+
+
+### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
+
+
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+
+
+### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
+不可合并的 PR（与 base 真冲突）进代码闸会让 merge_pr 抛错崩掉整轮 poll，并每轮重跑 reviewer、刷出大量重复 PASS 评论却永远合不进去。本组在进代码闸前先查 PR 可合并性：DIRTY/CONFLICTING 直接判 blocked + needs-human + 留一次「请手动 rebase」评论，不再反复评审；同时给 poll 加上单 PR 错误隔离（merge_pr 等失败不拖垮整轮），并让裁决评论幂等（同一裁决不每轮重发）。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -71,6 +121,9 @@
 | 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
 | 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
 | 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
+| 0022 | 0022/T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | pending | — | openagents/github.py<br>tests/test_github.py |
+| 0022 | 0022/T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | pending | T1 | openagents/messages.py<br>tests/test_messages.py |
+| 0022 | 0022/T3 | 裁决评论幂等：同一裁决不每轮重发 | pending | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 
 ## 跨 feature 关系图
 
@@ -171,6 +224,11 @@ graph LR
         n0020_T4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
         n0020_T5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
     end
+    subgraph G0022[0022 merge-gate-mergeability-precheck]
+        n0022_T1["T1 github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）"]
+        n0022_T2["T2 代码闸可合并性预检 + poll 单 PR 错误隔离"]
+        n0022_T3["T3 裁决评论幂等：同一裁决不每轮重发"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -235,6 +293,7 @@ graph LR
     n0020_T4 --> n0020_T3
     n0020_T5 --> n0020_T3
     n0020_T5 --> n0020_T4
+    n0022_T2 --> n0022_T1
 ```
 
 ## 文件冲突报告
@@ -244,9 +303,9 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | openagents/backends/claude_code.py | 0001, 0003 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0022 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012 |
@@ -255,9 +314,9 @@ graph LR
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0022 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012 |
@@ -738,4 +797,27 @@ graph LR
     class v_T4_2 st_done;
     class v_T5_1 st_pending;
     class v_T5_2 st_done;
+```
+
+### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等（issue #62）
+
+```mermaid
+graph LR
+    nT1["T1 github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）"]
+    nT2["T2 代码闸可合并性预检 + poll 单 PR 错误隔离"]
+    nT3["T3 裁决评论幂等：同一裁决不每轮重发"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
 ```
