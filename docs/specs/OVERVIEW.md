@@ -2,56 +2,6 @@
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。
 
-## TL;DR（人话速览）
-
-### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
-
-
-### 0002 OpenAgents 主动提 issue
-
-
-### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
-
-
-### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
-
-
-### 0005 solve 原子化拆分 + RFC-first 评审循环
-
-
-### 0006 守夜人识别 PR/issue 关闭作为终止信号
-
-
-### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
-
-
-### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）
-
-
-### 0009 合并后自动 rebase 其他 open PR
-
-
-### 0010 gh 瞬时错误重试 + 守夜循环单轮容错
-
-
-### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
-
-
-### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入
-
-
-### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
-
-
-### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
-
-
-### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
-
-
-### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
-reviewer 的好评因回复太长、VERDICT token 被截断而解析失败,被疑罪从严当成非 PASS 计入 rounds、喂回空反馈空转,攒满 MAX_ROUNDS 后误打 needs-human。本组把「裁决无法解析(评审无效)」与「真 REWORK(带 ISSUES)」彻底分开:前者前置裁决 token + 首行解析 + 独立重试上限,不吃 round、不空转;后者照旧计 round 并喂回反馈。
-
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
