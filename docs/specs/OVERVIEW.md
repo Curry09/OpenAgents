@@ -2,6 +2,56 @@
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。
 
+## TL;DR（人话速览）
+
+### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
+
+
+### 0002 OpenAgents 主动提 issue
+
+
+### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
+
+
+### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
+
+
+### 0005 solve 原子化拆分 + RFC-first 评审循环
+
+
+### 0006 守夜人识别 PR/issue 关闭作为终止信号
+
+
+### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
+
+
+### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）
+
+
+### 0009 合并后自动 rebase 其他 open PR
+
+
+### 0010 gh 瞬时错误重试 + 守夜循环单轮容错
+
+
+### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+
+
+### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入
+
+
+### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+
+
+### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
+
+
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+
+
+### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+reviewer 的好评因回复太长、VERDICT token 被截断而解析失败,被疑罪从严当成非 PASS 计入 rounds、喂回空反馈空转,攒满 MAX_ROUNDS 后误打 needs-human。本组把「裁决无法解析(评审无效)」与「真 REWORK(带 ISSUES)」彻底分开:前者前置裁决 token + 首行解析 + 独立重试上限,不吃 round、不空转;后者照旧计 round 并喂回反馈。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -71,6 +121,8 @@
 | 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
 | 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
 | 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
+| 0021 | 0021/T1 | reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析 | pending | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0021 | 0021/T2 | 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级 | pending | T1 | openagents/messages.py<br>tests/test_messages.py<br>openagents/state.py<br>tests/test_state.py |
 
 ## 跨 feature 关系图
 
@@ -171,6 +223,10 @@ graph LR
         n0020_T4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
         n0020_T5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
     end
+    subgraph G0021[0021 reviewer-truncated-verdict-fix]
+        n0021_T1["T1 reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析"]
+        n0021_T2["T2 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -235,6 +291,7 @@ graph LR
     n0020_T4 --> n0020_T3
     n0020_T5 --> n0020_T3
     n0020_T5 --> n0020_T4
+    n0021_T2 --> n0021_T1
 ```
 
 ## 文件冲突报告
@@ -245,22 +302,24 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | openagents/rebase.py | 0009, 0011 |
+| openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020 |
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | tests/test_rebase.py | 0009, 0011 |
+| tests/test_reviewer.py | 0012, 0021 |
 | tests/test_rfc.py | 0008, 0013 |
-| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012 |
+| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020 |
 | tests/test_workspace.py | 0005, 0008 |
 
@@ -738,4 +797,24 @@ graph LR
     class v_T4_2 st_done;
     class v_T5_1 st_pending;
     class v_T5_2 st_done;
+```
+
+### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human（issue #63）
+
+```mermaid
+graph LR
+    nT1["T1 reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析"]
+    nT2["T2 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
 ```

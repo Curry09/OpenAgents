@@ -1,0 +1,4 @@
+title: 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+issue: 63
+slug: reviewer-truncated-verdict-fix
+summary: reviewer 的好评因回复太长、VERDICT token 被截断而解析失败,被疑罪从严当成非 PASS 计入 rounds、喂回空反馈空转,攒满 MAX_ROUNDS 后误打 needs-human。本组把「裁决无法解析(评审无效)」与「真 REWORK(带 ISSUES)」彻底分开:前者前置裁决 token + 首行解析 + 独立重试上限,不吃 round、不空转;后者照旧计 round 并喂回反馈。
