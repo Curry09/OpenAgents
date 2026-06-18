@@ -63,6 +63,11 @@ class RunRecord:
     # 兼容缺该键的旧 state.json）。每次 refine_rfc/iterate（评审未过一回合）令其 +1；
     # implement（RFC 闸→代码闸的阶段切换）清零，使 K 按「每个闸」独立计。
     rounds: int = 0
+    # Spec-0021/T2：当前闸内「评审无效」（裁决无法解析/无可操作反馈）的重试计数，独立于
+    # rounds。默认 0 向后兼容旧记录。每轮 poll 判定评审无效则 +1；达 MAX_REVIEW_RETRIES 后以
+    # 「reviewer 输出无法解析」这一真实理由升级 needs-human（区别于真 REWORK 攒满 MAX_ROUNDS）。
+    # 与 rounds 同生命周期：reset_rounds（implement / 解挂）同点一并归零，但二者预算彼此独立。
+    review_invalid: int = 0
 
 
 class State:
@@ -147,12 +152,33 @@ class State:
         self._save(data=data)
         return new_value
 
+    def increment_review_invalid(self, *, issue_number: int) -> int:
+        """Spec-0021/T2：把某 issue 对应 run 的 review_invalid +1 并落盘，返回新值。
+
+        镜像 increment_rounds，但计的是「评审无效」轮次（裁决无法解析/无可操作反馈），与
+        rounds 预算彼此独立。用 record.get("review_invalid", 0) 兜底缺该键的旧记录（向后兼容）。
+        调用方据返回值与 MAX_REVIEW_RETRIES 比较，决定本轮等下一轮重评还是诚实升级 needs-human。
+        """
+        data = self._load()
+        new_value = 0
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                new_value = record.get("review_invalid", 0) + 1
+                record["review_invalid"] = new_value
+        self._save(data=data)
+        return new_value
+
     def reset_rounds(self, *, issue_number: int) -> None:
-        """RFC-0012 决策 6：把某 issue 对应 run 的 rounds 归零（阶段切换时调，如 implement）。"""
+        """RFC-0012 决策 6：把某 issue 对应 run 的 rounds 归零（阶段切换时调，如 implement）。
+
+        Spec-0021/T2：同点把 review_invalid 也归零——评审无效计数与 rounds 同生命周期
+        （implement / 解挂时一并清），但二者预算独立（评审无效不偷吃真 REWORK 的 rounds）。
+        """
         data = self._load()
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["rounds"] = 0
+                record["review_invalid"] = 0
         self._save(data=data)
 
     def get_agent_id(self) -> str | None:

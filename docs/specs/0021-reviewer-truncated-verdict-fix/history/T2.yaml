@@ -1,0 +1,174 @@
+  - id: T2
+    title: 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级
+    status: pending
+    priority: P0
+    tags:
+      - backend
+      - orchestration
+    depends-on:
+      - T1
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/messages.py
+      - tests/test_messages.py
+      - openagents/state.py
+      - tests/test_state.py
+    version: 1
+    updated: '2026-06-18'
+    change-reason: ''
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: |-
+      这是修复的「执行端」:拿到 T1 区分好的裁决,在两道闸(spec 闸 / merge 闸)上分流。真 REWORK 照旧计 round、喂回反馈;「评审无效」则**不吃 round、不空转 refine/iterate**,而是用一个独立的小重试上限兜住——重试没用完就等下一轮重评,用完了就以「reviewer 输出无法解析」这一**真实**理由打 needs-human,而不是冒充一个攒满 MAX_ROUNDS 的假 REWORK。
+    motivation: |-
+      这正是 issue #63 误触 needs-human 的发生地(messages.py:204-208 / 237-241):非 PASS 一律 `rounds++` + `refine_rfc/iterate(decision.feedback)`。当 feedback 是一篇没有缺陷条目的好评时,写代码 agent 无从下手、改了个寂寞,下一轮 reviewer 又被截断 → 永远收敛不到可解析 PASS → 攒满 `MAX_ROUNDS=3` → `_block` → 误打 needs-human(即便内容通过)。
+
+      T1 已让 reviewer 能区分「评审无效」与「真 REWORK」,但**是否吃 round、是否驱动迭代、超限后如何收口**是编排层的决策,必须在这里改。两个误判要分别根治:① 评审无效不该消耗真 REWORK 的 rounds(issue 期望 2);② 空/无可操作反馈不该驱动 refine/iterate 空转(issue 期望 3)。同时要保证默认全 PASS/真 REWORK 路径零回归,故与 T1 同列 P0。
+    scope: |-
+      _process_rfc_review / _process_coding 在 not passed 时按 decision 分流:actionable 的真 REWORK → 照旧 rounds++ + refine_rfc/iterate(行为不变);「评审无效」(非 actionable / 空可操作反馈) → **不 rounds++、不 refine/iterate**,改用一个独立的小重试计数(env 可配,默认 2),未超则本轮返回 review-invalid 事件等下一轮重评,超过则以「reviewer 输出无法解析」这一**真实**理由走 _block 打 needs-human(区别于假 REWORK)。默认全 PASS / 真 REWORK 路径逐字节不变(零回归)。改动处引用 Spec-0021。
+    design: |-
+      **两道闸共用的 not-passed 分流**(`_process_rfc_review` 的 RFC 评审闸 与 `_process_coding` 的代码评审闸,逻辑同构):
+
+      ```
+      decision = review_*()
+      if decision.passed:            # 不变
+          ...(打标签/implement 或 merge)
+      elif decision.actionable:      # 真 REWORK —— 行为逐字节不变
+          rounds = increment_rounds(...)
+          if rounds >= MAX_ROUNDS: _block(gate)        # 真 REWORK 攒满才挂起(合理)
+          else: refine_rfc/iterate(detail=decision.feedback)
+      else:                          # 评审无效(裁断无法解析 / 无可操作反馈)
+          invalid = increment_review_invalid(...)      # 独立计数,不碰 rounds
+          if invalid >= MAX_REVIEW_RETRIES:
+              _block(gate, reason="review-unparseable")  # 诚实升级:reviewer 坏了
+          else:
+              return {... "reason": "review-invalid"}   # 本轮不动 rounds、不 refine,等下一轮重评
+      ```
+
+      **关键不变量**:
+      - **评审无效绝不 `rounds++`**:rounds 是「真 REWORK 迭代回合」的预算,评审无效不该偷吃它(issue 期望 2、验收 1)。
+      - **评审无效绝不 refine/iterate**:没有可操作条目就不驱动写代码 agent 空转(issue 期望 3)。
+      - **真 REWORK 路径原样保留**:`actionable` 分支与现状逐字节相同——既有 test_messages.py(真 REWORK→rounds++→iterate、攒满→_block)是回归护栏(验收 2)。
+
+      **独立重试上限 + 诚实升级**:评审无效用一个**独立于 rounds 的小计数器**(`review_invalid` 计数,env `OPENAGENTS_MAX_REVIEW_RETRIES`,默认 2)。每轮 poll 评审无效则 +1,未达上限就返回 `review-invalid` 事件、等下一轮重评(T1 的裁决前置 + 重解析使重评有相当概率拿到可解析裁决)。达到上限说明 reviewer 输出**持续**无法解析——这是一个**真实**的人值得介入信号,故 `_block` 打 needs-human,但其 reason 标识为「reviewer 输出无法解析」(`gate` 携带可区分标记),与「真 REWORK 攒满 MAX_ROUNDS」的假阳彻底分开。这样既不误判好评(验收 1)、也不会在极端持续截断下无限轮询消耗 backend。
+
+      **状态承载**:在 `State` / `RunRecord` 上新增一个独立于 `rounds` 的 review-invalid 计数字段(默认 0、向后兼容旧记录),配套 `increment_review_invalid` / 在既有 `reset_rounds` 同点一并归零——镜像 `rounds` 的 `increment_rounds` / `reset_rounds`。计数与 rounds 同生命周期(implement / 解挂时清零),但预算彼此独立。故本 Task 文件清单含 `state.py` + `tests/test_state.py`。
+    interface: |-
+      契约(描述而非代码):
+      - `_process_rfc_review(*, record, hold)` / `_process_coding(*, record, hold)`:not-passed 内部新增 `decision.actionable` 分流;签名与返回事件结构不变(`reason` 取值集合扩充 `"review-invalid"`,`_block` 的事件携带可区分 gate 标记如 `"rfc-unparseable"/"code-unparseable"`)。
+      - 新增 env 旋钮 `OPENAGENTS_MAX_REVIEW_RETRIES`(默认 2,缺省/非法/<1 回落默认),镜像现有 `_configured_max_rounds` 的读取约定。
+      - `State` 新增 review-invalid 计数接口:`increment_review_invalid(*, issue_number) -> int`(镜像 `increment_rounds`),并在既有 `reset_rounds` 同点把该计数一并归零;`RunRecord` 新增对应字段(默认 0,向后兼容旧记录)。该计数独立于 `rounds`。
+      - 默认 Hold / 默认全 PASS / 真 REWORK 路径行为不变(向后兼容)。
+    tradeoffs: |-
+      - **独立重试计数 vs 复用 MAX_ROUNDS 兜底**(选独立计数):复用 rounds 改动最小,但「评审无效也累加 rounds、攒满仍 _block」与 issue 期望「不吃 round」直接相悖,且会把「reviewer 坏了」和「代码该打回」两种信号继续混淆。独立计数让两类失败各有预算、各有诚实的升级理由,语义最干净。
+      - **达上限后 _block vs 永不 block(只重试)**(选 _block):永不 block 最贴近「绝不误判好评」,但极端持续截断会无限轮询、持续烧 backend。给评审无效一个独立小上限,达上限后以**真实**理由(reviewer 输出无法解析)升级给人,既兜住成本、又不冒充假 REWORK——人介入时看到的是「评审坏了,去看 reviewer/截断」,而非「代码被打回 3 轮」。
+      - **评审无效本轮返回事件等下一轮 vs 同轮立即重评**(选等下一轮):同轮立即重跑 review 会拉长单次 poll 墙钟、且 T1 已在 reviewer 内做过一次重解析(分层不重复)。poll 是周期性的,等下一轮重评天然、简单,符合 messages「薄路由」定位。
+      - **零回归优先**:所有改动是在既有 not-passed 路径上「按 actionable 劈成两支」,默认/真 REWORK 支走原代码——把回归风险压到最低(既有用例即护栏)。
+    acceptance: ''
+    tests: |-
+      单元(tests/test_messages.py,monkeypatch github.* + 注入打桩 orchestrator 返回构造好的 ReviewDecision):
+      - 截断好评(passed=False、actionable=False)在 spec 闸 / merge 闸:不调 `increment_rounds`、不调 `refine_rfc` / `iterate`(空转消除),返回 `reason="review-invalid"` 事件。
+      - 真 REWORK(passed=False、actionable=True):照旧 `increment_rounds` + `refine_rfc` / `iterate(detail=feedback)`,feedback 即 decision.feedback。
+      - 连续达 `MAX_REVIEW_RETRIES` 次评审无效 → `_block` 打 needs-human,事件 gate 标识为 reviewer 输出无法解析(可断言区别于真 REWORK 的 block)。
+      - 评审无效计数随 implement / 解挂(reset_rounds 同点)清零:无效几轮后出现可解析裁决,计数复位、不影响后续真 REWORK 的 rounds 预算。
+      - env `OPENAGENTS_MAX_REVIEW_RETRIES` 缺省/非法/<1 → 回落默认 2。
+      - 零回归:默认全 PASS→merge→done、真 REWORK→rounds++→iterate、攒满 MAX_ROUNDS→_block 的既有用例全绿,行为不变。
+      - ruff check + ruff format --check + pytest 通过。
+    references: |-
+      - issue #63 正文(根因 messages.py:216-219 的非 PASS→rounds++→喂回反馈、MAX_ROUNDS=3→_block 误打 needs-human、期望 2/3、验收 1/2)。
+      - openagents/messages.py 现状:`_process_rfc_review`(行 185-208)、`_process_coding`(行 210-241)、`_block`(行 243-255)、`_configured_max_rounds` / `MAX_ROUNDS`(行 62-80)。
+      - 本组 0021/T1:提供 `ReviewDecision.actionable` 与「评审无效」语义(本 Task 的输入契约)。
+      - State 的 rounds 机制(`increment_rounds` / `reset_rounds`)作为 review-invalid 计数的同语义参照。
+    open-questions: |-
+      - `MAX_REVIEW_RETRIES` 默认值(暂定 2)是否够:截断是随机的,2 次重评在多数情况下足以拿到可解析裁决;若实跑发现仍偏紧/偏松,可调该 env 默认。先按 2 上线,据 e2e 数据再校准。
+      - 持续评审无效达上限后的收口选「_block 打 needs-human(reviewer 输出无法解析)」。若团队更希望「评审无效永不 block、只无限重评」,需接受极端持续截断下的 backend 成本——本组采前者(成本可控 + 诚实升级),此点留待人确认。
+  - id: T2
+    title: 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级
+    status: in-progress
+    priority: P0
+    tags:
+      - backend
+      - orchestration
+    depends-on:
+      - T1
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/messages.py
+      - tests/test_messages.py
+      - openagents/state.py
+      - tests/test_state.py
+    version: 2
+    updated: '2026-06-18'
+    change-reason: 'claim: start implementing'
+    supersedes: []
+    split-from:
+    merged-from: []
+    derived-from: []
+    summary: |-
+      这是修复的「执行端」:拿到 T1 区分好的裁决,在两道闸(spec 闸 / merge 闸)上分流。真 REWORK 照旧计 round、喂回反馈;「评审无效」则**不吃 round、不空转 refine/iterate**,而是用一个独立的小重试上限兜住——重试没用完就等下一轮重评,用完了就以「reviewer 输出无法解析」这一**真实**理由打 needs-human,而不是冒充一个攒满 MAX_ROUNDS 的假 REWORK。
+    motivation: |-
+      这正是 issue #63 误触 needs-human 的发生地(messages.py:204-208 / 237-241):非 PASS 一律 `rounds++` + `refine_rfc/iterate(decision.feedback)`。当 feedback 是一篇没有缺陷条目的好评时,写代码 agent 无从下手、改了个寂寞,下一轮 reviewer 又被截断 → 永远收敛不到可解析 PASS → 攒满 `MAX_ROUNDS=3` → `_block` → 误打 needs-human(即便内容通过)。
+
+      T1 已让 reviewer 能区分「评审无效」与「真 REWORK」,但**是否吃 round、是否驱动迭代、超限后如何收口**是编排层的决策,必须在这里改。两个误判要分别根治:① 评审无效不该消耗真 REWORK 的 rounds(issue 期望 2);② 空/无可操作反馈不该驱动 refine/iterate 空转(issue 期望 3)。同时要保证默认全 PASS/真 REWORK 路径零回归,故与 T1 同列 P0。
+    scope: |-
+      _process_rfc_review / _process_coding 在 not passed 时按 decision 分流:actionable 的真 REWORK → 照旧 rounds++ + refine_rfc/iterate(行为不变);「评审无效」(非 actionable / 空可操作反馈) → **不 rounds++、不 refine/iterate**,改用一个独立的小重试计数(env 可配,默认 2),未超则本轮返回 review-invalid 事件等下一轮重评,超过则以「reviewer 输出无法解析」这一**真实**理由走 _block 打 needs-human(区别于假 REWORK)。默认全 PASS / 真 REWORK 路径逐字节不变(零回归)。改动处引用 Spec-0021。
+    design: |-
+      **两道闸共用的 not-passed 分流**(`_process_rfc_review` 的 RFC 评审闸 与 `_process_coding` 的代码评审闸,逻辑同构):
+
+      ```
+      decision = review_*()
+      if decision.passed:            # 不变
+          ...(打标签/implement 或 merge)
+      elif decision.actionable:      # 真 REWORK —— 行为逐字节不变
+          rounds = increment_rounds(...)
+          if rounds >= MAX_ROUNDS: _block(gate)        # 真 REWORK 攒满才挂起(合理)
+          else: refine_rfc/iterate(detail=decision.feedback)
+      else:                          # 评审无效(裁断无法解析 / 无可操作反馈)
+          invalid = increment_review_invalid(...)      # 独立计数,不碰 rounds
+          if invalid >= MAX_REVIEW_RETRIES:
+              _block(gate, reason="review-unparseable")  # 诚实升级:reviewer 坏了
+          else:
+              return {... "reason": "review-invalid"}   # 本轮不动 rounds、不 refine,等下一轮重评
+      ```
+
+      **关键不变量**:
+      - **评审无效绝不 `rounds++`**:rounds 是「真 REWORK 迭代回合」的预算,评审无效不该偷吃它(issue 期望 2、验收 1)。
+      - **评审无效绝不 refine/iterate**:没有可操作条目就不驱动写代码 agent 空转(issue 期望 3)。
+      - **真 REWORK 路径原样保留**:`actionable` 分支与现状逐字节相同——既有 test_messages.py(真 REWORK→rounds++→iterate、攒满→_block)是回归护栏(验收 2)。
+
+      **独立重试上限 + 诚实升级**:评审无效用一个**独立于 rounds 的小计数器**(`review_invalid` 计数,env `OPENAGENTS_MAX_REVIEW_RETRIES`,默认 2)。每轮 poll 评审无效则 +1,未达上限就返回 `review-invalid` 事件、等下一轮重评(T1 的裁决前置 + 重解析使重评有相当概率拿到可解析裁决)。达到上限说明 reviewer 输出**持续**无法解析——这是一个**真实**的人值得介入信号,故 `_block` 打 needs-human,但其 reason 标识为「reviewer 输出无法解析」(`gate` 携带可区分标记),与「真 REWORK 攒满 MAX_ROUNDS」的假阳彻底分开。这样既不误判好评(验收 1)、也不会在极端持续截断下无限轮询消耗 backend。
+
+      **状态承载**:在 `State` / `RunRecord` 上新增一个独立于 `rounds` 的 review-invalid 计数字段(默认 0、向后兼容旧记录),配套 `increment_review_invalid` / 在既有 `reset_rounds` 同点一并归零——镜像 `rounds` 的 `increment_rounds` / `reset_rounds`。计数与 rounds 同生命周期(implement / 解挂时清零),但预算彼此独立。故本 Task 文件清单含 `state.py` + `tests/test_state.py`。
+    interface: |-
+      契约(描述而非代码):
+      - `_process_rfc_review(*, record, hold)` / `_process_coding(*, record, hold)`:not-passed 内部新增 `decision.actionable` 分流;签名与返回事件结构不变(`reason` 取值集合扩充 `"review-invalid"`,`_block` 的事件携带可区分 gate 标记如 `"rfc-unparseable"/"code-unparseable"`)。
+      - 新增 env 旋钮 `OPENAGENTS_MAX_REVIEW_RETRIES`(默认 2,缺省/非法/<1 回落默认),镜像现有 `_configured_max_rounds` 的读取约定。
+      - `State` 新增 review-invalid 计数接口:`increment_review_invalid(*, issue_number) -> int`(镜像 `increment_rounds`),并在既有 `reset_rounds` 同点把该计数一并归零;`RunRecord` 新增对应字段(默认 0,向后兼容旧记录)。该计数独立于 `rounds`。
+      - 默认 Hold / 默认全 PASS / 真 REWORK 路径行为不变(向后兼容)。
+    tradeoffs: |-
+      - **独立重试计数 vs 复用 MAX_ROUNDS 兜底**(选独立计数):复用 rounds 改动最小,但「评审无效也累加 rounds、攒满仍 _block」与 issue 期望「不吃 round」直接相悖,且会把「reviewer 坏了」和「代码该打回」两种信号继续混淆。独立计数让两类失败各有预算、各有诚实的升级理由,语义最干净。
+      - **达上限后 _block vs 永不 block(只重试)**(选 _block):永不 block 最贴近「绝不误判好评」,但极端持续截断会无限轮询、持续烧 backend。给评审无效一个独立小上限,达上限后以**真实**理由(reviewer 输出无法解析)升级给人,既兜住成本、又不冒充假 REWORK——人介入时看到的是「评审坏了,去看 reviewer/截断」,而非「代码被打回 3 轮」。
+      - **评审无效本轮返回事件等下一轮 vs 同轮立即重评**(选等下一轮):同轮立即重跑 review 会拉长单次 poll 墙钟、且 T1 已在 reviewer 内做过一次重解析(分层不重复)。poll 是周期性的,等下一轮重评天然、简单,符合 messages「薄路由」定位。
+      - **零回归优先**:所有改动是在既有 not-passed 路径上「按 actionable 劈成两支」,默认/真 REWORK 支走原代码——把回归风险压到最低(既有用例即护栏)。
+    acceptance: ''
+    tests: |-
+      单元(tests/test_messages.py,monkeypatch github.* + 注入打桩 orchestrator 返回构造好的 ReviewDecision):
+      - 截断好评(passed=False、actionable=False)在 spec 闸 / merge 闸:不调 `increment_rounds`、不调 `refine_rfc` / `iterate`(空转消除),返回 `reason="review-invalid"` 事件。
+      - 真 REWORK(passed=False、actionable=True):照旧 `increment_rounds` + `refine_rfc` / `iterate(detail=feedback)`,feedback 即 decision.feedback。
+      - 连续达 `MAX_REVIEW_RETRIES` 次评审无效 → `_block` 打 needs-human,事件 gate 标识为 reviewer 输出无法解析(可断言区别于真 REWORK 的 block)。
+      - 评审无效计数随 implement / 解挂(reset_rounds 同点)清零:无效几轮后出现可解析裁决,计数复位、不影响后续真 REWORK 的 rounds 预算。
+      - env `OPENAGENTS_MAX_REVIEW_RETRIES` 缺省/非法/<1 → 回落默认 2。
+      - 零回归:默认全 PASS→merge→done、真 REWORK→rounds++→iterate、攒满 MAX_ROUNDS→_block 的既有用例全绿,行为不变。
+      - ruff check + ruff format --check + pytest 通过。
+    references: |-
+      - issue #63 正文(根因 messages.py:216-219 的非 PASS→rounds++→喂回反馈、MAX_ROUNDS=3→_block 误打 needs-human、期望 2/3、验收 1/2)。
+      - openagents/messages.py 现状:`_process_rfc_review`(行 185-208)、`_process_coding`(行 210-241)、`_block`(行 243-255)、`_configured_max_rounds` / `MAX_ROUNDS`(行 62-80)。
+      - 本组 0021/T1:提供 `ReviewDecision.actionable` 与「评审无效」语义(本 Task 的输入契约)。
+      - State 的 rounds 机制(`increment_rounds` / `reset_rounds`)作为 review-invalid 计数的同语义参照。
+    open-questions: |-
+      - `MAX_REVIEW_RETRIES` 默认值(暂定 2)是否够:截断是随机的,2 次重评在多数情况下足以拿到可解析裁决;若实跑发现仍偏紧/偏松,可调该 env 默认。先按 2 上线,据 e2e 数据再校准。
+      - 持续评审无效达上限后的收口选「_block 打 needs-human(reviewer 输出无法解析)」。若团队更希望「评审无效永不 block、只无限重评」,需接受极端持续截断下的 backend 成本——本组采前者(成本可控 + 诚实升级),此点留待人确认。

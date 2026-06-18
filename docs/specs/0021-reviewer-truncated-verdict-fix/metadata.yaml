@@ -1,0 +1,3 @@
+title: 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+issue: 63
+slug: reviewer-truncated-verdict-fix
