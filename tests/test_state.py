@@ -373,6 +373,68 @@ def test_reset_rounds_zeroes(tmp_path):
     assert reloaded.all_runs()[0].rounds == 0
 
 
+# --------------------------------------------------------------------------- #
+# Spec-0021/T2：review_invalid 计数（独立于 rounds，reset 同点归零，向后兼容）
+# --------------------------------------------------------------------------- #
+
+
+def test_new_record_defaults_review_invalid_zero(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    assert state.all_runs()[0].review_invalid == 0
+
+
+def test_increment_review_invalid_returns_and_persists(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+
+    assert state.increment_review_invalid(issue_number=3) == 1
+    assert state.increment_review_invalid(issue_number=3) == 2
+    # 独立于 rounds：递增 review_invalid 不动 rounds。
+    assert state.all_runs()[0].rounds == 0
+    assert state.all_runs()[0].review_invalid == 2
+
+    reloaded = State(path=tmp_path / ".openagents" / "state.json")
+    assert reloaded.all_runs()[0].review_invalid == 2
+
+
+def test_increment_review_invalid_on_old_record_without_key(tmp_path):
+    # 缺 review_invalid 键的旧记录上递增从 0 起算（向后兼容）。
+    path = tmp_path / ".openagents" / "state.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = {
+        "runs": [
+            {
+                "issue_number": 3,
+                "branch": "b",
+                "pr_number": 5,
+                "pr_url": "u",
+                "status": "pr-open",
+                "summary": "",
+            }
+        ],
+        "cursors": {},
+    }
+    path.write_text(json.dumps(old), encoding="utf-8")
+
+    state = State(path=path)
+    assert state.all_runs()[0].review_invalid == 0  # 旧记录默认 0
+    assert state.increment_review_invalid(issue_number=3) == 1
+
+
+def test_reset_rounds_also_zeroes_review_invalid(tmp_path):
+    # reset_rounds 同点把 review_invalid 一并归零。
+    state = _new_state(tmp_path)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    state.increment_rounds(issue_number=3)
+    state.increment_review_invalid(issue_number=3)
+
+    state.reset_rounds(issue_number=3)
+
+    assert state.all_runs()[0].rounds == 0
+    assert state.all_runs()[0].review_invalid == 0
+
+
 def test_blocked_status_persists_and_reads_back(tmp_path):
     state = _new_state(tmp_path)
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
