@@ -2,56 +2,6 @@
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。
 
-## TL;DR（人话速览）
-
-### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
-
-
-### 0002 OpenAgents 主动提 issue
-
-
-### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
-
-
-### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
-
-
-### 0005 solve 原子化拆分 + RFC-first 评审循环
-
-
-### 0006 守夜人识别 PR/issue 关闭作为终止信号
-
-
-### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
-
-
-### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）
-
-
-### 0009 合并后自动 rebase 其他 open PR
-
-
-### 0010 gh 瞬时错误重试 + 守夜循环单轮容错
-
-
-### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
-
-
-### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入
-
-
-### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
-
-
-### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
-
-
-### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
-
-
-### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
-不可合并的 PR（与 base 真冲突）进代码闸会让 merge_pr 抛错崩掉整轮 poll，并每轮重跑 reviewer、刷出大量重复 PASS 评论却永远合不进去。本组在进代码闸前先查 PR 可合并性：DIRTY/CONFLICTING 直接判 blocked + needs-human + 留一次「请手动 rebase」评论，不再反复评审；同时给 poll 加上单 PR 错误隔离（merge_pr 等失败不拖垮整轮），并让裁决评论幂等（同一裁决不每轮重发）。
-
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
