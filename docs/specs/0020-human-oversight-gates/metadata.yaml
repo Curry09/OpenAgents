@@ -1,0 +1,4 @@
+title: 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+issue: 59
+slug: human-oversight-gates
+summary: '给 OpenAgents 加两道人类监督闸门：提 issue 前的「需求对齐」（把模糊想法复述成 做什么X/边界Y/不做Z 让人确认），以及 vigil 自治循环的分级 --hold 闸（在 spec 批准、PR 合并等关键点停下等人点头）。让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，不改既有 issue→PR 自动流程的内部逻辑。'

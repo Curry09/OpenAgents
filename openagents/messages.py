@@ -34,6 +34,8 @@ import os
 import time
 
 from openagents import github, indexheal, rebase
+from openagents.hold import NONE as NO_HOLD
+from openagents.hold import Hold
 from openagents.orchestrator import Orchestrator
 from openagents.state import (
     BLOCKED_LABEL,
@@ -77,6 +79,27 @@ def _configured_max_rounds() -> int:
 
 MAX_ROUNDS = _configured_max_rounds()
 
+# Spec-0021/T2：评审无效（裁决无法解析/无可操作反馈）的独立小重试上限旋钮——env
+# OPENAGENTS_MAX_REVIEW_RETRIES，默认 2。镜像 _configured_max_rounds 的读取约定。独立于
+# MAX_ROUNDS：评审无效不吃真 REWORK 的 round，达本上限后以「reviewer 输出无法解析」升级 needs-human。
+MAX_REVIEW_RETRIES_ENV = "OPENAGENTS_MAX_REVIEW_RETRIES"
+_DEFAULT_MAX_REVIEW_RETRIES = 2
+
+
+def _configured_max_review_retries() -> int:
+    """读 OPENAGENTS_MAX_REVIEW_RETRIES；缺省/非法/<1 回落到默认值（至少给一次重评机会）。"""
+    raw = os.environ.get(MAX_REVIEW_RETRIES_ENV)
+    if not raw:
+        return _DEFAULT_MAX_REVIEW_RETRIES
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_REVIEW_RETRIES
+    return value if value >= 1 else _DEFAULT_MAX_REVIEW_RETRIES
+
+
+MAX_REVIEW_RETRIES = _configured_max_review_retries()
+
 
 class Messages:
     """RFC-0001 T5 + RFC-0005 + RFC-0012：按阶段轮询 PR 的 merge/CI/评审闸，路由回编排层。"""
@@ -100,18 +123,24 @@ class Messages:
         self._work_dir = work_dir
         self._base = base
 
-    def poll(self) -> list[dict]:
+    def poll(self, *, hold: Hold = NO_HOLD) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
 
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
-        "approved", "rfc-pass", "refine", "ci", "review", "blocked", "resumed"}），便于日志与测试断言。
+        "approved", "rfc-pass", "refine", "ci", "review", "review-invalid", "blocked",
+        "resumed", "hold-spec", "hold-merge"}），便于日志与测试断言。Spec-0021/T2：新增
+        "review-invalid"（评审无效本轮等下一轮重评，不吃 round、不空转）。
+
+        Spec-0020/T3：新增关键字参数 hold（Hold），默认「全不停」以保持现有调用与行为；
+        poll 内部把 hold 下传给两道闸的私有处理函数，spec / merge 闸据 hold 选择「停在闸门
+        等人」或现状自动推进分支。默认 Hold 下走原代码、行为逐字节不变（零回归）。
         """
         events: list[dict] = []
         for record in self._state.all_runs():
             # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
             if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
                 continue
-            event = self._process_run(record=record)
+            event = self._process_run(record=record, hold=hold)
             if event is not None:
                 events.append(event)
         return events
@@ -127,8 +156,12 @@ class Messages:
         except KeyboardInterrupt:
             return
 
-    def _process_run(self, *, record: RunRecord) -> dict | None:
-        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。"""
+    def _process_run(self, *, record: RunRecord, hold: Hold) -> dict | None:
+        """处理单个 run：merge/close 优先 reconcile，blocked 尝试解挂，其余按阶段路由。
+
+        Spec-0020/T3：merge/close/blocked 的 reconcile 与 hold 无关（人已经合/关/解挂，
+        是终态信号，照常收口）；hold 只影响仍在 rfc-review / coding 阶段的两道意图闸。
+        """
         pr_number = record.pr_number
         # 1. 已合并优先于一切：置 done 并跳过（决策 8）。
         if github.is_merged(pr_number=pr_number):
@@ -168,30 +201,42 @@ class Messages:
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
-            return self._process_rfc_review(record=record)
-        return self._process_coding(record=record)
+            return self._process_rfc_review(record=record, hold=hold)
+        return self._process_coding(record=record, hold=hold)
 
-    def _process_rfc_review(self, *, record: RunRecord) -> dict | None:
+    def _process_rfc_review(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """RFC 评审闸（RFC-0012 决策 1/3）：标签 / reviewer 全票 PASS → implement；非 PASS → refine 或 BLOCKED。"""
         pr_number = record.pr_number
         # 2a. 已带批准标签（人或上一轮 reviewer 打的）优先：直接转入实现（向后兼容）。
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
+        # Spec-0020/T3：spec 闸 hold——跳过下面的自动 reviewer（2b），只认上面 2a 的人工
+        # rfc-approved label。无 label 即本轮什么都不做、停在 spec 闸等人批（不评审、不打
+        # 标签、不 refine、不 block、不进 coding）——把这道闸完全交给人，复用既有 label 门控。
+        if hold.at_spec:
+            return {"pr_number": pr_number, "reason": "hold-spec"}
         # 2b. 主动调 reviewer 评审 RFC（决策 3：不再等人打标签）。
         decision = self._orchestrator.review_rfc(pr_number=pr_number)
         if decision.passed:
             github.add_label(pr_number=pr_number, name=APPROVAL_LABEL)
             self._orchestrator.implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "rfc-pass"}
-        # 非 PASS：回合 +1，未超 K 则按 reviewer 反馈精炼 RFC，超 K 则挂起等人（决策 5）。
-        rounds = self._state.increment_rounds(issue_number=record.issue_number)
-        if rounds >= MAX_ROUNDS:
-            return self._block(record=record, gate="rfc")
-        self._orchestrator.refine_rfc(pr_number=pr_number, detail=decision.feedback)
-        return {"pr_number": pr_number, "reason": "refine"}
+        # Spec-0021/T2：非 PASS 按 decision.actionable 分流。
+        # 真 REWORK（actionable）：回合 +1，未超 K 则按 reviewer 反馈精炼 RFC，超 K 则挂起（决策 5，行为不变）。
+        if decision.actionable:
+            rounds = self._state.increment_rounds(issue_number=record.issue_number)
+            if rounds >= MAX_ROUNDS:
+                return self._block(record=record, gate="rfc")
+            self._orchestrator.refine_rfc(pr_number=pr_number, detail=decision.feedback)
+            return {"pr_number": pr_number, "reason": "refine"}
+        # 评审无效（裁决无法解析/无可操作反馈）：不 rounds++、不 refine（不空转写码 agent），
+        # 改用独立小重试上限。未超则本轮返回 review-invalid 事件、等下一轮重评（T1 的裁决前置+
+        # 重解析使重评有相当概率拿到可解析裁决）；达上限说明 reviewer 输出持续无法解析 → 以
+        # 真实理由升级 needs-human（gate=rfc-unparseable，区别于真 REWORK 攒满 MAX_ROUNDS 的假阳）。
+        return self._handle_review_invalid(record=record, gate="rfc-unparseable")
 
-    def _process_coding(self, *, record: RunRecord) -> dict | None:
+    def _process_coding(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """代码评审闸（RFC-0012 决策 1）：CI 失败→iterate(ci)；CI 绿+reviewer PASS→merge；非 PASS→iterate 或 BLOCKED。"""
         pr_number = record.pr_number
         # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
@@ -206,18 +251,42 @@ class Messages:
         # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
         decision = self._orchestrator.review_code(pr_number=pr_number)
         if decision.passed:
+            # Spec-0020/T3：merge 闸 hold——CI / reviewer 评审照跑，但 reviewer PASS 后不自动
+            # merge_pr，停在「待人 merge」（PR 保持 open、本轮不动状态），把最后一下留给人。
+            # 人手动 merge 后，下一轮 poll 的 is_merged 分支照常 reconcile 成 done（既有逻辑）。
+            if hold.at_merge:
+                return {"pr_number": pr_number, "reason": "hold-merge"}
             github.merge_pr(pr_number=pr_number)
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
             github.close_issue(number=record.issue_number)
             synced = rebase.rebase_open_prs(merged_pr_number=pr_number, agent_id=self._agent_id)
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
-        # 非 PASS：回合 +1，未超 K 则按 reviewer 反馈迭代代码，超 K 则挂起等人（决策 5）。
-        rounds = self._state.increment_rounds(issue_number=record.issue_number)
-        if rounds >= MAX_ROUNDS:
-            return self._block(record=record, gate="code")
-        self._orchestrator.iterate(pr_number=pr_number, reason="review", detail=decision.feedback)
-        return {"pr_number": pr_number, "reason": "review"}
+        # Spec-0021/T2：非 PASS 按 decision.actionable 分流（与 spec 闸同构）。
+        # 真 REWORK（actionable）：回合 +1，未超 K 则按 reviewer 反馈迭代代码，超 K 则挂起（决策 5，行为不变）。
+        if decision.actionable:
+            rounds = self._state.increment_rounds(issue_number=record.issue_number)
+            if rounds >= MAX_ROUNDS:
+                return self._block(record=record, gate="code")
+            self._orchestrator.iterate(
+                pr_number=pr_number, reason="review", detail=decision.feedback
+            )
+            return {"pr_number": pr_number, "reason": "review"}
+        # 评审无效：不 rounds++、不 iterate，走独立小重试上限（gate=code-unparseable）。
+        return self._handle_review_invalid(record=record, gate="code-unparseable")
+
+    def _handle_review_invalid(self, *, record: RunRecord, gate: str) -> dict:
+        """Spec-0021/T2：两道闸共用的「评审无效」收口——独立小重试上限 + 诚实升级。
+
+        评审无效（裁决无法解析/无可操作反馈）独立于 rounds 计数：每轮 +1，未达
+        MAX_REVIEW_RETRIES 就返回 review-invalid 事件、本轮不动 rounds/不 refine/iterate，
+        等下一轮 poll 重评；达上限说明 reviewer 输出持续无法解析，以真实理由 _block 升级
+        needs-human（gate 携带 *-unparseable 标记，与真 REWORK 攒满 MAX_ROUNDS 的假阳区分开）。
+        """
+        invalid = self._state.increment_review_invalid(issue_number=record.issue_number)
+        if invalid >= MAX_REVIEW_RETRIES:
+            return self._block(record=record, gate=gate)
+        return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
     def _block(self, *, record: RunRecord, gate: str) -> dict:
         """RFC-0012 决策 5：评审超 K 轮 → 置 STATUS_BLOCKED + 打 needs-human + PR 不关。

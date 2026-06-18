@@ -33,12 +33,17 @@ _BARE_VERDICT_RE = re.compile(r"\b(PASS|REWORK|RETHINK)\b", re.IGNORECASE)
 
 # review 任务模板：要求 reviewer 独立读 RFC/diff，按 rubric 给出首行裁决 token（决策 1 缺点
 # 缓解：强约束输出格式 + 单测覆盖解析）。kind 选择评 RFC 文档 vs 评代码 diff。
+# Spec-0021/T1：裁决前置——把「以 VERDICT 开头」升级为硬性「第一行必须是 VERDICT: <token>，
+# 在任何 REASON/ISSUES/论证之前」。论证写在裁决之后，长回复被截断时丢的是论证尾部而非裁决头部
+# （命中 issue #63 根因 1：裁决与论证分离，避免 VERDICT 拖到末尾被截）。
 _RUBRIC_TAIL = (
     "你只读不写，禁止任何写操作（commit/push/改文件）。\n"
     "疑罪从严：任一验证标准不确定是否满足 → 判 REWORK，把疑虑写进 ISSUES。\n"
-    "你的最终回复必须以下面之一开头（主程序要解析首个裁决 token）：\n"
-    "  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
-    "或：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
+    "【硬性格式】你的回复第一行必须就是 `VERDICT: <token>`（token ∈ PASS/REWORK/RETHINK），"
+    "在任何 REASON/ISSUES/论证之前。所有理由、证据、问题列表一律写在裁决行之后——"
+    "这样即便回复被长度截断，丢的也是尾部论证而非裁决本身。\n"
+    "PASS 示例：\n  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
+    "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
 )
 _RFC_REVIEW_TASK = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
@@ -75,6 +80,11 @@ class ReviewDecision:
     passed: bool
     feedback: str
     verdicts: tuple[str, ...] = ()
+    # Spec-0021/T1：非 PASS 的可操作性。True = 非 PASS 且至少一个解析出的 REWORK/RETHINK
+    # 带实质正文（真 REWORK，有东西可改）；False = 要么 passed，要么「评审无效」（裁决全
+    # 无法解析 / 无可操作条目）。默认 False 保证既有构造点向后兼容。编排层（Spec-0021/T2）
+    # 据 `not passed and not actionable` 判「评审无效」→ 不吃 round、不空转 refine/iterate。
+    actionable: bool = False
 
 
 def configured_reviewers() -> int:
@@ -105,16 +115,36 @@ def review(
     summaries = _run_reviewers(backend=backend, work_dir=work_dir, task=task, n=max(1, n))
     # RFC-0018 决策 3：把解析出的裁决 token 全程保留（None→UNPARSED），既供聚合判定，
     # 也作为 ReviewDecision.verdicts 暴露给编排层渲染票型（不再聚合后即丢弃）。
-    verdicts = tuple(_parse_verdict(summary=s) or UNPARSED_VERDICT for s in summaries)
+    parsed = [_parse_verdict(summary=s) for s in summaries]
+    # Spec-0021/T1：对解析为 UNPARSED（None）的 reviewer 单次重跑——截断是随机的，重跑有
+    # 相当概率拿到可解析裁决（命中 issue #63 期望 2「可重试一次」）。只重 UNPARSED 项、且仅
+    # 一次（不无限）；PASS/REWORK/RETHINK 已是确定裁决不重跑。无限重试属编排层（T2）职责，分层。
+    for i, verdict in enumerate(parsed):
+        if verdict is None:
+            retried = backend.run(work_dir=work_dir, task=task, context="").summary
+            summaries[i] = retried
+            parsed[i] = _parse_verdict(summary=retried)
+    verdicts = tuple(v or UNPARSED_VERDICT for v in parsed)
     if verdicts and all(v == "PASS" for v in verdicts):
-        return ReviewDecision(passed=True, feedback="", verdicts=verdicts)
+        return ReviewDecision(passed=True, feedback="", verdicts=verdicts, actionable=False)
+    # Spec-0021/T1：区分「真 REWORK」与「评审无效」——存在至少一个解析出的 REWORK/RETHINK 且
+    # 其对应 summary 有实质正文 → actionable（有东西可改）；否则（全 UNPARSED / 无正文）为评审无效。
+    actionable = any(
+        verdict in ("REWORK", "RETHINK") and summaries[i].strip()
+        for i, verdict in enumerate(verdicts)
+    )
     # 非 PASS（含 REWORK/RETHINK/无法解析）的摘要原文汇总为反馈，喂回 refine/iterate。
     parts = [
         (summary.strip() or "（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）")
         for summary, verdict in zip(summaries, verdicts, strict=True)
         if verdict != "PASS"
     ]
-    return ReviewDecision(passed=False, feedback="\n\n---\n\n".join(parts), verdicts=verdicts)
+    return ReviewDecision(
+        passed=False,
+        feedback="\n\n---\n\n".join(parts),
+        verdicts=verdicts,
+        actionable=actionable,
+    )
 
 
 # RFC-0018 决策 4：kind → 评论里的中文展示名（未知 kind 原样回显，不抛错——渲染是旁路）。
@@ -132,7 +162,14 @@ def render_decision(*, decision: ReviewDecision, kind: str) -> str:
     label = _KIND_LABELS.get(kind, kind)
     total = len(decision.verdicts)
     pass_count = sum(1 for v in decision.verdicts if v == "PASS")
-    overall = "✅ PASS" if decision.passed else "❌ REWORK"
+    # Spec-0021/T1：把「评审无效」与「REWORK」分开渲染，让盯 PR 的人一眼看出是「评审坏了
+    # （裁决无法解析，reviewer 输出疑被截断）」而非「代码被打回」（理念 8 可观测性）。
+    if decision.passed:
+        overall = "✅ PASS"
+    elif decision.actionable:
+        overall = "❌ REWORK"
+    else:
+        overall = "⚠️ 评审无效（裁决无法解析，reviewer 输出疑被截断）"
     lines = [
         "## 评审闸裁决",
         f"- 类型：{label}",
@@ -178,8 +215,15 @@ def _run_reviewers(*, backend: AgentBackend, work_dir: Path, task: str, n: int) 
 def _parse_verdict(*, summary: str) -> str | None:
     """从 summary 解析裁决 token；无法解析返回 None（聚合时按非 PASS 处理，疑罪从严）。
 
-    优先匹配 `VERDICT: <token>`（rubric 约定格式），回退到正文里第一处裸 token——
-    兼容模型偶尔漏写 `VERDICT:` 前缀。大小写无关，统一大写返回。
+    Spec-0021/T1：解析顺序「首行/首段优先 → 全文回退」。先在首个非空行找 `VERDICT:` token，
+    命中即采信——避免正文里偶现的裸 "REWORK" 字样（如引用别人的评审）污染裁决（rubric 已要求
+    裁决置于首行）。首段无果再回退到既有全文 `_VERDICT_RE` / 裸 token 匹配（向后兼容老格式 +
+    漏写 `VERDICT:` 前缀）。大小写无关，统一大写返回。
     """
-    match = _VERDICT_RE.search(summary or "") or _BARE_VERDICT_RE.search(summary or "")
+    text = summary or ""
+    first_line = next((line for line in text.splitlines() if line.strip()), "")
+    head_match = _VERDICT_RE.search(first_line)
+    if head_match:
+        return head_match.group(1).upper()
+    match = _VERDICT_RE.search(text) or _BARE_VERDICT_RE.search(text)
     return match.group(1).upper() if match else None

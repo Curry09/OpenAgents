@@ -1,0 +1,80 @@
+id: T3
+title: 流水线分级闸：hold 穿到 poll 两道闸分流
+status: done
+priority: P0
+tags: []
+depends-on:
+  - T2
+relates-to: []
+parallel: false
+files:
+  - openagents/vigil.py
+  - openagents/messages.py
+  - tests/test_vigil.py
+  - tests/test_messages.py
+version: 2
+updated: '2026-06-17'
+change-reason: 'renumber 0015→0020: 避开 grandfathered RFC-0015~0019（代码注释中已占用），修正 Spec-0020 引用与脚本名'
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: |-
+  这是 `--hold` 的「执行端」：把人选的闸门真正落到流水线上。`vigil --hold spec` 让流水线写完 spec、动代码前停住，只认人工打的 `rfc-approved` label 才放行；`vigil --hold merge` 一路自动到 PR，把最后 merge 留给人。不带 --hold 时一切照旧、全自动。
+motivation: |-
+  现有 poll 状态机（RFC-0012）已经把人的触点收敛到「提 issue」与「promote」——spec 闸由 agent reviewer 自动评审、自动打 rfc-approved，merge 闸 CI 绿 + reviewer PASS 后自动合。issue #59 要在这两个**意图节点**上重新插回人的把关，但必须是**可选的分级**：默认行为一个字节都不能变，只有人显式 `--hold` 时才在对应闸门停下。这是整个 issue 的核心执行点，故定 P0。
+scope: |-
+  vigil.run 接收 Hold 并透传到 messages.poll；messages 在 spec 闸（_process_rfc_review）与 merge 闸（_process_coding）按 Hold 分流：hold.at_spec → 停掉自动 reviewer、只认人工 rfc-approved label；hold.at_merge → CI 绿 + review PASS 后不自动 merge_pr，留给人。默认 Hold（全不停）行为与现状逐字节一致。改动处引用 Spec-0020。
+design: |-
+  **hold 怎么流到闸门**：Hold 在 CLI 处解析（T4），传给 `vigil.run(hold=...)`，vigil 再透传给 `messages.poll(hold=...)`。vigil 自身不消费 Hold——它仍是薄调度循环（RFC-0004），只负责把人的意图带到真正分流的 messages 层。Messages 是注入构造的，故 hold 走方法参数（poll）而非构造参数，避免改动 cli 的 `_messages_for` 工厂签名、保持 T3/T4 文件边界干净。
+
+  **spec 闸（_process_rfc_review）分流**：
+  - 默认（not at_spec）→ 现状：先看人工/历史 rfc-approved label（2a），否则调 reviewer 自动评审（2b）。
+  - at_spec → **跳过 2b 自动 reviewer**，只保留 2a：带人工 rfc-approved label 才 implement，否则本轮**什么都不做、停在 spec 闸等人**（不 refine、不 block、不进 coding）。复用现有 label 门控正是 issue 要求的「复用 rfc-approved label」。
+
+  **merge 闸（_process_coding）分流**：
+  - 默认（not at_merge）→ 现状：CI 绿 + reviewer PASS → 自动 merge_pr → done。
+  - at_merge → CI / iterate / reviewer 评审照跑，但 reviewer PASS 后**不调 merge_pr**，停在「待人 merge」（PR 保持 open，本轮不动状态），把最后一下留给人。人手动 merge 后，下一轮 poll 的 is_merged 分支照常 reconcile 成 done（已有逻辑，无需新增）。
+
+  ```mermaid
+  flowchart TD
+    A[poll 单个 run] --> B{spec 闸?}
+    B -- 有人工 rfc-approved --> I[implement 进 coding]
+    B -- 无 label & at_spec --> H1[停在 spec 闸 等人批]
+    B -- 无 label & 默认 --> R[reviewer 自动评审]
+    I --> C{merge 闸: CI绿+PASS?}
+    C -- 默认 --> M[自动 merge_pr → done]
+    C -- at_merge --> H2[停在 merge 闸 等人合]
+  ```
+
+  **默认零回归**：分流是在既有路径上「加一个 if hold.at_xxx 提前 return」，默认分支走原代码不变。既有 test_messages.py 用例（默认 Hold）必须全绿，作为回归护栏。
+interface: |-
+  契约（描述而非代码）：
+  - `Vigil.run(*, interval, labels, base, once, hold)`：新增关键字参数 hold（Hold），默认取「全不停」实例以保持现有调用与行为；run 把 hold 透传给每轮 `messages.poll`。
+  - `Messages.poll(*, hold)`：新增关键字参数 hold，默认「全不停」；poll 内部把 hold 下传给 `_process_rfc_review` / `_process_coding`。
+  - 两道闸的私有处理函数据 hold.at_spec / hold.at_merge 选择「停」或「现状」分支。
+  - 仅关键字参数；默认值仅给 hold 这一公共入口（向后兼容现有测试夹具），私有函数显式传 hold。
+tradeoffs: |-
+  - **hold 走 poll 方法参数 vs Messages 构造参数**（选方法参数）：构造参数更「一次注入」，但要改 cli 的 `_messages_for` 工厂、把 cli.py 卷进 T3 的文件边界；方法参数让 hold 顺着 vigil→poll 的调用链走，文件归属干净、也更贴合「hold 是本次运行的意图、非实例固有属性」。
+  - **spec 闸 hold 时停掉 reviewer vs 保留 reviewer 仅不自动批**（选停掉）：保留 reviewer 能给人预审意见，但会持续消耗 backend、且与「等人批」语义混淆（人和 agent 谁说了算？）。停掉最简、最省、语义最干净——「hold spec 就是把这道闸完全交给人」。预审能力可由独立命令另行提供，不塞进本闸。
+  - **merge 闸 hold 时不 merge 而保持 open**（vs 新增一种暂停状态）：复用「PR open + 本轮不动」已是软等待，无需引入新 State 状态；人 merge 后既有 is_merged reconcile 自然收口。
+acceptance: |-
+  - `vigil.run` 接收 hold 并逐轮透传给 `messages.poll`；可断言 poll 收到的 hold 即传入值。
+  - spec 闸 `hold.at_spec`：无 rfc-approved label → 不调自动 reviewer、不打 label、不 implement（停在 rfc-review）；带人工 rfc-approved label → 照常 implement 进 coding。
+  - merge 闸 `hold.at_merge`：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）；人手动 merge 后下一轮 is_merged 分支照常 reconcile 成 done。
+  - `spec,merge` 组合：两道闸都按各自规则停。
+  - **零回归**：默认 Hold（全不停）下既有 spec 闸自动评审 / merge 闸自动合并的 test_messages.py 用例全绿、行为逐字节不变。
+  - tests/test_vigil.py + tests/test_messages.py 全绿；ruff check + ruff format --check 通过；改动处引用 Spec-0020。
+tests: |-
+  单元（tests/test_vigil.py + tests/test_messages.py，monkeypatch github.* / orchestrator）：
+  - vigil.run 把传入 hold 透传给 messages.poll（断言 poll 收到的 hold）。
+  - spec 闸 at_spec：无 label → 不调 review_rfc、不调 add_label、不 implement（停住）；有人工 rfc-approved label → 照常 implement。
+  - merge 闸 at_merge：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停住）；人 merge 后 is_merged 分支照常 done。
+  - spec,merge：两道都停的组合路径。
+  - **回归**：默认 Hold 下既有 spec 闸自动评审 / merge 闸自动合并用例全绿，行为不变。
+references: |-
+  - issue #59 正文「vigil 分级监督」与 `--hold spec/merge/spec,merge` 取值表。
+  - openagents/messages.py 现状两道闸：`_process_rfc_review`（RFC-0012 决策 1/3）、`_process_coding`（决策 1）。
+  - openagents/vigil.py：薄调度循环定位（RFC-0004）。
+open-questions: |-
+  - 「看 spec 批准」依赖 #58 的人类可读 summary：人对着一坨技术 task YAML 没法点头。本 Task 只做闸控机制，**不**实现 summary；spec 闸停下时人看到的批准依据（OVERVIEW summary）由 #58 / Spec-0014 体系提供。若 #58 未就绪，hold spec 仍能停/放行，只是人的阅读体验降级——需在 T5 e2e 与上线说明里点明这条软依赖。

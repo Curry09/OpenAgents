@@ -49,6 +49,12 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR
 给每个 spec 加一段面向人的大白话 TL;DR：metadata 增组级 summary 字段、spec new 必填、validate 强制非空、render 在 OVERVIEW 顶部逐 feature 展示，并迁移补齐所有现存 spec。是 #59 人类监督闸门的地基。
 
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+给 OpenAgents 加两道人类监督闸门：提 issue 前的「需求对齐」（把模糊想法复述成 做什么X/边界Y/不做Z 让人确认），以及 vigil 自治循环的分级 --hold 闸（在 spec 批准、PR 合并等关键点停下等人点头）。让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，不改既有 issue→PR 自动流程的内部逻辑。
+
+### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+修 reviewer 长回复被截断在 VERDICT 行之前、导致解析失败（UNPARSED）被误判成「非 PASS」、白白空耗 vigil rounds 甚至误触 needs-human 的 bug。做法：裁决 token 前置、按首行解析、区分「评审本身无效」与「真 REWORK」、加单次重解析与诚实升级。只改 reviewer 解析与编排层容错，不改裁决标准本身。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -118,6 +124,13 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0015 | 0015/T3 | 闸门：validate 强制 summary 非空 | done | T1 | openagents/spec/validate.py<br>tests/test_spec_validate.py |
 | 0015 | 0015/T4 | 人读视图：render 顶部 TL;DR 区块 | done | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
 | 0015 | 0015/T5 | 迁移：补齐 14 个现有 spec 的 summary + 重渲染 | done | T3, T4 | docs/specs/OVERVIEW.md |
+| 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | done | — | openagents/align.py<br>tests/test_align.py |
+| 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | done | — | openagents/hold.py<br>tests/test_hold.py |
+| 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
+| 0020 | 0020/T4 | CLI 接线：issue 前门对齐 + vigil --hold 标志 | done | T1, T2, T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0020 | 0020/T5 | e2e 脚本：演示停在 spec → 人批 → 继续 | done | T3, T4 | scripts/e2e-spec-0020-hold-gate.sh |
+| 0021 | 0021/T1 | reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0021 | 0021/T2 | 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级 | done | T1 | openagents/messages.py<br>tests/test_messages.py<br>openagents/state.py<br>tests/test_state.py |
 
 ## 跨 feature 关系图
 
@@ -218,6 +231,17 @@ graph LR
         n0015_T4["T4 人读视图：render 顶部 TL;DR 区块"]
         n0015_T5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
     end
+    subgraph G0020[0020 human-oversight-gates]
+        n0020_T1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
+        n0020_T2["T2 hold 配置模型：解析 spec,merge 成闸门集合"]
+        n0020_T3["T3 流水线分级闸：hold 穿到 poll 两道闸分流"]
+        n0020_T4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
+        n0020_T5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
+    end
+    subgraph G0021[0021 reviewer-truncated-verdict-fix]
+        n0021_T1["T1 reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析"]
+        n0021_T2["T2 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -281,6 +305,13 @@ graph LR
     n0015_T4 --> n0015_T1
     n0015_T5 --> n0015_T3
     n0015_T5 --> n0015_T4
+    n0020_T3 --> n0020_T2
+    n0020_T4 --> n0020_T1
+    n0020_T4 --> n0020_T2
+    n0020_T4 --> n0020_T3
+    n0020_T5 --> n0020_T3
+    n0020_T5 --> n0020_T4
+    n0021_T2 --> n0021_T1
 ```
 
 ## 文件冲突报告
@@ -289,11 +320,12 @@ graph LR
 |----|----|
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | openagents/rebase.py | 0009, 0011 |
+| openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015 |
@@ -301,24 +333,25 @@ graph LR
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015 |
 | openagents/spec/validate.py | 0014, 0015 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020 |
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013 |
 | tests/test_rebase.py | 0009, 0011 |
+| tests/test_reviewer.py | 0012, 0021 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015 |
 | tests/test_spec_model.py | 0014, 0015 |
 | tests/test_spec_mutate.py | 0014, 0015 |
 | tests/test_spec_render.py | 0014, 0015 |
 | tests/test_spec_validate.py | 0014, 0015 |
-| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012 |
-| tests/test_vigil.py | 0004, 0007, 0010 |
+| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021 |
+| tests/test_vigil.py | 0004, 0007, 0010, 0020 |
 | tests/test_workspace.py | 0005, 0008 |
 
 ## 各 feature 详情
@@ -816,4 +849,88 @@ graph LR
     class v_T5_1 st_pending;
     class v_T5_2 st_pending;
     class v_T5_3 st_done;
+```
+
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）
+
+```mermaid
+graph LR
+    nT1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
+    nT2["T2 hold 配置模型：解析 spec,merge 成闸门集合"]
+    nT3["T3 流水线分级闸：hold 穿到 poll 两道闸分流"]
+    nT4["T4 CLI 接线：issue 前门对齐 + vigil --hold 标志"]
+    nT5["T5 e2e 脚本：演示停在 spec → 人批 → 继续"]
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T3_1["T3 v1"]
+    v_T3_2["T3 v2"]
+    v_T3_1 -->|redefined| v_T3_2
+    v_T4_1["T4 v1"]
+    v_T4_2["T4 v2"]
+    v_T4_1 -->|redefined| v_T4_2
+    v_T5_1["T5 v1"]
+    v_T5_2["T5 v2"]
+    v_T5_1 -->|redefined| v_T5_2
+    classDef st_done fill:#b7e4c7;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T1_2 st_done;
+    class v_T2_1 st_pending;
+    class v_T2_2 st_done;
+    class v_T3_1 st_pending;
+    class v_T3_2 st_done;
+    class v_T4_1 st_pending;
+    class v_T4_2 st_done;
+    class v_T5_1 st_pending;
+    class v_T5_2 st_done;
+```
+
+### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human（issue #63）
+
+```mermaid
+graph LR
+    nT1["T1 reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析"]
+    nT2["T2 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_3["T1 v3"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T1_2 -->|redefined| v_T1_3
+    v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_3["T2 v3"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T2_2 -->|redefined| v_T2_3
+    classDef st_done fill:#b7e4c7;
+    classDef st_in_progress fill:#fff3b0;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T1_2 st_in_progress;
+    class v_T1_3 st_done;
+    class v_T2_1 st_pending;
+    class v_T2_2 st_in_progress;
+    class v_T2_3 st_done;
 ```

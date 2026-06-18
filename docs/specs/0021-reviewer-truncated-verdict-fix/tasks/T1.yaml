@@ -1,0 +1,91 @@
+id: T1
+title: reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析
+status: done
+priority: P0
+tags:
+  - backend
+  - reviewer
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/reviewer.py
+  - tests/test_reviewer.py
+version: 3
+updated: '2026-06-18'
+change-reason: 'done: reviewer 裁决前置+首行解析+actionable+单次重解析 已实现并自测'
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: |-
+  reviewer 是「读 RFC/diff → 给裁决 token」的无状态函数。现在它只会回答「PASS 还是非 PASS」,把「裁决根本没解析出来(回复被截断)」和「reviewer 真的判了 REWORK」混为一谈。这个 Task 让 reviewer 学会区分这两件事:把裁决 token 顶到回复最前面、只认首行、解析不出来就重跑一次,并在裁决结果里明确标出「这条评审是无效的(没解析出裁决)」还是「这条评审是可操作的 REWORK(带 ISSUES)」。
+motivation: |-
+  根因在 reviewer 侧的两个薄弱点(issue #63 / 实例 PR #61):
+  1. **裁决 token 容易被截断**:`_RUBRIC_TAIL` 虽写了「回复必须以 VERDICT 开头」,但模型实际把一大段论证写在前面、VERDICT 拖到末尾,长回复在 token 之前就被截断(摘要都断在半句话)。
+  2. **解析失败被语义坍缩**:`_parse_verdict` 找不到 token 返回 None,`review()` 按「疑罪从严」把它归一化成 UNPARSED 并计为非 PASS——于是一篇**全是好评**的回复被当成 REWORK。
+
+  下游编排层(T2)要想「评审无效不吃 round」,前提是 reviewer 能在裁决结果里如实说出「这是无效评审,不是 REWORK」。因此本 Task 是修复链的源头,定 P0。把裁决前置 + 首行解析 + 单次重解析放在这里,能从概率上先压低截断发生率,再用「评审无效」标记兜住仍被截断的残余。
+scope: |-
+  强化 _RUBRIC_TAIL,要求 VERDICT 置于回复**最最前面**(任何论证之前);_parse_verdict 优先认首行/首段裁决。给 review() 增加一个内重试:任一 reviewer 解析为 UNPARSED 时,对该 reviewer 再跑一次(单次)。在 ReviewDecision 上区分「真 REWORK(至少一个解析出的 REWORK/RETHINK 且有实质 ISSUES 正文 → 可操作)」与「评审无效(非 PASS 仅因裁决无法解析/无可操作条目)」,新增布尔字段暴露给编排层。render_decision 把「评审无效」与「REWORK」分别渲染。改动处引用 Spec-0021。
+design: |-
+  **三道防线,从「别被截断」到「被截断也别误判」**:
+
+  1. **前置裁决(rubric 强化)**:把 `_RUBRIC_TAIL` 的「以 VERDICT 开头」升级为硬性「**第一行必须是 `VERDICT: <token>`,在任何 REASON/ISSUES/论证之前**」。论证写在裁决之后,这样即便回复被长度截断,丢的是论证尾部而非裁决头部。这是最便宜、命中根因的一招(裁决与论证分离,issue 期望 1)。
+
+  2. **首行优先解析**:`_parse_verdict` 改为**先在首行/首段找 `VERDICT:` token**,首段无果再回退到现有的全文 `_VERDICT_RE` / 裸 token 匹配(向后兼容老格式)。首行命中即采信,避免正文里偶现的 "REWORK" 字样(如引用别人的评审)污染裁决。
+
+  3. **单次重解析(retry once)**:`review()` 聚合时,对**解析为 UNPARSED 的那个 reviewer** 再跑一次 `backend.run`(仅一次,issue 期望 2 的「重试一次」)。截断是随机的,重跑有相当概率拿到可解析裁决。重试只针对 UNPARSED 项,PASS/REWORK/RETHINK 不重跑(已是确定裁决)。
+
+  **裁决结果分三类,而非两类**:现在 `ReviewDecision` 只有 `passed`(全票 PASS)。本 Task 让它能回答「为什么没 PASS」:
+  - **passed**:全部解析为 PASS。
+  - **actionable REWORK**:存在至少一个解析出的 REWORK/RETHINK,且其 summary 有实质正文(ISSUES) → 有东西可改。
+  - **评审无效(invalid)**:非 PASS,但唯一原因是裁决无法解析(全是 UNPARSED)或没有任何可操作条目 → 没东西可改。
+
+  通过在 `ReviewDecision` 增加一个布尔字段(下方 interface)暴露 actionable/invalid,让 T2 据此分流。判定 predicate(描述,非代码):`actionable := (not passed) and ∃ verdict ∈ {REWORK, RETHINK} 且对应 summary.strip() 非空`;否则若 `not passed` 则为 invalid。
+
+  ```mermaid
+  flowchart TD
+    R[N 个 reviewer summary] --> P[首行优先解析每个裁决]
+    P --> U{有 UNPARSED?}
+    U -- 是 --> RT[对 UNPARSED 项单次重跑 backend.run]
+    RT --> P2[再解析]
+    U -- 否 --> AGG
+    P2 --> AGG[聚合裁决]
+    AGG --> C{全 PASS?}
+    C -- 是 --> D1[passed=True, actionable=False]
+    C -- 否 --> C2{存在带正文的 REWORK/RETHINK?}
+    C2 -- 是 --> D2[passed=False, actionable=True 真 REWORK]
+    C2 -- 否 --> D3[passed=False, actionable=False 评审无效]
+  ```
+
+  **render_decision 区分文案**:裁决渲染到 PR 评论时,「评审无效」明确标注为「⚠️ 评审无效(裁决无法解析,reviewer 输出疑被截断)」,与「❌ REWORK」分开,让盯 PR 的人一眼看出是「评审坏了」而非「代码被打回」(理念 8 可观测性)。
+interface: |-
+  契约(描述而非代码):
+  - `ReviewDecision`:新增一个布尔字段(暂名 `actionable`,默认值保证既有构造点向后兼容)——`True` 表示非 PASS 且带可操作的 REWORK/RETHINK 反馈;`False` 表示要么 passed,要么「评审无效」。编排层(T2)用 `not passed and not actionable` 判定「评审无效」。
+  - `review(*, backend, work_dir, kind, pr_number, n) -> ReviewDecision`:签名不变;内部对 UNPARSED 项做单次重跑,并据聚合结果设置 `actionable`。返回值在 passed/feedback/verdicts 三字段上的既有语义保持不变(纯增量加字段)。
+  - `_parse_verdict(*, summary) -> str | None`:签名不变;解析顺序改为「首行/首段优先 → 全文回退」。
+  - `render_decision(*, decision, kind) -> str`:签名不变;对「评审无效」渲染区别于「REWORK」的文案。
+  - 仅关键字参数;private 函数显式传参、不设默认值(CLAUDE.md 规范)。
+tradeoffs: |-
+  - **裁决前置 vs 硬截断 backend 输出**(选前置):硬截断 `AgentResult.summary` 到固定长度看似直接,但若 VERDICT 本就在末尾,硬截反而**更易丢 token**,且要改动 reviewer 对 backend 输出的契约。把裁决顶到首行 + 首行解析,从根上让「被截断」不再波及裁决,最省、最贴合 issue 期望 1 的「裁决与论证分离」。
+  - **单次重解析 vs 不重试**(选单次):不重试最简,但单条截断好评仍会落到「评审无效」、把压力全压给 T2 的兜底。一次重跑成本可控(N 默认 1)、能从概率上消解大部分随机截断,正是 issue 期望 2 的「可重试一次」。不做无限重试——那属于 T2 的独立重试上限,职责分层。
+  - **新增 actionable 字段 vs 复用 feedback 是否为空**(选显式字段):仅凭 `feedback == ""` 判断会和「REWORK 但 reviewer 没写 ISSUES」混淆(那种 feedback 是占位文案、非空但不可操作)。显式布尔字段语义清晰、单测可断言,且让 T2 不必重新解析 verdicts。
+  - **「评审无效」判定纳入 RETHINK**:RETHINK(需重新设计)是确定裁决、有正文即可操作,故归入 actionable,不算无效;只有「全 UNPARSED / 无正文」才算无效。
+acceptance: ''
+tests: |-
+  单元(tests/test_reviewer.py,打桩 AgentBackend):
+  - 截断好评(summary 全是好评但无 VERDICT、重跑仍无)→ decision.passed=False 且 actionable=False(评审无效);verdicts 仍含 UNPARSED 占位、长度=N。
+  - 带 ISSUES 的真 REWORK(首行 `VERDICT: REWORK` + ISSUES 正文)→ passed=False、actionable=True、feedback 含 ISSUES 正文。
+  - 首行解析:`VERDICT: PASS` 在首行 + 正文里出现裸 "REWORK" 字样 → 解析为 PASS(首行优先,不被正文污染)。
+  - 单次重解析:首跑 UNPARSED、重跑给出 `VERDICT: PASS` → backend.run 对该 reviewer 被调用两次,最终 passed=True;重跑仍 UNPARSED → 只重跑一次(不无限),落「评审无效」。
+  - 全 PASS → passed=True、actionable=False、feedback=""。
+  - render_decision:「评审无效」与「REWORK」渲染出不同标识文案。
+  - 回归:既有 _parse_verdict / review / render_decision 用例(标准格式)全绿。
+  - ruff check + ruff format --check + pytest 通过。
+references: |-
+  - issue #63 正文(现象 PR #61 / issue #58、根因定位到 reviewer.py:178/108/109、期望 1/2/3、验收)。
+  - openagents/reviewer.py 现状:`_RUBRIC_TAIL`(裁决格式约定)、`_parse_verdict`(行 178)、`review`(行 108-109 的 UNPARSED 归一化)、`ReviewDecision`、`render_decision`、`UNPARSED_VERDICT`(RFC-0018)。
+  - vigil-reviewer rubric(PASS/REWORK/RETHINK 三裁决的来源,RFC-0012)。
+open-questions: |-
+  - 「实质 ISSUES 正文」的阈值如何定:目前按 `summary.strip()` 非空判可操作。若 reviewer 给了 `VERDICT: REWORK` 但正文极短/无 ISSUES,是否也应归入「评审无效」由人定;本 Task 先采「有裁决 token 的 REWORK/RETHINK 即可操作」的保守口径,极端空 REWORK 的细分留待实跑数据再校准。

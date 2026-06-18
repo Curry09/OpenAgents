@@ -245,6 +245,7 @@ def test_render_decision_rework_contains_feedback_summary():
         passed=False,
         feedback="foo.py:10 缺边界处理",
         verdicts=("PASS", "REWORK"),
+        actionable=True,
     )
     body = render_decision(decision=decision, kind="code")
     assert "代码" in body
@@ -263,3 +264,82 @@ def test_render_decision_renders_unparsed_vote_type():
     body = render_decision(decision=decision, kind="rfc")
     assert "2 票中 1 票 PASS" in body
     assert UNPARSED_VERDICT in body
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0021/T1: 区分「评审无效」与「真 REWORK」+ 首行解析 + 单次重解析
+# --------------------------------------------------------------------------- #
+
+
+def test_truncated_praise_is_invalid_not_rework(tmp_path):
+    # 截断好评：summary 全是好评但无 VERDICT、重跑仍无 → passed=False 且 actionable=False
+    # （评审无效）。verdicts 仍含 UNPARSED 占位、长度=N。
+    backend = _backend("代码看起来不错，逻辑清晰，测试也挺全的，挺好的，没发现什么问题")
+    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=61, n=1)
+    assert decision.passed is False
+    assert decision.actionable is False
+    assert decision.verdicts == (UNPARSED_VERDICT,)
+
+
+def test_actionable_rework_with_issues(tmp_path):
+    # 真 REWORK：首行 VERDICT: REWORK + ISSUES 正文 → passed=False、actionable=True、
+    # feedback 含 ISSUES 正文。
+    backend = _backend("VERDICT: REWORK\nISSUES:\n- foo.py:10 缺边界处理\nNEXT: 补空输入分支")
+    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=7, n=1)
+    assert decision.passed is False
+    assert decision.actionable is True
+    assert "缺边界处理" in decision.feedback
+
+
+def test_parse_verdict_first_line_priority_over_body_bare_token():
+    # 首行 VERDICT: PASS + 正文里出现裸 "REWORK" 字样 → 解析为 PASS（首行优先，不被正文污染）。
+    summary = "VERDICT: PASS\nREASON: 对齐需求\n（注：上一轮 reviewer 曾判 REWORK，本轮已修复）"
+    assert _parse_verdict(summary=summary) == "PASS"
+
+
+def test_unparsed_then_retry_pass(tmp_path):
+    # 首跑 UNPARSED、重跑给出 VERDICT: PASS → 该 reviewer 的 backend.run 被调用两次，最终 passed=True。
+    backend = _backend("被截断了一半的论证……", "VERDICT: PASS\nREASON: ok")
+    decision = review(backend=backend, work_dir=tmp_path, kind="rfc", pr_number=1, n=1)
+    assert decision.passed is True
+    assert len(backend.calls) == 2
+
+
+def test_unparsed_retry_only_once(tmp_path):
+    # 重跑仍 UNPARSED → 只重跑一次（不无限），落「评审无效」（actionable=False）。
+    backend = _backend("没有裁决 token 的一段话")
+    decision = review(backend=backend, work_dir=tmp_path, kind="rfc", pr_number=1, n=1)
+    assert decision.passed is False
+    assert decision.actionable is False
+    assert len(backend.calls) == 2  # 首跑 + 单次重跑，不再继续
+
+
+def test_all_pass_is_not_actionable(tmp_path):
+    backend = _backend("VERDICT: PASS")
+    decision = review(backend=backend, work_dir=tmp_path, kind="code", pr_number=7, n=3)
+    assert decision.passed is True
+    assert decision.actionable is False
+    assert decision.feedback == ""
+
+
+def test_review_decision_actionable_defaults_false():
+    # 向后兼容：既有构造点不传 actionable 时默认 False。
+    decision = ReviewDecision(passed=True, feedback="")
+    assert decision.actionable is False
+
+
+def test_render_decision_invalid_distinct_from_rework():
+    # 「评审无效」与「REWORK」渲染出不同标识文案。
+    invalid = render_decision(
+        decision=ReviewDecision(
+            passed=False, feedback="x", verdicts=(UNPARSED_VERDICT,), actionable=False
+        ),
+        kind="code",
+    )
+    rework = render_decision(
+        decision=ReviewDecision(passed=False, feedback="x", verdicts=("REWORK",), actionable=True),
+        kind="code",
+    )
+    assert "评审无效" in invalid
+    assert "评审无效" not in rework
+    assert "❌ REWORK" in rework
