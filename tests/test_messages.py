@@ -20,7 +20,7 @@ import time
 import pytest
 
 from openagents import messages as messages_module
-from openagents.github import CheckStatus
+from openagents.github import CheckStatus, GithubError, Mergeability
 from openagents.hold import Hold
 from openagents.messages import APPROVAL_LABEL, Messages, _configured_max_rounds
 from openagents.reviewer import ReviewDecision
@@ -119,9 +119,37 @@ def _make(*, runs, rfc_decision=_PASS, code_decision=_PASS, agent_id=_AGENT_ID):
     return msgs, orch, state
 
 
-def _patch_github(monkeypatch, *, merged=False, closed=False, has_label=False, check=None):
-    """统一 monkeypatch github 模块函数；返回 merge_pr / add_label / close_issue 调用的记录器。"""
-    rec = {"merged": [], "labels": [], "closed_issues": []}
+def _patch_github(
+    monkeypatch,
+    *,
+    merged=False,
+    closed=False,
+    has_label=False,
+    check=None,
+    mergeable="MERGEABLE",
+    merge_state_status="CLEAN",
+):
+    """统一 monkeypatch github 模块函数；返回 merge_pr / add_label / close_issue 调用的记录器。
+
+    Spec-0022/T2：默认 mergeable=MERGEABLE / merge_state_status=CLEAN，使 _process_coding 的
+    可合并性预检默认放行（既有 coding 用例零回归）；冲突/UNKNOWN 用例显式传参覆盖。
+    identity.post_signed_comment 桩为记录器（rec["comments"]），断言 rebase 提示恰发一次。
+    """
+    rec = {"merged": [], "labels": [], "closed_issues": [], "comments": []}
+    monkeypatch.setattr(
+        messages_module.github,
+        "mergeability",
+        lambda *, pr_number: Mergeability(
+            mergeable=mergeable, merge_state_status=merge_state_status
+        ),
+    )
+    monkeypatch.setattr(
+        messages_module.identity,
+        "post_signed_comment",
+        lambda *, pr_number, body, agent_id: rec["comments"].append(
+            {"pr_number": pr_number, "body": body, "agent_id": agent_id}
+        ),
+    )
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
@@ -365,6 +393,104 @@ def test_coding_reviewer_fail_over_k_blocks(monkeypatch):
     assert (5, BLOCKED_LABEL) in rec["labels"]
     blocked = next(e for e in events if e["reason"] == "blocked")
     assert blocked["gate"] == "code"
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0022/T2：代码闸可合并性预检 + poll 单 record 错误隔离
+# --------------------------------------------------------------------------- #
+
+
+def test_coding_unmergeable_blocks_and_posts_one_rebase_comment(monkeypatch):
+    # 真冲突（DIRTY/CONFLICTING）：不评审、不 merge；恰发一次 rebase 提示且 body 为
+    # rebase.CONFLICT_COMMENT；record 置 BLOCKED + needs-human；事件 reason == "unmergeable"。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    rec = _patch_github(monkeypatch, mergeable="CONFLICTING", merge_state_status="DIRTY")
+
+    events = msgs.poll()
+
+    assert orch.review_code_calls == []
+    assert rec["merged"] == []
+    assert len(rec["comments"]) == 1
+    assert rec["comments"][0]["body"] == messages_module.rebase.CONFLICT_COMMENT
+    assert rec["comments"][0]["agent_id"] == _AGENT_ID
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
+    assert (5, BLOCKED_LABEL) in rec["labels"]
+    assert any(e["reason"] == "unmergeable" for e in events)
+
+
+def test_coding_unmergeable_then_blocked_skips_next_round(monkeypatch):
+    # 「恰一条」回归：第一轮 block 后，record 变 BLOCKED 且 needs-human 仍在 → 第二轮 poll
+    # 对该 record return None（不再发评论、不评审、不动状态）。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    rec = _patch_github(
+        monkeypatch, mergeable="CONFLICTING", merge_state_status="DIRTY", has_label=True
+    )
+
+    msgs.poll()  # 第一轮：进 blocked，发一条评论
+    events2 = msgs.poll()  # 第二轮：blocked + 仍有 needs-human → 跳过
+
+    assert len(rec["comments"]) == 1  # 未再次发评论
+    assert orch.review_code_calls == []
+    assert events2 == []
+
+
+def test_coding_mergeable_unknown_waits(monkeypatch):
+    # UNKNOWN（GitHub 异步未算完）：本轮不评审、不 block、不发评论；下一轮再查。
+    msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
+    rec = _patch_github(monkeypatch, mergeable="UNKNOWN", merge_state_status="UNKNOWN")
+
+    events = msgs.poll()
+
+    assert orch.review_code_calls == []
+    assert rec["merged"] == []
+    assert rec["comments"] == []
+    assert state.status_updates == []
+    assert events == []
+
+
+def test_coding_clean_passes_precheck_and_merges(monkeypatch):
+    # 可合并放行：CLEAN/MERGEABLE → 走既有 CI→reviewer→merge 路径，行为零回归。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_PASS
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll()
+
+    assert orch.review_code_calls == [5]
+    assert rec["merged"] == [5]
+    assert rec["comments"] == []
+    assert any(e["reason"] == "merged" for e in events)
+
+
+def test_poll_error_isolation_skips_failing_record(monkeypatch):
+    # 错误隔离：两个 open record，第一个 merge_pr 抛 GithubError → poll 不抛、第一个产出
+    # reason=="error" 事件、第二个 record 照常处理产出其事件。不改 state（不擅自 block）。
+    msgs, orch, state = _make(
+        runs=[
+            _run(issue_number=1, pr_number=11, status=STATUS_PR_OPEN),
+            _run(issue_number=2, pr_number=22, status=STATUS_PR_OPEN),
+        ],
+        code_decision=_PASS,
+    )
+    rec = _patch_github(monkeypatch)
+
+    def _boom(*, pr_number, method="merge"):
+        if pr_number == 11:
+            raise GithubError("merge 冲突")
+        rec["merged"].append(pr_number)
+
+    monkeypatch.setattr(messages_module.github, "merge_pr", _boom)
+
+    events = msgs.poll()
+
+    error_event = next(e for e in events if e["reason"] == "error")
+    assert error_event["pr_number"] == 11
+    # 第二个 record 不受影响、照常 merge。
+    assert rec["merged"] == [22]
+    assert any(e["reason"] == "merged" and e["pr_number"] == 22 for e in events)
+    # 不改 state 为 blocked（失败可能瞬时，下轮自然重试）。
+    assert all(u["status"] != STATUS_BLOCKED for u in state.status_updates)
 
 
 # --------------------------------------------------------------------------- #
@@ -679,10 +805,13 @@ def test_block_label_failure_leaves_status_unblocked(monkeypatch):
 
     monkeypatch.setattr(messages_module.github, "add_label", _boom)
 
-    with pytest.raises(messages_module.github.GithubError):
-        msgs.poll()
+    # Spec-0022/T2：poll 现对单 record 做错误隔离——add_label 失败不再冒泡掀翻整轮，而是被
+    # 收成一条 error 事件。issue #47 的核心不变量仍成立：_block 先标签后落盘，标签失败时
+    # state 尚未变 blocked → 下一轮仍当 open 重试整个 _block。
+    events = msgs.poll()
 
-    # 关键：异常上抛时 state 尚未变 blocked（先标签后落盘）——下一轮 poll 仍当 open 重试整个 _block。
+    assert any(e["reason"] == "error" and e["pr_number"] == 5 for e in events)
+    # 关键：异常被隔离时 state 仍未变 blocked（先标签后落盘）——下一轮 poll 仍当 open 重试整个 _block。
     assert {"issue_number": 3, "status": STATUS_BLOCKED} not in state.status_updates
     assert state.all_runs()[0].status == STATUS_ITERATING
 

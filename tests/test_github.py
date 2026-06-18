@@ -19,6 +19,7 @@ from openagents.github import (
     Comment,
     GithubError,
     Issue,
+    Mergeability,
     _is_transient_gh_error,
     _run_gh,
     add_label,
@@ -40,6 +41,7 @@ from openagents.github import (
     list_open_prs,
     mark_ready,
     merge_pr,
+    mergeability,
     post_comment,
     update_branch,
 )
@@ -548,6 +550,63 @@ def test_is_merged_gh_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
         is_merged(pr_number=7)
+
+
+# --------------------------------------------------------------------------- #
+# mergeability（Spec-0022/T1：如实回传 mergeable / mergeStateStatus）
+# --------------------------------------------------------------------------- #
+
+
+def test_mergeability_conflicting_dirty_passthrough(monkeypatch):
+    runner = _fake_run(stdout=json.dumps({"mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"}))
+    monkeypatch.setattr(subprocess, "run", runner)
+    result = mergeability(pr_number=61)
+    assert result == Mergeability(mergeable="CONFLICTING", merge_state_status="DIRTY")
+    # 断言传给 gh 的参数恰为 pr view <n> --json mergeable,mergeStateStatus。
+    assert runner.calls[-1] == [
+        "gh",
+        "pr",
+        "view",
+        "61",
+        "--json",
+        "mergeable,mergeStateStatus",
+    ]
+
+
+def test_mergeability_clean_passthrough(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(stdout=json.dumps({"mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"})),
+    )
+    assert mergeability(pr_number=7) == Mergeability(
+        mergeable="MERGEABLE", merge_state_status="CLEAN"
+    )
+
+
+def test_mergeability_unknown_is_valid_not_error(monkeypatch):
+    # GitHub 异步尚未算完（刚 push 常见）：UNKNOWN 是合法返回值，照实回传、不抛错。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        _fake_run(stdout=json.dumps({"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"})),
+    )
+    assert mergeability(pr_number=7) == Mergeability(
+        mergeable="UNKNOWN", merge_state_status="UNKNOWN"
+    )
+
+
+def test_mergeability_non_dict_raises(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps([1, 2, 3])))
+    with pytest.raises(GithubError):
+        mergeability(pr_number=7)
+
+
+def test_mergeability_missing_field_raises(monkeypatch):
+    # 缺字段属结构异常（区别于 UNKNOWN）：比照 is_merged 抛 GithubError。
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"mergeable": "MERGEABLE"})))
+    with pytest.raises(GithubError):
+        mergeability(pr_number=7)
 
 
 # --------------------------------------------------------------------------- #

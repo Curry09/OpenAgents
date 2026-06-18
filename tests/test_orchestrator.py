@@ -16,8 +16,9 @@ import pytest
 
 from openagents import orchestrator as orch_module
 from openagents.backends.base import AgentResult
-from openagents.github import PR, Issue
+from openagents.github import PR, Comment, Issue
 from openagents.orchestrator import Orchestrator, OrchestratorError
+from openagents.reviewer import ReviewDecision
 from openagents.state import State
 
 
@@ -688,6 +689,106 @@ def test_review_comment_failure_does_not_block_decision(tmp_path, monkeypatch):
 
     # 回贴抛错被吞掉，裁决照常返回（不阻断下游 refine/iterate/merge）。
     assert decision.passed is True
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0022/T3：裁决评论幂等——同 kind 同结论不每轮重发
+# --------------------------------------------------------------------------- #
+
+
+def _decision_comment(*, kind, passed, created_at):
+    """构造一条「裁决评论」：用 reviewer.render_decision 生成正文，确保与生产抬头/字段一致。"""
+    verdicts = ("PASS",) if passed else ("REWORK",)
+    decision = ReviewDecision(passed=passed, feedback="" if passed else "补单测", verdicts=verdicts)
+    body = orch_module.reviewer.render_decision(decision=decision, kind=kind)
+    return Comment(id="c", author="bot", body=body, created_at=created_at)
+
+
+def _patch_list_comments(monkeypatch, comments):
+    monkeypatch.setattr(orch_module.github, "list_comments", lambda *, pr_number: list(comments))
+
+
+def test_decision_same_conclusion_skips_repost(tmp_path, monkeypatch):
+    # 既有一条同 kind PASS 裁决 → 本轮 PASS 不再调 post_signed_comment（票数不同也按结论去重）。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(kind="code", passed=True, created_at="2026-06-18T00:00:00Z")
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(passed=True, feedback="", verdicts=("PASS", "PASS")),
+    )
+
+    assert posted == {}
+
+
+def test_decision_conclusion_flip_reposts(tmp_path, monkeypatch):
+    # 既有为 PASS、本轮非 PASS（结论翻转）→ 正常发新评论。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(kind="code", passed=True, created_at="2026-06-18T00:00:00Z")
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(passed=False, feedback="补单测", verdicts=("REWORK",)),
+    )
+
+    assert posted["pr_number"] == 5
+    assert "REWORK" in posted["body"]
+
+
+def test_decision_first_time_posts(tmp_path, monkeypatch):
+    # 无既往裁决评论 → 正常发。
+    orch, _, _ = _make(tmp_path)
+    _patch_list_comments(monkeypatch, [])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(passed=True, feedback="", verdicts=("PASS",)),
+    )
+
+    assert posted["pr_number"] == 5
+
+
+def test_decision_kind_isolation_does_not_suppress(tmp_path, monkeypatch):
+    # 既有 rfc 裁决不抑制 code 裁决（两道闸按类型行区分）。
+    orch, _, _ = _make(tmp_path)
+    prior_rfc = _decision_comment(kind="rfc", passed=True, created_at="2026-06-18T00:00:00Z")
+    _patch_list_comments(monkeypatch, [prior_rfc])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(passed=True, feedback="", verdicts=("PASS",)),
+    )
+
+    assert posted["pr_number"] == 5
+
+
+def test_decision_dedup_query_failure_falls_open_to_post(tmp_path, monkeypatch):
+    # list_comments 抛错 → 不抛出、降级为照发（fail-open），评审闸不受影响。
+    orch, _, _ = _make(tmp_path)
+
+    def _boom(*, pr_number):
+        raise orch_module.github.GithubError("gh 查询抖动")
+
+    monkeypatch.setattr(orch_module.github, "list_comments", _boom)
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(passed=True, feedback="", verdicts=("PASS",)),
+    )
+
+    assert posted["pr_number"] == 5
 
 
 if __name__ == "__main__":

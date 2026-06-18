@@ -1,6 +1,6 @@
 id: T3
 title: 裁决评论幂等：同一裁决不每轮重发
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on: []
@@ -9,9 +9,9 @@ parallel: false
 files:
   - openagents/orchestrator.py
   - tests/test_orchestrator.py
-version: 2
+version: 3
 updated: '2026-06-18'
-change-reason: 评审意见：校准 _review 引用行号到精确值（止于 return decision）
+change-reason: 'done: 已按 Spec-0062/T3 实现裁决评论幂等去重并通过 ruff + pytest'
 supersedes: []
 split-from:
 merged-from: []

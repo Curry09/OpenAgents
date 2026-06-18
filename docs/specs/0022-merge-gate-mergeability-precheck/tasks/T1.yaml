@@ -1,6 +1,6 @@
 id: T1
 title: github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）
-status: pending
+status: done
 priority: P1
 tags: []
 depends-on: []
@@ -9,9 +9,9 @@ parallel: false
 files:
   - openagents/github.py
   - tests/test_github.py
-version: 1
+version: 2
 updated: '2026-06-18'
-change-reason: ''
+change-reason: 'done: 已按 Spec-0062/T1 实现 github.mergeability 并通过 ruff + pytest'
 supersedes: []
 split-from:
 merged-from: []
@@ -30,6 +30,7 @@ motivation: |-
   `mergeStateStatus`（CLEAN / DIRTY / BLOCKED / BEHIND / UNKNOWN / …）。冲突场景表现为
   `mergeable=CONFLICTING` 且 `mergeStateStatus=DIRTY`。本 Task 只负责**如实取回这两个字段**，
   把「哪种组合算不可合并」的判定留给调用方（理念 10 解耦：github 是薄 gh 封装、不含业务）。
+scope: ''
 design: |-
   在 `openagents/github.py` 新增只读查询，结构上**镜像既有 `is_merged` / `is_closed`
   /`check_status`**：经唯一收口点 `_gh_json` 跑 `gh pr view <n> --json mergeable,mergeStateStatus`，
@@ -71,6 +72,7 @@ tradeoffs: |-
     否则布尔阈值逻辑会渗进叶子模块，未来调参要改两处。
   - **一次查两字段 vs 分两次查**：一次 `--json mergeable,mergeStateStatus`，省一次 gh 往返，
     且两字段同源快照、避免读到不一致的中间态。
+acceptance: ''
 tests: |-
   `tests/test_github.py`（monkeypatch `_run_gh` / `_gh_json`，hermetic，不触真实 gh）：
   - 解析 `{mergeable: CONFLICTING, mergeStateStatus: DIRTY}` → 字段如实回传。

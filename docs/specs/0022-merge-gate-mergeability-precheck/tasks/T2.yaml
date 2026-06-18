@@ -1,6 +1,6 @@
 id: T2
 title: 代码闸可合并性预检 + poll 单 PR 错误隔离
-status: pending
+status: done
 priority: P0
 tags: []
 depends-on:
@@ -10,9 +10,9 @@ parallel: false
 files:
   - openagents/messages.py
   - tests/test_messages.py
-version: 2
+version: 3
 updated: '2026-06-18'
-change-reason: 评审意见：校准证据行号到精确值（poll 循环体含 return events 收尾）
+change-reason: 'done: 已按 Spec-0062/T2 实现可合并性预检 + poll 错误隔离并通过 ruff + pytest'
 supersedes: []
 split-from:
 merged-from: []
