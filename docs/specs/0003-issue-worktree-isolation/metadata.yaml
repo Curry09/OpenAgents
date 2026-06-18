@@ -1,3 +1,4 @@
 title: issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
 issue: 0
 slug: issue-worktree-isolation
+summary: 每个 issue 在独立 git worktree 里求解、分支基线锁定最新 origin/main，避免多 issue 互相污染。同时加实时事件流反馈、可中断恢复的幂等求解，以及 CLI 统一错误处理（异常不吐 traceback）。

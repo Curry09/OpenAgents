@@ -1,0 +1,55 @@
+id: T1
+title: 数据层：metadata 增 group 级 summary 字段
+status: done
+priority: P1
+tags: []
+depends-on: []
+relates-to: []
+parallel: false
+files:
+  - openagents/spec/schema.py
+  - openagents/spec/model.py
+  - tests/test_spec_model.py
+version: 4
+updated: '2026-06-17'
+change-reason: 'done: schema/model summary 字段实现并通过单测'
+supersedes: []
+split-from:
+merged-from: []
+derived-from: []
+summary: |-
+  给 metadata（组级元数据）加一个 summary 字段，作为整个 feature「人话 TL;DR」的唯一存储位。这是本组其余 Task 的地基。
+motivation: |-
+  一个 spec 现在没有给人看的入口：per-Task 的 `summary` prose 字段是 task 粒度的、且全空着；`OVERVIEW.md` 只有一张 task-id/文件/状态的密表。人想一眼搞懂「这个 spec 在干嘛」做不到。
+
+  TL;DR 是 **feature/组** 级的概念（「这个 feature 是啥、为什么做、产出什么、不做什么」），不是 task 级。因此它的归属应是组级元数据 `metadata.yaml`，与 `title`/`issue`/`slug` 并列，而不是塞进某个代表性 Task 的 prose。本 Task 在数据层把这个字段立起来——schema 声明它、model 读写它、键序固定——后续 validate/render/迁移都建立在它之上。
+scope: |-
+  仅数据层：`schema.py` 给 METADATA_SCHEMA 增 summary 属性（string，不设 required）；`model.py` 的 Metadata dataclass 增 summary 字段、`_load_metadata` 兼容读旧文件、`dump_metadata` 固定键序 title/issue/slug/summary。不含 CLI、validate、render、内容迁移（分别由 T2–T5 负责）。
+design: |-
+  **落点决策（D1）**：summary 放 `metadata.yaml` 组级，而非复用 per-Task 的 `summary` prose 字段。理由：TL;DR 是 feature 级的，「group/feature 级 summary」是 issue #58 的原话；per-Task summary 语义是 task 粒度，复用会迫使「指定代表 Task / 聚合多个 task summary」的额外规则，违反奥卡姆。per-Task `summary` 字段保持原样、互不影响。
+
+  **三处改动**（都在数据层，理念 10 解耦，不感知 git/GitHub）：
+
+  1. `schema.py` 的 `METADATA_SCHEMA.properties` 增 `summary: {type: string}`。因为 metadata schema 是 `additionalProperties: False`，不声明的话任何带 summary 的 metadata.yaml 都会被判 schema 错误，所以这一步是 T2/T5 能写入 summary 的前置。**这里不设 `required`**——「非空」语义由 T3 的语义校验链统一负责（见权衡），schema 只负责「这个键合法、类型是 string」。
+  2. `model.py` 的 `Metadata` dataclass 增 `summary: str` 字段（frozen dataclass，放在 slug 之后）；`_load_metadata` 增 `summary=str(raw.get("summary", ""))`（缺字段降级空串，迁移期可平滑读旧文件）。
+  3. `model.py` 的 `dump_metadata` 把 payload 从 `[title, issue, slug]` 扩成 `[title, issue, slug, summary]`，键序固定——这是 `spec new`/迁移写出的单一来源，保证不漂移。summary 用普通标量还是块标量？TL;DR 是一两句话的短文，用普通字符串标量即可（不像 design 那样承载多段 Markdown/mermaid），保持 metadata.yaml 紧凑。
+interface: |-
+  - `Metadata(title: str, issue: int, slug: str, summary: str = "")` —— 新增 `summary`，给默认空串以兼容旧调用点与旧文件加载。
+  - `dump_metadata(*, metadata: Metadata, path: Path)` —— 输出键序 `title / issue / slug / summary`，行为不变只多一键。
+  - `METADATA_SCHEMA` —— properties 多一个 `summary`（string），仍 `additionalProperties: False`。
+tradeoffs: |-
+  - **组级 metadata vs 复用 per-Task summary**：选组级。复用 per-Task 改动看似更小，但语义错配（task 级 ≠ feature 级），且要凭空发明「哪个 task 的 summary 代表整组」的规则。组级落点一字段一职责，最简。
+  - **「非空」放 schema 还是 validate**：选 validate（T3）。JSON Schema 可用 `required` + `minLength: 1`，但 `required` 缺失与空串会各报一次、消息也不友好；放 T3 一条语义链能用一条清晰中文消息覆盖「缺字段/空串/纯空白」三种情形。故此处 schema 只声明字段合法、**不设 required**。
+  - **普通标量 vs 块标量**：选普通标量。TL;DR 短，块标量 `|` 会让 metadata.yaml 变啰嗦；若未来 summary 需要多段，再升级为块标量。
+  - **与 done 组 0014 共享 spec 测试模块的跨组重叠**：可接受、不规避。本组 T1–T4 各扩写一个 0014 已创建的 spec 测试模块（`tests/test_spec_model.py`/`test_spec_mutate.py`/`test_spec_cli.py`/`test_spec_validate.py`/`test_spec_render.py`），`spec validate` 会报这些文件「跨组重叠：0014, 0015」——这是 **warning 级、非 error**，因为 0014 已 done、本组只是在同一模块上追加新测试（演进既有模块的自然结果），不是两个在途 Task 争抢同一文件。组内 `files` 仍两两不重叠（schema+model / mutate+cli / validate / render / OVERVIEW.md），协同模式的去冲突保证不受影响。若强行为消除该 warning 而新建独立测试文件，反会割裂同一模块的测试、违背奥卡姆，故保留现状。
+acceptance: |-
+  带 summary 的 Metadata 经 dump_metadata → _load_metadata round-trip 内容保真；dump 输出键序为 title/issue/slug/summary；旧 metadata.yaml（无 summary 键）读出 summary == ''；schema 接受 string summary、拒非字符串；ruff + pytest 通过。
+tests: |-
+  - 单测（`tests/test_spec_model.py`）：构造带 summary 的 `Metadata`，`dump_metadata` 后重新 `_load_metadata`，round-trip 内容保真；
+  - 断言 dump 输出键序为 `title/issue/slug/summary`；
+  - 旧 metadata.yaml（无 summary 键）经 `_load_metadata` 读出 `summary == ""`（向后兼容）；
+  - schema 单测：带合法 summary 的 metadata 通过校验，summary 为非字符串类型时被 schema 拒。
+references: |-
+  - issue #58「feat: spec 人类可读 summary」范围条目「把 group/feature 级的 summary 填上」。
+  - 现有数据层契约：`openagents/spec/model.py`（Metadata / dump_metadata / _load_metadata）、`openagents/spec/schema.py`（METADATA_SCHEMA）。
+open-questions: ''

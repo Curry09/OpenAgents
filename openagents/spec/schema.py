@@ -71,6 +71,8 @@ TASK_SCHEMA: dict = {
 }
 
 # Spec-0014/T1：组元数据 schema。
+# Spec-0015/T1：增 summary（组级人话 TL;DR）。仅声明字段合法、类型 string、不设 required——
+# 「非空」语义由 Spec-0015/T3 的 validate 语义链统一负责（缺字段/空串/纯空白一条消息）。
 METADATA_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
@@ -78,6 +80,7 @@ METADATA_SCHEMA: dict = {
         "title": {"type": "string"},
         "issue": {"type": "integer"},
         "slug": {"type": "string"},
+        "summary": {"type": "string"},
     },
     "required": ["title", "issue", "slug"],
     "additionalProperties": False,

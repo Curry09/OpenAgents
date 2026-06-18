@@ -2,6 +2,59 @@
 
 > 本文件由 `spec render` 自动生成，请勿手工编辑（Spec-0014/T3）。
 
+## TL;DR（人话速览）
+
+### 0001 MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
+OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用 Claude Code 后端把它做成一个真实的 GitHub PR。产出包骨架、CLI、后端适配、单 issue 编排、PR 评论消息机制和成果看板，是整个项目的起点。
+
+### 0002 OpenAgents 主动提 issue
+让 OpenAgents 不只被动接 issue，还能主动给仓库提 issue。加 github 层 create_issue、CLI issue 子命令，并给自动发现的 issue 打上发现标签、确保标签存在。
+
+### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
+每个 issue 在独立 git worktree 里求解、分支基线锁定最新 origin/main，避免多 issue 互相污染。同时加实时事件流反馈、可中断恢复的幂等求解，以及 CLI 统一错误处理（异常不吐 traceback）。
+
+### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
+守夜人模式：让 OpenAgents 自主循环跑「发现 issue → 求解 → 提 PR」全流程，不用人盯着。含标签门控的 issue 发现、发现段+守候段两段循环与单 issue 错误隔离，以及 vigil 子命令和端到端脚本。
+
+### 0005 solve 原子化拆分 + RFC-first 评审循环
+把原来一坨的 solve 拆成四个原子操作，并引入 RFC-first 评审循环（先写 RFC 再写代码）。抽出 workspace 模块、扩展 github/state、把消息按阶段过滤掉自评论，CLI 去掉 solve 换成 4 个子命令。
+
+### 0006 守夜人识别 PR/issue 关闭作为终止信号
+守夜人要懂得收手：当一个 PR 或 issue 被关闭时，把它识别成终止信号，不再继续求解，避免对已放弃的工作空转。
+
+### 0007 守夜人恢复——激活 solving 为 resume 入口，修复 start_rfc 中途崩溃的孤儿 run
+修复守夜人半路崩溃留下的孤儿 run：把 solving 状态当成 resume 入口，让 start_rfc 中途崩溃后能接着干而不是从头再来。含 state/orchestrator/vigil 三处改动和崩溃恢复脚本。
+
+### 0008 PR 正文「端到端验证」指路牌（从 RFC 自动生成）
+在 PR 正文里自动生成一段「怎么做端到端验证」的指路牌，内容从该分支新增的 RFC 自动解析渲染，让审核者一眼知道如何验收。
+
+### 0009 合并后自动 rebase 其他 open PR
+一个 PR 合并进 main 后，自动把其余还开着的 PR rebase 到最新 main，省去手动 rebase。含 github 层 list_open_prs/update_branch、扇出模块、合并后集成和手动 sync-prs 命令。
+
+### 0010 gh 瞬时错误重试 + 守夜循环单轮容错
+给跟 GitHub 打交道加韧性：gh 命令遇到瞬时错误时指数退避重试，守夜循环每一轮用 try/except 兜底，单轮出错不拖垮整个循环。
+
+### 0011 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+给本地 agent 一个持久身份并在评论上盖签名，从而区分「自己发的评论」和「真人评论」，根治 poll 把自己评论当新消息的自循环问题。
+
+### 0012 test 分支门控流程 —— 人只在「提 issue」与「promote」介入
+改成 test 分支门控流程，人只在「提 issue」和「promote 上线」两处介入：N 个 reviewer 并行评审聚合裁决，promote 模块预检后快进 main，中间全自动。
+
+### 0013 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+在 PR 转正前真正跑一遍端到端脚本，把「跑通没有 + 日志」作为带签名的 PR 评论贴出来。是 0008 指路牌（告诉怎么测）到实跑结果（直接给结论）的延伸。
+
+### 0014 用「Spec 活快照 + 演化历史」取代 RFC —— Spec 永远与代码一一对应，legacy 沉淀到历史
+用「Spec 活快照 + 演化历史」取代 RFC：Spec 永远和当前代码一一对应，旧版本沉淀到 history、不再是流水账。含数据层/schema、validate、render（OVERVIEW）、amend/abandon、CLI 和迁移。
+
+### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR
+给每个 spec 加一段面向人的大白话 TL;DR：metadata 增组级 summary 字段、spec new 必填、validate 强制非空、render 在 OVERVIEW 顶部逐 feature 展示，并迁移补齐所有现存 spec。是 #59 人类监督闸门的地基。
+
+### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+给 OpenAgents 加两道人类监督闸门：提 issue 前的「需求对齐」（把模糊想法复述成 做什么X/边界Y/不做Z 让人确认），以及 vigil 自治循环的分级 --hold 闸（在 spec 批准、PR 合并等关键点停下等人点头）。让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，不改既有 issue→PR 自动流程的内部逻辑。
+
+### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+修 reviewer 长回复被截断在 VERDICT 行之前、导致解析失败（UNPARSED）被误判成「非 PASS」、白白空耗 vigil rounds 甚至误触 needs-human 的 bug。做法：裁决 token 前置、按首行解析、区分「评审本身无效」与「真 REWORK」、加单次重解析与诚实升级。只改 reviewer 解析与编排层容错，不改裁决标准本身。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -66,6 +119,11 @@
 | 0014 | 0014/T4 | spec amend / abandon（历史追加 + 自动 render） | done | T1, T3 | openagents/spec/mutate.py<br>tests/test_spec_mutate.py |
 | 0014 | 0014/T5 | spec CLI + 编号校验脚本 + CI 接线 | done | T2, T3, T4 | openagents/spec/cli.py<br>scripts/check-spec-number-conflicts.py<br>.github/workflows/ci.yml<br>tests/test_spec_cli.py |
 | 0014 | 0014/T6 | 迁移脚本 + spec-driven skill + specs README + e2e | done | T2, T3 | scripts/migrate-rfc-to-spec.py<br>tests/test_migrate_rfc_to_spec.py<br>.claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/<br>docs/specs/README.md<br>scripts/e2e-spec-0014-spec-driven.sh |
+| 0015 | 0015/T1 | 数据层：metadata 增 group 级 summary 字段 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>tests/test_spec_model.py |
+| 0015 | 0015/T2 | 授权路径：spec new --summary（cli + mutate） | done | T1 | openagents/spec/mutate.py<br>openagents/spec/cli.py<br>tests/test_spec_mutate.py<br>tests/test_spec_cli.py |
+| 0015 | 0015/T3 | 闸门：validate 强制 summary 非空 | done | T1 | openagents/spec/validate.py<br>tests/test_spec_validate.py |
+| 0015 | 0015/T4 | 人读视图：render 顶部 TL;DR 区块 | done | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
+| 0015 | 0015/T5 | 迁移：补齐 14 个现有 spec 的 summary + 重渲染 | done | T3, T4 | docs/specs/OVERVIEW.md |
 | 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | done | — | openagents/align.py<br>tests/test_align.py |
 | 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | done | — | openagents/hold.py<br>tests/test_hold.py |
 | 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
@@ -169,6 +227,13 @@ graph LR
         n0014_T5["T5 spec CLI + 编号校验脚本 + CI 接线"]
         n0014_T6["T6 迁移脚本 + spec-driven skill + specs README + e2e"]
     end
+    subgraph G0015[0015 spec-human-summary]
+        n0015_T1["T1 数据层：metadata 增 group 级 summary 字段"]
+        n0015_T2["T2 授权路径：spec new --summary（cli + mutate）"]
+        n0015_T3["T3 闸门：validate 强制 summary 非空"]
+        n0015_T4["T4 人读视图：render 顶部 TL;DR 区块"]
+        n0015_T5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    end
     subgraph G0020[0020 human-oversight-gates]
         n0020_T1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
         n0020_T2["T2 hold 配置模型：解析 spec,merge 成闸门集合"]
@@ -243,6 +308,11 @@ graph LR
     n0014_T5 --> n0014_T4
     n0014_T6 --> n0014_T2
     n0014_T6 --> n0014_T3
+    n0015_T2 --> n0015_T1
+    n0015_T3 --> n0015_T1
+    n0015_T4 --> n0015_T1
+    n0015_T5 --> n0015_T3
+    n0015_T5 --> n0015_T4
     n0020_T3 --> n0020_T2
     n0020_T4 --> n0020_T1
     n0020_T4 --> n0020_T2
@@ -266,6 +336,12 @@ graph LR
 | openagents/rebase.py | 0009, 0011 |
 | openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
+| openagents/spec/cli.py | 0014, 0015 |
+| openagents/spec/model.py | 0014, 0015 |
+| openagents/spec/mutate.py | 0014, 0015 |
+| openagents/spec/render.py | 0014, 0015 |
+| openagents/spec/schema.py | 0014, 0015 |
+| openagents/spec/validate.py | 0014, 0015 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020 |
 | openagents/workspace.py | 0005, 0008 |
@@ -278,6 +354,11 @@ graph LR
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_reviewer.py | 0012, 0021 |
 | tests/test_rfc.py | 0008, 0013 |
+| tests/test_spec_cli.py | 0014, 0015 |
+| tests/test_spec_model.py | 0014, 0015 |
+| tests/test_spec_mutate.py | 0014, 0015 |
+| tests/test_spec_render.py | 0014, 0015 |
+| tests/test_spec_validate.py | 0014, 0015 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020 |
 | tests/test_workspace.py | 0005, 0008 |
@@ -706,6 +787,77 @@ graph LR
     class v_T5_1 st_done;
     class v_T6_1 st_in_progress;
     class v_T6_2 st_done;
+```
+
+### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR（issue #58）
+
+```mermaid
+graph LR
+    nT1["T1 数据层：metadata 增 group 级 summary 字段"]
+    nT2["T2 授权路径：spec new --summary（cli + mutate）"]
+    nT3["T3 闸门：validate 强制 summary 非空"]
+    nT4["T4 人读视图：render 顶部 TL;DR 区块"]
+    nT5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT1 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T1_2["T1 v2"]
+    v_T1_3["T1 v3"]
+    v_T1_4["T1 v4"]
+    v_T1_1 -->|redefined| v_T1_2
+    v_T1_2 -->|redefined| v_T1_3
+    v_T1_3 -->|redefined| v_T1_4
+    v_T2_1["T2 v1"]
+    v_T2_2["T2 v2"]
+    v_T2_3["T2 v3"]
+    v_T2_1 -->|redefined| v_T2_2
+    v_T2_2 -->|redefined| v_T2_3
+    v_T3_1["T3 v1"]
+    v_T3_2["T3 v2"]
+    v_T3_3["T3 v3"]
+    v_T3_4["T3 v4"]
+    v_T3_1 -->|redefined| v_T3_2
+    v_T3_2 -->|redefined| v_T3_3
+    v_T3_3 -->|redefined| v_T3_4
+    v_T4_1["T4 v1"]
+    v_T4_2["T4 v2"]
+    v_T4_3["T4 v3"]
+    v_T4_1 -->|redefined| v_T4_2
+    v_T4_2 -->|redefined| v_T4_3
+    v_T5_1["T5 v1"]
+    v_T5_2["T5 v2"]
+    v_T5_3["T5 v3"]
+    v_T5_1 -->|redefined| v_T5_2
+    v_T5_2 -->|redefined| v_T5_3
+    classDef st_done fill:#b7e4c7;
+    classDef st_in_progress fill:#fff3b0;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T1_2 st_pending;
+    class v_T1_3 st_in_progress;
+    class v_T1_4 st_done;
+    class v_T2_1 st_pending;
+    class v_T2_2 st_in_progress;
+    class v_T2_3 st_done;
+    class v_T3_1 st_pending;
+    class v_T3_2 st_pending;
+    class v_T3_3 st_in_progress;
+    class v_T3_4 st_done;
+    class v_T4_1 st_pending;
+    class v_T4_2 st_in_progress;
+    class v_T4_3 st_done;
+    class v_T5_1 st_pending;
+    class v_T5_2 st_pending;
+    class v_T5_3 st_done;
 ```
 
 ### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）

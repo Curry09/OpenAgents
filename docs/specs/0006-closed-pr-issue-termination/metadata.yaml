@@ -1,3 +1,4 @@
 title: 守夜人识别 PR/issue 关闭作为终止信号
 issue: 0
 slug: closed-pr-issue-termination
+summary: 守夜人要懂得收手：当一个 PR 或 issue 被关闭时，把它识别成终止信号，不再继续求解，避免对已放弃的工作空转。

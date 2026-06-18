@@ -115,7 +115,12 @@ def test_create_group_scaffolds_metadata_and_renders(tmp_path: Path) -> None:
     from openagents.spec.mutate import create_group
 
     group_dir = create_group(
-        specs_root=tmp_path, slug="alpha", title="Alpha 组", issue=7, number=None
+        specs_root=tmp_path,
+        slug="alpha",
+        title="Alpha 组",
+        issue=7,
+        summary="人话 TL;DR",
+        number=None,
     )
     assert group_dir == tmp_path / "0001-alpha"  # 空仓库 → 下一号 0001
     assert (group_dir / "tasks").is_dir()
@@ -128,26 +133,46 @@ def test_create_group_scaffolds_metadata_and_renders(tmp_path: Path) -> None:
     assert (tmp_path / "OVERVIEW.md").is_file()  # 自动 render
 
 
+def test_create_group_persists_summary(tmp_path: Path) -> None:
+    """Spec-0015/T2：create_group 的 summary 落盘到 metadata.yaml。"""
+    from openagents.spec.mutate import create_group
+
+    group_dir = create_group(
+        specs_root=tmp_path, slug="a", title="A", issue=1, summary="一句话人话", number="0001"
+    )
+    assert model.load_group(group_dir=group_dir).metadata.summary == "一句话人话"
+
+
 def test_create_group_auto_numbers_next(tmp_path: Path) -> None:
     from openagents.spec.mutate import create_group
 
-    create_group(specs_root=tmp_path, slug="a", title="A", issue=1, number="0003")
-    nxt = create_group(specs_root=tmp_path, slug="b", title="B", issue=2, number=None)
+    create_group(
+        specs_root=tmp_path, slug="a", title="A", issue=1, summary="人话 TL;DR", number="0003"
+    )
+    nxt = create_group(
+        specs_root=tmp_path, slug="b", title="B", issue=2, summary="人话 TL;DR", number=None
+    )
     assert nxt.name == "0004-b"
 
 
 def test_create_group_existing_dir_raises(tmp_path: Path) -> None:
     from openagents.spec.mutate import create_group
 
-    create_group(specs_root=tmp_path, slug="a", title="A", issue=1, number="0001")
+    create_group(
+        specs_root=tmp_path, slug="a", title="A", issue=1, summary="人话 TL;DR", number="0001"
+    )
     with pytest.raises(FileExistsError):
-        create_group(specs_root=tmp_path, slug="a", title="A", issue=1, number="0001")
+        create_group(
+            specs_root=tmp_path, slug="a", title="A", issue=1, summary="人话 TL;DR", number="0001"
+        )
 
 
 def test_add_task_writes_task_and_renders(tmp_path: Path) -> None:
     from openagents.spec.mutate import add_task, create_group
 
-    create_group(specs_root=tmp_path, slug="a", title="A", issue=1, number="0001")
+    create_group(
+        specs_root=tmp_path, slug="a", title="A", issue=1, summary="人话 TL;DR", number="0001"
+    )
     task = add_task(
         specs_root=tmp_path,
         group="0001",
@@ -175,7 +200,9 @@ def test_add_task_writes_task_and_renders(tmp_path: Path) -> None:
 def test_add_task_duplicate_raises(tmp_path: Path) -> None:
     from openagents.spec.mutate import add_task, create_group
 
-    create_group(specs_root=tmp_path, slug="a", title="A", issue=1, number="0001")
+    create_group(
+        specs_root=tmp_path, slug="a", title="A", issue=1, summary="人话 TL;DR", number="0001"
+    )
     kwargs = dict(
         specs_root=tmp_path,
         group="0001",

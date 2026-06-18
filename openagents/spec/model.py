@@ -128,6 +128,9 @@ class Metadata:
     title: str
     issue: int
     slug: str
+    # Spec-0015/T1：组级人话 TL;DR（整个 feature 的「是啥/为什么/产出什么」）。
+    # 给默认空串以兼容旧调用点与旧 metadata.yaml；非空由 Spec-0015/T3 的 validate 强制。
+    summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -218,13 +221,19 @@ def dump_history(*, versions: list[Task], path: Path) -> None:
 
 
 def dump_metadata(*, metadata: Metadata, path: Path) -> None:
-    """Write metadata.yaml with fixed key order (title/issue/slug).
+    """Write metadata.yaml with fixed key order (title/issue/slug/summary).
 
     issue #53：组级元数据的规范化写入单一来源——migrate 与 `spec new` 共用，避免键序漂移。
+    Spec-0015/T1：键序扩成 title/issue/slug/summary；summary 用普通标量（TL;DR 短，保持紧凑）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = CommentedMap(
-        [("title", metadata.title), ("issue", metadata.issue), ("slug", metadata.slug)]
+        [
+            ("title", metadata.title),
+            ("issue", metadata.issue),
+            ("slug", metadata.slug),
+            ("summary", metadata.summary),
+        ]
     )
     with path.open("w", encoding="utf-8") as handle:
         _yaml.dump(payload, handle)
@@ -314,6 +323,8 @@ def _load_metadata(*, path: Path) -> Metadata:
         title=str(raw.get("title", "")),
         issue=int(raw.get("issue", 0)),
         slug=str(raw.get("slug", "")),
+        # Spec-0015/T1：缺 summary 键降级空串，迁移期平滑读旧文件。
+        summary=str(raw.get("summary", "")),
     )
 
 

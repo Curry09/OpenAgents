@@ -1,3 +1,4 @@
 title: 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
 issue: 28
 slug: agent-identity-comment-signature
+summary: 给本地 agent 一个持久身份并在评论上盖签名，从而区分「自己发的评论」和「真人评论」，根治 poll 把自己评论当新消息的自循环问题。

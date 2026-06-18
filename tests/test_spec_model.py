@@ -155,6 +155,41 @@ def test_sample_task_passes_task_schema(tmp_path: Path) -> None:
     jsonschema.validate(instance=_plain(data), schema=schema.TASK_SCHEMA)
 
 
+def test_metadata_summary_round_trip(tmp_path: Path) -> None:
+    """Spec-0015/T1：带 summary 的 Metadata 经 dump→_load round-trip 内容保真。"""
+    path = tmp_path / "metadata.yaml"
+    original = Metadata(
+        title="人话 summary", issue=58, slug="spec-human-summary", summary="这是一段大白话"
+    )
+    model.dump_metadata(metadata=original, path=path)
+    reloaded = model._load_metadata(path=path)
+    assert reloaded == original
+    assert reloaded.summary == "这是一段大白话"
+
+
+def test_metadata_dump_key_order(tmp_path: Path) -> None:
+    """Spec-0015/T1：dump_metadata 键序固定为 title/issue/slug/summary。"""
+    path = tmp_path / "metadata.yaml"
+    model.dump_metadata(metadata=Metadata(title="t", issue=1, slug="s", summary="tldr"), path=path)
+    keys = [ln.split(":")[0] for ln in path.read_text(encoding="utf-8").splitlines() if ln]
+    assert keys == ["title", "issue", "slug", "summary"]
+
+
+def test_metadata_legacy_file_without_summary(tmp_path: Path) -> None:
+    """Spec-0015/T1：旧 metadata.yaml（无 summary 键）读出 summary == ''（向后兼容）。"""
+    path = tmp_path / "metadata.yaml"
+    path.write_text("title: 旧组\nissue: 1\nslug: legacy\n", encoding="utf-8")
+    assert model._load_metadata(path=path).summary == ""
+
+
+def test_metadata_schema_accepts_string_rejects_non_string() -> None:
+    """Spec-0015/T1：METADATA_SCHEMA 接受 string summary、拒非字符串。"""
+    base = {"title": "t", "issue": 1, "slug": "s"}
+    jsonschema.validate(instance={**base, "summary": "ok"}, schema=schema.METADATA_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance={**base, "summary": 123}, schema=schema.METADATA_SCHEMA)
+
+
 def _round_trip_load(*, path: Path) -> object:
     """用 model 的 YAML 实例加载（与生产路径一致）。"""
     return model._yaml.load(path)

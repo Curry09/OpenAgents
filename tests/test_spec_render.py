@@ -10,14 +10,24 @@ from pathlib import Path
 
 from openagents.spec import model
 from openagents.spec.model import RelatesTo, Task
-from openagents.spec.render import render, write_overview
+from openagents.spec.render import _BOARD_HEADING, _TLDR_HEADING, render, write_overview
 
 
-def _write_group(*, root: Path, number: str, slug: str, issue: int, tasks: list[Task]) -> Path:
+def _write_group(
+    *,
+    root: Path,
+    number: str,
+    slug: str,
+    issue: int,
+    tasks: list[Task],
+    summary: str = "人话 TL;DR",
+) -> Path:
+    # Spec-0015/T4：写组级 summary，供 TL;DR 顶部区块渲染。
     group_dir = root / f"{number}-{slug}"
     (group_dir / "tasks").mkdir(parents=True)
     (group_dir / "metadata.yaml").write_text(
-        f"title: {slug} feature\nissue: {issue}\nslug: {slug}\n", encoding="utf-8"
+        f'title: {slug} feature\nissue: {issue}\nslug: {slug}\nsummary: "{summary}"\n',
+        encoding="utf-8",
     )
     for task in tasks:
         model.dump_task(task=task, path=group_dir / "tasks" / f"{task.id}.yaml")
@@ -129,10 +139,46 @@ def test_file_conflict_reported(tmp_path: Path) -> None:
     assert "x.py" in text.split("## 文件冲突报告")[1].split("## 各 feature")[0]
 
 
+def test_tldr_block_before_board(tmp_path: Path) -> None:
+    """Spec-0015/T4：TL;DR 区块存在且位于全局看板之前。"""
+    _write_group(
+        root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1", files=["a.py"])]
+    )
+    text = render(specs_root=tmp_path)
+    assert _TLDR_HEADING in text
+    assert text.index(_TLDR_HEADING) < text.index(_BOARD_HEADING)
+
+
+def test_tldr_contains_each_feature_summary(tmp_path: Path) -> None:
+    """Spec-0015/T4：每个 feature 的 summary 文本出现在 TL;DR 区块内。"""
+    _write_group(
+        root=tmp_path,
+        number="0001",
+        slug="alpha",
+        issue=1,
+        tasks=[_task(id="T1", files=["a.py"])],
+        summary="阿尔法在干这个",
+    )
+    _write_group(
+        root=tmp_path,
+        number="0002",
+        slug="beta",
+        issue=2,
+        tasks=[_task(id="T1", files=["b.py"])],
+        summary="贝塔在干那个",
+    )
+    text = render(specs_root=tmp_path)
+    tldr_block = text.split(_TLDR_HEADING)[1].split(_BOARD_HEADING)[0]
+    assert "阿尔法在干这个" in tldr_block
+    assert "贝塔在干那个" in tldr_block
+
+
 def test_empty_root_does_not_error(tmp_path: Path) -> None:
     text = render(specs_root=tmp_path)
     assert "## 全局看板" in text
     assert "无跨组文件冲突" in text
+    # Spec-0015/T4：空仓库仍含 TL;DR 标题骨架。
+    assert _TLDR_HEADING in text
 
 
 def test_write_overview_writes_file(tmp_path: Path) -> None:
