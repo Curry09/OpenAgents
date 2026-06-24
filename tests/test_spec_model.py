@@ -1,7 +1,7 @@
-"""Spec-0014/T1: spec 数据层（model + schema）单元测试。
+"""spec 数据层（model + schema）单元测试 —— markdown 单文件形态（2026-06-24）。
 
-覆盖：load→dump→load round-trip 保真（块标量 / 键序 / relates-to）、可选字段默认、
-load_all 聚合多组、qualified_id、以及三个 JSON Schema 自身合法（jsonschema 可编译）。
+覆盖：render_group→load_group round-trip（frontmatter 结构化 + 正文 prose）、可选字段默认、
+load_all 聚合多组并忽略生成物/dated 文档、组文件辨识、qualified_id、schema 合法。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import jsonschema
 import pytest
 
 from openagents.spec import model, schema
-from openagents.spec.model import Metadata, RelatesTo, Task
+from openagents.spec.model import Group, Metadata, RelatesTo, Task
 
 
 def _sample_task() -> Task:
@@ -26,68 +26,77 @@ def _sample_task() -> Task:
         relates_to=[RelatesTo(ref="0012/T2", type="extends")],
         parallel=True,
         files=["openagents/spec/render.py"],
-        version=2,
-        updated="2026-06-10",
-        change_reason="拆出鉴权",
-        supersedes=[],
-        split_from="T2",
-        merged_from=[],
-        derived_from=[],
         summary="把源数据派生成 OVERVIEW.md",
         design="第一行\n第二行\n```mermaid\ngraph TD\n```",
+        acceptance="渲染幂等。",
     )
 
 
-def _write_group(root: Path) -> Path:
-    """在 root 下写一个最小 spec 组，返回组目录。"""
-    group_dir = root / "0014-spec-snapshot"
-    (group_dir / "tasks").mkdir(parents=True)
-    (group_dir / "history").mkdir(parents=True)
-    model.dump_task(task=_sample_task(), path=group_dir / "tasks" / "T3.yaml")
-    metadata_path = group_dir / "metadata.yaml"
-    metadata_path.write_text("title: spec 快照\nissue: 35\nslug: spec-snapshot\n", encoding="utf-8")
-    return group_dir
+def _sample_group() -> Group:
+    return Group(
+        number="0014",
+        metadata=Metadata(title="spec 快照", issue=35, slug="spec-snapshot", summary="一句话人话"),
+        tasks=[_sample_task()],
+        history={},
+    )
+
+
+def _write_group(*, root: Path, group: Group) -> Path:
+    path = model.group_path(specs_root=root, number=group.number, slug=group.metadata.slug)
+    model.dump_group(group=group, path=path)
+    return path
 
 
 def test_round_trip_preserves_content(tmp_path: Path) -> None:
-    """load→dump→load 内容保真：块标量、列表、relates-to 都稳定。"""
-    path = tmp_path / "T3.yaml"
-    original = _sample_task()
-    model.dump_task(task=original, path=path)
-    reloaded = model.task_from_mapping(data=_round_trip_load(path=path))
+    """render_group→load_group：结构化字段与 prose 全部保真。"""
+    group = _sample_group()
+    path = _write_group(root=tmp_path, group=group)
+    reloaded = model.load_group(path=path)
 
-    assert reloaded == original
-    # 二次 dump 应与首次字节级一致（确定性，render 幂等前提）。
-    second = tmp_path / "T3-again.yaml"
-    model.dump_task(task=reloaded, path=second)
-    assert path.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+    assert reloaded.number == "0014"
+    assert reloaded.metadata == group.metadata
+    task = reloaded.tasks[0]
+    original = group.tasks[0]
+    for attr in (
+        "id",
+        "title",
+        "status",
+        "priority",
+        "tags",
+        "depends_on",
+        "relates_to",
+        "parallel",
+        "files",
+        "summary",
+        "design",
+        "acceptance",
+    ):
+        assert getattr(task, attr) == getattr(original, attr), attr
+    # 二次序列化字节级一致（确定性）。
+    assert model.render_group(group=group) == model.render_group(group=reloaded)
 
 
-def test_block_scalar_style_used_for_prose(tmp_path: Path) -> None:
-    """多行 prose 字段以块标量 `|` 落盘，而非折行/引号。"""
-    path = tmp_path / "T3.yaml"
-    model.dump_task(task=_sample_task(), path=path)
+def test_frontmatter_holds_structured_body_holds_prose(tmp_path: Path) -> None:
+    """frontmatter 放结构化字段，正文放 prose 小节。"""
+    path = _write_group(root=tmp_path, group=_sample_group())
     text = path.read_text(encoding="utf-8")
-    assert "design: |" in text
-    assert "mermaid" in text
-
-
-def test_key_order_is_canonical(tmp_path: Path) -> None:
-    """落盘键序固定：id 在 title 之前、status 在 priority 之前。"""
-    path = tmp_path / "T3.yaml"
-    model.dump_task(task=_sample_task(), path=path)
-    lines = [ln.split(":")[0] for ln in path.read_text(encoding="utf-8").splitlines()]
-    top_keys = [k for k in lines if k and not k.startswith(" ")]
-    assert top_keys.index("id") < top_keys.index("title")
-    assert top_keys.index("status") < top_keys.index("priority")
-    assert top_keys.index("depends-on") < top_keys.index("files")
+    head, body = text.split("\n---\n", 1) if "\n---\n" in text else (text, "")
+    assert "number:" in head and "status: in-progress" in head
+    assert "## T3 · 渲染 OVERVIEW" in body
+    assert "### Design" in body and "mermaid" in body
+    # prose 不应出现在 frontmatter。
+    assert "把源数据派生成" not in head
 
 
 def test_optional_fields_default(tmp_path: Path) -> None:
     """仅必填字段的 Task 加载后，可选字段取合理默认。"""
-    path = tmp_path / "Tmin.yaml"
-    path.write_text("id: T9\ntitle: 最小\nstatus: pending\npriority: P2\n", encoding="utf-8")
-    task = model.task_from_mapping(data=_round_trip_load(path=path))
+    group = Group(
+        number="0001",
+        metadata=Metadata(title="m", issue=1, slug="min"),
+        tasks=[Task(id="T9", title="最小", status="pending", priority="P2")],
+    )
+    path = _write_group(root=tmp_path, group=group)
+    task = model.load_group(path=path).tasks[0]
     assert task.tags == []
     assert task.depends_on == []
     assert task.relates_to == []
@@ -97,35 +106,22 @@ def test_optional_fields_default(tmp_path: Path) -> None:
     assert task.tests == ""
 
 
-def test_load_group_and_history(tmp_path: Path) -> None:
-    """load_group 读出 metadata + 当前 task + 历史版本。"""
-    group_dir = _write_group(tmp_path)
-    # 写一个历史版本列表。
-    model.dump_history(
-        versions=[Task(id="T3", title="渲染 OVERVIEW", status="done", priority="P1", version=1)],
-        path=group_dir / "history" / "T3.yaml",
-    )
-    group = model.load_group(group_dir=group_dir)
-    assert group.number == "0014"
-    assert group.metadata == Metadata(title="spec 快照", issue=35, slug="spec-snapshot")
-    assert [t.id for t in group.tasks] == ["T3"]
-    assert group.history["T3"][0].version == 1
-
-
 def test_load_all_aggregates_groups(tmp_path: Path) -> None:
-    """load_all 聚合多组并按编号排序；非组目录被忽略。"""
-    _write_group(tmp_path)
-    other = tmp_path / "0009-auto-rebase"
-    (other / "tasks").mkdir(parents=True)
-    other.joinpath("metadata.yaml").write_text(
-        "title: rebase\nissue: 24\nslug: auto-rebase\n", encoding="utf-8"
+    """load_all 聚合多组并按编号排序；生成物 / README / dated 文档被忽略。"""
+    _write_group(root=tmp_path, group=_sample_group())
+    _write_group(
+        root=tmp_path,
+        group=Group(
+            number="0009",
+            metadata=Metadata(title="rebase", issue=24, slug="auto-rebase"),
+            tasks=[Task(id="T1", title="x", status="done", priority="P1")],
+        ),
     )
-    model.dump_task(
-        task=Task(id="T1", title="x", status="done", priority="P1"),
-        path=other / "tasks" / "T1.yaml",
-    )
-    # 干扰项：OVERVIEW.md / README.md 不是组目录。
+    # 干扰项：均不应被当成组文件。
     (tmp_path / "OVERVIEW.md").write_text("x", encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text("x", encoding="utf-8")
+    (tmp_path / "README.md").write_text("x", encoding="utf-8")
+    (tmp_path / "2026-06-24-some-design.md").write_text("x", encoding="utf-8")
 
     groups = model.load_all(specs_root=tmp_path)
     assert [g.number for g in groups] == ["0009", "0014"]
@@ -137,70 +133,19 @@ def test_load_all_empty_root(tmp_path: Path) -> None:
     assert model.load_all(specs_root=tmp_path) == []
 
 
+def test_is_group_file() -> None:
+    """组文件辨识：NNNN-slug.md 是组；dated / 生成物 / README 不是。"""
+    assert model._is_group_file(name="0014-spec-snapshot.md")
+    assert not model._is_group_file(name="2026-06-24-design.md")
+    assert not model._is_group_file(name="OVERVIEW.md")
+    assert not model._is_group_file(name="README.md")
+
+
 def test_qualified_id() -> None:
     assert model.qualified_id(group="0009", task_id="T3") == "0009/T3"
 
 
-@pytest.mark.parametrize("doc", [schema.TASK_SCHEMA, schema.METADATA_SCHEMA, schema.HISTORY_SCHEMA])
+@pytest.mark.parametrize("doc", [schema.TASK_SCHEMA, schema.GROUP_FRONTMATTER_SCHEMA])
 def test_schemas_are_valid_jsonschema(doc: dict) -> None:
-    """三个 schema 本身是合法 JSON Schema（draft 2020-12 可编译）。"""
+    """schema 本身是合法 JSON Schema（draft 2020-12 可编译）。"""
     jsonschema.Draft202012Validator.check_schema(doc)
-
-
-def test_sample_task_passes_task_schema(tmp_path: Path) -> None:
-    """落盘后的 Task 数据满足 TASK_SCHEMA。"""
-    path = tmp_path / "T3.yaml"
-    model.dump_task(task=_sample_task(), path=path)
-    data = _round_trip_load(path=path)
-    jsonschema.validate(instance=_plain(data), schema=schema.TASK_SCHEMA)
-
-
-def test_metadata_summary_round_trip(tmp_path: Path) -> None:
-    """Spec-0015/T1：带 summary 的 Metadata 经 dump→_load round-trip 内容保真。"""
-    path = tmp_path / "metadata.yaml"
-    original = Metadata(
-        title="人话 summary", issue=58, slug="spec-human-summary", summary="这是一段大白话"
-    )
-    model.dump_metadata(metadata=original, path=path)
-    reloaded = model._load_metadata(path=path)
-    assert reloaded == original
-    assert reloaded.summary == "这是一段大白话"
-
-
-def test_metadata_dump_key_order(tmp_path: Path) -> None:
-    """Spec-0015/T1：dump_metadata 键序固定为 title/issue/slug/summary。"""
-    path = tmp_path / "metadata.yaml"
-    model.dump_metadata(metadata=Metadata(title="t", issue=1, slug="s", summary="tldr"), path=path)
-    keys = [ln.split(":")[0] for ln in path.read_text(encoding="utf-8").splitlines() if ln]
-    assert keys == ["title", "issue", "slug", "summary"]
-
-
-def test_metadata_legacy_file_without_summary(tmp_path: Path) -> None:
-    """Spec-0015/T1：旧 metadata.yaml（无 summary 键）读出 summary == ''（向后兼容）。"""
-    path = tmp_path / "metadata.yaml"
-    path.write_text("title: 旧组\nissue: 1\nslug: legacy\n", encoding="utf-8")
-    assert model._load_metadata(path=path).summary == ""
-
-
-def test_metadata_schema_accepts_string_rejects_non_string() -> None:
-    """Spec-0015/T1：METADATA_SCHEMA 接受 string summary、拒非字符串。"""
-    base = {"title": "t", "issue": 1, "slug": "s"}
-    jsonschema.validate(instance={**base, "summary": "ok"}, schema=schema.METADATA_SCHEMA)
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(instance={**base, "summary": 123}, schema=schema.METADATA_SCHEMA)
-
-
-def _round_trip_load(*, path: Path) -> object:
-    """用 model 的 YAML 实例加载（与生产路径一致）。"""
-    return model._yaml.load(path)
-
-
-def _plain(data: object) -> object:
-    """把 ruamel 容器转成纯 dict/list/标量，供 jsonschema 校验。"""
-    if hasattr(data, "items"):
-        return {str(k): _plain(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [_plain(v) for v in data]
-    if isinstance(data, str):
-        return str(data)
-    return data

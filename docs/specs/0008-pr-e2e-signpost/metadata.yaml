@@ -1,4 +1,0 @@
-title: PR 正文「端到端验证」指路牌（从 RFC 自动生成）
-issue: 0
-slug: pr-e2e-signpost
-summary: 在 PR 正文里自动生成一段「怎么做端到端验证」的指路牌，内容从该分支新增的 RFC 自动解析渲染，让审核者一眼知道如何验收。

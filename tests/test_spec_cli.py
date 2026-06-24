@@ -1,7 +1,7 @@
-"""Spec-0014/T5: spec CLI + 编号校验脚本单元测试。
+"""spec CLI + 编号校验脚本单元测试 —— markdown 单文件形态（2026-06-24）。
 
-CLI：render 写 OVERVIEW；validate 有 error 退出码非 0、仅 warning 退 0；amend/abandon
-路由到 mutate。check-spec-number-conflicts：重复编号报冲突、唯一编号通过（打桩 gh）。
+CLI：render 写 OVERVIEW；validate 退出码；abandon/new/add-task 路由到 mutate；graph 生成/校验
+ARCHITECTURE。check-spec-number-conflicts：重复编号报冲突、唯一编号通过。
 """
 
 from __future__ import annotations
@@ -9,23 +9,20 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 from openagents.spec import model
 from openagents.spec.cli import main
-from openagents.spec.model import Task
+from openagents.spec.model import Group, Metadata, Task
 
 
-def _write_group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
-    group_dir = root / f"{number}-{slug}"
-    (group_dir / "tasks").mkdir(parents=True)
-    # Spec-0015/T3：写非空 summary，满足 validate 的 summary 非空闸门。
-    (group_dir / "metadata.yaml").write_text(
-        f'title: {slug}\nissue: 1\nslug: {slug}\nsummary: "人话 TL;DR"\n', encoding="utf-8"
+def _group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
+    group = Group(
+        number=number,
+        metadata=Metadata(title=slug, issue=1, slug=slug, summary=f"{slug} TL;DR"),
+        tasks=tasks,
     )
-    for task in tasks:
-        model.dump_task(task=task, path=group_dir / "tasks" / f"{task.id}.yaml")
-    return group_dir
+    path = model.group_path(specs_root=root, number=number, slug=slug)
+    model.dump_group(group=group, path=path)
+    return path
 
 
 def _task(**overrides: object) -> Task:
@@ -35,96 +32,44 @@ def _task(**overrides: object) -> Task:
 
 
 def test_render_writes_overview(tmp_path: Path) -> None:
-    _write_group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
+    _group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
     code = main(argv=["render", "--specs-root", str(tmp_path)])
     assert code == 0
     assert (tmp_path / "OVERVIEW.md").is_file()
 
 
 def test_validate_ok_returns_zero(tmp_path: Path) -> None:
-    _write_group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
+    _group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
     assert main(argv=["validate", "--specs-root", str(tmp_path)]) == 0
 
 
 def test_validate_error_returns_nonzero(tmp_path: Path) -> None:
-    group_dir = _write_group(root=tmp_path, number="0001", slug="alpha", tasks=[])
-    # 非法 status → schema error。
-    (group_dir / "tasks" / "T1.yaml").write_text(
-        "id: T1\ntitle: t\nstatus: bogus\npriority: P1\n", encoding="utf-8"
+    (tmp_path / "0001-alpha.md").write_text(
+        '---\nnumber: "0001"\ntitle: alpha\nissue: 1\nslug: alpha\n'
+        "tasks:\n  - id: T1\n    title: t\n    status: bogus\n    priority: P1\n"
+        "---\n\n# 0001 · alpha\n",
+        encoding="utf-8",
     )
     assert main(argv=["validate", "--specs-root", str(tmp_path)]) == 1
 
 
 def test_validate_warning_only_returns_zero(tmp_path: Path, capsys) -> None:
-    # 跨组同名文件 → 仅 warning。
-    _write_group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["x.py"])])
-    _write_group(root=tmp_path, number="0002", slug="beta", tasks=[_task(files=["x.py"])])
+    _group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["x.py"])])
+    _group(root=tmp_path, number="0002", slug="beta", tasks=[_task(files=["x.py"])])
     code = main(argv=["validate", "--specs-root", str(tmp_path)])
     assert code == 0
     assert "warning" in capsys.readouterr().out
 
 
-def test_amend_routes_to_mutate(tmp_path: Path) -> None:
-    group_dir = _write_group(
-        root=tmp_path, number="0001", slug="alpha", tasks=[_task(version=1, files=["a.py"])]
-    )
-    code = main(argv=["amend", "0001", "T1", "--reason", "改一下", "--specs-root", str(tmp_path)])
-    assert code == 0
-    assert model.load_group(group_dir=group_dir).tasks[0].version == 2
-
-
 def test_abandon_routes_to_mutate(tmp_path: Path) -> None:
-    group_dir = _write_group(
-        root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])]
-    )
+    path = _group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
     code = main(argv=["abandon", "0001", "T1", "--reason", "弃用", "--specs-root", str(tmp_path)])
     assert code == 0
-    assert not (group_dir / "tasks" / "T1.yaml").exists()
+    assert model.load_group(path=path).tasks == []
 
 
 def test_no_subcommand_returns_2(tmp_path: Path) -> None:
     assert main(argv=["--specs-root", str(tmp_path)]) == 2
-
-
-# ── check-spec-number-conflicts.py ──
-
-
-def _load_conflict_script():
-    """以模块方式加载脚本（文件名含连字符，不能直接 import）。"""
-    path = Path(__file__).resolve().parents[1] / "scripts" / "check-spec-number-conflicts.py"
-    spec = importlib.util.spec_from_file_location("check_spec_conflicts", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-    return module
-
-
-def _make_group_dir(root: Path, name: str) -> None:
-    (root / "docs" / "specs" / name / "tasks").mkdir(parents=True)
-
-
-def test_conflict_script_detects_duplicate_number(tmp_path: Path) -> None:
-    mod = _load_conflict_script()
-    _make_group_dir(tmp_path, "0001-alpha")
-    _make_group_dir(tmp_path, "0001-beta")  # 同号不同 slug
-    conflicts = mod._find_local_conflicts(tmp_path)
-    assert any("0001" in c for c in conflicts)
-
-
-def test_conflict_script_unique_numbers_pass(tmp_path: Path) -> None:
-    mod = _load_conflict_script()
-    _make_group_dir(tmp_path, "0001-alpha")
-    _make_group_dir(tmp_path, "0002-beta")
-    assert mod._find_local_conflicts(tmp_path) == []
-
-
-def test_conflict_script_extract_identity() -> None:
-    mod = _load_conflict_script()
-    assert mod._extract_spec_identity("docs/specs/0014-spec-snapshot/tasks/T1.yaml") == (
-        "0014",
-        "spec-snapshot",
-    )
-    assert mod._extract_spec_identity("docs/rfcs/0014-x.md") is None
 
 
 def test_new_subcommand_creates_group(tmp_path: Path) -> None:
@@ -143,19 +88,9 @@ def test_new_subcommand_creates_group(tmp_path: Path) -> None:
         ]
     )
     assert code == 0
-    group = model.load_group(group_dir=tmp_path / "0001-alpha")
+    group = model.load_group(path=tmp_path / "0001-alpha.md")
     assert group.metadata.issue == 7
-    # Spec-0015/T2：--summary 落盘到组元数据。
     assert group.metadata.summary == "人话 TL;DR"
-
-
-def test_new_subcommand_requires_summary(tmp_path: Path) -> None:
-    """Spec-0015/T2：省略 --summary 时 argparse 报错、退出码 2（SystemExit）。"""
-    with pytest.raises(SystemExit) as excinfo:
-        main(
-            argv=["new", "alpha", "--issue", "7", "--title", "Alpha", "--specs-root", str(tmp_path)]
-        )
-    assert excinfo.value.code == 2
 
 
 def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
@@ -168,7 +103,7 @@ def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
             "--title",
             "Alpha",
             "--summary",
-            "人话 TL;DR",
+            "TL;DR",
             "--specs-root",
             str(tmp_path),
         ]
@@ -192,7 +127,78 @@ def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
         ]
     )
     assert code == 0
-    task = model.load_group(group_dir=tmp_path / "0001-alpha").tasks[0]
+    task = model.load_group(path=tmp_path / "0001-alpha.md").tasks[0]
     assert task.files == ["a.py", "b.py"]
     assert task.depends_on == ["T0"]
     assert task.status == "pending"  # 默认
+
+
+def test_graph_generates_architecture(tmp_path: Path) -> None:
+    """spec graph 扫一个小包，生成 ARCHITECTURE.md。"""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text('"""小包：演示子系统。"""\n', encoding="utf-8")
+    (pkg / "a.py").write_text('"""组件 a：做 A。"""\nimport pkg.b\n', encoding="utf-8")
+    (pkg / "b.py").write_text('"""组件 b：做 B。"""\n', encoding="utf-8")
+    code = main(argv=["graph", "--package-root", str(pkg), "--specs-root", str(tmp_path)])
+    assert code == 0
+    text = (tmp_path / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    assert "组件 a：做 A。" in text
+    assert "graph LR" in text
+
+
+def test_graph_check_flags_missing_docstring(tmp_path: Path) -> None:
+    """--check 在缺 docstring 时返回非 0。"""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text('"""小包。"""\n', encoding="utf-8")
+    (pkg / "a.py").write_text("x = 1\n", encoding="utf-8")  # 无 docstring
+    code = main(
+        argv=["graph", "--package-root", str(pkg), "--specs-root", str(tmp_path), "--check"]
+    )
+    assert code == 1
+
+
+# ── check-spec-number-conflicts.py ──
+
+
+def _load_conflict_script():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "check-spec-number-conflicts.py"
+    spec = importlib.util.spec_from_file_location("check_spec_conflicts", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
+def _make_group_file(root: Path, name: str) -> None:
+    specs = root / "docs" / "specs"
+    specs.mkdir(parents=True, exist_ok=True)
+    (specs / name).write_text("---\n---\n", encoding="utf-8")
+
+
+def test_conflict_script_detects_duplicate_number(tmp_path: Path) -> None:
+    mod = _load_conflict_script()
+    _make_group_file(tmp_path, "0001-alpha.md")
+    _make_group_file(tmp_path, "0001-beta.md")  # 同号不同 slug
+    conflicts = mod._find_local_conflicts(tmp_path)
+    assert any("0001" in c for c in conflicts)
+
+
+def test_conflict_script_unique_numbers_pass(tmp_path: Path) -> None:
+    mod = _load_conflict_script()
+    _make_group_file(tmp_path, "0001-alpha.md")
+    _make_group_file(tmp_path, "0002-beta.md")
+    # dated 设计文档不应被当成组。
+    _make_group_file(tmp_path, "2026-06-24-design.md")
+    assert mod._find_local_conflicts(tmp_path) == []
+
+
+def test_conflict_script_extract_identity() -> None:
+    mod = _load_conflict_script()
+    assert mod._extract_spec_identity("docs/specs/0014-spec-snapshot.md") == (
+        "0014",
+        "spec-snapshot",
+    )
+    assert mod._extract_spec_identity("docs/specs/2026-06-24-design.md") is None
+    assert mod._extract_spec_identity("docs/specs/OVERVIEW.md") is None

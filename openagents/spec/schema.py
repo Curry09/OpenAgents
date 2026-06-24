@@ -70,25 +70,20 @@ TASK_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0014/T1：组元数据 schema。
-# Spec-0015/T1：增 summary（组级人话 TL;DR）。仅声明字段合法、类型 string、不设 required——
-# 「非空」语义由 Spec-0015/T3 的 validate 语义链统一负责（缺字段/空串/纯空白一条消息）。
-METADATA_SCHEMA: dict = {
+# 2026-06-24 spec-markdown-form：组 markdown 文件的 frontmatter schema（取代 metadata + history）。
+# 组元数据 number/title/issue/slug + tasks 列表（每项复用 TASK_SCHEMA）。
+GROUP_FRONTMATTER_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
     "properties": {
+        "number": {"type": ["string", "integer"]},
         "title": {"type": "string"},
         "issue": {"type": "integer"},
         "slug": {"type": "string"},
+        # Spec-0015：组级人话 TL;DR。schema 只声明类型；非空由 validate 的 _summary_checks 强制。
         "summary": {"type": "string"},
+        "tasks": {"type": "array", "items": TASK_SCHEMA},
     },
-    "required": ["title", "issue", "slug"],
+    "required": ["number", "title", "issue", "slug", "tasks"],
     "additionalProperties": False,
-}
-
-# Spec-0014/T1：历史文件 schema —— Task 对象数组（每项是一个完整快照）。
-HISTORY_SCHEMA: dict = {
-    "$schema": _DRAFT,
-    "type": "array",
-    "items": TASK_SCHEMA,
 }

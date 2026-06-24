@@ -256,26 +256,26 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
 
 
 def _spec_group_with_e2e(*, root):
-    """造一个带 e2e 脚本（写在 Task tests 字段）的 spec 组目录，供指路牌抽取。"""
+    """造一个带 e2e 脚本（写在 Task tests 字段）的 spec 组 markdown 文件，供指路牌抽取。"""
     from openagents.spec import model as spec_model
-    from openagents.spec.model import Task
+    from openagents.spec.model import Group, Metadata, Task
 
-    group_dir = root / "0008-pr-e2e-signpost"
-    (group_dir / "tasks").mkdir(parents=True)
-    (group_dir / "metadata.yaml").write_text(
-        "title: 示例\nissue: 8\nslug: pr-e2e-signpost\n", encoding="utf-8"
+    group = Group(
+        number="0008",
+        metadata=Metadata(title="示例", issue=8, slug="pr-e2e-signpost", summary="示例 TL;DR"),
+        tasks=[
+            Task(
+                id="T1",
+                title="t",
+                status="done",
+                priority="P1",
+                tests="离线跑 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（ruff + pytest）。",
+            )
+        ],
     )
-    spec_model.dump_task(
-        task=Task(
-            id="T1",
-            title="t",
-            status="done",
-            priority="P1",
-            tests="离线跑 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（ruff + pytest）。",
-        ),
-        path=group_dir / "tasks" / "T1.yaml",
-    )
-    return group_dir
+    path = spec_model.group_path(specs_root=root, number="0008", slug="pr-e2e-signpost")
+    spec_model.dump_group(group=group, path=path)
+    return path
 
 
 def test_start_rfc_pr_body_includes_e2e_signpost(tmp_path, monkeypatch):
@@ -438,7 +438,7 @@ def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", spec_group
 
     monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: spec_group)
     monkeypatch.setattr(
-        orch_module.signpost, "script_path_for_group", lambda *, group_dir: "scripts/x.sh"
+        orch_module.signpost, "script_path_for_group", lambda *, group_path: "scripts/x.sh"
     )
 
     def _run_e2e(*, worktree, script_path, timeout_seconds, tail_lines):

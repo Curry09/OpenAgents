@@ -1,4 +1,0 @@
-title: 合并后自动 rebase 其他 open PR
-issue: 24
-slug: auto-rebase-open-prs-on-merge
-summary: 一个 PR 合并进 main 后，自动把其余还开着的 PR rebase 到最新 main，省去手动 rebase。含 github 层 list_open_prs/update_branch、扇出模块、合并后集成和手动 sync-prs 命令。

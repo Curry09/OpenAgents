@@ -16,15 +16,15 @@ from openagents.spec import model
 _SCRIPT_RE = re.compile(r"scripts/[^\s`)」]+\.sh")
 
 
-def script_path_for_group(*, group_dir: Path) -> str | None:
-    """Scan a spec group's Task `tests` fields for the first `scripts/*.sh` path.
+def script_path_for_group(*, group_path: Path) -> str | None:
+    """Scan a spec group markdown file's Task `tests` prose for the first `scripts/*.sh`.
 
-    issue #53：供 implement 转正前实跑（取代 rfc.script_path_for）。组不可读/无脚本→None。
+    2026-06-24 spec-markdown-form：组现为单文件 NNNN-slug.md。组不可读/无脚本→None。
     """
-    if not group_dir.is_dir():
+    if not group_path.is_file():
         return None
     try:
-        group = model.load_group(group_dir=group_dir)
+        group = model.load_group(path=group_path)
     except (OSError, ValueError):
         return None
     for task in group.tasks:
@@ -34,18 +34,18 @@ def script_path_for_group(*, group_dir: Path) -> str | None:
     return None
 
 
-def signpost_for_group(*, group_dir: Path) -> str | None:
-    """Render the「## 端到端验证」signpost block for a spec group.
+def signpost_for_group(*, group_path: Path) -> str | None:
+    """Render the「## 端到端验证」signpost block for a spec group markdown file.
 
-    issue #53（取代 rfc.signpost_for）：有脚本则给可直接执行命令，否则指回 spec 组的
-    Task tests；详细步骤恒指向该组（单一来源，不复制全文）。组不可读时返回 None。
+    有脚本则给可直接执行命令，否则指回 spec 组的 Task tests；详细步骤恒指向该组文件
+    （单一来源，不复制全文）。组不可读时返回 None。
     """
-    if not group_dir.is_dir():
+    if not group_path.is_file():
         return None
-    number = group_dir.name[:4]
+    number = group_path.name[:4]
     spec_id = f"Spec-{number}"
-    script = script_path_for_group(group_dir=group_dir)
+    script = script_path_for_group(group_path=group_path)
 
     run_line = f"- 跑：`bash {script}`" if script else f"- 跑：见 {spec_id} 各 Task 的 `tests`"
-    detail_line = f"- 详细手动步骤见 docs/specs/{group_dir.name}/ 各 Task 的 `tests` / `acceptance`"
+    detail_line = f"- 详细手动步骤见 docs/specs/{group_path.name} 各 Task 的 `tests` / `acceptance`"
     return "\n".join(["## 端到端验证", run_line, detail_line])

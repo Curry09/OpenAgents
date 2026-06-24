@@ -128,7 +128,7 @@ class Orchestrator:
         # RFC-0008：开 PR 前，从本分支新增的 RFC 抽取「端到端验证」指路牌拼进正文。
         # 定位失败 / 渲染为 None 时正文回退为原样、不抛错（决策 5，验收标准 2）。
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
-        e2e_section = signpost.signpost_for_group(group_dir=spec_group) if spec_group else None
+        e2e_section = signpost.signpost_for_group(group_path=spec_group) if spec_group else None
 
         self._progress(message="▶ 开 draft PR …")
         pr = github.create_pr(
@@ -299,7 +299,7 @@ class Orchestrator:
         self._progress(message="▶ 转正前实跑端到端脚本（ruff + pytest）…")
         # 1. 单一来源定位脚本：本分支改动的 spec 组 → 各 Task tests 里的脚本路径（None 即 skipped）。
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=DEFAULT_BASE)
-        script_path = signpost.script_path_for_group(group_dir=spec_group) if spec_group else None
+        script_path = signpost.script_path_for_group(group_path=spec_group) if spec_group else None
         # 2. 实跑离线段并截退出码与日志末尾（绝不抛错）。
         result = e2e.run_e2e_script(
             worktree=worktree,

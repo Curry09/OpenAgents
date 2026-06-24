@@ -13,9 +13,17 @@ description: >
 
 # Spec-Driven Development
 
+> **格式更新（2026-06-24 spec-markdown-form，见 `docs/specs/2026-06-24-spec-markdown-form-design.md`）：**
+> spec 组从「YAML 文件夹 `docs/specs/<NNNN-slug>/{metadata.yaml,tasks/,history/}`」改为
+> **单个 markdown 文件 `docs/specs/<NNNN-slug>.md`**（YAML frontmatter 放结构化字段 + 正文放 prose）。
+> 新增「对代码的唯一映射」：`spec graph` 由 import 图 + 文件/模块级 docstring 生成 `ARCHITECTURE.md`。
+> 设计历史改用 **dated 设计文档** `docs/specs/YYYY-MM-DD-<topic>-design.md`（冻结、append）。
+> `spec amend` 与 per-task `history/` 已退役（版本演化交给 git）。下文凡提「tasks/T*.yaml 文件夹 /
+> metadata.yaml / amend」均按上述映射理解；改 Task 直接编辑组 `.md`。
+
 Structured workflow for OpenAgents: **Requirements -> Spec Design (Task DAG + File Allocation) -> Implementation & Verification**.
 
-This skill **supersedes `rfc-driven-development`** (Spec-0014 / RFC-0014). The unit of design moved from a single RFC Markdown file to a **living snapshot**: a `docs/specs/<NNNN-slug>/` group whose basic unit is a **Task** (stable id, self-contained, one-to-one with live code). You never hand-edit an RFC `.md` — you drive the `spec` CLI, which writes canonical YAML and re-renders the human view.
+This skill **supersedes `rfc-driven-development`**. The unit of design is a **living snapshot**: a `docs/specs/<NNNN-slug>.md` group file whose basic unit is a **Task** (stable id, self-contained, one-to-one with live code). You drive the `spec` CLI (`new` / `add-task` / `render` / `graph` / `validate` / `abandon`) or edit the group markdown directly, then `spec validate` + `spec render` + `spec graph`.
 
 Each phase requires human approval before proceeding. Within each phase, work autonomously.
 

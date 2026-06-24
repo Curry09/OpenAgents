@@ -148,14 +148,14 @@ def test_remote_branch_exists_false_when_empty(tmp_path, monkeypatch):
 
 
 def test_changed_spec_group_returns_group_dir(tmp_path, monkeypatch):
-    # git diff 列出本分支改动的 spec 文件，方法返回其所属组目录绝对路径。
-    recorder = _GitRecorder(stdout="docs/specs/0008-pr-e2e-signpost/tasks/T1.yaml\n")
+    # git diff 列出本分支改动的 spec 组文件，方法返回该 NNNN-slug.md 的绝对路径。
+    recorder = _GitRecorder(stdout="docs/specs/0008-pr-e2e-signpost.md\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
 
     path = ws.changed_spec_group(worktree=tmp_path, base="main")
 
-    assert path == tmp_path / "docs/specs/0008-pr-e2e-signpost"
+    assert path == tmp_path / "docs/specs/0008-pr-e2e-signpost.md"
     joined = _joined(recorder)
     assert any("diff --name-only origin/main...HEAD -- docs/specs/" in c for c in joined)
 
@@ -175,11 +175,15 @@ def test_changed_spec_group_excludes_top_level_files(tmp_path, monkeypatch):
 
 
 def test_changed_spec_group_picks_group_over_overview(tmp_path, monkeypatch):
-    # 同时改了 OVERVIEW 与组内文件时，挑出组目录。
-    recorder = _GitRecorder(stdout="docs/specs/OVERVIEW.md\ndocs/specs/0008-x/metadata.yaml\n")
+    # 同时改了 OVERVIEW 与组文件时，挑出组文件（排除 dated 设计文档）。
+    recorder = _GitRecorder(
+        stdout="docs/specs/OVERVIEW.md\ndocs/specs/2026-06-24-d.md\ndocs/specs/0008-x.md\n"
+    )
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
-    assert ws.changed_spec_group(worktree=tmp_path, base="main") == tmp_path / "docs/specs/0008-x"
+    assert (
+        ws.changed_spec_group(worktree=tmp_path, base="main") == tmp_path / "docs/specs/0008-x.md"
+    )
 
 
 def test_module_exposes_workspace_error():

@@ -103,6 +103,13 @@ jobs:
           uv run spec render --specs-root docs/specs
           git diff --exit-code docs/specs/OVERVIEW.md
 
+      # 2026-06-24 spec-markdown-form：需求① 现状映射。校验 docstring 规范齐全 + ARCHITECTURE 无漂移。
+      - name: ARCHITECTURE drift + docstring check
+        run: |
+          uv run spec graph --specs-root docs/specs
+          git diff --exit-code docs/specs/ARCHITECTURE.md
+          uv run spec graph --specs-root docs/specs --check
+
   # --- 唯一的必需状态检查：聚合所有任务结果 ---
   ci-gate:
     name: CI Gate

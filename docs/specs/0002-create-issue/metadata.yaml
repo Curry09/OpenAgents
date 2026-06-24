@@ -1,4 +1,0 @@
-title: OpenAgents 主动提 issue
-issue: 0
-slug: create-issue
-summary: 让 OpenAgents 不只被动接 issue，还能主动给仓库提 issue。加 github 层 create_issue、CLI issue 子命令，并给自动发现的 issue 打上发现标签、确保标签存在。
