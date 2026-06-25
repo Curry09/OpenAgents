@@ -1,4 +1,0 @@
-title: MVP — 单 issue → 单 agent → 真实 PR 的最小自举闭环
-issue: 0
-slug: mvp-issue-to-pr-loop
-summary: OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用 Claude Code 后端把它做成一个真实的 GitHub PR。产出包骨架、CLI、后端适配、单 issue 编排、PR 评论消息机制和成果看板，是整个项目的起点。

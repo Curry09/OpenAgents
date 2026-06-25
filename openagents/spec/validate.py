@@ -2,14 +2,13 @@
 
 Spec-0014/T2: spec validate（schema + 语义校验）
 
-依序跑七条校验链（决策 D7：同组 files 重叠是 error，跨组 files 重叠仅 warning）：
+依序跑六条校验链（决策 D7：同组 files 重叠是 error，跨组 files 重叠仅 warning）：
   1. JSON Schema 校验所有 task / metadata / history（结构 + 枚举）   -> error
   2. status 与 history 自洽（快照不含 abandoned、历史版本单调递增）  -> error
   3. 同组 files 不重叠（协同模式无冲突前提）                        -> error
   4. 全局 depends-on DAG（含跨组）无环                              -> error
   5. 血缘 / 跨组引用（depends-on/relates-to/supersedes/...）指向存在 Task -> error
   6. 跨组 files 重叠（协作信号，进 OVERVIEW 文件冲突报告）          -> warning
-  7. metadata.summary 非空（每个 feature 必须有人话 TL;DR，Spec-0015/T3）-> error
 
 无 error 即 ok=True（warning 不影响 ok）。纯函数，不感知 git / GitHub（理念 10 解耦）。
 """
@@ -23,11 +22,7 @@ from jsonschema import Draft202012Validator
 
 from openagents.spec import model
 from openagents.spec.model import Group
-from openagents.spec.schema import (
-    HISTORY_SCHEMA,
-    METADATA_SCHEMA,
-    TASK_SCHEMA,
-)
+from openagents.spec.schema import GROUP_FRONTMATTER_SCHEMA
 
 _ERROR = "error"
 _WARNING = "warning"
@@ -56,7 +51,6 @@ def validate(*, specs_root: Path) -> ValidationReport:
     """Run the full schema + semantic validation chain over a specs tree.
 
     Spec-0014/T2: 依序跑六条链，汇总 issues；无 error 即 ok=True。
-    Spec-0015/T3: 追加第七条链——metadata.summary 非空。
     """
     issues: list[ValidationIssue] = []
 
@@ -81,48 +75,39 @@ def validate(*, specs_root: Path) -> ValidationReport:
     return ValidationReport(ok=ok, issues=issues)
 
 
+def _summary_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """Spec-0015/T3：每个组的 metadata.summary 去空白后非空，否则 error。"""
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        if not group.metadata.summary.strip():
+            issues.append(
+                ValidationIssue(
+                    level=_ERROR,
+                    where=f"{group.number}/frontmatter",
+                    message="metadata.summary 为空（每个 feature 必须有人话 TL;DR）",
+                )
+            )
+    return issues
+
+
 def _schema_checks(*, specs_root: Path) -> list[ValidationIssue]:
-    """JSON Schema 校验每个 metadata / task / history 文件；每个 schema 错误一条 error。"""
+    """JSON Schema 校验每个组 markdown 文件的 frontmatter；每个错误一条 error。"""
     issues: list[ValidationIssue] = []
     if not specs_root.is_dir():
         return issues
 
-    for group_dir in sorted(specs_root.iterdir()):
-        if not (group_dir.is_dir() and _is_group_dir(name=group_dir.name)):
+    for md_path in sorted(specs_root.glob("*.md")):
+        if not model._is_group_file(name=md_path.name):
             continue
-        number = group_dir.name[:4]
-
-        # metadata.yaml 必须存在且合规。
-        meta_path = group_dir / "metadata.yaml"
-        if meta_path.is_file():
-            issues.extend(
-                _validate_doc(
-                    data=_load_raw(path=meta_path),
-                    json_schema=METADATA_SCHEMA,
-                    where=f"{number}/metadata.yaml",
-                )
+        meta, _body = model._split_frontmatter(text=md_path.read_text(encoding="utf-8"))
+        number = md_path.name[:4]
+        issues.extend(
+            _validate_doc(
+                data=meta,
+                json_schema=GROUP_FRONTMATTER_SCHEMA,
+                where=f"{number}/frontmatter",
             )
-        else:
-            issues.append(ValidationIssue(level=_ERROR, where=number, message="缺少 metadata.yaml"))
-
-        # tasks/T*.yaml。
-        for task_path in _yaml_files(directory=group_dir / "tasks"):
-            issues.extend(
-                _validate_doc(
-                    data=_load_raw(path=task_path),
-                    json_schema=TASK_SCHEMA,
-                    where=f"{number}/{task_path.stem}",
-                )
-            )
-        # history/T*.yaml。
-        for hist_path in _yaml_files(directory=group_dir / "history"):
-            issues.extend(
-                _validate_doc(
-                    data=_load_raw(path=hist_path),
-                    json_schema=HISTORY_SCHEMA,
-                    where=f"{number}/history/{hist_path.stem}",
-                )
-            )
+        )
     return issues
 
 
@@ -252,25 +237,6 @@ def _reference_checks(*, groups: list[Group]) -> list[ValidationIssue]:
     return issues
 
 
-def _summary_checks(*, groups: list[Group]) -> list[ValidationIssue]:
-    """Spec-0015/T3：每个组的 metadata.summary 去空白后非空，否则 error。
-
-    缺字段与空串在 model._load_metadata 已归一为 ""，一条 .strip() 检查同时覆盖
-    缺字段 / 空串 / 纯空白三种情形，消息统一友好（决策见 T3 权衡）。
-    """
-    issues: list[ValidationIssue] = []
-    for group in groups:
-        if not group.metadata.summary.strip():
-            issues.append(
-                ValidationIssue(
-                    level=_ERROR,
-                    where=f"{group.number}/metadata.yaml",
-                    message="metadata.summary 为空（每个 feature 必须有人话 TL;DR）",
-                )
-            )
-    return issues
-
-
 def _validate_doc(*, data: object, json_schema: dict, where: str) -> list[ValidationIssue]:
     """对单个文档跑 JSON Schema，每个错误产出一条 error issue。"""
     validator = Draft202012Validator(json_schema)
@@ -333,20 +299,3 @@ def _find_cycle(*, adjacency: dict[str, list[str]]) -> list[str] | None:
             if found is not None:
                 return found
     return None
-
-
-def _load_raw(*, path: Path) -> object:
-    """读原始 YAML（ruamel 容器，dict/list/str 子类，可直接喂 jsonschema）。"""
-    return model._yaml.load(path)
-
-
-def _yaml_files(*, directory: Path) -> list[Path]:
-    """目录下 *.yaml 文件（排序）；目录不存在返回 []。"""
-    if not directory.is_dir():
-        return []
-    return sorted(directory.glob("*.yaml"))
-
-
-def _is_group_dir(*, name: str) -> bool:
-    """目录名是否 NNNN-slug 形态。"""
-    return len(name) > 5 and name[:4].isdigit() and name[4] == "-"

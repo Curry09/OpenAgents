@@ -1,4 +1,0 @@
-title: solve 原子化拆分 + RFC-first 评审循环
-issue: 0
-slug: solve-atomization-rfc-first-loop
-summary: 把原来一坨的 solve 拆成四个原子操作，并引入 RFC-first 评审循环（先写 RFC 再写代码）。抽出 workspace 模块、扩展 github/state、把消息按阶段过滤掉自评论，CLI 去掉 solve 换成 4 个子命令。

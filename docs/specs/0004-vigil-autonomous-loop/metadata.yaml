@@ -1,4 +1,0 @@
-title: openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）
-issue: 9
-slug: vigil-autonomous-loop
-summary: 守夜人模式：让 OpenAgents 自主循环跑「发现 issue → 求解 → 提 PR」全流程，不用人盯着。含标签门控的 issue 发现、发现段+守候段两段循环与单 issue 错误隔离，以及 vigil 子命令和端到端脚本。

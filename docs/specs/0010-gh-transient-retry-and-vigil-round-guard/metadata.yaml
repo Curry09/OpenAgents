@@ -1,4 +1,0 @@
-title: gh 瞬时错误重试 + 守夜循环单轮容错
-issue: 0
-slug: gh-transient-retry-and-vigil-round-guard
-summary: 给跟 GitHub 打交道加韧性：gh 命令遇到瞬时错误时指数退避重试，守夜循环每一轮用 try/except 兜底，单轮出错不拖垮整个循环。

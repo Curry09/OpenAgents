@@ -1,13 +1,11 @@
-"""spec JSON Schema —— Task / metadata / history 的结构校验单一真源。
+"""spec JSON Schema —— 组 markdown frontmatter / Task 的结构校验单一真源。
 
-Spec-0014/T1: 数据层 + JSON Schema + 依赖/入口声明
-
+Spec-0014/T1（2026-06-24 spec-markdown-form 更新）：
 用 JSON Schema draft 2020-12 声明式描述源数据形状与枚举（决策 D8）：
-- TASK_SCHEMA：tasks/T*.yaml 单个 Task 对象
-- METADATA_SCHEMA：metadata.yaml
-- HISTORY_SCHEMA：history/T*.yaml（Task 对象数组）
+- TASK_SCHEMA：frontmatter `tasks` 列表里的单个 Task 对象
+- GROUP_FRONTMATTER_SCHEMA：组 markdown 文件的 frontmatter（number/title/issue/slug/summary/tasks）
 
-校验逻辑在 validate.py 调用这三个 schema；这里只放声明，保持单一真源。
+校验逻辑在 validate.py 调用这两个 schema；这里只放声明，保持单一真源。
 """
 
 from __future__ import annotations
@@ -70,25 +68,20 @@ TASK_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0014/T1：组元数据 schema。
-# Spec-0015/T1：增 summary（组级人话 TL;DR）。仅声明字段合法、类型 string、不设 required——
-# 「非空」语义由 Spec-0015/T3 的 validate 语义链统一负责（缺字段/空串/纯空白一条消息）。
-METADATA_SCHEMA: dict = {
+# 2026-06-24 spec-markdown-form：组 markdown 文件的 frontmatter schema（取代 metadata + history）。
+# 组元数据 number/title/issue/slug + tasks 列表（每项复用 TASK_SCHEMA）。
+GROUP_FRONTMATTER_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
     "properties": {
+        "number": {"type": ["string", "integer"]},
         "title": {"type": "string"},
         "issue": {"type": "integer"},
         "slug": {"type": "string"},
+        # Spec-0015：组级人话 TL;DR。schema 只声明类型；非空由 validate 的 _summary_checks 强制。
         "summary": {"type": "string"},
+        "tasks": {"type": "array", "items": TASK_SCHEMA},
     },
-    "required": ["title", "issue", "slug"],
+    "required": ["number", "title", "issue", "slug", "tasks"],
     "additionalProperties": False,
-}
-
-# Spec-0014/T1：历史文件 schema —— Task 对象数组（每项是一个完整快照）。
-HISTORY_SCHEMA: dict = {
-    "$schema": _DRAFT,
-    "type": "array",
-    "items": TASK_SCHEMA,
 }

@@ -18,9 +18,9 @@ from pathlib import Path
 # RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
 
-# RFC-0008 决策 4：RFC 文件名形如 NNNN-slug.md，用于把本分支改动里的 RFC 文件挑出来。
-# issue #53：spec 组目录名形如 NNNN-slug（四位编号前缀）。
-_SPEC_GROUP_DIR_RE = re.compile(r"^\d{4}-")
+# 2026-06-24 spec-markdown-form：spec 组 = 单文件 NNNN-slug.md（slug 以字母起，
+# 排除 dated 设计文档 YYYY-MM-DD-*.md）。
+_SPEC_GROUP_FILE_RE = re.compile(r"^\d{4}-[A-Za-z].*\.md$")
 
 
 class WorkspaceError(Exception):
@@ -72,12 +72,12 @@ class Workspace:
         self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
 
     def changed_spec_group(self, *, worktree: Path, base: str) -> Path | None:
-        """Locate the spec group dir this branch touches, via git diff against the base.
+        """Locate the spec group markdown file this branch touches, via git diff vs base.
 
-        issue #53（取代 changed_rfc_path）：worktree 含 base 上既有的全部 spec，用
-        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的首个
-        `NNNN-slug/` 组目录（排除 OVERVIEW.md / README.md），返回其在 worktree 下的绝对
-        路径；无则 None。只读 git，不抛业务错。
+        2026-06-24 spec-markdown-form：spec 组现为单文件 docs/specs/NNNN-slug.md。用
+        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的首个组文件
+        （排除 OVERVIEW.md / ARCHITECTURE.md / README.md / dated 设计文档），返回其在 worktree
+        下的绝对路径；无则 None。只读 git，不抛业务错。
         """
         # 1. 列出本分支相对 base 改动的 docs/specs/ 文件（三点 diff：仅本分支侧的改动）。
         result = self._git(
@@ -85,14 +85,14 @@ class Workspace:
             cwd=worktree,
             check=False,
         )
-        # 2. 取首个 NNNN-slug 组目录（路径第三段是组目录名；排除顶层 OVERVIEW.md/README.md）。
+        # 2. 取首个 NNNN-slug.md 组文件（路径第三段；排除生成物/README/dated 文档）。
         for line in result.stdout.splitlines():
             rel = line.strip()
             if not rel:
                 continue
             parts = Path(rel).parts
-            if len(parts) >= 3 and parts[0] == "docs" and parts[1] == "specs":
-                if _SPEC_GROUP_DIR_RE.match(parts[2]):
+            if len(parts) == 3 and parts[0] == "docs" and parts[1] == "specs":
+                if _SPEC_GROUP_FILE_RE.match(parts[2]):
                     return worktree / "docs" / "specs" / parts[2]
         return None
 

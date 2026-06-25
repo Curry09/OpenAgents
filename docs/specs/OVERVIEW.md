@@ -55,6 +55,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
 修 reviewer 长回复被截断在 VERDICT 行之前、导致解析失败（UNPARSED）被误判成「非 PASS」、白白空耗 vigil rounds 甚至误触 needs-human 的 bug。做法：裁决 token 前置、按首行解析、区分「评审本身无效」与「真 REWORK」、加单次重解析与诚实升级。只改 reviewer 解析与编排层容错，不改裁决标准本身。
 
+### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
+代码闸（merge gate）三处加固：合并前预检 PR 可合并性（不可合并直接跳过、不空转崩溃 poll）、poll 阶段隔离单个 PR 的错误不拖垮整轮、裁决评论幂等避免刷屏重复 PASS。迁移自旧 metadata（原无 summary，按标题与任务补齐）。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -776,17 +779,13 @@ graph LR
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
     v_T6_1["T6 v1"]
-    v_T6_2["T6 v2"]
-    v_T6_1 -->|redefined| v_T6_2
     classDef st_done fill:#b7e4c7;
-    classDef st_in_progress fill:#fff3b0;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
-    class v_T6_1 st_in_progress;
-    class v_T6_2 st_done;
+    class v_T6_1 st_done;
 ```
 
 ### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR（issue #58）
@@ -810,54 +809,16 @@ graph LR
 ```mermaid
 graph LR
     v_T1_1["T1 v1"]
-    v_T1_2["T1 v2"]
-    v_T1_3["T1 v3"]
-    v_T1_4["T1 v4"]
-    v_T1_1 -->|redefined| v_T1_2
-    v_T1_2 -->|redefined| v_T1_3
-    v_T1_3 -->|redefined| v_T1_4
     v_T2_1["T2 v1"]
-    v_T2_2["T2 v2"]
-    v_T2_3["T2 v3"]
-    v_T2_1 -->|redefined| v_T2_2
-    v_T2_2 -->|redefined| v_T2_3
     v_T3_1["T3 v1"]
-    v_T3_2["T3 v2"]
-    v_T3_3["T3 v3"]
-    v_T3_4["T3 v4"]
-    v_T3_1 -->|redefined| v_T3_2
-    v_T3_2 -->|redefined| v_T3_3
-    v_T3_3 -->|redefined| v_T3_4
     v_T4_1["T4 v1"]
-    v_T4_2["T4 v2"]
-    v_T4_3["T4 v3"]
-    v_T4_1 -->|redefined| v_T4_2
-    v_T4_2 -->|redefined| v_T4_3
     v_T5_1["T5 v1"]
-    v_T5_2["T5 v2"]
-    v_T5_3["T5 v3"]
-    v_T5_1 -->|redefined| v_T5_2
-    v_T5_2 -->|redefined| v_T5_3
     classDef st_done fill:#b7e4c7;
-    classDef st_in_progress fill:#fff3b0;
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T1_2 st_pending;
-    class v_T1_3 st_in_progress;
-    class v_T1_4 st_done;
-    class v_T2_1 st_pending;
-    class v_T2_2 st_in_progress;
-    class v_T2_3 st_done;
-    class v_T3_1 st_pending;
-    class v_T3_2 st_pending;
-    class v_T3_3 st_in_progress;
-    class v_T3_4 st_done;
-    class v_T4_1 st_pending;
-    class v_T4_2 st_in_progress;
-    class v_T4_3 st_done;
-    class v_T5_1 st_pending;
-    class v_T5_2 st_pending;
-    class v_T5_3 st_done;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
 
 ### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）
@@ -882,32 +843,16 @@ graph LR
 ```mermaid
 graph LR
     v_T1_1["T1 v1"]
-    v_T1_2["T1 v2"]
-    v_T1_1 -->|redefined| v_T1_2
     v_T2_1["T2 v1"]
-    v_T2_2["T2 v2"]
-    v_T2_1 -->|redefined| v_T2_2
     v_T3_1["T3 v1"]
-    v_T3_2["T3 v2"]
-    v_T3_1 -->|redefined| v_T3_2
     v_T4_1["T4 v1"]
-    v_T4_2["T4 v2"]
-    v_T4_1 -->|redefined| v_T4_2
     v_T5_1["T5 v1"]
-    v_T5_2["T5 v2"]
-    v_T5_1 -->|redefined| v_T5_2
     classDef st_done fill:#b7e4c7;
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T1_2 st_done;
-    class v_T2_1 st_pending;
-    class v_T2_2 st_done;
-    class v_T3_1 st_pending;
-    class v_T3_2 st_done;
-    class v_T4_1 st_pending;
-    class v_T4_2 st_done;
-    class v_T5_1 st_pending;
-    class v_T5_2 st_done;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
 
 ### 0021 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human（issue #63）
@@ -924,24 +869,10 @@ graph LR
 ```mermaid
 graph LR
     v_T1_1["T1 v1"]
-    v_T1_2["T1 v2"]
-    v_T1_3["T1 v3"]
-    v_T1_1 -->|redefined| v_T1_2
-    v_T1_2 -->|redefined| v_T1_3
     v_T2_1["T2 v1"]
-    v_T2_2["T2 v2"]
-    v_T2_3["T2 v3"]
-    v_T2_1 -->|redefined| v_T2_2
-    v_T2_2 -->|redefined| v_T2_3
     classDef st_done fill:#b7e4c7;
-    classDef st_in_progress fill:#fff3b0;
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T1_2 st_in_progress;
-    class v_T1_3 st_done;
-    class v_T2_1 st_pending;
-    class v_T2_2 st_in_progress;
-    class v_T2_3 st_done;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
 
 ### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等（issue #62）
@@ -959,26 +890,10 @@ graph LR
 ```mermaid
 graph LR
     v_T1_1["T1 v1"]
-    v_T1_2["T1 v2"]
-    v_T1_1 -->|redefined| v_T1_2
     v_T2_1["T2 v1"]
-    v_T2_2["T2 v2"]
-    v_T2_3["T2 v3"]
-    v_T2_1 -->|redefined| v_T2_2
-    v_T2_2 -->|redefined| v_T2_3
     v_T3_1["T3 v1"]
-    v_T3_2["T3 v2"]
-    v_T3_3["T3 v3"]
-    v_T3_1 -->|redefined| v_T3_2
-    v_T3_2 -->|redefined| v_T3_3
     classDef st_done fill:#b7e4c7;
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T1_2 st_done;
-    class v_T2_1 st_pending;
-    class v_T2_2 st_pending;
-    class v_T2_3 st_done;
-    class v_T3_1 st_pending;
-    class v_T3_2 st_pending;
-    class v_T3_3 st_done;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```
