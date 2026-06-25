@@ -17,18 +17,11 @@ STATUS_VALUES = ("pending", "in-progress", "done", "abandoned")
 PRIORITY_VALUES = ("P0", "P1", "P2", "P3")
 RELATES_TYPE_VALUES = ("extends", "supersedes", "note")
 
-# Spec-0014/T1：prose 字段（块标量承载的 Markdown）—— schema 里都是可选 string。
+# issue #69：Task 退化为工作分解行，只保留两个一行短 prose（进 frontmatter）。
+# 重设计叙述上移到组级 Overview 9 段（正文，不进 frontmatter，故不在此 schema）。
 _PROSE_KEYS = (
-    "summary",
-    "motivation",
     "scope",
-    "design",
-    "interface",
-    "tradeoffs",
     "acceptance",
-    "tests",
-    "references",
-    "open-questions",
 )
 
 _RELATES_TO_SCHEMA = {
@@ -64,7 +57,8 @@ TASK_SCHEMA: dict = {
         "derived-from": {"type": "array", "items": {"type": "string"}},
         **{key: {"type": "string"} for key in _PROSE_KEYS},
     },
-    "required": ["id", "title", "status", "priority"],
+    # issue #69：files（单一 writer 所有权）+ acceptance（可验证）每行必填。
+    "required": ["id", "title", "status", "priority", "files", "acceptance"],
     "additionalProperties": False,
 }
 

@@ -9,15 +9,31 @@ from __future__ import annotations
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import Group, Metadata, RelatesTo, Task
+from openagents.spec.model import Group, Metadata, Overview, RelatesTo, Task
 from openagents.spec.validate import validate
 
 
-def _group(*, root: Path, number: str, slug: str, issue: int, tasks: list[Task]) -> Path:
+def _overview(**overrides: str) -> Overview:
+    """合规 Overview：必填四段（summary/motivation/reference_level/rationale_alternatives）非空。"""
+    base = dict(summary="s", motivation="m", reference_level="r", rationale_alternatives="ra")
+    base.update(overrides)
+    return Overview(**base)
+
+
+def _group(
+    *,
+    root: Path,
+    number: str,
+    slug: str,
+    issue: int,
+    tasks: list[Task],
+    overview: Overview | None = None,
+) -> Path:
     group = Group(
         number=number,
         metadata=Metadata(title=slug, issue=issue, slug=slug, summary=f"{slug} TL;DR"),
         tasks=tasks,
+        overview=overview if overview is not None else _overview(),
     )
     path = model.group_path(specs_root=root, number=number, slug=slug)
     model.dump_group(group=group, path=path)
@@ -27,6 +43,9 @@ def _group(*, root: Path, number: str, slug: str, issue: int, tasks: list[Task])
 def _task(**overrides: object) -> Task:
     base: dict[str, object] = dict(id="T1", title="t", status="pending", priority="P1")
     base.update(overrides)
+    # issue #69：每个 Task 必有 files（单一 writer）+ acceptance（可验证）。
+    base.setdefault("files", [f"{base['id']}.py"])
+    base.setdefault("acceptance", "可验证。")
     return Task(**base)  # type: ignore[arg-type]
 
 
@@ -192,3 +211,56 @@ def test_empty_specs_root_is_ok(tmp_path: Path) -> None:
     report = validate(specs_root=tmp_path)
     assert report.ok is True
     assert report.issues == []
+
+
+def test_missing_required_overview_section_is_error(tmp_path: Path) -> None:
+    """issue #69：必填总览段（如 Reference-level）为空 → error（单 spec 自包含 / 总览先行）。"""
+    _group(
+        root=tmp_path,
+        number="0001",
+        slug="alpha",
+        issue=1,
+        tasks=[_task(id="T1", files=["a.py"])],
+        overview=_overview(reference_level=""),
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("Reference-level" in m for m in _errors(report))
+
+
+def test_bare_cross_spec_ref_is_warning(tmp_path: Path) -> None:
+    """issue #69：总览里出现「见 Spec-0012 决策 8」式裸引用 → warning（提示就地复述）。"""
+    _group(
+        root=tmp_path,
+        number="0001",
+        slug="alpha",
+        issue=1,
+        tasks=[_task(id="T1", files=["a.py"])],
+        overview=_overview(motivation="背景详见 Spec-0012 决策 8。"),
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True  # 仅 warning，不破 ok
+    assert any("Spec-0012" in m for m in _warnings(report))
+
+
+def test_task_without_acceptance_is_schema_error(tmp_path: Path) -> None:
+    """issue #69：frontmatter 缺 acceptance → schema required 拦下。"""
+    (tmp_path / "0001-alpha.md").write_text(
+        "---\n"
+        'number: "0001"\n'
+        "title: alpha\n"
+        "issue: 1\n"
+        "slug: alpha\n"
+        "summary: x\n"
+        "tasks:\n"
+        "  - id: T1\n"
+        "    title: t\n"
+        "    status: pending\n"
+        "    priority: P1\n"
+        "    files: [a.py]\n"
+        "---\n\n# 0001 · alpha\n",
+        encoding="utf-8",
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("acceptance" in m for m in _errors(report))
