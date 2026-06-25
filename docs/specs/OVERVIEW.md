@@ -59,7 +59,7 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 代码闸（merge gate）三处加固：合并前预检 PR 可合并性（不可合并直接跳过、不空转崩溃 poll）、poll 阶段隔离单个 PR 的错误不拖垮整轮、裁决评论幂等避免刷屏重复 PASS。迁移自旧 metadata（原无 summary，按标题与任务补齐）。
 
 ### 0023 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布
-退役 test 分支,反转 Spec-0012 模型:main 成为日常自动流转分支(reviewer 闸+CI 全绿后自动合入,持续推进),发版时把 main 发布到 release/vX.Y.Z 分支并打 vX.Y.Z tag(版本号从最新 tag 自动递增,默认 patch)。人的触点从 promote 改为 release;promote.py 重命名重定向为 release.py,全链路 base 默认 test→main,去掉 test 分支自举,CI 仅 main 触发。
+退役 test 分支,反转旧的「test 门控」模型:main 成为日常自动流转分支(reviewer 闸+CI 全绿后自动合入,持续推进),发版时把 main 发布到 release/vX.Y.Z 分支并打 vX.Y.Z tag(版本号从最新 tag 自动递增,默认 patch)。人的触点从 promote 改为 release;promote.py 重命名重定向为 release.py,全链路 base 默认 test→main,去掉 test 分支自举,CI 仅 main 触发。
 
 ## 全局看板
 
@@ -73,11 +73,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0001 | 0001/T6 | 成果看板 + 本地启动命令 | done | T4 | openagents/results.py<br>openagents/templates/board.html<br>tests/test_results.py |
 | 0002 | 0002/T1 | github 层 create_issue | done | — | openagents/github.py<br>tests/test_github.py |
 | 0002 | 0002/T2 | CLI issue 子命令 | done | T1 | openagents/cli.py<br>tests/test_cli.py |
-| 0002 | 0002/T3 | issue 自动附加发现标签 + 确保标签存在（决策 5/6） | done | T2 | — |
 | 0003 | 0003/T1 | solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项 | done | — | openagents/orchestrator.py<br>openagents/cli.py<br>tests/test_orchestrator.py<br>tests/test_cli.py |
 | 0003 | 0003/T2 | 求解实时反馈：后端 stream-json 事件流 + 编排阶段进度行 | done | — | openagents/backends/claude_code.py<br>tests/test_backend_claude_code.py |
 | 0003 | 0003/T3 | solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底 | done | T1 | openagents/state.py<br>openagents/github.py<br>tests/test_state.py<br>tests/test_github.py |
-| 0003 | 0003/T4 | CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback） | done | T1 | — |
 | 0004 | 0004/T1 | github 层 `list_issues`（标签门控的 issue 发现） | done | — | openagents/github.py<br>tests/test_github.py |
 | 0004 | 0004/T2 | `Vigil` 守夜人循环模块（发现段 + 守候段 + 错误隔离） | done | T1 | openagents/vigil.py<br>tests/test_vigil.py |
 | 0004 | 0004/T3 | CLI `vigil` 子命令 + 端到端脚本 | done | T2 | openagents/cli.py<br>tests/test_cli.py<br>scripts/e2e-rfc-0004-vigil.sh |
@@ -161,13 +159,11 @@ graph LR
     subgraph G0002[0002 create-issue]
         n0002_T1["T1 github 层 create_issue"]
         n0002_T2["T2 CLI issue 子命令"]
-        n0002_T3["T3 issue 自动附加发现标签 + 确保标签存在（决策 5/6）"]
     end
     subgraph G0003[0003 issue-worktree-isolation]
         n0003_T1["T1 solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项"]
         n0003_T2["T2 求解实时反馈：后端 stream-json 事件流 + 编排阶段进度行"]
         n0003_T3["T3 solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底"]
-        n0003_T4["T4 CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback）"]
     end
     subgraph G0004[0004 vigil-autonomous-loop]
         n0004_T1["T1 github 层 `list_issues`（标签门控的 issue 发现）"]
@@ -276,9 +272,7 @@ graph LR
     n0001_T5 --> n0001_T4
     n0001_T6 --> n0001_T4
     n0002_T2 --> n0002_T1
-    n0002_T3 --> n0002_T2
     n0003_T3 --> n0003_T1
-    n0003_T4 --> n0003_T1
     n0004_T2 --> n0004_T1
     n0004_T3 --> n0004_T2
     n0005_T2 --> n0005_T1
@@ -437,9 +431,7 @@ graph LR
 graph LR
     nT1["T1 github 层 create_issue"]
     nT2["T2 CLI issue 子命令"]
-    nT3["T3 issue 自动附加发现标签 + 确保标签存在（决策 5/6）"]
     nT1 --> nT2
-    nT2 --> nT3
 ```
 
 演化图：
@@ -448,11 +440,9 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    v_T3_1["T3 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
-    class v_T3_1 st_done;
 ```
 
 ### 0003 issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main（issue #0）
@@ -462,9 +452,7 @@ graph LR
     nT1["T1 solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项"]
     nT2["T2 求解实时反馈：后端 stream-json 事件流 + 编排阶段进度行"]
     nT3["T3 solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底"]
-    nT4["T4 CLI 统一错误处理（运行期异常 → 干净退出，不吐 traceback）"]
     nT1 --> nT3
-    nT1 --> nT4
 ```
 
 演化图：
@@ -474,12 +462,10 @@ graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
-    v_T4_1["T4 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
-    class v_T4_1 st_done;
 ```
 
 ### 0004 openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）（issue #9）
