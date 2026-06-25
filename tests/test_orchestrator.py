@@ -256,22 +256,17 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
 
 
 def _spec_group_with_e2e(*, root):
-    """造一个带 e2e 脚本（写在 Task tests 字段）的 spec 组 markdown 文件，供指路牌抽取。"""
+    """造一个带 e2e 脚本（写在组级 Overview 的 Reference-level）的 spec 组，供指路牌抽取。"""
     from openagents.spec import model as spec_model
-    from openagents.spec.model import Group, Metadata, Task
+    from openagents.spec.model import Group, Metadata, Overview, Task
 
     group = Group(
         number="0008",
         metadata=Metadata(title="示例", issue=8, slug="pr-e2e-signpost", summary="示例 TL;DR"),
-        tasks=[
-            Task(
-                id="T1",
-                title="t",
-                status="done",
-                priority="P1",
-                tests="离线跑 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（ruff + pytest）。",
-            )
-        ],
+        tasks=[Task(id="T1", title="t", status="done", priority="P1")],
+        overview=Overview(
+            reference_level="离线跑 `scripts/e2e-rfc-0008-pr-e2e-signpost.sh`（ruff + pytest）。"
+        ),
     )
     path = spec_model.group_path(specs_root=root, number="0008", slug="pr-e2e-signpost")
     spec_model.dump_group(group=group, path=path)
