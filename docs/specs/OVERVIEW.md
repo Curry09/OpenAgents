@@ -58,6 +58,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0022 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
 代码闸（merge gate）三处加固：合并前预检 PR 可合并性（不可合并直接跳过、不空转崩溃 poll）、poll 阶段隔离单个 PR 的错误不拖垮整轮、裁决评论幂等避免刷屏重复 PASS。迁移自旧 metadata（原无 summary，按标题与任务补齐）。
 
+### 0023 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布
+退役 test 分支,反转 Spec-0012 模型:main 成为日常自动流转分支(reviewer 闸+CI 全绿后自动合入,持续推进),发版时把 main 发布到 release/vX.Y.Z 分支并打 vX.Y.Z tag(版本号从最新 tag 自动递增,默认 patch)。人的触点从 promote 改为 release;promote.py 重命名重定向为 release.py,全链路 base 默认 test→main,去掉 test 分支自举,CI 仅 main 触发。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -137,6 +140,11 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0022 | 0022/T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | done | — | openagents/github.py<br>tests/test_github.py |
 | 0022 | 0022/T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | done | T1 | openagents/messages.py<br>tests/test_messages.py |
 | 0022 | 0022/T3 | 裁决评论幂等：同一裁决不每轮重发 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0023 | 0023/T1 | github 层:base 默认 main + 去 test 分支自举 | done | — | openagents/github.py<br>tests/test_github.py<br>tests/test_ensure_prerequisites.py |
+| 0023 | 0023/T2 | orchestrator + vigil:base 默认 main | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py<br>openagents/vigil.py |
+| 0023 | 0023/T3 | promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增 | done | T1 | openagents/release.py<br>tests/test_release.py<br>openagents/promote.py<br>tests/test_promote.py |
+| 0023 | 0023/T4 | CLI:release 子命令 + base 默认 main | done | T2, T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0023 | 0023/T5 | CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾 | done | — | .github/workflows/ci.yml<br>tests/test_indexheal.py<br>docs/specs/0012-test-branch-gated-flow.md<br>openagents/messages.py<br>openagents/state.py<br>scripts/e2e-spec-0023-release-flow.sh |
 
 ## 跨 feature 关系图
 
@@ -253,6 +261,13 @@ graph LR
         n0022_T2["T2 代码闸可合并性预检 + poll 单 PR 错误隔离"]
         n0022_T3["T3 裁决评论幂等：同一裁决不每轮重发"]
     end
+    subgraph G0023[0023 retire-test-branch-main-advancing-release]
+        n0023_T1["T1 github 层:base 默认 main + 去 test 分支自举"]
+        n0023_T2["T2 orchestrator + vigil:base 默认 main"]
+        n0023_T3["T3 promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增"]
+        n0023_T4["T4 CLI:release 子命令 + base 默认 main"]
+        n0023_T5["T5 CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -324,18 +339,27 @@ graph LR
     n0020_T5 --> n0020_T4
     n0021_T2 --> n0021_T1
     n0022_T2 --> n0022_T1
+    n0023_T3 --> n0023_T1
+    n0023_T4 --> n0023_T2
+    n0023_T4 --> n0023_T3
+    n0023_T1 -.supersedes.-> n0012_T2
+    n0023_T2 -.supersedes.-> n0012_T5
+    n0023_T3 -.supersedes.-> n0012_T4
+    n0023_T4 -.supersedes.-> n0012_T6
 ```
 
 ## 文件冲突报告
 
 | 文件 | 涉及组 |
 |----|----|
+| .github/workflows/ci.yml | 0014, 0023 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023 |
+| openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
@@ -345,15 +369,16 @@ graph LR
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015 |
 | openagents/spec/validate.py | 0014, 0015 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023 |
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023 |
+| tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_reviewer.py | 0012, 0021 |
 | tests/test_rfc.py | 0008, 0013 |
@@ -896,4 +921,35 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0023 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布（issue #68）
+
+```mermaid
+graph LR
+    nT1["T1 github 层:base 默认 main + 去 test 分支自举"]
+    nT2["T2 orchestrator + vigil:base 默认 main"]
+    nT3["T3 promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增"]
+    nT4["T4 CLI:release 子命令 + base 默认 main"]
+    nT5["T5 CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾"]
+    nT1 --> nT3
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```

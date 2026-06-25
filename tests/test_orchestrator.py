@@ -217,9 +217,9 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
 
     orch.start_rfc(issue_number=3, resume=False)
 
-    # RFC-0012 决策 2：默认基线由 main 改为 test。
+    # Spec-0023/T2：默认基线为 main（test 分支门控退役）。
     assert fake_ws.prepare_calls == [
-        {"issue_number": 3, "branch": "openagents/issue-3", "base": "test"}
+        {"issue_number": 3, "branch": "openagents/issue-3", "base": "main"}
     ]
     assert fake_ws.ensure_calls == []
     assert begin_calls == [3]

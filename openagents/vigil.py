@@ -50,9 +50,9 @@ class Vigil:
     ) -> None:
         """守夜人主循环：每轮先发现+派单，再 poll 已开 PR；持续到 Ctrl-C（决策 6）。
 
-        RFC-0012 决策 2：base 由调用方（CLI）传入，默认值已随 CLI 改为长期 test 分支
-        ——派单起草的 RFC 以 test 为基线/PR base，守候段 poll 的 reviewer 闸驱动其
-        自动合回 test。本方法签名不变，仅默认值随上游 CLI 调整。
+        Spec-0023/T2：base 由调用方（CLI）传入，默认值随 CLI/orchestrator 改回 main
+        ——派单起草的 spec/改动以 main 为基线/PR base，守候段 poll 的 reviewer 闸驱动其
+        自动合回 main。本方法签名不变，仅默认值随上游 CLI 调整。
 
         Spec-0020/T3：新增关键字参数 hold（Hold），默认取「全不停」实例以保持现有调用与
         行为逐字节不变；vigil 自身不消费 hold，仅把人的意图逐轮透传给 messages.poll，由

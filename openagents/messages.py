@@ -2,7 +2,7 @@
 
 poll 对每个 open 状态的 run 做一次扫描，先判 merge/close，再按 run 所处阶段路由
 （RFC-0005 决策 5）。RFC-0012 把两处「等人」的判定换成「调 reviewer 闸 + 自动推进」，
-让人的触点收敛到「提 issue」与「promote」：
+让人的触点收敛到「提 issue」与「release」（Spec-0023：promote 改名 release）：
 
   1. github.is_merged：已合并 → State 置 done，跳过（决策 8）+ 合并后扇出 rebase（RFC-0009）。
   1b. github.is_closed：关闭未合并 → State 置 closed，跳过（RFC-0006，merged 优先）。
@@ -195,7 +195,7 @@ class Messages:
         # 1c. issue #49：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile（人合掉修好的
         # PR → done；人关掉 → closed）。若 PR 仍 open 但人已摘掉 needs-human 标签（语义：「我处理
         # 好了，继续跑」），则解挂——rounds 清零，按是否已过 RFC 闸回到对应阶段重新流转；标签仍在
-        # 则保持挂起（返回 None，不动状态）。这消除了「进得去、出不来、promote 被永久焊死」。
+        # 则保持挂起（返回 None，不动状态）。这消除了「进得去、出不来、release 被永久焊死」。
         if record.status == STATUS_BLOCKED:
             if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
                 return None
@@ -317,12 +317,12 @@ class Messages:
         """RFC-0012 决策 5：评审超 K 轮 → 置 STATUS_BLOCKED + 打 needs-human + PR 不关。
 
         STATUS_BLOCKED 不在 _OPEN_STATUSES，下一轮 poll 自动跳过（软挂起）；needs-human
-        标签是给人/promote 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
+        标签是给人/release 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
         """
         pr_number = record.pr_number
         # issue #47：GitHub 副作用先行、state 落盘后行。add_label 失败（gh 瞬时错误 / 标签缺失）
         # 时异常上抛，但此时 state 尚未变 blocked——下一轮 poll 仍把它当 open，自然重试整个 _block，
-        # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（promote 预检与人的可观测性都依赖标签）。
+        # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（release 预检与人的可观测性都依赖标签）。
         github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
