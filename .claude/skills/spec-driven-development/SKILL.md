@@ -21,7 +21,16 @@ description: >
 > `spec amend` 与 per-task `history/` 已退役（版本演化交给 git）。下文凡提「tasks/T*.yaml 文件夹 /
 > metadata.yaml / amend」均按上述映射理解；改 Task 直接编辑组 `.md`。
 
-Structured workflow for OpenAgents: **Requirements -> Spec Design (Task DAG + File Allocation) -> Implementation & Verification**.
+> **格式更新（issue #69 rust-RFC 形态，见 `docs/specs/2026-06-25-spec-rfc-form-design.md`）：**
+> spec 正文从「每个 Task 各写 prose」改为 **组级 rust-RFC 9 段总览**（Summary / Motivation /
+> Guide-level / Reference-level / Drawbacks / Rationale and alternatives / Prior art /
+> Unresolved questions / Future possibilities，参考 [rust-lang/rfcs](https://github.com/rust-lang/rfcs)）。
+> **总览先行**：feature 全貌在这 9 段里自包含地讲一遍，**DAG + 文件分配收进 Reference-level**；
+> Task 退化成 frontmatter 里的工作分解行（结构化字段 + `scope`/`acceptance`，不再挂重 prose）。
+> 下文凡提「各 Task 的 `design`/`interface`/`tradeoffs`/`tests`/`open-questions` prose」均已上移到
+> 组级总览;字段细节见 `references/task-fields.md`。
+
+Structured workflow for OpenAgents: **Requirements -> Spec Design (组级 RFC 总览先行 → Task DAG + File Allocation) -> Implementation & Verification**.
 
 This skill **supersedes `rfc-driven-development`**. The unit of design is a **living snapshot**: a `docs/specs/<NNNN-slug>.md` group file whose basic unit is a **Task** (stable id, self-contained, one-to-one with live code). You drive the `spec` CLI (`new` / `add-task` / `render` / `graph` / `validate` / `abandon`) or edit the group markdown directly, then `spec validate` + `spec render` + `spec graph`.
 
@@ -100,17 +109,22 @@ Same as before — iteratively clarify before designing.
 4. Cover: scope boundaries, affected modules, performance, backward compatibility.
 5. Do NOT persist requirements separately — they get absorbed into the spec's prose fields.
 
-### Phase 2: Spec Design (Task DAG + File Allocation)
+### Phase 2: Spec Design (组级 RFC 总览先行 → Task DAG + File Allocation)
 
-The spec group is the core artifact. Author it via the CLI — never hand-write YAML.
+The spec group is the core artifact. Author it via the CLI — never hand-write frontmatter.
+**总览先行**：先把组级 rust-RFC 9 段总览写清楚（feature 全貌），**再**拆 Task；Task 是总览
+之下的分解，不是总览的替代。
 
 1. **Create the group:**
    ```
-   spec new <slug> --issue <N> --title "<组标题>"
+   spec new <slug> --issue <N> --title "<组标题>" --summary "<一句话 TL;DR>"
    ```
-   The number is auto-assigned as local-max + 1. Cross-PR number conflicts are caught by CI (`check-spec-number-conflicts.py`); in shared-repo work, push the group skeleton and open a draft PR early so the number is visible to other agents. If you must pin a number, pass `--number NNNN`.
+   The number is auto-assigned as local-max + 1. Cross-PR number conflicts are caught by CI (`check-spec-number-conflicts.py`); in shared-repo work, push the group skeleton and open a draft PR early so the number is visible to other agents. If you must pin a number, pass `--number NNNN`. `spec new` 已在正文里铺好 9 段 `## <heading>` 脚手架（含 `<!-- 待填 -->` 占位）。
 2. **Explore the codebase** thoroughly before designing — use subagents for parallel context gathering.
-3. **Decompose into a Task DAG** and add each Task:
+3. **先写组级 RFC 总览（before any Task）** — 直接编辑组 `.md` 正文，填满 9 段（顺序见 `references/task-fields.md`）：
+   - **Summary**（必填）/ **Motivation**（必填，现状+为什么，**背景就地复述**）/ Guide-level / **Reference-level**（必填，技术方案 + **DAG + 文件分配表** + e2e 脚本路径）/ Drawbacks / **Rationale and alternatives**（必填，≥1 备选）/ Prior art / Unresolved questions / Future possibilities。
+   - **单 spec 自包含**：读完这 9 段即理解本 feature，**不能把必要信息留给「见 Spec-NNNN」式裸引用**；要提别的 spec 编号只能当线索，关键内容必须就地复述完整。
+4. **再拆 Task DAG（总览之后）** and add each Task:
    ```
    spec add-task <NNNN> --id T1 --title "<标题>" --priority P1 \
      --files openagents/x.py,tests/test_x.py \
@@ -118,23 +132,24 @@ The spec group is the core artifact. Author it via the CLI — never hand-write 
      --scope "<这个 Task 改什么>" --acceptance "<可验证的验收标准>"
    ```
    - **Task count must not exceed 6.** If it does, split into multiple groups.
-   - **`files` across Tasks must be disjoint** — this is what makes collaborative mode conflict-free. If two Tasks must touch one file, merge them or split that file's changes into its own Task.
-   - `depends-on` declares the DAG (cross-group refs use qualified ids like `0012/T2`). Tasks with no mutual dependency run in parallel.
-   - New Tasks start `status: pending`.
-4. **Fill design prose** on the relevant Tasks by editing the `tasks/T*.yaml` prose fields (`summary`/`motivation`/`design`/`interface`/`tradeoffs`/`tests`/`references`/`open-questions`) — block scalars carrying Markdown (mermaid allowed in `design`). Keep it architectural: **what & why, NOT implementation code**. After editing prose by hand, run `spec validate` then `spec render`.
-5. **Confirm open questions with the user** before writing any `open-questions` prose — only questions the user chooses to keep are recorded.
+   - **`files` across Tasks must be disjoint** — 这是协同模式无冲突的根（单一 writer 所有权，理念 6），也是 issue #71 运行期 owner 检查的结构化源。两个 Task 必须碰同一文件就合并它们，或把该文件的改动独立成一个 Task。
+   - `depends-on` declares the DAG (cross-group refs use qualified ids like `0012/T2`). Tasks with no mutual dependency run in parallel. New Tasks start `status: pending`.
+   - Task 不再挂重 prose；它的设计依据在组级 Reference-level 里讲。每行必填 `files` + `acceptance`。
+5. **Confirm open questions with the user** before writing the `Unresolved questions` section — only questions the user chooses to keep are recorded.
 6. **Validate & render:**
    ```
-   spec validate          # must be error-free
+   spec validate          # must be error-free（必填段空 / 缺 acceptance / files 重叠 = error）
    spec render            # regenerates OVERVIEW.md
+   spec graph             # regenerates ARCHITECTURE.md
    ```
-7. Present the group (Tasks + DAG + file lists, via OVERVIEW.md) to the user for review. Collect ALL feedback at once; apply in one pass. Repeat until approved.
+7. Present the group (9 段总览 + Task 表 + DAG，via the group `.md` / OVERVIEW.md) to the user for review. Collect ALL feedback at once; apply in one pass. Repeat until approved.
 
 **Quality bar:**
-- Design prose focuses on architecture, key decisions, interface contracts — not code.
-- `tradeoffs` includes at least one alternative considered.
-- Every Task is independently implementable/verifiable, has a disjoint `files` list, clear `depends-on`, and an `acceptance` criterion.
-- `tests` covers unit + integration for the Task's scope.
+- **总览先行**：每个组在拆 Task 前先有完整的 feature 级 9 段总览；读完总览即懂全貌。
+- **单 spec 自包含**：禁止把理解本 spec 的必要信息留在别处（无 load-bearing 跨 spec 引用）；复述胜过一个引用。`spec validate` 对必填段空报 error、对疑似裸引用报 warning。
+- **软约定硬化**：凡是想写进正文「调用方请务必…/别…/记得…」的软约定,先问能不能改成 frontmatter 字段 / `spec validate` 规则让它**根本无法违反**(`files` 同组互斥即范例——它把「别让两个 Task 抢写同一文件」从自觉变成 error；延伸见 issue #71)。
+- 总览叙述聚焦架构、关键决策、接口契约——不是实现代码;`Rationale and alternatives` 含 ≥1 备选。
+- Every Task is independently implementable/verifiable, has a disjoint required `files` list, clear `depends-on`, and a required `acceptance` criterion.
 
 ### Phase 3: Implementation & Verification
 

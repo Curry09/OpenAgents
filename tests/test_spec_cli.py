@@ -11,7 +11,11 @@ from pathlib import Path
 
 from openagents.spec import model
 from openagents.spec.cli import main
-from openagents.spec.model import Group, Metadata, Task
+from openagents.spec.model import Group, Metadata, Overview, Task
+
+
+def _overview() -> Overview:
+    return Overview(summary="s", motivation="m", reference_level="r", rationale_alternatives="ra")
 
 
 def _group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
@@ -19,6 +23,7 @@ def _group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
         number=number,
         metadata=Metadata(title=slug, issue=1, slug=slug, summary=f"{slug} TL;DR"),
         tasks=tasks,
+        overview=_overview(),
     )
     path = model.group_path(specs_root=root, number=number, slug=slug)
     model.dump_group(group=group, path=path)
@@ -28,6 +33,8 @@ def _group(*, root: Path, number: str, slug: str, tasks: list[Task]) -> Path:
 def _task(**overrides: object) -> Task:
     base: dict[str, object] = dict(id="T1", title="t", status="pending", priority="P1")
     base.update(overrides)
+    base.setdefault("files", [f"{base['id']}.py"])
+    base.setdefault("acceptance", "可验证。")
     return Task(**base)  # type: ignore[arg-type]
 
 

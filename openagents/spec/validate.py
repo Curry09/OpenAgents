@@ -15,6 +15,7 @@ Spec-0014/T2: spec validate（schema + 语义校验）
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,17 @@ from openagents.spec.schema import GROUP_FRONTMATTER_SCHEMA
 
 _ERROR = "error"
 _WARNING = "warning"
+
+# issue #69：单 spec 自包含 + 总览先行的质量门槛。
+# 必填总览段（attr, 人读标题）——这四段撑起「读完即懂、无需翻别的 spec」。
+_REQUIRED_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("summary", "Summary"),
+    ("motivation", "Motivation"),
+    ("reference_level", "Reference-level explanation"),
+    ("rationale_alternatives", "Rationale and alternatives"),
+)
+# 疑似跨 spec 裸引用：`Spec-0012`、`Spec-0012 决策 8`、`Spec-0012/T2`。命中即提示就地复述。
+_BARE_REF_RE = re.compile(r"Spec-\d{4}(?:\s*决策\s*\d+|/T\w+)?")
 
 
 @dataclass(frozen=True)
@@ -70,9 +82,49 @@ def validate(*, specs_root: Path) -> ValidationReport:
     issues.extend(_reference_checks(groups=groups))
     # 7. metadata.summary 非空（Spec-0015/T3：每个 feature 必须有人话 TL;DR）。
     issues.extend(_summary_checks(groups=groups))
+    # 8. 必填总览段非空（issue #69：总览先行）。                          -> error
+    issues.extend(_overview_required_checks(groups=groups))
+    # 9. 总览里疑似跨 spec 裸引用（issue #69：单 spec 自包含）。         -> warning
+    issues.extend(_self_contained_checks(groups=groups))
 
     ok = not any(issue.level == _ERROR for issue in issues)
     return ValidationReport(ok=ok, issues=issues)
+
+
+def _overview_required_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """issue #69：每个组的必填总览段去空白后非空，否则 error（总览先行、读完即懂）。"""
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        for attr, label in _REQUIRED_SECTIONS:
+            if not getattr(group.overview, attr).strip():
+                issues.append(
+                    ValidationIssue(
+                        level=_ERROR,
+                        where=f"{group.number}/overview",
+                        message=f"必填总览段「{label}」为空（单 spec 自包含、总览先行）",
+                    )
+                )
+    return issues
+
+
+def _self_contained_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """issue #69：扫总览 9 段，命中「见 Spec-NNNN」式裸引用 → warning（提示就地复述）。"""
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        for _, attr in model._OVERVIEW_SECTIONS:
+            text = getattr(group.overview, attr)
+            for match in _BARE_REF_RE.finditer(text):
+                issues.append(
+                    ValidationIssue(
+                        level=_WARNING,
+                        where=f"{group.number}/overview/{attr}",
+                        message=(
+                            f"疑似跨 spec 裸引用 {match.group(0)!r}："
+                            "确认理解本 spec 的必要信息已就地复述（issue #69）"
+                        ),
+                    )
+                )
+    return issues
 
 
 def _summary_checks(*, groups: list[Group]) -> list[ValidationIssue]:
