@@ -44,6 +44,16 @@
 
 旧模型每个 Task 各写 `Design / Interface / Tradeoffs / Open-Questions`,若组级再塞 9 段会与 Task 级 prose 语义打架。新模型里**设计叙述只在 feature 级讲一遍(9 段)**,Task 退化成 Reference-level 里的一张工作分解/文件分配表。无重叠,且天然满足 issue #69 的两条验收:总览先行 + 单 spec 自包含。
 
+### 文件分配 = OpenAgents 版「所有权唯一」(为 issue #71 预留扩展点)
+
+Reference-level 里那张「Task → `files`」分配表,本质是 OpenAgents 版的 **Rust 所有权模型**:每个 Task 是它名下 `files` 的**单一 writer**(`&mut` 独占),互斥分配就是「aliasing XOR mutability」搬到协同模式上——这正是理念 6 让多 agent 同组并行不冲突的根。
+
+[issue #71](https://github.com/Curry09/OpenAgents/issues/71) 会把这层 ownership 从「**设计期声明**」推进到「**运行期强制**」(lease / 版本化共享状态 / capability)。**本设计为它预留扩展点**,硬约束一条:
+
+> **`tasks[].files` 必须保留为 frontmatter 里的结构化机器源**,而非只在 Reference-level 正文里写一张人读表。这样将来 orchestrator/harness 能据 `tasks[].files` 做运行期 owner 检查(越权写非自己 `files` → 拒),无需重新解析散文。
+
+这也反推一条 RFC 写作准则(同步进 skill 的 quality bar):**凡是想写进正文「调用方请务必……」的软约定,先问能不能改成 frontmatter 字段 / `spec validate` 规则让它根本无法违反**——`files` 互斥已是同组 error,即此准则的现存实例。
+
 ## 数据模型改动(`openagents/spec/`)
 
 1. **`model.py`**
@@ -78,11 +88,16 @@
 - 不强制清洗 89 处历史 `/T*` 注释(祖父化)。
 - 不改 orchestrator/vigil 的闸门逻辑,只改派活 prompt 文案。
 - ARCHITECTURE.md / graph 机制不变。
+- **不实现 issue #71 的运行期 owner 强制**(lease/CAS/capability);本 PR 只保证 `tasks[].files` 仍是机器可解析的结构化源,为 #71 留好接口。
 
 ## Unresolved questions
 
-- 「禁止跨 spec 裸引用」用 **error(CI 拦)** 还是 **warning(提示)**?倾向先 warning,避免一上来卡住 22 个存量回填;待全绿后可升 error。
-- `tasks[]` 的 `acceptance` 是否仍要求每行都有(P2 收尾类 Task 可能很轻)?倾向必填,保持可验证。
+- 「禁止跨 spec 裸引用」用 **error(CI 拦)** 还是 **warning(提示)**?(已定:先 **warning**——避免一上来卡住存量回填;待全绿后可升 error。)
+- `tasks[]` 的 `acceptance` 是否仍要求每行都有?(已定:**必填**,保持可验证。)
+
+## Future possibilities
+
+- **运行期所有权强制([issue #71](https://github.com/Curry09/OpenAgents/issues/71))**:把 Reference-level 的 `files` 分配从设计期声明推进到运行期——共享状态单一 writer + 版本化快照读 + capability 声明,越权写在编排层被拒。本设计保留 `tasks[].files` 结构化源即为此铺路。
 
 ## 参考(已逐字查看,理念 7)
 
