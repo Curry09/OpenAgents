@@ -48,15 +48,22 @@ DEFAULT_BASE = "main"
 # development），故任务只需指明意图与约束，细节交由其遵循该 skill。设计产物从「docs/rfcs/
 # 单个 RFC.md」改为「docs/specs/ 下的 spec 活快照组」，用 `spec` CLI 创作（见 #53）。
 _DRAFT_RFC_TASK = (
-    "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2：\n"
-    '用 `spec new <slug> --issue {number} --title ... --summary "<一句话 TL;DR>"` 建组'
-    "（`--summary` 为必填，写一句话 TL;DR 概述本组目标），再用 `spec add-task` 逐个加子任务"
-    "（含文件清单、依赖、范围、验收），并填写各 Task 的设计 prose；最后 `spec validate` + `spec render`。\n"
+    "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2"
+    "（rust-RFC 形态，总览先行）：\n"
+    '1) 用 `spec new <slug> --issue {number} --title ... --summary "<一句话 TL;DR>"` 建组'
+    "（已铺好 9 段脚手架）;\n"
+    "2) **先写组级 rust-RFC 9 段总览**（编辑组 markdown 正文）：Summary / Motivation（现状+"
+    "为什么，**背景就地复述，禁止靠「见 Spec-NNNN」承载必要信息——单 spec 自包含**）/ "
+    "Guide-level / Reference-level（技术方案 + DAG + 文件分配 + e2e 脚本路径）/ Drawbacks / "
+    "Rationale and alternatives（≥1 备选）/ Prior art / Unresolved questions / Future possibilities;\n"
+    "3) **再**用 `spec add-task` 逐个加工作分解行（必填 `--files` 互斥 + `--acceptance`，含依赖、范围）;\n"
+    "4) 最后 `spec validate`（必填段空/缺 acceptance/files 重叠 = error）+ `spec render` + `spec graph`。\n"
     "只产出 spec（docs/specs/ 下），不要写实现代码。\n\nissue 正文：\n{body}"
 )
 _REFINE_RFC_TASK = (
     "本 issue 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
-    "（直接编辑组 markdown 文件改 Task，只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
+    "（直接编辑组 markdown：改组级 9 段总览或 frontmatter tasks，保持单 spec 自包含、总览先行，"
+    "只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
     "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
 )
 _IMPLEMENT_TASK = (
