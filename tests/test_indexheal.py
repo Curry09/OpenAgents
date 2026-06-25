@@ -39,10 +39,10 @@ class _FakeGit:
 def test_clean_merge_returns_true_without_render(tmp_path):
     git = _FakeGit(merge_rc=0, conflicts=[])
     rendered = []
-    ok = heal_branch(worktree=tmp_path, base="test", render=lambda wt: rendered.append(wt), run=git)
+    ok = heal_branch(worktree=tmp_path, base="main", render=lambda wt: rendered.append(wt), run=git)
     assert ok is True
     assert rendered == []
-    assert ["merge", "origin/test", "--no-edit"] in git.calls
+    assert ["merge", "origin/main", "--no-edit"] in git.calls
     # 干净合并不应触碰 OVERVIEW（不 add/commit/abort）。
     assert not any(c[0] in {"add", "commit"} or c[:2] == ["merge", "--abort"] for c in git.calls)
 
@@ -50,7 +50,7 @@ def test_clean_merge_returns_true_without_render(tmp_path):
 def test_only_overview_conflict_rerenders_and_resolves(tmp_path):
     git = _FakeGit(merge_rc=1, conflicts=[str(GENERATED_INDEX)])
     rendered = []
-    ok = heal_branch(worktree=tmp_path, base="test", render=lambda wt: rendered.append(wt), run=git)
+    ok = heal_branch(worktree=tmp_path, base="main", render=lambda wt: rendered.append(wt), run=git)
     assert ok is True
     assert rendered == [tmp_path]  # 重渲被调用
     assert ["add", str(GENERATED_INDEX)] in git.calls
@@ -61,7 +61,7 @@ def test_only_overview_conflict_rerenders_and_resolves(tmp_path):
 def test_other_conflict_aborts_and_returns_false(tmp_path):
     git = _FakeGit(merge_rc=1, conflicts=[str(GENERATED_INDEX), "openagents/messages.py"])
     rendered = []
-    ok = heal_branch(worktree=tmp_path, base="test", render=lambda wt: rendered.append(wt), run=git)
+    ok = heal_branch(worktree=tmp_path, base="main", render=lambda wt: rendered.append(wt), run=git)
     assert ok is False
     assert rendered == []  # 含真实冲突不重渲
     assert ["merge", "--abort"] in git.calls
@@ -73,7 +73,7 @@ def test_make_healer_degrades_on_github_error(monkeypatch, tmp_path):
         raise indexheal.github.GithubError("gh 失败")
 
     monkeypatch.setattr(indexheal.github, "pr_head_branch", _boom)
-    heal = indexheal.make_healer(work_dir=tmp_path, base="test")
+    heal = indexheal.make_healer(work_dir=tmp_path, base="main")
     assert heal(pr_number=7) is False
 
 

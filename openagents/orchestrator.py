@@ -38,9 +38,10 @@ from openagents.workspace import Workspace
 _BRANCH_PREFIX = "openagents/issue-"
 
 # RFC-0003 决策 2：分支基线默认锁定到最新 origin/<base>。
-# RFC-0012 决策 2：由 main 改为长期 test 分支——PR 的 worktree 基线与 PR base 都锁 test，
-# issue→PR 全程在 test 上自动闭环；main 只被 promote 快进，不参与日常流转。
-DEFAULT_BASE = "test"
+# Spec-0023/T2：test 分支门控退役，由 test 改回 main——PR 的 worktree 基线与 PR base 都锁
+# main，issue→PR 全程经 reviewer 闸+CI 全绿自动合回 main，main 由此成为持续推进的日常分支；
+# 发版另走 release/vX.Y.Z 分支（见 `openagents release`），main 不再需要 test 这层体验服中介。
+DEFAULT_BASE = "main"
 
 # RFC-0005 + Spec-0014（issue #53 运行时切换）：各原子操作喂给后端的任务模板（prompt）。
 # 后端为 cli-agent（如 Claude Code），自带 spec-driven-development skill（取代 rfc-driven-

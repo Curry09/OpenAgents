@@ -106,6 +106,13 @@ tasks:
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据，正文为各 Task 设计 prose。 -->
 
+> **⚠️ 已被 Spec-0023 取代（test 分支退役）。** 本 spec 是「test 分支门控流程」时代的历史
+> 设计快照：彼时 `test` 是长期体验服、issue→PR 全程以 test 为 base 自动合回 test，`main` 只被
+> `openagents promote` 快进。Spec-0023 将此模型反转——`main` 成为日常自动流转分支并持续推进，
+> 发版改走 `release/vX.Y.Z` 分支 + tag（`openagents release` 取代 promote）。其 T2/T4/T5/T6 经
+> `supersedes` 分别取代本 spec 的 T2（github base）、T4（promote 模块）、T5（orchestrator base）、
+> T6（CLI/base）。本文件保留作历史参照，不再反映现状代码。
+
 ## T1 · reviewer 编排模块（N 并行 + 裁决聚合）
 
 ### Scope

@@ -29,7 +29,6 @@ from openagents.github import (
     create_issue,
     create_pr,
     create_repo,
-    ensure_branch,
     ensure_label,
     find_pr_by_branch,
     get_issue,
@@ -314,8 +313,8 @@ def test_create_pr_error_raises(monkeypatch):
         create_pr(branch="b", title="t", body="b")
 
 
-def test_create_pr_default_base_is_test(monkeypatch):
-    # RFC-0012 决策 2：base 默认 test → --base test。
+def test_create_pr_default_base_is_main(monkeypatch):
+    # Spec-0023/T1：test 门控退役后 base 默认 main → --base main。
     runner = _fake_run(stdout="https://github.com/acme/widget/pull/42\n")
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -323,17 +322,17 @@ def test_create_pr_default_base_is_test(monkeypatch):
 
     cmd = runner.calls[-1]
     assert "--base" in cmd
-    assert cmd[cmd.index("--base") + 1] == "test"
+    assert cmd[cmd.index("--base") + 1] == "main"
 
 
 def test_create_pr_base_override_passed_through(monkeypatch):
     runner = _fake_run(stdout="https://github.com/acme/widget/pull/42\n")
     monkeypatch.setattr(subprocess, "run", runner)
 
-    create_pr(branch="b", title="t", body="x", base="main")
+    create_pr(branch="b", title="t", body="x", base="release/v1.2.0")
 
     cmd = runner.calls[-1]
-    assert cmd[cmd.index("--base") + 1] == "main"
+    assert cmd[cmd.index("--base") + 1] == "release/v1.2.0"
 
 
 def test_create_pr_unparsable_url_raises(monkeypatch):
@@ -1096,51 +1095,7 @@ def test_add_label_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# ensure_branch（RFC-0012 决策 8：幂等兜底建 test 分支）
-# --------------------------------------------------------------------------- #
-
-
-def test_ensure_branch_noop_when_exists(monkeypatch):
-    # refs/heads/<name> 存在 → 仅查一次、不创建（幂等 no-op）。
-    runner = _fake_run(stdout=json.dumps({"ref": "refs/heads/test"}))
-    monkeypatch.setattr(subprocess, "run", runner)
-
-    ensure_branch(name="test", from_ref="main")
-
-    # 只发生一次 gh 调用（存在性检查），不取 sha、不 POST。
-    assert len(runner.calls) == 1
-    assert runner.calls[0][:2] == ["gh", "api"]
-
-
-def test_ensure_branch_creates_when_missing(monkeypatch):
-    # 第 1 次查（404）→ 第 2 次取 from_ref sha → 第 3 次 POST 新 ref。
-    runner = _fake_run_sequence(
-        [
-            _FakeProc(returncode=1, stderr="HTTP 404: Not Found"),
-            _FakeProc(returncode=0, stdout="deadbeef\n"),
-            _FakeProc(returncode=0, stdout=json.dumps({"ref": "refs/heads/test"})),
-        ]
-    )
-    monkeypatch.setattr(subprocess, "run", runner)
-
-    ensure_branch(name="test", from_ref="main")
-
-    assert len(runner.calls) == 3
-    # 末次调用应携带新 ref 与取到的 sha。
-    create_cmd = runner.calls[-1]
-    assert "ref=refs/heads/test" in create_cmd
-    assert "sha=deadbeef" in create_cmd
-
-
-def test_ensure_branch_other_error_reraises(monkeypatch):
-    # 非「不存在」的错误（如鉴权）不吞，照常抛。
-    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="HTTP 401 Unauthorized"))
-    with pytest.raises(GithubError):
-        ensure_branch(name="test", from_ref="main")
-
-
-# --------------------------------------------------------------------------- #
-# branch_ci_green（RFC-0012 决策 7：promote 预检分支 CI 全绿）
+# branch_ci_green（RFC-0012 决策 7；Spec-0023/T1：release 预检 main 分支 CI 全绿）
 # --------------------------------------------------------------------------- #
 
 
@@ -1154,7 +1109,7 @@ def test_branch_ci_green_all_success_true(monkeypatch):
     runner = _fake_run(stdout=payload)
     monkeypatch.setattr(subprocess, "run", runner)
 
-    assert branch_ci_green(branch="test") is True
+    assert branch_ci_green(branch="main") is True
     cmd = runner.calls[-1]
     assert cmd[:2] == ["gh", "api"]
 
@@ -1168,7 +1123,7 @@ def test_branch_ci_green_failure_false(monkeypatch):
     )
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
-    assert branch_ci_green(branch="test") is False
+    assert branch_ci_green(branch="main") is False
 
 
 def test_branch_ci_green_pending_false(monkeypatch):
@@ -1176,17 +1131,17 @@ def test_branch_ci_green_pending_false(monkeypatch):
     payload = json.dumps([{"name": "deploy", "status": "in_progress", "conclusion": None}])
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
-    assert branch_ci_green(branch="test") is False
+    assert branch_ci_green(branch="main") is False
 
 
 def test_branch_ci_green_no_checks_is_green(monkeypatch):
     # 无任何 check → 视为绿（与 check_status「无 check 视为 pass」一致）。
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
 
-    assert branch_ci_green(branch="test") is True
+    assert branch_ci_green(branch="main") is True
 
 
 def test_branch_ci_green_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
-        branch_ci_green(branch="test")
+        branch_ci_green(branch="main")

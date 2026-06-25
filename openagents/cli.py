@@ -41,8 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rfc = sub.add_parser("rfc", help="为一个 issue 起草 RFC 并开 draft PR")
     p_rfc.add_argument("issue", type=int, help="issue 编号")
     # RFC-0003 决策 2/3：分支基线，issue 分支从最新 origin/<base> 拉出。
-    # RFC-0012 决策 2：默认由 main 改为长期 test 分支（体验服），PR base 同源锁 test。
-    p_rfc.add_argument("--base", default="test", help="分支基线（默认 test）")
+    # Spec-0023/T4：test 门控退役，默认改回 main——issue 分支与 PR base 同源锁 main。
+    p_rfc.add_argument("--base", default="main", help="分支基线（默认 main）")
 
     p_refine = sub.add_parser("refine-rfc", help="按 PR 最新评审评论精炼 RFC")
     p_refine.add_argument("pr", type=int, help="PR 编号")
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="issue 发现的标签门控（可重复），默认 openagents",
     )
     # RFC-0012 决策 2：派单起草 RFC 的分支基线默认改为 test。
-    p_vigil.add_argument("--base", default="test", help="派单起草 RFC 的分支基线（默认 test）")
+    p_vigil.add_argument("--base", default="main", help="派单起草改动的分支基线（默认 main）")
     p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+poll）后退出")
     # Spec-0020/T4：分级监督——在指定意图闸门停下等人。默认 None（全自动不停，行为不变）。
     p_vigil.add_argument(
@@ -116,8 +116,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="在指定闸门停下等人：spec / merge / spec,merge（默认全自动不停）",
     )
 
-    # RFC-0012 决策 7：promote —— 人唯一的宏观决策点：预检通过则把 test 快进到 main。
-    sub.add_parser("promote", help="把 test 体验服快进到 main（预检通过后扬升）")
+    # Spec-0023/T4：release —— 人唯一的宏观决策点：预检通过则把持续推进的 main 物化成一个
+    # 版本（release/vX.Y.Z 分支 + tag）。取代退役的 test 门控 promote。
+    p_release = sub.add_parser("release", help="把 main 当前 HEAD 发布为一个版本（预检通过后物化）")
+    p_release.add_argument(
+        "--bump",
+        choices=["patch", "minor", "major"],
+        default="patch",
+        help="版本号递增位（默认 patch；从最新 vX.Y.Z tag 递增，无 tag 则起点 v0.1.0）",
+    )
 
     return parser
 
@@ -185,9 +192,9 @@ def _vigil_for(*, ctx: ProjectContext):
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0015：统一冷启动兜底——一次性确保 test 分支 + 全部流程标签就位（幂等：已存在
-    # 即 no-op）。取代原先只兜底 test 分支的裸 ensure_branch（RFC-0012 决策 8），同时补齐
-    # rfc-approved / needs-human 标签的预建，消除后续 add_label 报 not found。
+    # RFC-0015 / Spec-0023/T1：统一冷启动兜底——确保全部流程标签就位（幂等：已存在即 no-op），
+    # 预建 openagents / rfc-approved / needs-human，消除后续 add_label 报 not found。test 分支
+    # 门控退役后日常 base 改回恒存在的 main，已无需任何分支自举。
     github.ensure_prerequisites()
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
     return 0
@@ -307,9 +314,9 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0020/T4：把 --hold 原始串解析成 Hold（None → 默认全不停），传给 vigil.run；
     # 非法值由 parse_hold 抛 ValueError，经 _run 的异常通道转干净一行提示（不 traceback）。
     hold = parse_hold(raw=args.hold)
-    # RFC-0015：进主循环前自举一次结构性 prerequisite（test 分支 + 流程标签），使无人值守
-    # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段，根除「缺 test 分支
-    # 致 prepare 永久死循环」。只在进循环前一次，不进每轮循环（vigil「无人值守自恢复」定位）。
+    # RFC-0015 / Spec-0023/T1：进主循环前自举一次结构性 prerequisite（流程标签），使无人值守
+    # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段。test 分支门控退役后
+    # 日常 base 改回恒存在的 main，无需分支自举。只在进循环前一次，不进每轮（自恢复定位）。
     github.ensure_prerequisites()
     _vigil_for(ctx=ctx).run(
         interval=args.interval, labels=labels, base=args.base, once=args.once, hold=hold
@@ -317,16 +324,16 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
-def _cmd_promote(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0012 决策 7：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + test CI 绿）
-    # 通过则把 test 快进到 main。失败按预检原因设非零退出码，不动 main。
-    from openagents.promote import promote
+def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0023/T4：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + main CI 绿）通过则
+    # 把 main 当前 HEAD 物化为 release/vX.Y.Z 分支 + tag。失败按预检原因设非零退出码，不发布。
+    from openagents.release import release
 
-    result = promote(state=_state_for(repo_root=ctx.repo_root))
-    if result.promoted:
-        print("✓ main 已快进到 test（promoted）")
+    result = release(state=_state_for(repo_root=ctx.repo_root), bump=args.bump)
+    if result.released:
+        print(f"✓ 已发布 {result.version}（release/{result.version} 分支 + tag）")
         return 0
-    print(f"✗ promote 预检未通过：{result.reason}", file=sys.stderr)
+    print(f"✗ release 预检未通过：{result.reason}", file=sys.stderr)
     return 1
 
 
@@ -358,7 +365,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "watch": _cmd_watch,
         "sync-prs": _cmd_sync_prs,
         "vigil": _cmd_vigil,
-        "promote": _cmd_promote,
+        "release": _cmd_release,
     }
     return handlers[args.command](args, ctx)
 

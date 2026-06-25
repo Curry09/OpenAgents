@@ -7,7 +7,7 @@ summary: 退役 test 分支,反转 Spec-0012 模型:main 成为日常自动流�
 tasks:
   - id: T1
     title: github 层:base 默认 main + 去 test 分支自举
-    status: in-progress
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -21,7 +21,7 @@ tasks:
       - tests/test_ensure_prerequisites.py
   - id: T2
     title: orchestrator + vigil:base 默认 main
-    status: in-progress
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -35,7 +35,7 @@ tasks:
       - openagents/vigil.py
   - id: T3
     title: promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增
-    status: in-progress
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -51,7 +51,7 @@ tasks:
       - tests/test_promote.py
   - id: T4
     title: CLI:release 子命令 + base 默认 main
-    status: in-progress
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -66,7 +66,7 @@ tasks:
       - tests/test_cli.py
   - id: T5
     title: CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾
-    status: in-progress
+    status: done
     priority: P2
     tags: []
     depends-on: []
@@ -76,6 +76,9 @@ tasks:
       - .github/workflows/ci.yml
       - tests/test_indexheal.py
       - docs/specs/0012-test-branch-gated-flow.md
+      - openagents/messages.py
+      - openagents/state.py
+      - scripts/e2e-spec-0023-release-flow.sh
 ---
 
 # 0023 · 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布
@@ -195,7 +198,7 @@ CLI 是人的唯一触点收敛处。`promote` 子命令整体改名 `release`(�
 
 ### Scope
 
-ci.yml 触发分支 [main,test]→[main](去 issue#50 的 test 注释);test_indexheal 用例 base test→main(断言 origin/main);0012 frontmatter/正文加一行「被 Spec-0023 取代:test 分支退役」。
+ci.yml 触发分支 [main,test]→[main](去 issue#50 的 test 注释);test_indexheal 用例 base test→main(断言 origin/main);0012 正文加被取代横幅指向 Spec-0023;清理 messages.py/state.py 注释里 promote→release、test 体验服→main 的文档漂移。
 
 ### Design
 

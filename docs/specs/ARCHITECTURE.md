@@ -21,8 +21,8 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `indexheal.py` | issue #48：索引冲突自愈——同步 base 后自动重渲 OVERVIEW。 |
 | `messages.py` | RFC-0001 T5 + RFC-0005 + RFC-0012: PR 消息机制 + CI 监控，按**阶段**路由 GitHub 事件。 |
 | `orchestrator.py` | RFC-0005: issue → RFC-first → 代码 的原子操作编排（取代单体 solve）。 |
-| `promote.py` | RFC-0012 T4: promote 模块 —— test 体验服快进到 main（人唯一的宏观决策点）。 |
 | `rebase.py` | RFC-0009 T2: 合并后自动同步其余 open PR 的扇出模块。 |
+| `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `reviewer.py` | RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。 |
 | `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
@@ -73,8 +73,8 @@ graph LR
     nopenagents_indexheal["openagents.indexheal"]
     nopenagents_messages["openagents.messages"]
     nopenagents_orchestrator["openagents.orchestrator"]
-    nopenagents_promote["openagents.promote"]
     nopenagents_rebase["openagents.rebase"]
+    nopenagents_release["openagents.release"]
     nopenagents_results["openagents.results"]
     nopenagents_reviewer["openagents.reviewer"]
     nopenagents_spec["openagents.spec"]
@@ -101,8 +101,8 @@ graph LR
     nopenagents_cli --> nopenagents_indexheal
     nopenagents_cli --> nopenagents_messages
     nopenagents_cli --> nopenagents_orchestrator
-    nopenagents_cli --> nopenagents_promote
     nopenagents_cli --> nopenagents_rebase
+    nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
     nopenagents_cli --> nopenagents_state
     nopenagents_cli --> nopenagents_vigil
@@ -133,12 +133,12 @@ graph LR
     nopenagents_orchestrator --> nopenagents_spec_signpost
     nopenagents_orchestrator --> nopenagents_state
     nopenagents_orchestrator --> nopenagents_workspace
-    nopenagents_promote --> nopenagents
-    nopenagents_promote --> nopenagents_github
-    nopenagents_promote --> nopenagents_state
     nopenagents_rebase --> nopenagents
     nopenagents_rebase --> nopenagents_github
     nopenagents_rebase --> nopenagents_identity
+    nopenagents_release --> nopenagents
+    nopenagents_release --> nopenagents_github
+    nopenagents_release --> nopenagents_state
     nopenagents_results --> nopenagents_state
     nopenagents_reviewer --> nopenagents_backends_base
     nopenagents_spec_cli --> nopenagents_spec

@@ -2,11 +2,11 @@
 # 仅 "CI Gate" 作为分支保护的必需状态检查。
 name: CI
 
-# issue #50：除合入 main 的 PR 外，也覆盖 test 分支门控流程里以 test 为 base 的 PR——
-# 否则这些 PR「no checks reported」，check_status 真空判 pass，代码闸的 CI 前置形同虚设。
+# Spec-0023/T5：test 分支门控退役后，日常 PR 一律以 main 为 base，故 CI 只需覆盖 main——
+# release/vX.Y.Z 分支由已绿的 main 物化而来、不接 PR，无需在此重复门控。
 on:
   pull_request:
-    branches: [main, test]
+    branches: [main]
 
 permissions:
   contents: read

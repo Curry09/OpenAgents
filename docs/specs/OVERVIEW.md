@@ -140,11 +140,11 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0022 | 0022/T1 | github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus） | done | — | openagents/github.py<br>tests/test_github.py |
 | 0022 | 0022/T2 | 代码闸可合并性预检 + poll 单 PR 错误隔离 | done | T1 | openagents/messages.py<br>tests/test_messages.py |
 | 0022 | 0022/T3 | 裁决评论幂等：同一裁决不每轮重发 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
-| 0023 | 0023/T1 | github 层:base 默认 main + 去 test 分支自举 | in-progress | — | openagents/github.py<br>tests/test_github.py<br>tests/test_ensure_prerequisites.py |
-| 0023 | 0023/T2 | orchestrator + vigil:base 默认 main | in-progress | — | openagents/orchestrator.py<br>tests/test_orchestrator.py<br>openagents/vigil.py |
-| 0023 | 0023/T3 | promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增 | in-progress | T1 | openagents/release.py<br>tests/test_release.py<br>openagents/promote.py<br>tests/test_promote.py |
-| 0023 | 0023/T4 | CLI:release 子命令 + base 默认 main | in-progress | T2, T3 | openagents/cli.py<br>tests/test_cli.py |
-| 0023 | 0023/T5 | CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾 | in-progress | — | .github/workflows/ci.yml<br>tests/test_indexheal.py<br>docs/specs/0012-test-branch-gated-flow.md |
+| 0023 | 0023/T1 | github 层:base 默认 main + 去 test 分支自举 | done | — | openagents/github.py<br>tests/test_github.py<br>tests/test_ensure_prerequisites.py |
+| 0023 | 0023/T2 | orchestrator + vigil:base 默认 main | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py<br>openagents/vigil.py |
+| 0023 | 0023/T3 | promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增 | done | T1 | openagents/release.py<br>tests/test_release.py<br>openagents/promote.py<br>tests/test_promote.py |
+| 0023 | 0023/T4 | CLI:release 子命令 + base 默认 main | done | T2, T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0023 | 0023/T5 | CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾 | done | — | .github/workflows/ci.yml<br>tests/test_indexheal.py<br>docs/specs/0012-test-branch-gated-flow.md<br>openagents/messages.py<br>openagents/state.py<br>scripts/e2e-spec-0023-release-flow.sh |
 
 ## 跨 feature 关系图
 
@@ -357,7 +357,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011 |
@@ -369,7 +369,7 @@ graph LR
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015 |
 | openagents/spec/validate.py | 0014, 0015 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023 |
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
@@ -946,10 +946,10 @@ graph LR
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
-    classDef st_in_progress fill:#fff3b0;
-    class v_T1_1 st_in_progress;
-    class v_T2_1 st_in_progress;
-    class v_T3_1 st_in_progress;
-    class v_T4_1 st_in_progress;
-    class v_T5_1 st_in_progress;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```

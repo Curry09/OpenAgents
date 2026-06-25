@@ -277,14 +277,15 @@ def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> 
         raise
 
 
-def create_pr(*, branch: str, title: str, body: str, base: str = "test", draft: bool = False) -> PR:
+def create_pr(*, branch: str, title: str, body: str, base: str = "main", draft: bool = False) -> PR:
     """RFC-0001 T3：`gh pr create`，从 stdout 的 PR url 解析出 number 与 url。
 
     RFC-0005 决策 2：draft=True 时追加 `--draft`，使 PR 先以草稿形态承载 RFC，
     待人评审/批准后由 mark_ready 转正。默认 False，保持既有调用向后兼容。
 
-    RFC-0012 决策 2：新增 base 形参（→ `--base`），默认 test——长期 test 分支是体验服，
-    issue→PR 全程以 test 为 base、合回 test，main 只在 promote 时被快进。start_rfc 透传基线。
+    Spec-0023/T1：base 形参（→ `--base`）默认 main——test 分支门控退役后 main 成为日常
+    自动流转分支，issue→PR 全程以 main 为 base、经 reviewer 闸+CI 全绿自动合回 main。
+    start_rfc 透传基线（默认值随 orchestrator.DEFAULT_BASE 一同从 test 改 main）。
     """
     args = ["pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body]
     if draft:
@@ -376,8 +377,8 @@ def has_label(*, pr_number: int, name: str) -> bool:
 def merge_pr(*, pr_number: int, method: str = "merge") -> None:
     """RFC-0012 决策 1：代码闸全票 PASS 后自动合入（`gh pr merge <n> --<method>`）。
 
-    method ∈ {"merge", "squash", "rebase"}（默认 merge，见未解决问题 4）；合入其 base（=test），
-    使 test 成为不断累加的体验服。失败由 _run_gh 抛 GithubError。
+    method ∈ {"merge", "squash", "rebase"}（默认 merge，见未解决问题 4）；合入其 base（Spec-0023
+    后为 main），使 main 成为持续推进的日常分支。失败由 _run_gh 抛 GithubError。
     """
     _run_gh(["pr", "merge", str(pr_number), f"--{method}"], allow_returncodes=set())
 
@@ -413,64 +414,30 @@ def close_issue(*, number: int) -> None:
         raise
 
 
-def ensure_branch(*, name: str, from_ref: str) -> None:
-    """RFC-0012 决策 8：幂等确保远端存在分支 name（不存在则从 from_ref 建）。
-
-    消除「首个 PR 找不到 base=test」的冷启动失败：init / promote 都先调它兜底建 test。
-    实现走 `gh api` git refs（零额外依赖，与决策 3「一律走 gh」一致）：
-      1. 查 refs/heads/<name> 是否存在——存在即 no-op（幂等，与 ensure_label 吞 already exists 同风格）；
-      2. 不存在（not found / 404）→ 取 from_ref 的 sha → POST 新 ref；
-      3. 其它错误（含瞬时，由 _run_gh 重试后仍败）照常抛 GithubError。
-    """
-    try:
-        _run_gh(["api", f"{_REPO_PLACEHOLDER}/git/refs/heads/{name}"], allow_returncodes=set())
-        return  # 已存在 → 幂等 no-op
-    except GithubError as exc:
-        if not _is_not_found(reason=str(exc)):
-            raise  # 非「不存在」的错误（鉴权/瞬时穿透等）不吞，照常上抛
-    sha = _run_gh(
-        ["api", f"{_REPO_PLACEHOLDER}/git/refs/heads/{from_ref}", "--jq", ".object.sha"],
-        allow_returncodes=set(),
-    ).stdout.strip()
-    if not sha:
-        raise GithubError(f"无法取得 {from_ref} 的 sha 以创建分支 {name}")
-    _run_gh(
-        [
-            "api",
-            f"{_REPO_PLACEHOLDER}/git/refs",
-            "-f",
-            f"ref=refs/heads/{name}",
-            "-f",
-            f"sha={sha}",
-        ],
-        allow_returncodes=set(),
-    )
-
-
 def ensure_prerequisites() -> None:
-    """RFC-0015：幂等确保流程结构性 prerequisite 就位：test 分支 + 全部流程标签。
+    """Spec-0023/T1：幂等确保流程结构性 prerequisite 就位：全部流程标签。
 
-    单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/promote/vigil 三入口统一
-    调用，根除各入口零散且不完整的兜底（缺 test 分支致 prepare 永久失败、缺 needs-human/
-    rfc-approved 标签致 add_label 报 not found）。
+    单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/release/vigil 三入口统一
+    调用，根除各入口零散且不完整的兜底（缺 needs-human/rfc-approved 标签致 add_label 报
+    not found）。
 
-    缺分支或缺标签就新建，已存在就 no-op：本函数只编排既有幂等函数，不新造任何容错——
-    幂等性、瞬时错误重试（RFC-0010）、already exists / not found 归一化全由 ensure_branch /
-    ensure_label / _run_gh 既有实现承担。重复调用对已存在者均 no-op、不覆盖既有颜色/描述；
-    非「已存在」的 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
+    test 分支门控退役后（Spec-0023），日常 base 改为恒存在的默认分支 main，无需任何分支
+    自举——原先兜底建 test 分支的 ensure_branch 一并移除，本函数收敛为只预建流程标签。
+    缺标签就新建、已存在就 no-op：只编排既有幂等的 ensure_label，不新造任何容错（幂等性、
+    瞬时错误重试 RFC-0010、already exists 归一化全由 ensure_label / _run_gh 承担）。
     """
-    ensure_branch(name="test", from_ref="main")
     for label in PROCESS_LABELS:
         ensure_label(name=label)
 
 
 def branch_ci_green(*, branch: str) -> bool:
-    """RFC-0012 决策 7：分支 HEAD 的 check-runs 是否全绿（promote 预检的低成本兜底）。
+    """RFC-0012 决策 7（Spec-0023/T1 平移到 release 预检）：分支 HEAD 的 check-runs 是否全绿。
 
     走 `gh api repos/{owner}/{repo}/commits/<branch>/check-runs`，逐个 check-run 判定：
     任一未完成（status != completed）→ False（pending 不算绿）；任一 conclusion 不在
     _CHECK_RUN_PASS_CONCLUSIONS → False；全部通过（或无 check）→ True（与 check_status
-    「无 check 视为 pass」一致：green-by-construction 下 test 通常本就绿）。
+    「无 check 视为 pass」一致：green-by-construction 下 main 通常本就绿）。函数签名/语义
+    不变，仅调用方从 promote 对 test 取绿改为 release 对 main 取绿。
     """
     runs = _gh_json(
         ["api", f"{_REPO_PLACEHOLDER}/commits/{branch}/check-runs", "--jq", ".check_runs"],
@@ -486,7 +453,7 @@ def branch_ci_green(*, branch: str) -> bool:
 
 
 def _is_not_found(*, reason: str) -> bool:
-    """gh api 的「资源不存在」识别（404 / not found）——用于 ensure_branch 区分幂等 no-op。"""
+    """gh api 的「资源不存在」识别（404 / not found）——供 _is_already_closed_or_absent 复用。"""
     lowered = reason.lower()
     return "not found" in lowered or "404" in lowered
 

@@ -25,7 +25,7 @@ COMMANDS = [
     "sync-prs",
     "board",
     "vigil",
-    "promote",
+    "release",
 ]
 
 
@@ -89,8 +89,8 @@ def test_rfc_runs_preflight_then_opens_draft_pr(monkeypatch):
     class _FakeOrch:
         def start_rfc(self, *, issue_number, base):
             assert issue_number == 1
-            # RFC-0012 决策 2：rfc 默认基线改为 test。
-            assert base == "test"
+            # Spec-0023/T4：rfc 默认基线为 main（test 门控退役）。
+            assert base == "main"
             return _FakePR()
 
     monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
@@ -555,11 +555,11 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     assert calls == [True]
     # RFC-0015：进主循环前自举恰一次。
     assert bootstrapped == [True]
-    # RFC-0012 决策 2：vigil 默认基线改为 test。Spec-0020/T4：无 --hold → 默认全不停 Hold。
+    # Spec-0023/T4：vigil 默认基线为 main（test 门控退役）。Spec-0020/T4：无 --hold → 默认全不停。
     assert seen == {
         "interval": 60,
         "labels": ["openagents"],
-        "base": "test",
+        "base": "main",
         "once": False,
         "hold": Hold(),
     }
@@ -605,49 +605,70 @@ def test_init_runs_interactive_preflight(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# promote（RFC-0012 T6/决策 7：人工扬升 test → main）
+# release（Spec-0023/T4：人工把 main 物化成版本 release/vX.Y.Z + tag）
 # --------------------------------------------------------------------------- #
 
 
-def test_promote_success_returns_zero(monkeypatch):
-    from openagents.promote import PromoteResult
+def test_release_success_returns_zero(monkeypatch):
+    from openagents.release import ReleaseResult
 
     _patch_ensure(monkeypatch)
     seen = {}
 
-    def fake_promote(*, state):
+    def fake_release(*, state, bump):
         seen["called"] = True
-        return PromoteResult(promoted=True, reason="ok")
+        seen["bump"] = bump
+        return ReleaseResult(released=True, version="v1.2.4", reason="ok")
 
-    monkeypatch.setattr("openagents.promote.promote", fake_promote)
-    code = main(["promote"])
+    monkeypatch.setattr("openagents.release.release", fake_release)
+    code = main(["release"])
     assert code == 0
     assert seen["called"] is True
+    # --bump 默认 patch 透传给 release()。
+    assert seen["bump"] == "patch"
 
 
-def test_promote_precheck_fail_returns_nonzero(monkeypatch, capsys):
-    from openagents.promote import PromoteResult
+def test_release_passes_bump_override(monkeypatch):
+    from openagents.release import ReleaseResult
+
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    def fake_release(*, state, bump):
+        seen["bump"] = bump
+        return ReleaseResult(released=True, version="v2.0.0", reason="ok")
+
+    monkeypatch.setattr("openagents.release.release", fake_release)
+    code = main(["release", "--bump", "major"])
+    assert code == 0
+    assert seen["bump"] == "major"
+
+
+def test_release_precheck_fail_returns_nonzero(monkeypatch, capsys):
+    from openagents.release import ReleaseResult
 
     _patch_ensure(monkeypatch)
     monkeypatch.setattr(
-        "openagents.promote.promote",
-        lambda *, state: PromoteResult(promoted=False, reason="test 分支 CI 未全绿"),
+        "openagents.release.release",
+        lambda *, state, bump: ReleaseResult(
+            released=False, version="", reason="main 分支 CI 未全绿"
+        ),
     )
-    code = main(["promote"])
+    code = main(["release"])
     assert code == 1
     err = capsys.readouterr().err
     assert "✗" in err
     assert "CI 未全绿" in err
 
 
-def test_promote_reports_runtime_error_cleanly(monkeypatch, capsys):
+def test_release_reports_runtime_error_cleanly(monkeypatch, capsys):
     _patch_ensure(monkeypatch)
 
-    def boom(*, state):
-        raise RuntimeError("快进 main 失败：non-fast-forward")
+    def boom(*, state, bump):
+        raise RuntimeError("物化发布分支 release/v1.2.4 失败：protected branch")
 
-    monkeypatch.setattr("openagents.promote.promote", boom)
-    code = main(["promote"])
+    monkeypatch.setattr("openagents.release.release", boom)
+    code = main(["release"])
     assert code == 1
     assert "✗" in capsys.readouterr().err
 
