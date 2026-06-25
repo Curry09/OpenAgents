@@ -1,12 +1,13 @@
-"""spec 数据层：Task / Metadata / Group 模型与 **markdown 单文件** round-trip 读写。
+"""spec 数据层：Task / Overview / Metadata / Group 模型与 **markdown 单文件** round-trip 读写。
 
-2026-06-24 spec-markdown-form（取代 Spec-0014/T1 的 YAML 文件夹形态）：
+issue #69 rust-RFC 形态（总览先行 + 单 spec 自包含）：
 一个 spec 组 = 一个 markdown 文件 `docs/specs/NNNN-slug.md`：
-- **YAML frontmatter**（机器读）：组元数据 number/title/issue/slug + tasks 列表（结构化字段）。
-- **Markdown 正文**（人/agent 读）：每个 Task 一个 `## <id> · <title>` 小节，内含 `### <Prose>` 子节。
+- **YAML frontmatter**（机器读）：组元数据 number/title/issue/slug/summary + tasks 列表
+  （结构化字段 + scope/acceptance；`files` = 单一 writer 所有权声明，为 issue #71 留源）。
+- **Markdown 正文**（人/agent 读）：组级 rust-RFC 9 段总览（Summary…Future possibilities），
+  feature 全貌自包含地讲一遍，DAG + 文件分配收进 Reference-level；不再有 per-Task 小节。
 
 只懂 docs/specs/ 源数据结构的纯模块（理念 10 解耦），不感知 git / GitHub。
-保留 Task/Metadata/Group 数据类与 validate/render 消费的对象形状不变（决策 D2）；
 per-task 版本历史机制退役（决策 D3），历史交给 git + dated 设计文档，Group.history 恒为空。
 """
 
@@ -29,6 +30,8 @@ _yaml.indent(mapping=2, sequence=4, offset=2)
 
 # frontmatter 里每个 Task 的结构化字段顺序（yaml_key, attr）。dump 一律按此序，键序稳定。
 # 注意：version/lineage/change-reason 等随历史机制退役（决策 D3），不再进 frontmatter。
+# issue #69：scope/acceptance 由正文 prose 改为 frontmatter 短字段（Task 退化成工作分解行，
+# 重 prose 上移到组级 Overview）。
 _TASK_FM_ORDER: tuple[tuple[str, str], ...] = (
     ("id", "id"),
     ("title", "title"),
@@ -39,26 +42,30 @@ _TASK_FM_ORDER: tuple[tuple[str, str], ...] = (
     ("relates-to", "relates_to"),
     ("parallel", "parallel"),
     ("files", "files"),
+    ("scope", "scope"),
+    ("acceptance", "acceptance"),
 )
 
-# 正文 prose 小节：(markdown 标题, Task 属性)，dump 按此序，空 prose 省略。
-_PROSE_SECTIONS: tuple[tuple[str, str], ...] = (
+# issue #69：组级正文 = rust-RFC 9 段总览（markdown 标题, Overview 属性），dump 按此序。
+# 一个 spec 单独可读、总览先行：feature 全貌在这 9 段讲一遍，Task 只是 frontmatter 工作分解行。
+_OVERVIEW_SECTIONS: tuple[tuple[str, str], ...] = (
     ("Summary", "summary"),
     ("Motivation", "motivation"),
-    ("Scope", "scope"),
-    ("Design", "design"),
-    ("Interface", "interface"),
-    ("Tradeoffs", "tradeoffs"),
-    ("Acceptance", "acceptance"),
-    ("Tests", "tests"),
-    ("References", "references"),
-    ("Open-Questions", "open_questions"),
+    ("Guide-level explanation", "guide_level"),
+    ("Reference-level explanation", "reference_level"),
+    ("Drawbacks", "drawbacks"),
+    ("Rationale and alternatives", "rationale_alternatives"),
+    ("Prior art", "prior_art"),
+    ("Unresolved questions", "unresolved_questions"),
+    ("Future possibilities", "future_possibilities"),
 )
-_HEADING_TO_ATTR = {heading: attr for heading, attr in _PROSE_SECTIONS}
+_SECTION_BY_HEADING = {heading: attr for heading, attr in _OVERVIEW_SECTIONS}
 
-# 正文切分用：Task 小节标题 `## T1 · ...`；prose 子节标题 `### Design`。
-_TASK_HEADING_RE = re.compile(r"^##\s+(T[0-9A-Za-z]+)\b")
-_PROSE_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$")
+# 正文切分用：组级段标题 `## Summary` / `## Reference-level explanation` …
+_SECTION_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
+
+# spec new 脚手架占位：非空（让段标题成型），但 _strip_placeholder 归一为空串。
+_PLACEHOLDER = "<!-- 待填 -->"
 
 
 @dataclass(frozen=True)
@@ -73,12 +80,14 @@ class RelatesTo:
 
 @dataclass
 class Task:
-    """A single spec Task —— 快照的基本单元，与当前活代码一一对应。
+    """A single spec Task —— DAG + 文件分配的工作分解行（issue #69 后退化为结构化为主）。
 
     结构化字段（status/priority/depends-on/files…）放 frontmatter、可机器校验；
-    prose 字段（summary/design/interface…）放 markdown 正文。
+    issue #69 起，feature 设计叙述上移到组级 Overview，Task 只留两个一行短 prose
+    （scope/acceptance），且二者也放 frontmatter——`files` 是单一 writer 所有权声明
+    （理念 6 / issue #71 运行期 owner 检查的结构化源）。
 
-    version/lineage 字段保留在数据类里（带默认值）以最小化 render/validate 改动（决策 D2），
+    version/lineage 字段保留在数据类里（带默认值）以最小化 render 改动（决策 D2），
     但历史机制退役后不再由 frontmatter 写入、Group.history 恒空。
     """
 
@@ -101,17 +110,28 @@ class Task:
     split_from: str | None = None
     merged_from: list[str] = field(default_factory=list)
     derived_from: list[str] = field(default_factory=list)
-    # ── 设计内容（prose，放正文）──
+    # ── 工作分解短 prose（进 frontmatter；重设计叙述见组级 Overview）──
+    scope: str = ""
+    acceptance: str = ""
+
+
+@dataclass(frozen=True)
+class Overview:
+    """组级 rust-RFC 9 段总览（issue #69）—— feature 全貌的自包含叙述，放 markdown 正文。
+
+    单 spec 自包含：读完这 9 段即理解本 feature，无需打开其它 spec；DAG + 文件分配
+    收进 reference_level。字段名与 `_OVERVIEW_SECTIONS` 的 attr 一一对应。
+    """
+
     summary: str = ""
     motivation: str = ""
-    scope: str = ""
-    design: str = ""
-    interface: str = ""
-    tradeoffs: str = ""
-    acceptance: str = ""
-    tests: str = ""
-    references: str = ""
-    open_questions: str = ""
+    guide_level: str = ""
+    reference_level: str = ""
+    drawbacks: str = ""
+    rationale_alternatives: str = ""
+    prior_art: str = ""
+    unresolved_questions: str = ""
+    future_possibilities: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +155,8 @@ class Group:
     metadata: Metadata
     # 当前版 Task 快照（status 含 done，做完不离开快照）
     tasks: list[Task]
+    # issue #69：组级 rust-RFC 9 段总览（feature 全貌，放正文）
+    overview: Overview = field(default_factory=Overview)
     # 退役：保留字段让 render/validate 无需改动，恒为空 dict
     history: dict[str, list[Task]] = field(default_factory=dict)
 
@@ -152,7 +174,8 @@ def group_path(*, specs_root: Path, number: str, slug: str) -> Path:
 def load_group(*, path: Path) -> Group:
     """Load one spec group from a markdown file (frontmatter + body).
 
-    frontmatter 提供组元数据与各 Task 结构化字段；正文按 `## <id>` 切出各 Task 的 prose。
+    frontmatter 提供组元数据与各 Task 结构化字段；正文按 `## <rust 段名>` 切出组级
+    Overview 9 段（issue #69）。
     """
     text = path.read_text(encoding="utf-8")
     meta, body = _split_frontmatter(text=text)
@@ -164,16 +187,10 @@ def load_group(*, path: Path) -> Group:
         summary=str(meta.get("summary", "")),
     )
 
-    prose_by_task = _parse_body(body=body)
-    tasks: list[Task] = []
-    for raw in meta.get("tasks") or []:
-        task = task_from_mapping(data=raw)
-        # 用正文 prose 覆盖（frontmatter 不含 prose）。
-        for attr, value in prose_by_task.get(task.id, {}).items():
-            setattr(task, attr, value)
-        tasks.append(task)
+    overview = _parse_body(body=body)
+    tasks = [task_from_mapping(data=raw) for raw in meta.get("tasks") or []]
 
-    return Group(number=number, metadata=metadata, tasks=tasks, history={})
+    return Group(number=number, metadata=metadata, tasks=tasks, overview=overview, history={})
 
 
 def load_all(*, specs_root: Path) -> list[Group]:
@@ -215,7 +232,8 @@ def render_group(*, group: Group) -> str:
     head = (
         f"---\n{fm_text}---\n\n"
         f"# {group.number} · {title}\n\n"
-        "<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据，正文为各 Task 设计 prose。 -->\n"
+        "<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），"
+        "正文为组级 rust-RFC 9 段总览。 -->\n"
     )
     body = _render_body(group=group)
     return head + ("\n" + body if body else "") + "\n"
@@ -249,6 +267,8 @@ def task_from_mapping(*, data: object) -> Task:
         relates_to=relates,
         parallel=bool(raw.get("parallel", False)),
         files=_str_list(value=raw.get("files")),
+        scope=str(raw.get("scope", "")),
+        acceptance=str(raw.get("acceptance", "")),
     )
 
 
@@ -267,15 +287,14 @@ def _task_frontmatter(*, task: Task) -> CommentedMap:
 
 
 def _render_body(*, group: Group) -> str:
-    """各 Task 的 `## <id> · <title>` 小节 + 非空 prose 子节。"""
+    """组级 rust-RFC 9 段总览（issue #69）：永远输出全部 `## <段名>`，空段填占位。
+
+    始终成型 9 段既给作者脚手架（spec new），又让「总览先行」结构稳定可断言/可校验。
+    """
     chunks: list[str] = []
-    for task in group.tasks:
-        lines = [f"## {task.id} · {task.title}"]
-        for heading, attr in _PROSE_SECTIONS:
-            text = getattr(task, attr)
-            if text:
-                lines.append(f"\n### {heading}\n\n{text.rstrip()}")
-        chunks.append("\n".join(lines) + "\n")
+    for heading, attr in _OVERVIEW_SECTIONS:
+        text = getattr(group.overview, attr).rstrip()
+        chunks.append(f"## {heading}\n\n{text or _PLACEHOLDER}\n")
     return "\n".join(chunks)
 
 
@@ -297,37 +316,31 @@ def _split_frontmatter(*, text: str) -> tuple[dict, str]:
     return (meta or {}), body
 
 
-def _parse_body(*, body: str) -> dict[str, dict[str, str]]:
-    """正文 → {task_id: {prose_attr: text}}。按 `## <id>` 切 Task，按 `### <Prose>` 切子节。"""
-    result: dict[str, dict[str, str]] = {}
-    current_task: str | None = None
+def _parse_body(*, body: str) -> Overview:
+    """正文 → 组级 Overview（issue #69）。按 `## <rust 段名>` 切段；占位段归一为空串。"""
+    sections: dict[str, str] = {}
     current_attr: str | None = None
     buffer: list[str] = []
 
     def _flush() -> None:
-        if current_task is not None and current_attr is not None:
-            text = "\n".join(buffer).strip("\n")
-            if text.strip():
-                result.setdefault(current_task, {})[current_attr] = text
+        if current_attr is not None:
+            sections[current_attr] = _strip_placeholder(text="\n".join(buffer).strip("\n"))
 
     for line in body.split("\n"):
-        task_match = _TASK_HEADING_RE.match(line)
-        if task_match:
+        heading_match = _SECTION_HEADING_RE.match(line)
+        if heading_match and heading_match.group(1) in _SECTION_BY_HEADING:
             _flush()
-            current_task = task_match.group(1)
-            current_attr = None
-            buffer = []
-            result.setdefault(current_task, {})
-            continue
-        prose_match = _PROSE_HEADING_RE.match(line)
-        if prose_match and prose_match.group(1) in _HEADING_TO_ATTR:
-            _flush()
-            current_attr = _HEADING_TO_ATTR[prose_match.group(1)]
+            current_attr = _SECTION_BY_HEADING[heading_match.group(1)]
             buffer = []
             continue
         buffer.append(line)
     _flush()
-    return result
+    return Overview(**sections)
+
+
+def _strip_placeholder(*, text: str) -> str:
+    """占位 `<!-- 待填 -->`-only 的段归一为空串（spec new 脚手架与真实空段等价）。"""
+    return "" if text.strip() == _PLACEHOLDER else text
 
 
 def _is_group_file(*, name: str) -> bool:

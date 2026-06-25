@@ -1,7 +1,8 @@
-"""spec 数据层（model + schema）单元测试 —— markdown 单文件形态（2026-06-24）。
+"""spec 数据层（model + schema）单元测试 —— rust-RFC 形态（issue #69）。
 
-覆盖：render_group→load_group round-trip（frontmatter 结构化 + 正文 prose）、可选字段默认、
-load_all 聚合多组并忽略生成物/dated 文档、组文件辨识、qualified_id、schema 合法。
+覆盖：组级 Overview 9 段 + frontmatter tasks（scope/acceptance）的 render_group→load_group
+round-trip、可选字段默认、load_all 聚合多组并忽略生成物/dated 文档、组文件辨识、
+qualified_id、schema 合法。
 """
 
 from __future__ import annotations
@@ -12,7 +13,21 @@ import jsonschema
 import pytest
 
 from openagents.spec import model, schema
-from openagents.spec.model import Group, Metadata, RelatesTo, Task
+from openagents.spec.model import Group, Metadata, Overview, RelatesTo, Task
+
+
+def _sample_overview() -> Overview:
+    return Overview(
+        summary="一句话讲清这个 feature 是什么。",
+        motivation="现状 X，问题 Y，所以要改（背景就地复述，不甩跨 spec 引用）。",
+        guide_level="当它已存在，这样向人讲解：示例……",
+        reference_level="技术方案细节。\n\nTask 分解：T3 改 render.py。\n```mermaid\ngraph TD\n```",
+        drawbacks="为什么不该做：成本 Z。",
+        rationale_alternatives="备选 A 被否决，因为……",
+        prior_art="rust-lang/rfcs 的 0000-template.md。",
+        unresolved_questions="仍待解决：W。",
+        future_possibilities="后续可扩展到运行期 owner 强制（issue #71）。",
+    )
 
 
 def _sample_task() -> Task:
@@ -26,8 +41,7 @@ def _sample_task() -> Task:
         relates_to=[RelatesTo(ref="0012/T2", type="extends")],
         parallel=True,
         files=["openagents/spec/render.py"],
-        summary="把源数据派生成 OVERVIEW.md",
-        design="第一行\n第二行\n```mermaid\ngraph TD\n```",
+        scope="把源数据派生成 OVERVIEW.md。",
         acceptance="渲染幂等。",
     )
 
@@ -37,6 +51,7 @@ def _sample_group() -> Group:
         number="0014",
         metadata=Metadata(title="spec 快照", issue=35, slug="spec-snapshot", summary="一句话人话"),
         tasks=[_sample_task()],
+        overview=_sample_overview(),
         history={},
     )
 
@@ -47,14 +62,15 @@ def _write_group(*, root: Path, group: Group) -> Path:
     return path
 
 
-def test_round_trip_preserves_content(tmp_path: Path) -> None:
-    """render_group→load_group：结构化字段与 prose 全部保真。"""
+def test_round_trip_preserves_overview_and_tasks(tmp_path: Path) -> None:
+    """render_group→load_group：组级 9 段 Overview + task 结构化字段全部保真。"""
     group = _sample_group()
     path = _write_group(root=tmp_path, group=group)
     reloaded = model.load_group(path=path)
 
     assert reloaded.number == "0014"
     assert reloaded.metadata == group.metadata
+    assert reloaded.overview == group.overview
     task = reloaded.tasks[0]
     original = group.tasks[0]
     for attr in (
@@ -67,8 +83,7 @@ def test_round_trip_preserves_content(tmp_path: Path) -> None:
         "relates_to",
         "parallel",
         "files",
-        "summary",
-        "design",
+        "scope",
         "acceptance",
     ):
         assert getattr(task, attr) == getattr(original, attr), attr
@@ -76,34 +91,41 @@ def test_round_trip_preserves_content(tmp_path: Path) -> None:
     assert model.render_group(group=group) == model.render_group(group=reloaded)
 
 
-def test_frontmatter_holds_structured_body_holds_prose(tmp_path: Path) -> None:
-    """frontmatter 放结构化字段，正文放 prose 小节。"""
+def test_body_holds_overview_frontmatter_holds_scope(tmp_path: Path) -> None:
+    """正文放 rust 9 段组级 prose；scope/acceptance 进 frontmatter；正文无 Task 小节。"""
     path = _write_group(root=tmp_path, group=_sample_group())
     text = path.read_text(encoding="utf-8")
-    head, body = text.split("\n---\n", 1) if "\n---\n" in text else (text, "")
-    assert "number:" in head and "status: in-progress" in head
-    assert "## T3 · 渲染 OVERVIEW" in body
-    assert "### Design" in body and "mermaid" in body
-    # prose 不应出现在 frontmatter。
-    assert "把源数据派生成" not in head
+    head, body = text.split("\n---\n", 1)
+    assert "## Summary" in body
+    assert "## Reference-level explanation" in body
+    assert "## Future possibilities" in body
+    assert "mermaid" in body
+    # scope/acceptance 现在是 frontmatter 结构化字段。
+    assert "scope:" in head and "acceptance:" in head
+    # 不再有 per-Task 正文小节。
+    assert "## T3" not in body
+    # 组级 prose 不应出现在 frontmatter。
+    assert "背景就地复述" not in head
 
 
 def test_optional_fields_default(tmp_path: Path) -> None:
-    """仅必填字段的 Task 加载后，可选字段取合理默认。"""
+    """仅必填字段的 Task / 空 Overview 加载后取合理默认。"""
     group = Group(
         number="0001",
         metadata=Metadata(title="m", issue=1, slug="min"),
         tasks=[Task(id="T9", title="最小", status="pending", priority="P2")],
     )
     path = _write_group(root=tmp_path, group=group)
-    task = model.load_group(path=path).tasks[0]
+    reloaded = model.load_group(path=path)
+    task = reloaded.tasks[0]
     assert task.tags == []
     assert task.depends_on == []
     assert task.relates_to == []
     assert task.parallel is False
-    assert task.version == 1
-    assert task.split_from is None
-    assert task.tests == ""
+    assert task.scope == ""
+    assert task.acceptance == ""
+    # 空组的 Overview 9 段全为空串（占位被归一）。
+    assert reloaded.overview == Overview()
 
 
 def test_load_all_aggregates_groups(tmp_path: Path) -> None:
