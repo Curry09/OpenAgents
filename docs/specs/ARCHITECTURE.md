@@ -41,17 +41,17 @@ _RFC-0001 T1: 后端适配层。_
 
 ### openagents.spec
 
-_spec —— 「Spec 活快照 + 演化历史」数据层与工具。_
+_spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态）。_
 
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
-| `__init__.py` | spec —— 「Spec 活快照 + 演化历史」数据层与工具。 |
+| `__init__.py` | spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态）。 |
 | `cli.py` | spec CLI（console_script: `spec`）：new / add-task / render / validate / abandon / graph。 |
 | `graph.py` | spec graph：从代码生成「对代码的唯一映射」（现状架构视图）。 |
 | `model.py` | spec 数据层：Task / Metadata / Group 模型与 **markdown 单文件** round-trip 读写。 |
 | `mutate.py` | spec new / add-task / abandon：在组 markdown 文件上增改 Task + 自动 render。 |
 | `render.py` | spec render：把源数据派生成唯一人读视图 OVERVIEW.md。 |
-| `schema.py` | spec JSON Schema —— Task / metadata / history 的结构校验单一真源。 |
+| `schema.py` | spec JSON Schema —— 组 markdown frontmatter / Task 的结构校验单一真源。 |
 | `signpost.py` | spec 端到端验证指路牌：从一个 spec 组的 Task `tests` 字段抽取 e2e 脚本并渲染指路牌。 |
 | `validate.py` | spec 校验：JSON Schema + 语义规则（files 重叠 / DAG 无环 / 血缘引用）。 |
 

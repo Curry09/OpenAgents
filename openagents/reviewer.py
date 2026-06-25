@@ -48,7 +48,8 @@ _RUBRIC_TAIL = (
 _RFC_REVIEW_TASK = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
     "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
-    "（metadata.yaml + tasks/T*.yaml）→ 其引用的来源。判定：设计是否对齐需求、关键决策是否"
+    "（单文件 NNNN-slug.md：frontmatter 结构化源数据 + 正文各 Task 设计 prose）→ 其引用的来源。"
+    "判定：设计是否对齐需求、关键决策是否"
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
     "实现代码）。\n" + _RUBRIC_TAIL
 )

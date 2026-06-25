@@ -131,12 +131,15 @@ def _imported_modules(*, path: Path, src_module: str) -> list[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except SyntaxError:
         return []
+    # 相对 import 的「.」以**所在包**为基准：普通模块 a.b.c 的包是 a.b；包 __init__ 的包是其自身。
+    is_package = path.name == "__init__.py"
+    src_package = src_module if is_package else src_module.rpartition(".")[0]
     targets: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             targets.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            base = _absolute_from(module=node.module, level=node.level, src_module=src_module)
+            base = _absolute_from(module=node.module, level=node.level, src_package=src_package)
             if base is None:
                 continue
             # from base import X → 候选 base.X（子模块）与 base 本身。
@@ -147,13 +150,17 @@ def _imported_modules(*, path: Path, src_module: str) -> list[str]:
     return targets
 
 
-def _absolute_from(*, module: str | None, level: int, src_module: str) -> str | None:
-    """把 `from . / .. import` 的相对模块解析为绝对点分名。"""
+def _absolute_from(*, module: str | None, level: int, src_package: str) -> str | None:
+    """把 `from . / .. import` 的相对模块解析为绝对点分名。
+
+    src_package 是 import 所在的包（普通模块取其父包、包 __init__ 取自身）。
+    level=1 指 src_package 自身；level=2 指其上一层；以此类推。
+    """
     if level == 0:
         return module
-    parts = src_module.split(".")
-    # level=1 指当前包；level=2 指上一层。src_module 已是去掉 __init__ 的模块名。
-    base = parts[: len(parts) - level + 1] if len(parts) >= level else []
+    parts = src_package.split(".") if src_package else []
+    cut = len(parts) - (level - 1)
+    base = parts[:cut] if cut >= 0 else []
     if module:
         base = [*base, *module.split(".")]
     return ".".join(base) if base else None

@@ -55,7 +55,7 @@ _DRAFT_RFC_TASK = (
 )
 _REFINE_RFC_TASK = (
     "本 issue 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
-    "（用 `spec amend` 改 Task，只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
+    "（直接编辑组 markdown 文件改 Task，只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
     "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
 )
 _IMPLEMENT_TASK = (
