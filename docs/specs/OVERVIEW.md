@@ -161,8 +161,8 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | done | T2 | openagents/cli.py<br>tests/test_cli.py |
 | 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
-| 0026 | 0026/T1 | 插入最简用法/Quickstart 段并同步目录锚点 | pending | — | README.md |
-| 0026 | 0026/T2 | e2e 脚本断言 Quickstart 段位置 | pending | T1 | scripts/e2e-spec-0026-readme-quickstart.sh |
+| 0026 | 0026/T1 | 插入最简用法/Quickstart 段并同步目录锚点 | done | — | README.md |
+| 0026 | 0026/T2 | e2e 脚本断言 Quickstart 段位置 | done | T1 | scripts/e2e-spec-0026-readme-quickstart.sh |
 
 ## 跨 feature 关系图
 
@@ -1062,7 +1062,7 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```

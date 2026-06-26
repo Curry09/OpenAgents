@@ -7,7 +7,7 @@ summary: 在 README「安装」之后、「快速上手」之前插入一段「�
 tasks:
   - id: T1
     title: 插入最简用法/Quickstart 段并同步目录锚点
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -19,7 +19,7 @@ tasks:
     acceptance: README.md 含「## 最简用法 / Quickstart」标题,位于「## 安装」之后、「## 快速上手」之前;新段代码块同时含 openagents init/issue/vigil 三行,并写明 poll/watch/rfc 不发现新 issue;不改动安装节与快速上手节正文。
   - id: T2
     title: e2e 脚本断言 Quickstart 段位置
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

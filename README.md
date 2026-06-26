@@ -17,6 +17,7 @@
 - [工作闭环](#工作闭环rfc-first)
 - [前置条件](#前置条件)
 - [安装](#安装)
+- [最简用法 / Quickstart](#最简用法--quickstart)
 - [快速上手:从 0 跑通一个 issue](#快速上手从-0-跑通一个-issue)
 - [命令参考](#命令参考)
 - [两层并行](#两层并行)
@@ -121,6 +122,24 @@ uv tool install --force --from . openagents
 ```
 
 > 注意:`openagents` 是一份 uv tool 快照——改了代码不重装,命令会跑旧代码。
+
+---
+
+## 最简用法 / Quickstart
+
+装完之后,日常只要两条命令——`issue` 立需求、`vigil` 守全程。最短可用路径:
+
+```bash
+openagents init                 # 绑定当前目录到仓库
+openagents issue "你的需求"      # 提 issue(自动打 openagents 发现标签)
+openagents vigil                # 守夜人:发现 → 派单 → 开 PR → 守候迭代
+```
+
+- **日常只需 `issue` + `vigil`**:`issue` 把需求立成带 `openagents` 标签的 GitHub issue,`vigil` 一条命令跑完「发现 → 派单 → 开 PR → 守候迭代」全程。
+- **`poll` / `watch` / `rfc` 等是单步调试工具,不发现新 issue**:它们只处理本地已有的 open PR/run。提完 issue 直接 `poll` 会「处理 0 个事件」、`watch` 会因无 open PR 秒退——那不是坏了,而是它们本就不负责发现。要跑通新需求请用 `vigil`。
+- **也可以直接在 GitHub 网页提 issue**,但需手动打上 `openagents` 标签,且本地要有一个 `vigil` 进程在跑,才会被发现、派单。
+
+想逐步理解整条闭环(`rfc → refine-rfc → implement → iterate`)时,看下面的「快速上手」详细版。
 
 ---
 
