@@ -64,6 +64,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0024 spec 转 rust-RFC 形态:总览先行 + 单 spec 自包含
 把 spec 改成 rust-RFC 9 段总览为主体(总览先行、单 spec 自包含),DAG + 文件分配收进 Reference-level;数据模型/校验/skill/README/orchestrator 一并对齐,回填 19 个存量 spec。
 
+### 0025 brownfield 反向补全 RFC:扫存量代码生成 9 段 RFC 草稿
+新增 backfill-rfc <path> 子命令:扫存量代码 → 派 coding agent 反推 rust-RFC 9 段 spec 草稿(必填四段据实回填、难反推段标待补)→ 经 spec validate 后开 draft PR 交人评审,让 brownfield 仓库接入 RFC 驱动闭环。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -151,6 +154,10 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0024 | 0024/T3 | spec new 9 段脚手架 + signpost/cli/mutate 适配 | done | T2 | openagents/spec/signpost.py<br>tests/test_spec_signpost.py<br>tests/test_spec_cli.py<br>tests/test_spec_mutate.py |
 | 0024 | 0024/T4 | skill + references + README + orchestrator 对齐 rust-RFC | done | T3 | .claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/task-fields.md<br>docs/specs/README.md<br>openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0024 | 0024/T5 | 回填 19 个存量 spec + e2e 脚本 | done | T3 | scripts/e2e-spec-0024-rfc-form.sh<br>docs/specs/0023-retire-test-branch-main-advancing-release.md |
+| 0025 | 0025/T1 | 代码盘点助手:扫 path 产出 inventory | done | — | openagents/backfill.py<br>tests/test_backfill.py |
+| 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | done | T2 | openagents/cli.py<br>tests/test_cli.py |
+| 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
 
 ## 跨 feature 关系图
 
@@ -279,6 +286,12 @@ graph LR
         n0024_T4["T4 skill + references + README + orchestrator 对齐 rust-RFC"]
         n0024_T5["T5 回填 19 个存量 spec + e2e 脚本"]
     end
+    subgraph G0025[0025 brownfield-backfill-rfc]
+        n0025_T1["T1 代码盘点助手:扫 path 产出 inventory"]
+        n0025_T2["T2 编排方法 backfill_rfc + 反向 RFC prompt"]
+        n0025_T3["T3 CLI 接线 backfill-rfc <path>"]
+        n0025_T4["T4 e2e 脚本演示反向补全闭环"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -355,6 +368,9 @@ graph LR
     n0024_T3 --> n0024_T2
     n0024_T4 --> n0024_T3
     n0024_T5 --> n0024_T3
+    n0025_T2 --> n0025_T1
+    n0025_T3 --> n0025_T2
+    n0025_T4 --> n0025_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -370,10 +386,10 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011 |
 | openagents/reviewer.py | 0012, 0021 |
@@ -389,10 +405,10 @@ graph LR
 | openagents/workspace.py | 0005, 0008 |
 | pyproject.toml | 0001, 0014 |
 | tests/test_backend_claude_code.py | 0001, 0003 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011 |
 | tests/test_reviewer.py | 0012, 0021 |
@@ -991,4 +1007,32 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0025 brownfield 反向补全 RFC:扫存量代码生成 9 段 RFC 草稿（issue #73）
+
+```mermaid
+graph LR
+    nT1["T1 代码盘点助手:扫 path 产出 inventory"]
+    nT2["T2 编排方法 backfill_rfc + 反向 RFC prompt"]
+    nT3["T3 CLI 接线 backfill-rfc <path>"]
+    nT4["T4 e2e 脚本演示反向补全闭环"]
+    nT1 --> nT2
+    nT2 --> nT3
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

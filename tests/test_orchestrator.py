@@ -319,6 +319,125 @@ def test_start_rfc_pr_body_omits_e2e_when_no_spec(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Spec-0025/T2: backfill_rfc（反向补全：盘点 → 后端反推 → validate 门控 → draft PR）
+# --------------------------------------------------------------------------- #
+
+
+def _fake_inventory():
+    from openagents.backfill import Inventory, ModuleInfo
+
+    return Inventory(
+        root="release.py",
+        single_file=True,
+        modules=(ModuleInfo(path="release.py", docstring="发版逻辑。", symbols=("release",)),),
+    )
+
+
+def _report(*, ok):
+    from openagents.spec.validate import ValidationIssue, ValidationReport
+
+    issues = [] if ok else [ValidationIssue(level="error", where="0025", message="必填段为空")]
+    return ValidationReport(ok=ok, issues=issues)
+
+
+def _arm_backfill(orch, monkeypatch, *, ok=True):
+    """给 backfill_rfc 接好替身：盘点 / validate / create_pr，返回捕获记录。"""
+    captured = {"created": False, "create_kwargs": None}
+    monkeypatch.setattr(orch_module.backfill, "inventory", lambda *, path: _fake_inventory())
+    monkeypatch.setattr(orch_module.validate, "validate", lambda *, specs_root: _report(ok=ok))
+
+    def _create_pr(*, branch, title, body, base, draft):
+        captured["created"] = True
+        captured["create_kwargs"] = {"branch": branch, "body": body, "draft": draft}
+        return PR(number=7, url="u/pull/7")
+
+    monkeypatch.setattr(orch_module.github, "create_pr", _create_pr)
+    return captured
+
+
+def test_backfill_rfc_inventories_then_opens_draft_pr(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    captured = _arm_backfill(orch, monkeypatch, ok=True)
+
+    pr = orch.backfill_rfc(path="openagents/release.py")
+
+    assert pr.number == 7
+    assert captured["create_kwargs"]["draft"] is True
+    # 无 issue 号 → 分支用 path slug 定址（release.py → release）。
+    assert captured["create_kwargs"]["branch"] == "openagents/backfill-release"
+
+
+def test_backfill_rfc_prompt_carries_path_and_constraints(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _arm_backfill(orch, monkeypatch, ok=True)
+
+    orch.backfill_rfc(path="openagents/release.py")
+
+    task = backend.calls[0]["task"]
+    # 反推 prompt 含目标路径、必填四段据实写满、难反推段标待补三项约束。
+    assert "openagents/release.py" in task
+    assert "必填四段" in task
+    assert "待人工补全" in task
+    # 盘点摘要拼进 prompt（圈定阅读范围）。
+    assert "release.py" in task
+
+
+def test_backfill_rfc_validate_error_does_not_open_pr(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    captured = _arm_backfill(orch, monkeypatch, ok=False)
+
+    with pytest.raises(OrchestratorError):
+        orch.backfill_rfc(path="openagents/release.py")
+
+    # validate 有 error → 不开 PR（门控）。
+    assert captured["created"] is False
+
+
+def test_backfill_rfc_commit_message_is_docs(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    _arm_backfill(orch, monkeypatch, ok=True)
+
+    orch.backfill_rfc(path="openagents/release.py")
+
+    commit_cmds = [c for c in recorder.commands if "commit" in c]
+    assert commit_cmds and "docs" in " ".join(commit_cmds[0])
+
+
+def test_backfill_rfc_validate_error_skips_commit(tmp_path, monkeypatch):
+    # validate 门控未过 → 既不 commit 也不 push（在校验后才提交）。
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    _arm_backfill(orch, monkeypatch, ok=False)
+
+    with pytest.raises(OrchestratorError):
+        orch.backfill_rfc(path="openagents/release.py")
+
+    assert not any("commit" in c for c in recorder.commands)
+
+
+def test_backfill_rfc_missing_path_raises_before_backend(tmp_path, monkeypatch):
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    from openagents.backfill import BackfillError
+
+    def _boom(*, path):
+        raise BackfillError("路径不存在")
+
+    monkeypatch.setattr(orch_module.backfill, "inventory", _boom)
+
+    with pytest.raises(BackfillError):
+        orch.backfill_rfc(path="nope")
+    # 盘点先于建 worktree / 调后端：后端未被触达。
+    assert backend.calls == []
+
+
+# --------------------------------------------------------------------------- #
 # refine_rfc
 # --------------------------------------------------------------------------- #
 

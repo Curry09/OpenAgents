@@ -21,10 +21,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import e2e, github, identity, reviewer
+from openagents import backfill, e2e, github, identity, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
-from openagents.spec import signpost
+from openagents.spec import signpost, validate
 from openagents.state import (
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -36,6 +36,10 @@ from openagents.workspace import Workspace
 
 # 分支命名前缀：单 issue → 单分支（RFC-0001 概述数据流，RFC-0005 沿用）。
 _BRANCH_PREFIX = "openagents/issue-"
+
+# Spec-0025/T2：brownfield 反向补全的分支/worktree 前缀——输入是代码 path（无 issue 号），
+# 故用 backfill.slug_for 派生的 path slug 取代 issue 号定址（与 _BRANCH_PREFIX 同构、互不撞名）。
+_BACKFILL_BRANCH_PREFIX = "openagents/backfill-"
 
 # RFC-0003 决策 2：分支基线默认锁定到最新 origin/<base>。
 # Spec-0023/T2：test 分支门控退役，由 test 改回 main——PR 的 worktree 基线与 PR base 都锁
@@ -72,6 +76,28 @@ _IMPLEMENT_TASK = (
 )
 # refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
 _REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
+
+# Spec-0025/T2：反向补全任务模板（prompt）。与 _DRAFT_RFC_TASK 镜像，但输入端从「issue 编号」
+# 换成「代码路径 + 盘点摘要」，任务端从「据 issue 起草」换成「据代码反推」。关键约束（见
+# Spec-0025 Guide-level / Drawbacks）：**必填四段据实写满**、**难反推段标待补**，再过 spec
+# validate 才放行——这两条直接喂进 prompt，是「待补占位不滥用」与「草稿可过质量门槛」的根。
+_BACKFILL_RFC_TASK = (
+    "为存量代码路径 `{path}` 反向补全一份 spec，遵循 spec-driven-development skill 的 Phase 2"
+    "（rust-RFC 形态，总览先行）——这是**实现先行**（代码已存在，反推设计），不是设计先行：\n"
+    "1) 先读 `{path}` 下的存量代码（下方盘点已圈定范围，但你必须真正读代码、据实反推，"
+    "不得凭空编造——理念 8 证据驱动）;\n"
+    '2) 用 `spec new <slug> --title ... --summary "<一句话 TL;DR>"` 建组（已铺好 9 段脚手架）;\n'
+    "3) **先写组级 rust-RFC 9 段总览**（编辑组 markdown 正文），据实回填已实现部分："
+    "Summary / Motivation（这块代码现在做什么、为何存在，**背景就地复述、单 spec 自包含**）/ "
+    "Guide-level / Reference-level（实际技术结构 + DAG + 文件分配 + e2e 脚本路径）/ Drawbacks / "
+    "Rationale and alternatives（≥1 备选）/ Prior art / Unresolved questions / Future possibilities;\n"
+    "4) **必填四段（Summary / Motivation / Reference-level / Rationale and alternatives）必须据实"
+    "写满**；对存量代码确实难以反推的非必填段（典型 Drawbacks / Rationale 备选 / Prior art），"
+    "允许显式写 `> 待人工补全（brownfield 反推困难）` 占位，但**不得滥用**——能反推的段不许标待补;\n"
+    "5) **再**用 `spec add-task` 逐个加工作分解行（必填 `--files` 互斥 + `--acceptance`）;\n"
+    "6) 最后 `spec validate`（必填段空 / 缺 acceptance / files 重叠 = error）+ `spec render` + "
+    "`spec graph`。只产出 spec（docs/specs/ 下），不要改实现代码。\n\n代码盘点：\n{inventory}"
+)
 
 
 class OrchestratorError(Exception):
@@ -156,6 +182,82 @@ class Orchestrator:
             issue_number=issue.number, branch=branch, pr=pr, status=STATUS_RFC_REVIEW
         )
         return pr
+
+    # --- 原子操作 1bis：brownfield 反向补全 RFC（Spec-0025/T2）----------- #
+    def backfill_rfc(self, *, path: str, base: str = DEFAULT_BASE) -> github.PR:
+        """Spec-0025/T2：扫存量代码 → 派后端反推 9 段 spec → validate 门控 → 开 draft PR。
+
+        与 start_rfc 同构（复用 workspace/backend/github/signpost 骨架），只替换两端：
+        输入端把「拉 issue」换成「盘点代码路径」，任务端把「据 issue 起草」换成「据代码反推」。
+        path 无 issue 号，故分支/worktree 用 backfill.slug_for 派生的 slug 定址（_BACKFILL_BRANCH_PREFIX）。
+
+        **validate 门控**（Spec-0025 Guide-level 第 3 步）：后端产出草稿后先跑 `spec validate`，
+        有 error（必填四段空 / 缺 acceptance / files 重叠）则**不 commit、不开 PR**，抛
+        OrchestratorError——保证开出的 draft PR 必然已过既有质量门槛（不新增 validate 规则）。
+        校验通过才提交并开 draft PR（不自动 merge，交人评审、补全「待补」段——理念 5）。
+        """
+        target = Path(path)
+        self._progress(message=f"▶ 盘点存量代码 {target} …")
+        # 盘点既校验路径存在（不存在 / 无 .py 即抛 BackfillError），也为 agent 圈定阅读范围。
+        report_inventory = backfill.inventory(path=target)
+        slug = backfill.slug_for(path=target)
+        branch = f"{_BACKFILL_BRANCH_PREFIX}{slug}"
+
+        self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
+        worktree = self._workspace.prepare(issue_number=slug, branch=branch, base=base)
+
+        self._progress(message="▶ 调起后端反推 9 段 spec（可能需要几分钟）…")
+        self._backend.run(
+            work_dir=worktree,
+            task=_BACKFILL_RFC_TASK.format(path=path, inventory=report_inventory.render()),
+            context=report_inventory.render(),
+        )
+
+        # validate 门控：有 error 则不 commit、不开 PR（Spec-0025 Reference-level：把 spec
+        # validate 当作开 PR 前的硬门控）。复用既有 validate.validate，不新增任何规则。
+        self._progress(message="▶ spec validate 门控（必填四段据实写满才放行）…")
+        result = validate.validate(specs_root=worktree / "docs" / "specs")
+        if not result.ok:
+            errors = [issue for issue in result.issues if issue.level == "error"]
+            raise OrchestratorError(
+                f"反推草稿未过 spec validate（{len(errors)} 个 error），不开 PR；"
+                f"首个：{errors[0].where} {errors[0].message}"
+                if errors
+                else "反推草稿未过 spec validate，不开 PR"
+            )
+
+        self._progress(message=f"▶ 提交并推送分支 {branch} …")
+        self._workspace.commit_and_push(
+            worktree=worktree,
+            branch=branch,
+            message=f"docs: backfill spec for {path}",
+        )
+
+        # 复用 start_rfc 的指路牌抽取：从反推出的 spec 组抽 e2e 指路牌拼进 PR 正文（None 即回退）。
+        spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
+        e2e_section = signpost.signpost_for_group(group_path=spec_group) if spec_group else None
+
+        self._progress(message="▶ 开 draft PR …")
+        return github.create_pr(
+            branch=branch,
+            base=base,
+            title=f"docs: backfill spec for {path}",
+            body=self._backfill_pr_body(path=path, e2e_section=e2e_section),
+            draft=True,
+        )
+
+    def _backfill_pr_body(self, *, path: str, e2e_section: str | None) -> str:
+        """Spec-0025/T2：组装反向补全 PR 正文——说明来源 + 提示评审补「待补」段（+ e2e 指路牌）。
+
+        无关联 issue（path 驱动），故不含 `Closes #N`；正文回退/追加逻辑同 _pr_body。
+        """
+        body = (
+            f"🤖 反向补全：扫 `{path}` 反推出的 spec 草稿，待评审。\n\n"
+            "必填四段据实回填；标「待人工补全」的段请在评审中补全后再转正（不自动 merge）。"
+        )
+        if e2e_section is not None:
+            body += f"\n\n{e2e_section}"
+        return body
 
     # --- 原子操作 2：按评审精炼 RFC -------------------------------------- #
     def refine_rfc(self, *, pr_number: int, detail: str) -> None:

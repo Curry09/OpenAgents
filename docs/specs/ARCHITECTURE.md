@@ -12,6 +12,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 |----|----|
 | `__init__.py` | OpenAgents —— RFC 驱动的多 Agent 框架。 |
 | `align.py` | Spec-0020/T1: issue 前门对齐——把模糊想法复述成「要做 X / 边界 Y / 不做 Z」。 |
+| `backfill.py` | Spec-0025/T1: 代码盘点助手——扫存量代码路径产出结构化 inventory。 |
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
@@ -64,6 +65,7 @@ graph LR
     nopenagents_backends["openagents.backends"]
     nopenagents_backends_base["backends.base"]
     nopenagents_backends_claude_code["backends.claude_code"]
+    nopenagents_backfill["openagents.backfill"]
     nopenagents_cli["openagents.cli"]
     nopenagents_config["openagents.config"]
     nopenagents_e2e["openagents.e2e"]
@@ -125,12 +127,14 @@ graph LR
     nopenagents_messages --> nopenagents_state
     nopenagents_orchestrator --> nopenagents
     nopenagents_orchestrator --> nopenagents_backends_base
+    nopenagents_orchestrator --> nopenagents_backfill
     nopenagents_orchestrator --> nopenagents_e2e
     nopenagents_orchestrator --> nopenagents_github
     nopenagents_orchestrator --> nopenagents_identity
     nopenagents_orchestrator --> nopenagents_reviewer
     nopenagents_orchestrator --> nopenagents_spec
     nopenagents_orchestrator --> nopenagents_spec_signpost
+    nopenagents_orchestrator --> nopenagents_spec_validate
     nopenagents_orchestrator --> nopenagents_state
     nopenagents_orchestrator --> nopenagents_workspace
     nopenagents_rebase --> nopenagents
