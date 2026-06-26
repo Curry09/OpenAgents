@@ -7,7 +7,7 @@ summary: 新增 backfill-rfc <path> 子命令:扫存量代码 → 派 coding age
 tasks:
   - id: T1
     title: 代码盘点助手:扫 path 产出 inventory
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 给定存在的 path 返回含文件清单与模块结构的 inventory;path 不存在或空目录抛错;pytest 覆盖单文件与目录两种形态。
   - id: T2
     title: 编排方法 backfill_rfc + 反向 RFC prompt
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: backfill_rfc 走通 盘点→后端→validate门控→draft PR;spec validate 非0时不开 PR;prompt 含「必填四段据实写满、难反推段标待补」约束;test_orchestrator 通过。
   - id: T3
     title: CLI 接线 backfill-rfc <path>
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: openagents backfill-rfc <path> 可解析并转发到 backfill_rfc;--base 默认 main;test_cli 覆盖子命令解析。
   - id: T4
     title: e2e 脚本演示反向补全闭环
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

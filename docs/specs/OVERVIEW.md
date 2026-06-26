@@ -154,10 +154,10 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0024 | 0024/T3 | spec new 9 段脚手架 + signpost/cli/mutate 适配 | done | T2 | openagents/spec/signpost.py<br>tests/test_spec_signpost.py<br>tests/test_spec_cli.py<br>tests/test_spec_mutate.py |
 | 0024 | 0024/T4 | skill + references + README + orchestrator 对齐 rust-RFC | done | T3 | .claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/task-fields.md<br>docs/specs/README.md<br>openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0024 | 0024/T5 | 回填 19 个存量 spec + e2e 脚本 | done | T3 | scripts/e2e-spec-0024-rfc-form.sh<br>docs/specs/0023-retire-test-branch-main-advancing-release.md |
-| 0025 | 0025/T1 | 代码盘点助手:扫 path 产出 inventory | pending | — | openagents/backfill.py<br>tests/test_backfill.py |
-| 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | pending | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
-| 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | pending | T2 | openagents/cli.py<br>tests/test_cli.py |
-| 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | pending | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
+| 0025 | 0025/T1 | 代码盘点助手:扫 path 产出 inventory | done | — | openagents/backfill.py<br>tests/test_backfill.py |
+| 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | done | T2 | openagents/cli.py<br>tests/test_cli.py |
+| 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
 
 ## 跨 feature 关系图
 
@@ -1030,9 +1030,9 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

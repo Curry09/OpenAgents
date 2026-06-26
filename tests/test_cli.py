@@ -16,6 +16,7 @@ from openagents.hold import Hold
 COMMANDS = [
     "init",
     "rfc",
+    "backfill-rfc",
     "refine-rfc",
     "implement",
     "iterate",
@@ -158,6 +159,60 @@ def test_internal_module_error_still_raises_traceback(monkeypatch):
     monkeypatch.setattr("openagents.cli._dispatch", _boom)
     with pytest.raises(ModuleNotFoundError):
         main(["rfc", "3"])
+
+
+# --------------------------------------------------------------------------- #
+# backfill-rfc（Spec-0025/T3：扫代码路径反推 spec 开 draft PR）
+# --------------------------------------------------------------------------- #
+
+
+def test_backfill_rfc_runs_preflight_then_forwards_path(monkeypatch):
+    calls = _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def backfill_rfc(self, *, path, base):
+            seen.update(path=path, base=base)
+            return _FakePR()
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    code = main(["backfill-rfc", "openagents/release.py"])
+    assert code == 0
+    assert calls == [True]
+    # --base 默认 main。
+    assert seen == {"path": "openagents/release.py", "base": "main"}
+
+
+def test_backfill_rfc_passes_base_override(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = {}
+
+    class _FakeOrch:
+        def backfill_rfc(self, *, path, base):
+            seen.update(path=path, base=base)
+            return _FakePR()
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    code = main(["backfill-rfc", "openagents/backends", "--base", "dev"])
+    assert code == 0
+    assert seen == {"path": "openagents/backends", "base": "dev"}
+
+
+def test_backfill_rfc_reports_bad_path_cleanly(monkeypatch, capsys):
+    # BackfillError 继承 ValueError → cli._run 转干净一行提示 + 非零退出（无 traceback）。
+    _patch_ensure(monkeypatch)
+    from openagents.backfill import BackfillError
+
+    class _Boom:
+        def backfill_rfc(self, *, path, base):
+            raise BackfillError("路径不存在：nope")
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _Boom())
+    code = main(["backfill-rfc", "nope"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "✗" in err
+    assert "路径不存在" in err
 
 
 # --------------------------------------------------------------------------- #

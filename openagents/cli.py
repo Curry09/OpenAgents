@@ -44,6 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     # Spec-0023/T4：test 门控退役，默认改回 main——issue 分支与 PR base 同源锁 main。
     p_rfc.add_argument("--base", default="main", help="分支基线（默认 main）")
 
+    # Spec-0025/T3：brownfield 反向补全——扫存量代码路径反推 9 段 spec 并开 draft PR。
+    # 与 rfc 互补：rfc 是 issue 驱动（设计先行），backfill-rfc 是 path 驱动（实现先行）。
+    p_backfill = sub.add_parser("backfill-rfc", help="扫存量代码路径反推 spec 并开 draft PR")
+    p_backfill.add_argument("path", help="要反向补全的代码路径（单文件或目录）")
+    p_backfill.add_argument("--base", default="main", help="分支基线（默认 main）")
+
     p_refine = sub.add_parser("refine-rfc", help="按 PR 最新评审评论精炼 RFC")
     p_refine.add_argument("pr", type=int, help="PR 编号")
 
@@ -207,6 +213,13 @@ def _cmd_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0025/T3：薄路由——把代码路径转发到 backfill_rfc，业务逻辑全在 orchestrator/backfill。
+    pr = _orchestrator_for(ctx=ctx).backfill_rfc(path=args.path, base=args.base)
+    print(f"✓ 已为 `{args.path}` 反向补全 spec 并开 draft PR：{pr.url}")
+    return 0
+
+
 def _cmd_refine_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0005：取该 PR 最新评论作评审意见，精炼 RFC 并回贴说明。
     detail = _latest_comment_body(pr_number=args.pr)
@@ -357,6 +370,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "init": _cmd_init,
         "rfc": _cmd_rfc,
+        "backfill-rfc": _cmd_backfill_rfc,
         "refine-rfc": _cmd_refine_rfc,
         "implement": _cmd_implement,
         "iterate": _cmd_iterate,
