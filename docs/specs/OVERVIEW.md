@@ -67,6 +67,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0025 brownfield 反向补全 RFC:扫存量代码生成 9 段 RFC 草稿
 新增 backfill-rfc <path> 子命令:扫存量代码 → 派 coding agent 反推 rust-RFC 9 段 spec 草稿(必填四段据实回填、难反推段标待补)→ 经 spec validate 后开 draft PR 交人评审,让 brownfield 仓库接入 RFC 驱动闭环。
 
+### 0026 README 最简用法:紧跟安装方法之后新增 Quickstart 段
+在 README「安装」之后、「快速上手」之前插入一段「最简用法 / Quickstart」,把最短可用路径 init → issue → vigil 放最前,并点明日常只用 issue+vigil、poll/watch/rfc 等是不发现新 issue 的单步调试工具。只动 README 文案与结构,不改任何 CLI 行为。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -158,6 +161,8 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | done | T2 | openagents/cli.py<br>tests/test_cli.py |
 | 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
+| 0026 | 0026/T1 | 插入最简用法/Quickstart 段并同步目录锚点 | pending | — | README.md |
+| 0026 | 0026/T2 | e2e 脚本断言 Quickstart 段位置 | pending | T1 | scripts/e2e-spec-0026-readme-quickstart.sh |
 
 ## 跨 feature 关系图
 
@@ -292,6 +297,10 @@ graph LR
         n0025_T3["T3 CLI 接线 backfill-rfc <path>"]
         n0025_T4["T4 e2e 脚本演示反向补全闭环"]
     end
+    subgraph G0026[0026 readme-quickstart-after-install]
+        n0026_T1["T1 插入最简用法/Quickstart 段并同步目录锚点"]
+        n0026_T2["T2 e2e 脚本断言 Quickstart 段位置"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -371,6 +380,7 @@ graph LR
     n0025_T2 --> n0025_T1
     n0025_T3 --> n0025_T2
     n0025_T4 --> n0025_T3
+    n0026_T2 --> n0026_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1035,4 +1045,24 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0026 README 最简用法:紧跟安装方法之后新增 Quickstart 段（issue #75）
+
+```mermaid
+graph LR
+    nT1["T1 插入最简用法/Quickstart 段并同步目录锚点"]
+    nT2["T2 e2e 脚本断言 Quickstart 段位置"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
 ```
