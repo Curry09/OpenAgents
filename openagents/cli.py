@@ -122,6 +122,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="在指定闸门停下等人：spec / merge / spec,merge（默认全自动不停）",
     )
 
+    # Spec-0026/T3：vigil-all —— 多仓库统管。单进程读一份 YAML 配置（仓库列表 + 全局默认 +
+    # 每仓库覆盖），为每个仓库各起一隔离子进程复用现有 Vigil 并发守夜、聚合日志。与单仓库
+    # vigil 并存：vigil 在「当前仓库内」跑，vigil-all 在「任意目录」读配置统管一组仓库。
+    p_vigil_all = sub.add_parser(
+        "vigil-all", help="多仓库统管：按配置文件并发守夜一组仓库（复用 vigil）"
+    )
+    p_vigil_all.add_argument(
+        "--config",
+        default=".openagents/fleet.yml",
+        metavar="PATH",
+        help="fleet 配置文件路径（默认 .openagents/fleet.yml）",
+    )
+    p_vigil_all.add_argument(
+        "--once", action="store_true", help="每个仓库各跑一轮后退出（cron/CI/e2e 用）"
+    )
+
     # Spec-0023/T4：release —— 人唯一的宏观决策点：预检通过则把持续推进的 main 物化成一个
     # 版本（release/vX.Y.Z 分支 + tag）。取代退役的 test 门控 promote。
     p_release = sub.add_parser("release", help="把 main 当前 HEAD 发布为一个版本（预检通过后物化）")
@@ -183,6 +199,14 @@ def _messages_for(*, ctx: ProjectContext):
         work_dir=str(ctx.repo_root),
         base=DEFAULT_BASE,
     )
+
+
+# Spec-0026/T3：fleet 编排器工厂——注入起真子进程的 spawn / 真跨进程 queue。延迟 import
+# 保持 cli 顶层轻、测试可对本工厂打桩（返回假 Fleet，不真起子进程、不触达真实 gh/后端）。
+def _fleet_for():
+    from openagents.fleet import Fleet, default_queue, default_spawn
+
+    return Fleet(spawn=default_spawn, queue_factory=default_queue)
 
 
 # RFC-0004：守夜人——复用 orchestrator/messages/state 工厂，附 work_dir 供发现段去重。
@@ -337,6 +361,17 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_vigil_all(args: argparse.Namespace) -> int:
+    # Spec-0026/T3：薄路由——读 fleet 配置（解析+校验+默认合并，T1）→ Fleet.run 并发守夜（T2）。
+    # 不取 cwd 项目 ctx：vigil-all 统管的是配置里列出的「别的仓库」，本身可在任意目录运行
+    # （配置路径相对 cwd 解析），故不像其它命令那样走 ensure_project preflight（见 _dispatch）。
+    from openagents.fleet_config import load_fleet_config
+
+    plans = load_fleet_config(path=Path(args.config))
+    _fleet_for().run(plans=plans, once=args.once)
+    return 0
+
+
 def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0023/T4：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + main CI 绿）通过则
     # 把 main 当前 HEAD 物化为 release/vX.Y.Z 分支 + tag。失败按预检原因设非零退出码，不发布。
@@ -366,6 +401,11 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "board":
         return _cmd_board(args)
 
+    # Spec-0026/T3：vigil-all 统管的是配置里列出的别的仓库，cwd 不必是 git 仓库——同 board
+    # 跳过 cwd 项目 preflight，直接读配置并扇出（preflight 由各子进程在自己的仓库里做）。
+    if args.command == "vigil-all":
+        return _cmd_vigil_all(args)
+
     ctx = ensure_project(interactive=True)
     handlers = {
         "init": _cmd_init,
@@ -387,6 +427,7 @@ def _dispatch(args: argparse.Namespace) -> int:
 def _run(args: argparse.Namespace) -> int:
     # RFC-0003 决策 9：把已知的运行期错误转成干净的一行提示 + 非零退出，
     # 不再把 Python traceback 糊用户一脸（业务异常延迟 import）。
+    from openagents.fleet_config import FleetConfigError
     from openagents.github import GithubError
     from openagents.orchestrator import OrchestratorError
     from openagents.workspace import WorkspaceError
@@ -406,9 +447,18 @@ def _run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    except (OrchestratorError, GithubError, WorkspaceError, RuntimeError, ValueError) as exc:
+    except (
+        OrchestratorError,
+        GithubError,
+        WorkspaceError,
+        FleetConfigError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         # Spec-0020/T4：ValueError 纳入已知运行期错误——vigil --hold 非法值由 hold.parse_hold
         # 抛 ValueError，在此转成干净一行提示 + 非零退出，而非把 traceback 糊用户一脸。
+        # Spec-0026/T3：fleet 配置非法（缺 repos / 未知键 / path 缺失）由 load_fleet_config 抛
+        # FleetConfigError，同样转干净一行——配置即可漂移源，报错要可操作（见 spec Drawbacks）。
         print(f"✗ {exc}", file=sys.stderr)
         return 1
 

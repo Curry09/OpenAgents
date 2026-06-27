@@ -7,7 +7,7 @@ summary: 新增 openagents vigil-all 命令:单进程读一份 YAML 配置(仓�
 tasks:
   - id: T1
     title: 配置加载:YAML 解析 + jsonschema 校验 + 默认合并
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 给定合法 YAML 返回合并后的 RepoPlan 列表(默认值正确下沉、每仓库覆盖生效、path 绝对化、name 缺省 basename);缺 repos/未知键/path 缺失等非法配置抛清晰校验错误;pytest 覆盖默认合并与各类非法输入。
   - id: T2
     title: 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: Fleet.run 为 N 个 plan 起 N 个隔离子进程并发跑 Vigil;某子进程抛错/退出不影响其余(错误隔离);日志带各自仓库前缀;Ctrl-C 停下全部;pytest 用假 vigil 工厂验证 fan-out、前缀聚合、单进程失败隔离、停止路径(不触达真实 gh/后端)。
   - id: T3
     title: CLI 接线 vigil-all(--config/--once)
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: openagents vigil-all 可解析 --config/--once 并转发到 Fleet.run;默认 config 路径 .openagents/fleet.yml;现有 vigil 命令行为/签名不变;tests/test_cli_fleet.py 覆盖子命令解析与转发(打桩 Fleet 工厂,不真跑子进程)。
   - id: T4
     title: e2e 脚本演示多仓库统管闭环
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

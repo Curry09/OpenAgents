@@ -16,6 +16,8 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
+| `fleet.py` | Spec-0026/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
+| `fleet_config.py` | Spec-0026/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
 | `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |
@@ -69,6 +71,8 @@ graph LR
     nopenagents_cli["openagents.cli"]
     nopenagents_config["openagents.config"]
     nopenagents_e2e["openagents.e2e"]
+    nopenagents_fleet["openagents.fleet"]
+    nopenagents_fleet_config["openagents.fleet_config"]
     nopenagents_github["openagents.github"]
     nopenagents_hold["openagents.hold"]
     nopenagents_identity["openagents.identity"]
@@ -97,6 +101,8 @@ graph LR
     nopenagents_cli --> nopenagents_align
     nopenagents_cli --> nopenagents_backends_claude_code
     nopenagents_cli --> nopenagents_config
+    nopenagents_cli --> nopenagents_fleet
+    nopenagents_cli --> nopenagents_fleet_config
     nopenagents_cli --> nopenagents_github
     nopenagents_cli --> nopenagents_hold
     nopenagents_cli --> nopenagents_identity
@@ -110,6 +116,13 @@ graph LR
     nopenagents_cli --> nopenagents_vigil
     nopenagents_cli --> nopenagents_workspace
     nopenagents_config --> nopenagents_github
+    nopenagents_fleet --> nopenagents
+    nopenagents_fleet --> nopenagents_cli
+    nopenagents_fleet --> nopenagents_config
+    nopenagents_fleet --> nopenagents_fleet_config
+    nopenagents_fleet --> nopenagents_hold
+    nopenagents_fleet_config --> nopenagents
+    nopenagents_fleet_config --> nopenagents_github
     nopenagents_identity --> nopenagents
     nopenagents_identity --> nopenagents_github
     nopenagents_identity --> nopenagents_state
