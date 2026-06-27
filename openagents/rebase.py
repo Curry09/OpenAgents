@@ -30,6 +30,9 @@ RESULT_UP_TO_DATE = "up-to-date"
 RESULT_CONFLICT = "conflict"
 # issue #48：服务端合并冲突后被本地索引自愈消解（重渲 OVERVIEW + push），区别于人工 conflict。
 RESULT_HEALED = "healed"
+# Spec-0028/T3：indexheal 不适用的真冲突被 coding agent 语义解冲突消解（解 + 自测 + push），
+# 区别于 RESULT_HEALED（确定性、仅 OVERVIEW）与 RESULT_CONFLICT（回落人工）。
+RESULT_RESOLVED = "resolved"
 
 
 def rebase_open_prs(
@@ -38,6 +41,7 @@ def rebase_open_prs(
     rebase: bool = False,
     agent_id: str,
     heal: Callable[..., bool] | None = None,
+    resolve: Callable[..., bool] | None = None,
 ) -> list[dict]:
     """RFC-0009 T2：对每个 open PR（排除 merged_pr_number）执行 github.update_branch。
 
@@ -48,8 +52,14 @@ def rebase_open_prs(
     （RFC-0019：poll 不再读评论做签名过滤，自动流转由 reviewer 闸驱动）。
     保持无状态：rebase 不读 state，agent_id 由 messages/CLI 透传（理念 10）。
 
-    返回事件列表，每项 {"pr_number": int, "result": str}，
-    result ∈ {RESULT_UPDATED, RESULT_UP_TO_DATE, RESULT_CONFLICT}（供日志/测试断言）。
+    Spec-0028/T3：冲突处理改为**分层降级** heal → resolve → 人工留言：
+    - heal（issue #48，确定性、仅 OVERVIEW）命中 → RESULT_HEALED。
+    - 否则 resolve（本组，coding agent 语义解真冲突）命中 → RESULT_RESOLVED。
+    - 两层都没命中（或未注入）才 post_signed_comment + RESULT_CONFLICT。
+    resolve=None（如手动 sync-prs，不在人手动命令里偷烧 token）即跳过该层，行为同今天。
+
+    返回事件列表，每项 {"pr_number": int, "result": str}，result ∈ {RESULT_UPDATED,
+    RESULT_UP_TO_DATE, RESULT_HEALED, RESULT_RESOLVED, RESULT_CONFLICT}（供日志/测试断言）。
     冲突时留言并继续后续，不中断整轮扇出（决策 4，错误隔离）。
     """
     events: list[dict] = []
@@ -60,9 +70,14 @@ def rebase_open_prs(
             updated = github.update_branch(pr_number=pr.number, rebase=rebase)
         except github.GithubError:
             # issue #48：服务端合并冲突——先试本地索引自愈（仅 OVERVIEW 冲突即重渲消解 + push）。
-            # heal 安全降级：返回 True=已自愈、False/未注入=回落到既有人工留言路径（决策 4）。
+            # heal 安全降级：返回 True=已自愈、False/未注入=进入下一层（resolve）（决策 4）。
             if heal is not None and heal(pr_number=pr.number):
                 events.append({"pr_number": pr.number, "result": RESULT_HEALED})
+                continue
+            # Spec-0028/T3：indexheal 不适用的真冲突——派 coding agent 语义解决（解 + 自测 + push）。
+            # resolve 安全降级：返回 True=已解决、False/未注入=回落到下面的人工留言路径。
+            if resolve is not None and resolve(pr_number=pr.number):
+                events.append({"pr_number": pr.number, "result": RESULT_RESOLVED})
                 continue
             # RFC-0011 T5：走 identity.post_signed_comment 给留言盖本实例签名，用于评论溯源/审计
             # （RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动，无自循环）。

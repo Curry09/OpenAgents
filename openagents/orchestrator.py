@@ -163,6 +163,10 @@ class Orchestrator:
         # 定位失败 / 渲染为 None 时正文回退为原样、不抛错（决策 5，验收标准 2）。
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
         e2e_section = signpost.signpost_for_group(group_path=spec_group) if spec_group else None
+        # Spec-0028/T1：复用同一 spec_group 抽组级总览三段摘要，内嵌进 PR 正文（None 即跳过，零回归）。
+        digest_section = (
+            signpost.overview_digest_for_group(group_path=spec_group) if spec_group else None
+        )
 
         self._progress(message="▶ 开 draft PR …")
         pr = github.create_pr(
@@ -172,6 +176,7 @@ class Orchestrator:
             body=self._pr_body(
                 issue_number=issue.number,
                 summary="spec 草稿待评审。",
+                digest_section=digest_section,
                 e2e_section=e2e_section,
             ),
             draft=True,
@@ -236,25 +241,36 @@ class Orchestrator:
         # 复用 start_rfc 的指路牌抽取：从反推出的 spec 组抽 e2e 指路牌拼进 PR 正文（None 即回退）。
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
         e2e_section = signpost.signpost_for_group(group_path=spec_group) if spec_group else None
+        # Spec-0028/T1：同 start_rfc，复用 spec_group 抽总览三段摘要内嵌进 PR 正文（None 即跳过）。
+        digest_section = (
+            signpost.overview_digest_for_group(group_path=spec_group) if spec_group else None
+        )
 
         self._progress(message="▶ 开 draft PR …")
         return github.create_pr(
             branch=branch,
             base=base,
             title=f"docs: backfill spec for {path}",
-            body=self._backfill_pr_body(path=path, e2e_section=e2e_section),
+            body=self._backfill_pr_body(
+                path=path, digest_section=digest_section, e2e_section=e2e_section
+            ),
             draft=True,
         )
 
-    def _backfill_pr_body(self, *, path: str, e2e_section: str | None) -> str:
+    def _backfill_pr_body(
+        self, *, path: str, digest_section: str | None, e2e_section: str | None
+    ) -> str:
         """Spec-0025/T2：组装反向补全 PR 正文——说明来源 + 提示评审补「待补」段（+ e2e 指路牌）。
 
         无关联 issue（path 驱动），故不含 `Closes #N`；正文回退/追加逻辑同 _pr_body。
+        Spec-0028/T1：digest_section 非 None 时夹在说明之后、e2e_section 之前（None 即跳过，零回归）。
         """
         body = (
             f"🤖 反向补全：扫 `{path}` 反推出的 spec 草稿，待评审。\n\n"
             "必填四段据实回填；标「待人工补全」的段请在评审中补全后再转正（不自动 merge）。"
         )
+        if digest_section is not None:
+            body += f"\n\n{digest_section}"
         if e2e_section is not None:
             body += f"\n\n{e2e_section}"
         return body
@@ -457,14 +473,24 @@ class Orchestrator:
         """RFC-0003 决策 6：把各阶段进度打到 stderr，保证用户全程有反馈。"""
         print(message, file=sys.stderr, flush=True)
 
-    def _pr_body(self, *, issue_number: int, summary: str, e2e_section: str | None) -> str:
-        """组装 PR 正文：关联 issue + 摘要（+ RFC-0008 端到端验证指路牌）。
+    def _pr_body(
+        self,
+        *,
+        issue_number: int,
+        summary: str,
+        digest_section: str | None,
+        e2e_section: str | None,
+    ) -> str:
+        """组装 PR 正文：关联 issue + 摘要（+ Spec-0028 总览摘要 + RFC-0008 端到端验证指路牌）。
 
         RFC-0008：e2e_section 非 None 时追加到摘要之后，否则正文回退为原有 Closes + 摘要。
-        私有函数，参数无默认值——调用方必须显式传 e2e_section。
+        Spec-0028/T1：digest_section 非 None 时夹在 summary 之后、e2e_section 之前（None 即跳过，
+        零回归——digest/e2e 皆 None 时正文逐字节同今天）。私有函数，参数无默认值——调用方必须显式传。
         """
         body = f"Closes #{issue_number}\n\n"
         body += summary or "（无摘要）"
+        if digest_section is not None:
+            body += f"\n\n{digest_section}"
         if e2e_section is not None:
             body += f"\n\n{e2e_section}"
         return body

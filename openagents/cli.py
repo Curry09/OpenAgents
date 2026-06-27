@@ -198,6 +198,10 @@ def _messages_for(*, ctx: ProjectContext):
         # issue #48：注入 work_dir + base，使 poll 的合并扇出在冲突时先试索引自愈。
         work_dir=str(ctx.repo_root),
         base=DEFAULT_BASE,
+        # Spec-0028/T3：注入 backend（复用既有工厂），使 poll 扇出在 indexheal 不适用的真冲突
+        # 上派 coding agent 语义解冲突（heal → resolve → 人工 分层降级）。手动 sync-prs 不注入
+        # backend，故那里恒不启用 resolve（不在人手动命令里偷烧 token）。
+        backend=_backend_for(),
     )
 
 
