@@ -70,6 +70,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0027 多仓库统管:单进程按配置文件并发守夜一组仓库
 新增 openagents vigil-all 命令:单进程读一份 YAML 配置(仓库列表 + 全局默认 + 每仓库可选覆盖 interval/labels/base/hold),为每个仓库起一个隔离子进程复用现有 Vigil 并发守夜(发现→派单→守候),各读写自己的 .openagents/state.json,统一带仓库前缀聚合日志;单仓库 vigil 命令与底层逻辑零改动。
 
+### 0028 PR 自动化两处改进：spec 草稿 PR 内嵌 9 段总览摘要 + merge 冲突派 agent 语义解冲突
+spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 语义解决，分层降级 indexheal→agent→人工。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -165,6 +168,10 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0027 | 0027/T2 | 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离 | done | T1 | openagents/fleet.py<br>tests/test_fleet.py |
 | 0027 | 0027/T3 | CLI 接线 vigil-all(--config/--once) | done | T2 | openagents/cli.py<br>tests/test_cli_fleet.py |
 | 0027 | 0027/T4 | e2e 脚本演示多仓库统管闭环 | done | T3 | scripts/e2e-spec-0027-vigil-all.sh |
+| 0028 | 0028/T1 | 改进1：总览摘要 digest + PR 正文接线 | pending | — | openagents/spec/signpost.py<br>openagents/orchestrator.py<br>tests/test_signpost_digest.py<br>tests/test_orchestrator_pr_body.py |
+| 0028 | 0028/T2 | 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂） | pending | — | openagents/conflict.py<br>tests/test_conflict.py |
+| 0028 | 0028/T3 | 改进2：接线 rebase / messages / cli（分层降级 + 门控） | pending | T2 | openagents/rebase.py<br>openagents/messages.py<br>openagents/cli.py<br>tests/test_rebase_resolve.py<br>tests/test_messages_resolve.py |
+| 0028 | 0028/T4 | hermetic e2e 脚本（无网络、不触真实 LLM） | pending | T1, T3 | scripts/e2e-spec-0028-pr-digest-and-conflict.sh |
 
 ## 跨 feature 关系图
 
@@ -305,6 +312,12 @@ graph LR
         n0027_T3["T3 CLI 接线 vigil-all(--config/--once)"]
         n0027_T4["T4 e2e 脚本演示多仓库统管闭环"]
     end
+    subgraph G0028[0028 pr-digest-and-conflict-agent]
+        n0028_T1["T1 改进1：总览摘要 digest + PR 正文接线"]
+        n0028_T2["T2 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂）"]
+        n0028_T3["T3 改进2：接线 rebase / messages / cli（分层降级 + 门控）"]
+        n0028_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -387,6 +400,9 @@ graph LR
     n0027_T2 --> n0027_T1
     n0027_T3 --> n0027_T2
     n0027_T4 --> n0027_T3
+    n0028_T3 --> n0028_T2
+    n0028_T4 --> n0028_T1
+    n0028_T4 --> n0028_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -402,12 +418,12 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028 |
 | openagents/promote.py | 0012, 0023 |
-| openagents/rebase.py | 0009, 0011 |
+| openagents/rebase.py | 0009, 0011, 0028 |
 | openagents/reviewer.py | 0012, 0021 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
@@ -415,6 +431,7 @@ graph LR
 | openagents/spec/mutate.py | 0014, 0015 |
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015, 0024 |
+| openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023 |
@@ -1079,4 +1096,32 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0028 PR 自动化两处改进：spec 草稿 PR 内嵌 9 段总览摘要 + merge 冲突派 agent 语义解冲突（issue #79）
+
+```mermaid
+graph LR
+    nT1["T1 改进1：总览摘要 digest + PR 正文接线"]
+    nT2["T2 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂）"]
+    nT3["T3 改进2：接线 rebase / messages / cli（分层降级 + 门控）"]
+    nT4["T4 hermetic e2e 脚本（无网络、不触真实 LLM）"]
+    nT2 --> nT3
+    nT1 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
 ```
