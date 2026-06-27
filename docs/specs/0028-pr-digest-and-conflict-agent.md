@@ -7,7 +7,7 @@ summary: spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 codi
 tasks:
   - id: T1
     title: 改进1：总览摘要 digest + PR 正文接线
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -22,7 +22,7 @@ tasks:
     acceptance: digest 块含 Summary/Motivation/Reference-level 三段且超行截断附「…（完整见 spec 文件）」；spec 不可读时 digest 为 None、PR 正文逐字节同今天（零回归）；ruff+pytest 绿
   - id: T2
     title: 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -35,7 +35,7 @@ tasks:
     acceptance: 干净合并返 True；agent 解决且自测过返 True 并 add/commit；仍冲突/自测失败 merge --abort 返 False；任何异常吞成 False（hermetic 注入 run/backend 单测覆盖三分支）
   - id: T3
     title: 改进2：接线 rebase / messages / cli（分层降级 + 门控）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -52,7 +52,7 @@ tasks:
     acceptance: 冲突时 heal 命中→RESULT_HEALED、resolve 命中→RESULT_RESOLVED、都没命中→RESULT_CONFLICT 留言；resolve=None 时逐字节回落现状；sync-prs 不注入 resolve；ruff+pytest 绿
   - id: T4
     title: hermetic e2e 脚本（无网络、不触真实 LLM）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

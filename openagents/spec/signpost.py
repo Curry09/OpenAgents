@@ -16,6 +16,18 @@ from openagents.spec import model
 # 集成测试脚本相对路径：scripts/….sh，取首个（与旧 rfc.py 同一约定）。
 _SCRIPT_RE = re.compile(r"scripts/[^\s`)」]+\.sh")
 
+# Spec-0028/T1：PR 正文内嵌总览摘要——只取信息密度最高的三段（是什么 / 为什么 / 怎么做），
+# 每段超过行数上限即截断，避免正文膨胀淹没 Closes/指路牌（Reference-level / Drawbacks 缓解）。
+_DIGEST_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("Summary", "summary"),
+    ("Motivation", "motivation"),
+    ("Reference-level explanation", "reference_level"),
+)
+# 每段保守的行数上限（Unresolved questions：初定保守值，可后续按 PR 观感调）。
+_DIGEST_MAX_LINES = 12
+# 超行截断的续接提示——明确告知评审者去 spec 文件读完整内容。
+_DIGEST_TRUNCATED_HINT = "…（完整见 spec 文件）"
+
 
 def script_path_for_group(*, group_path: Path) -> str | None:
     """Scan a spec group's 组级 Overview 9 段 for the first `scripts/*.sh`.
@@ -34,6 +46,45 @@ def script_path_for_group(*, group_path: Path) -> str | None:
         if match:
             return match.group(0)
     return None
+
+
+def overview_digest_for_group(*, group_path: Path) -> str | None:
+    """Spec-0028/T1：抽组级 9 段总览里信息密度最高的三段，渲染成 PR 正文的「## spec 总览」块。
+
+    与 signpost_for_group 并列同质（只懂 spec 文档结构、为 PR 正文抽取、缺失返 None，不感知
+    git / GitHub / orchestrator，理念 10 解耦）。取 Summary / Motivation / Reference-level，
+    每段按 _DIGEST_MAX_LINES 截断（超出保留前 N 行 + 续接提示），三段各以 `### <段名>` 分隔。
+    group_path 不是文件 / load_group 抛 OSError|ValueError → None（零回归：PR 正文逐字节同今天）。
+    """
+    if not group_path.is_file():
+        return None
+    try:
+        group = model.load_group(path=group_path)
+    except (OSError, ValueError):
+        return None
+
+    blocks: list[str] = []
+    for heading, attr in _DIGEST_SECTIONS:
+        body = _truncate_section(text=getattr(group.overview, attr) or "")
+        if body:
+            blocks.append(f"### {heading}\n{body}")
+    if not blocks:
+        # 三段全空（罕见，如总览尚未填写）：不渲染空块，回退到无 digest（零回归）。
+        return None
+
+    header = f"## spec 总览（摘自 docs/specs/{group_path.name}）"
+    return "\n\n".join([header, *blocks])
+
+
+def _truncate_section(*, text: str) -> str:
+    """把一段总览正文按 _DIGEST_MAX_LINES 截断；超出保留前 N 行并追加续接提示。空段返回空串。"""
+    stripped = text.strip("\n")
+    if not stripped.strip():
+        return ""
+    lines = stripped.split("\n")
+    if len(lines) <= _DIGEST_MAX_LINES:
+        return stripped
+    return "\n".join([*lines[:_DIGEST_MAX_LINES], _DIGEST_TRUNCATED_HINT])
 
 
 def signpost_for_group(*, group_path: Path) -> str | None:

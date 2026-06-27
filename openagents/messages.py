@@ -33,7 +33,8 @@ from __future__ import annotations
 import os
 import time
 
-from openagents import github, identity, indexheal, rebase
+from openagents import conflict, github, identity, indexheal, rebase
+from openagents.backends.base import AgentBackend
 from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
 from openagents.orchestrator import Orchestrator
@@ -112,6 +113,7 @@ class Messages:
         agent_id: str,
         work_dir: str | None = None,
         base: str | None = None,
+        backend: AgentBackend | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._state = state
@@ -122,6 +124,10 @@ class Messages:
         # 二者缺一则不注入 heal——退回既有「冲突留言等人」行为（向后兼容老调用方/测试夹具）。
         self._work_dir = work_dir
         self._base = base
+        # Spec-0028/T3：backend 用于构造 agent 语义解冲突 resolve（与 _make_heal 同款门控：
+        # work_dir + base + backend 齐备才构造，缺一则不注入——退回 heal→人工 的既有降级，
+        # 向后兼容老调用方/测试夹具）。只在自动 poll 扇出启用，手动 sync-prs 不注入（不偷烧 token）。
+        self._backend = backend
 
     def poll(self, *, hold: Hold = NO_HOLD) -> list[dict]:
         """RFC-0001 T5：扫描所有 open 状态 run，按 merge → 阶段 路由。
@@ -182,8 +188,13 @@ class Messages:
             # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 base 并入其余
             # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 先试索引自愈（issue #48），
             # 自愈不了再由 rebase 层留言。
+            # Spec-0028/T3：分层降级 heal → resolve → 人工——resolve 派 coding agent 语义解
+            # indexheal 不适用的真冲突（只在自动 poll 扇出启用，故在此注入；手动 sync-prs 不注入）。
             synced = rebase.rebase_open_prs(
-                merged_pr_number=pr_number, agent_id=self._agent_id, heal=self._make_heal()
+                merged_pr_number=pr_number,
+                agent_id=self._agent_id,
+                heal=self._make_heal(),
+                resolve=self._make_resolver(),
             )
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
 
@@ -252,9 +263,15 @@ class Messages:
         # 判定取「或」更稳：DIRTY 与 CONFLICTING 在冲突场景同时出现（实例 PR #61）。
         merge_state = github.mergeability(pr_number=pr_number)
         if merge_state.merge_state_status == "DIRTY" or merge_state.mergeable == "CONFLICTING":
-            # 真冲突：发一次 rebase 提示（复用 rebase.CONFLICT_COMMENT 单一文案来源，避免漂移），
-            # 再走既有 _block 置 BLOCKED+needs-human。「恰一条评论」由状态机短路天然保证：blocked
-            # 后下一轮 poll 经 _process_run 的 blocked 分支 return None，永不再进 _process_coding。
+            # Spec-0028/T3：真冲突先试 agent 语义解冲突（resolve 注入时）——成功则本轮不 block，
+            # push 后等下一轮 poll 重查（CI 因 synchronize 重排，状态自然推进）。resolve=None /
+            # 失败才走下面既有的人工留言 + _block 路径（逐字节回落现状，零回归）。
+            resolve = self._make_resolver()
+            if resolve is not None and resolve(pr_number=pr_number):
+                return {"pr_number": pr_number, "reason": "resolved"}
+            # 真冲突解不了：发一次 rebase 提示（复用 rebase.CONFLICT_COMMENT 单一文案来源，避免
+            # 漂移），再走既有 _block 置 BLOCKED+needs-human。「恰一条评论」由状态机短路天然保证：
+            # blocked 后下一轮 poll 经 _process_run 的 blocked 分支 return None，永不再进 _process_coding。
             identity.post_signed_comment(
                 pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
             )
@@ -332,6 +349,22 @@ class Messages:
         if self._work_dir is None or self._base is None:
             return None
         return indexheal.make_healer(work_dir=self._work_dir, base=self._base)
+
+    def _make_resolver(self):
+        """Spec-0028/T3：work_dir + base + backend 三者齐备时构造 agent 语义解冲突 resolve，否则 None。
+
+        与 _make_heal 同款门控（缺一即 None → 回落 heal→人工 的既有降级）；额外要求 backend
+        （解冲突要真起一个 coding 后端）。手动 sync-prs 不注入 backend，故那里 resolve 恒为 None，
+        不在人手动命令里偷烧 token（Spec-0028 Drawbacks：token 成本缓解）。
+        """
+        if self._work_dir is None or self._base is None or self._backend is None:
+            return None
+        return conflict.make_resolver(
+            work_dir=self._work_dir,
+            base=self._base,
+            backend=self._backend,
+            agent_id=self._agent_id,
+        )
 
     def _has_open_pr(self) -> bool:
         """是否还有 rfc-review/pr-open/iterating 的 run（watch 循环的退出条件）。"""
