@@ -67,7 +67,7 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0025 brownfield 反向补全 RFC:扫存量代码生成 9 段 RFC 草稿
 新增 backfill-rfc <path> 子命令:扫存量代码 → 派 coding agent 反推 rust-RFC 9 段 spec 草稿(必填四段据实回填、难反推段标待补)→ 经 spec validate 后开 draft PR 交人评审,让 brownfield 仓库接入 RFC 驱动闭环。
 
-### 0026 多仓库统管:单进程按配置文件并发守夜一组仓库
+### 0027 多仓库统管:单进程按配置文件并发守夜一组仓库
 新增 openagents vigil-all 命令:单进程读一份 YAML 配置(仓库列表 + 全局默认 + 每仓库可选覆盖 interval/labels/base/hold),为每个仓库起一个隔离子进程复用现有 Vigil 并发守夜(发现→派单→守候),各读写自己的 .openagents/state.json,统一带仓库前缀聚合日志;单仓库 vigil 命令与底层逻辑零改动。
 
 ## 全局看板
@@ -161,10 +161,10 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0025 | 0025/T2 | 编排方法 backfill_rfc + 反向 RFC prompt | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0025 | 0025/T3 | CLI 接线 backfill-rfc <path> | done | T2 | openagents/cli.py<br>tests/test_cli.py |
 | 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
-| 0026 | 0026/T1 | 配置加载:YAML 解析 + jsonschema 校验 + 默认合并 | done | — | openagents/fleet_config.py<br>tests/test_fleet_config.py |
-| 0026 | 0026/T2 | 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离 | done | T1 | openagents/fleet.py<br>tests/test_fleet.py |
-| 0026 | 0026/T3 | CLI 接线 vigil-all(--config/--once) | done | T2 | openagents/cli.py<br>tests/test_cli_fleet.py |
-| 0026 | 0026/T4 | e2e 脚本演示多仓库统管闭环 | done | T3 | scripts/e2e-spec-0026-vigil-all.sh |
+| 0027 | 0027/T1 | 配置加载:YAML 解析 + jsonschema 校验 + 默认合并 | done | — | openagents/fleet_config.py<br>tests/test_fleet_config.py |
+| 0027 | 0027/T2 | 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离 | done | T1 | openagents/fleet.py<br>tests/test_fleet.py |
+| 0027 | 0027/T3 | CLI 接线 vigil-all(--config/--once) | done | T2 | openagents/cli.py<br>tests/test_cli_fleet.py |
+| 0027 | 0027/T4 | e2e 脚本演示多仓库统管闭环 | done | T3 | scripts/e2e-spec-0027-vigil-all.sh |
 
 ## 跨 feature 关系图
 
@@ -299,11 +299,11 @@ graph LR
         n0025_T3["T3 CLI 接线 backfill-rfc <path>"]
         n0025_T4["T4 e2e 脚本演示反向补全闭环"]
     end
-    subgraph G0026[0026 multi-repo-vigil]
-        n0026_T1["T1 配置加载:YAML 解析 + jsonschema 校验 + 默认合并"]
-        n0026_T2["T2 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离"]
-        n0026_T3["T3 CLI 接线 vigil-all(--config/--once)"]
-        n0026_T4["T4 e2e 脚本演示多仓库统管闭环"]
+    subgraph G0027[0027 multi-repo-vigil]
+        n0027_T1["T1 配置加载:YAML 解析 + jsonschema 校验 + 默认合并"]
+        n0027_T2["T2 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离"]
+        n0027_T3["T3 CLI 接线 vigil-all(--config/--once)"]
+        n0027_T4["T4 e2e 脚本演示多仓库统管闭环"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -384,9 +384,9 @@ graph LR
     n0025_T2 --> n0025_T1
     n0025_T3 --> n0025_T2
     n0025_T4 --> n0025_T3
-    n0026_T2 --> n0026_T1
-    n0026_T3 --> n0026_T2
-    n0026_T4 --> n0026_T3
+    n0027_T2 --> n0027_T1
+    n0027_T3 --> n0027_T2
+    n0027_T4 --> n0027_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -402,7 +402,7 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0026 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
@@ -1053,7 +1053,7 @@ graph LR
     class v_T4_1 st_done;
 ```
 
-### 0026 多仓库统管:单进程按配置文件并发守夜一组仓库（issue #77）
+### 0027 多仓库统管:单进程按配置文件并发守夜一组仓库（issue #77）
 
 ```mermaid
 graph LR

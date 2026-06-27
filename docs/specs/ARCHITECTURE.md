@@ -16,8 +16,8 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
-| `fleet.py` | Spec-0026/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
-| `fleet_config.py` | Spec-0026/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
+| `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
+| `fleet_config.py` | Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
 | `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |

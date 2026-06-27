@@ -1,4 +1,4 @@
-# Spec-0026/T1: fleet_config 配置加载（YAML 解析 + jsonschema 校验 + 默认合并）契约测试。
+# Spec-0027/T1: fleet_config 配置加载（YAML 解析 + jsonschema 校验 + 默认合并）契约测试。
 #
 # 纯解析、无 I/O 副作用（除读配置文件外）；用 tmp_path 写临时 YAML，断言合并后的
 # RepoPlan 列表与各类非法输入的清晰报错。不触达 git / gh / 子进程。

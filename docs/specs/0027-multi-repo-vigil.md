@@ -1,5 +1,5 @@
 ---
-number: "0026"
+number: "0027"
 title: 多仓库统管:单进程按配置文件并发守夜一组仓库
 issue: 77
 slug: multi-repo-vigil
@@ -56,12 +56,12 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0026-vigil-all.sh
+      - scripts/e2e-spec-0027-vigil-all.sh
     scope: 新增 e2e 脚本:离线段 ruff + pytest;可选 OPENAGENTS_E2E_REAL=1 真烟测——对指向两个本地临时仓库的 fleet.yml 跑 openagents vigil-all --once,断言两仓库各守夜一轮、日志带各自前缀、各自 .openagents/state.json 独立写入。
-    acceptance: bash scripts/e2e-spec-0026-vigil-all.sh 离线段全绿(ruff/pytest);真烟测段对两仓库 fleet.yml 跑 vigil-all --once 后两个仓库各自状态独立、日志前缀可区分来源。
+    acceptance: bash scripts/e2e-spec-0027-vigil-all.sh 离线段全绿(ruff/pytest);真烟测段对两仓库 fleet.yml 跑 vigil-all --once 后两个仓库各自状态独立、日志前缀可区分来源。
 ---
 
-# 0026 · 多仓库统管:单进程按配置文件并发守夜一组仓库
+# 0027 · 多仓库统管:单进程按配置文件并发守夜一组仓库
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -141,7 +141,7 @@ openagents vigil-all --once                # 每个仓库各跑一轮即退出(c
 | T1 | 配置加载:YAML 解析 + jsonschema 校验 + 默认合并 → `RepoPlan` 列表 | `openagents/fleet_config.py`, `tests/test_fleet_config.py` | — |
 | T2 | 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 崩溃/Ctrl-C 隔离 | `openagents/fleet.py`, `tests/test_fleet.py` | T1 |
 | T3 | CLI 接线 `vigil-all`(`--config`/`--once`)+ `_cmd_vigil_all` + `_fleet_for` | `openagents/cli.py`, `tests/test_cli_fleet.py` | T2 |
-| T4 | e2e 脚本演示多仓库统管闭环 | `scripts/e2e-spec-0026-vigil-all.sh` | T3 |
+| T4 | e2e 脚本演示多仓库统管闭环 | `scripts/e2e-spec-0027-vigil-all.sh` | T3 |
 
 ```mermaid
 graph LR
@@ -150,7 +150,7 @@ graph LR
   T3 --> T4[T4 e2e 脚本]
 ```
 
-**端到端验证**:`bash scripts/e2e-spec-0026-vigil-all.sh`(ruff + pytest 离线段;可选 `OPENAGENTS_E2E_REAL=1` 真烟测:对一份指向两个本地临时仓库的 `fleet.yml` 跑 `openagents vigil-all --once`,断言两个仓库各被守夜一轮、日志带各自前缀、各自 `.openagents/state.json` 独立写入)。
+**端到端验证**:`bash scripts/e2e-spec-0027-vigil-all.sh`(ruff + pytest 离线段;可选 `OPENAGENTS_E2E_REAL=1` 真烟测:对一份指向两个本地临时仓库的 `fleet.yml` 跑 `openagents vigil-all --once`,断言两个仓库各被守夜一轮、日志带各自前缀、各自 `.openagents/state.json` 独立写入)。
 
 ## Drawbacks
 

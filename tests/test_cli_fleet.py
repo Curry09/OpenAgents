@@ -1,4 +1,4 @@
-# Spec-0026/T3: vigil-all 子命令解析与转发的契约测试。
+# Spec-0027/T3: vigil-all 子命令解析与转发的契约测试。
 #
 # 薄路由验证（打桩 Fleet 工厂 + 配置加载，不真跑子进程、不触达真实 gh/后端）：
 #   - 子命令注册 + --config/--once 解析（默认 config 路径 .openagents/fleet.yml）。

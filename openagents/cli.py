@@ -122,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="在指定闸门停下等人：spec / merge / spec,merge（默认全自动不停）",
     )
 
-    # Spec-0026/T3：vigil-all —— 多仓库统管。单进程读一份 YAML 配置（仓库列表 + 全局默认 +
+    # Spec-0027/T3：vigil-all —— 多仓库统管。单进程读一份 YAML 配置（仓库列表 + 全局默认 +
     # 每仓库覆盖），为每个仓库各起一隔离子进程复用现有 Vigil 并发守夜、聚合日志。与单仓库
     # vigil 并存：vigil 在「当前仓库内」跑，vigil-all 在「任意目录」读配置统管一组仓库。
     p_vigil_all = sub.add_parser(
@@ -201,7 +201,7 @@ def _messages_for(*, ctx: ProjectContext):
     )
 
 
-# Spec-0026/T3：fleet 编排器工厂——注入起真子进程的 spawn / 真跨进程 queue。延迟 import
+# Spec-0027/T3：fleet 编排器工厂——注入起真子进程的 spawn / 真跨进程 queue。延迟 import
 # 保持 cli 顶层轻、测试可对本工厂打桩（返回假 Fleet，不真起子进程、不触达真实 gh/后端）。
 def _fleet_for():
     from openagents.fleet import Fleet, default_queue, default_spawn
@@ -362,7 +362,7 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_vigil_all(args: argparse.Namespace) -> int:
-    # Spec-0026/T3：薄路由——读 fleet 配置（解析+校验+默认合并，T1）→ Fleet.run 并发守夜（T2）。
+    # Spec-0027/T3：薄路由——读 fleet 配置（解析+校验+默认合并，T1）→ Fleet.run 并发守夜（T2）。
     # 不取 cwd 项目 ctx：vigil-all 统管的是配置里列出的「别的仓库」，本身可在任意目录运行
     # （配置路径相对 cwd 解析），故不像其它命令那样走 ensure_project preflight（见 _dispatch）。
     from openagents.fleet_config import load_fleet_config
@@ -401,7 +401,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "board":
         return _cmd_board(args)
 
-    # Spec-0026/T3：vigil-all 统管的是配置里列出的别的仓库，cwd 不必是 git 仓库——同 board
+    # Spec-0027/T3：vigil-all 统管的是配置里列出的别的仓库，cwd 不必是 git 仓库——同 board
     # 跳过 cwd 项目 preflight，直接读配置并扇出（preflight 由各子进程在自己的仓库里做）。
     if args.command == "vigil-all":
         return _cmd_vigil_all(args)
@@ -457,7 +457,7 @@ def _run(args: argparse.Namespace) -> int:
     ) as exc:
         # Spec-0020/T4：ValueError 纳入已知运行期错误——vigil --hold 非法值由 hold.parse_hold
         # 抛 ValueError，在此转成干净一行提示 + 非零退出，而非把 traceback 糊用户一脸。
-        # Spec-0026/T3：fleet 配置非法（缺 repos / 未知键 / path 缺失）由 load_fleet_config 抛
+        # Spec-0027/T3：fleet 配置非法（缺 repos / 未知键 / path 缺失）由 load_fleet_config 抛
         # FleetConfigError，同样转干净一行——配置即可漂移源，报错要可操作（见 spec Drawbacks）。
         print(f"✗ {exc}", file=sys.stderr)
         return 1

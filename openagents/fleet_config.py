@@ -1,9 +1,9 @@
-"""Spec-0026/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。
+"""Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。
 
 `openagents vigil-all` 读一份 YAML 配置统管一组仓库：顶层 `defaults`（全局默认，可选）
 + `repos`（要守夜的仓库列表，必填）。本模块把这份配置解析、声明式校验、并把 `defaults`
 与每个仓库的覆盖项合并成一组 `RepoPlan`（每项含绝对化的 `path`、显示 `name`、以及
-`interval`/`labels`/`base`/`hold`），供编排层（Spec-0026/T2 `Fleet`）逐仓库构造 Vigil。
+`interval`/`labels`/`base`/`hold`），供编排层（Spec-0027/T2 `Fleet`）逐仓库构造 Vigil。
 
 设计沿用项目既有约定（CLAUDE.md 理念 1 奥卡姆，不增实体）：YAML 格式 + `ruamel.yaml`
 读取 + `jsonschema` 声明式校验（与 `openagents/spec/` 同款依赖，`pyproject.toml` 已声明）。
@@ -21,7 +21,7 @@ from ruamel.yaml.error import YAMLError
 
 from openagents import github
 
-# Spec-0026/T1：内建默认——配置未写 `defaults` 段、或某项未覆盖时回落到这里。
+# Spec-0027/T1：内建默认——配置未写 `defaults` 段、或某项未覆盖时回落到这里。
 # 与单仓库 `openagents vigil` 的 CLI 默认同源（interval 60 / base main），labels 取
 # 发现标签单一真源 github.DISCOVERY_LABEL，避免「多仓库默认」与「单仓库默认」漂移。
 _DEFAULT_INTERVAL = 60
@@ -31,7 +31,7 @@ _DEFAULT_LABELS = (github.DISCOVERY_LABEL,)
 
 _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
-# Spec-0026/T1：`defaults` 与每个 `repos[]` 项共享的可选覆盖键。单点定义，schema 复用，
+# Spec-0027/T1：`defaults` 与每个 `repos[]` 项共享的可选覆盖键。单点定义，schema 复用，
 # 杜绝「默认段允许的键」与「仓库项允许的键」两处声明漂移。
 _OVERRIDE_PROPERTIES: dict = {
     "interval": {"type": "integer"},
@@ -40,7 +40,7 @@ _OVERRIDE_PROPERTIES: dict = {
     "hold": {"type": ["string", "null"]},
 }
 
-# Spec-0026/T1：单个仓库项 = 共享覆盖键 + 必填 path + 可选 name（日志前缀显示名）。
+# Spec-0027/T1：单个仓库项 = 共享覆盖键 + 必填 path + 可选 name（日志前缀显示名）。
 _REPO_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -52,7 +52,7 @@ _REPO_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0026/T1：最小够用 schema——顶层两键 defaults（可选）+ repos（必填、至少 1 项）。
+# Spec-0027/T1：最小够用 schema——顶层两键 defaults（可选）+ repos（必填、至少 1 项）。
 # additionalProperties=False：未识别键直接报错，防手滑（如 `repo:` 写成单数）。
 FLEET_CONFIG_SCHEMA: dict = {
     "$schema": _DRAFT,
@@ -77,12 +77,12 @@ _yaml = YAML(typ="safe")
 
 
 class FleetConfigError(Exception):
-    """Spec-0026/T1：fleet 配置无法读取或不合法（缺 repos / 未知键 / 类型错 / path 缺失等）。"""
+    """Spec-0027/T1：fleet 配置无法读取或不合法（缺 repos / 未知键 / 类型错 / path 缺失等）。"""
 
 
 @dataclass(frozen=True)
 class RepoPlan:
-    """Spec-0026/T1：单个仓库的守夜计划——defaults 与该仓库覆盖合并后的最终参数。
+    """Spec-0027/T1：单个仓库的守夜计划——defaults 与该仓库覆盖合并后的最终参数。
 
     可 pickle 的不可变 dataclass（字段均为基础类型/Path/list）：T2 编排层把它作为
     `multiprocessing.Process` target 的参数跨进程传递，spawn 启动方式要求其可序列化。
@@ -100,7 +100,7 @@ class RepoPlan:
 
 
 def load_fleet_config(*, path: Path) -> list[RepoPlan]:
-    """Spec-0026/T1：读 YAML 配置 → 校验 → 合并默认 → 返回 RepoPlan 列表。
+    """Spec-0027/T1：读 YAML 配置 → 校验 → 合并默认 → 返回 RepoPlan 列表。
 
     步骤：(1) 读文件并 YAML 解析（读不到/解析失败 → FleetConfigError）；
     (2) jsonschema 声明式校验结构与类型（不合法 → FleetConfigError，含定位）；

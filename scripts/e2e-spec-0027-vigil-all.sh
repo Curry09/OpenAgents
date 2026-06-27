@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0026 端到端测试启动脚本：openagents vigil-all 多仓库统管（单进程并发守夜一组仓库）。
+# Spec-0027 端到端测试启动脚本：openagents vigil-all 多仓库统管（单进程并发守夜一组仓库）。
 #
 # 两段：
 #   1) 离线确定性验证（默认执行）—— ruff lint/format + pytest，全程 mock/注入，不触达真实
@@ -14,15 +14,15 @@
 #
 #      为什么这一段不需要后端：两个临时仓库刻意**无 GitHub 远端**，于是各自的发现段
 #      （`gh issue list`）会确定性失败，once 模式下子进程随之非零退出——父进程为**每个仓库各
-#      记一行带前缀的退出**，这恰好确定性地演示了 Spec-0026 的三项硬保证：扇出（两个子进程）、
+#      记一行带前缀的退出**，这恰好确定性地演示了 Spec-0027 的三项硬保证：扇出（两个子进程）、
 #      日志前缀可区分来源、单仓库失败不拖垮其余（错误隔离 + 各子进程各自的 cwd 独立）。
 #      完整的「发现真实 issue → 派单 → 各仓库写各自 .openagents/state.json」闭环需真实 gh +
 #      后端（claude）驱动、成本高且非确定，请用 `openagents vigil-all --once` 指向两个真实
 #      仓库手动观察——本脚本真实段只断言确定可验的扇出/前缀/隔离链路（同 0023 的取舍）。
 #
 # 用法：
-#   bash scripts/e2e-spec-0026-vigil-all.sh                          # 仅离线验证
-#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0026-vigil-all.sh    # 含真实扇出冒烟
+#   bash scripts/e2e-spec-0027-vigil-all.sh                          # 仅离线验证
+#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0027-vigil-all.sh    # 含真实扇出冒烟
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

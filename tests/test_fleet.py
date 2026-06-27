@@ -1,4 +1,4 @@
-# Spec-0026/T2: Fleet 并发编排的契约测试。
+# Spec-0027/T2: Fleet 并发编排的契约测试。
 #
 # 用注入的「假 spawn / 假 queue」驱动编排逻辑，不起真实子进程、不触达真实 gh/后端：
 #   - fan-out：N 个 plan → N 次 spawn。

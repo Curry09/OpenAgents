@@ -1,4 +1,4 @@
-"""Spec-0026/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。
+"""Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。
 
 `openagents vigil-all` 的执行核心：拿到 T1 解析出的一组 `RepoPlan`，为**每个仓库各起一个
 隔离子进程**，在子进程里 `os.chdir(repo)` 后复用现有 CLI 工厂 `_vigil_for` 构造 `Vigil` 跑
@@ -6,7 +6,7 @@
 前缀聚合到 stderr；某子进程崩溃只记一行不拖垮其余（错误隔离）；`Ctrl-C` 逐个 terminate
 后干净退出。
 
-为什么是进程而非线程（见 Spec-0026 Reference-level / 备选 A）：`github` 的 `gh` 调用绑
+为什么是进程而非线程（见 Spec-0027 Reference-level / 备选 A）：`github` 的 `gh` 调用绑
 **进程工作目录**（`subprocess.run(["gh", ...])` 不传 cwd），而 `os.chdir` 改的是进程全局
 cwd——同一进程内多线程无法各持不同 cwd，两个仓库的 `gh issue list` 会串台。给每个仓库一个
 独立子进程则一举拿到 cwd 隔离、内存/状态隔离、崩溃隔离与真正并行。
@@ -26,13 +26,13 @@ from typing import Any
 
 from openagents.fleet_config import RepoPlan
 
-# Spec-0026/T2：父进程轮询日志队列的阻塞窗口（秒）。短超时让父进程在「无新日志」与
+# Spec-0027/T2：父进程轮询日志队列的阻塞窗口（秒）。短超时让父进程在「无新日志」与
 # 「检查子进程是否都已退出」之间快速轮转，既不忙等也不错过停止时机。
 _DRAIN_TIMEOUT = 0.2
 
 
 class _QueueWriter:
-    """Spec-0026/T2：子进程内的 stderr 替身——把 Vigil._log 的写入按行投到日志队列。
+    """Spec-0027/T2：子进程内的 stderr 替身——把 Vigil._log 的写入按行投到日志队列。
 
     `Vigil._log` 用 `print(..., file=sys.stderr)` 打日志；子进程内把 `sys.stderr` 临时换成
     本对象，于是每写满一行就 `queue.put((name, line))` 回传父进程（父进程统一加 `[name]`
@@ -59,7 +59,7 @@ class _QueueWriter:
 
 
 def _run_repo(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
-    """Spec-0026/T2：单仓库子进程的目标函数——锁定 cwd 后复用现有 Vigil 守夜。
+    """Spec-0027/T2：单仓库子进程的目标函数——锁定 cwd 后复用现有 Vigil 守夜。
 
     步骤：(1) `os.chdir(plan.path)` 把进程 cwd 钉到该仓库，使其后的 `gh`/`git` 与状态读写
     全部作用于本仓库；(2) `resolve_project()` 解析项目上下文（非 git 仓库 → RuntimeError，
@@ -96,7 +96,7 @@ def _run_repo(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
 
 
 def _run_repo_entry(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
-    """Spec-0026/T2：子进程真实入口——把 `_run_repo` 的任何失败转成一行干净日志 + 非零退出。
+    """Spec-0027/T2：子进程真实入口——把 `_run_repo` 的任何失败转成一行干净日志 + 非零退出。
 
     单仓库 `openagents vigil` 的运行期错误经 CLI `_run` 转成干净一行（不糊 traceback，RFC-0003
     决策 9）；子进程里没有那条通道，未捕获异常会被 multiprocessing 默认打印成整页 traceback。
@@ -114,14 +114,14 @@ def _run_repo_entry(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
 
 
 def default_queue() -> Any:
-    """Spec-0026/T2：真正的跨进程日志队列工厂（CLI 注入）。延迟 import 保持本模块轻。"""
+    """Spec-0027/T2：真正的跨进程日志队列工厂（CLI 注入）。延迟 import 保持本模块轻。"""
     import multiprocessing
 
     return multiprocessing.Queue()
 
 
 def default_spawn(*, plan: RepoPlan, log_queue: Any, once: bool) -> Any:
-    """Spec-0026/T2：真正起一个子进程跑 `_run_repo`（CLI 注入）。
+    """Spec-0027/T2：真正起一个子进程跑 `_run_repo`（CLI 注入）。
 
     `RepoPlan` 是可 pickle 的 frozen dataclass、`_run_repo` 是模块级函数——满足 spawn 启动
     方式（macOS/Win 默认）对 target 与参数可序列化的要求。
@@ -139,7 +139,7 @@ def default_spawn(*, plan: RepoPlan, log_queue: Any, once: bool) -> Any:
 
 
 class Fleet:
-    """Spec-0026/T2：多仓库守夜编排器——为每个 RepoPlan 起一隔离子进程并监管其生命周期。
+    """Spec-0027/T2：多仓库守夜编排器——为每个 RepoPlan 起一隔离子进程并监管其生命周期。
 
     `spawn` / `queue_factory` 为可注入依赖（理念 10 解耦）：生产用 `default_spawn` /
     `default_queue` 起真进程，单测注入假实现验证编排逻辑而不触达真实子进程与 gh/后端。
