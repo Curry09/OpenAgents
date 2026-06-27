@@ -70,6 +70,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0026 README 最简用法:紧跟安装方法之后新增 Quickstart 段
 在 README「安装」之后、「快速上手」之前插入一段「最简用法 / Quickstart」,把最短可用路径 init → issue → vigil 放最前,并点明日常只用 issue+vigil、poll/watch/rfc 等是不发现新 issue 的单步调试工具。只动 README 文案与结构,不改任何 CLI 行为。
 
+### 0027 多仓库统管:单进程按配置文件并发守夜一组仓库
+新增 openagents vigil-all 命令:单进程读一份 YAML 配置(仓库列表 + 全局默认 + 每仓库可选覆盖 interval/labels/base/hold),为每个仓库起一个隔离子进程复用现有 Vigil 并发守夜(发现→派单→守候),各读写自己的 .openagents/state.json,统一带仓库前缀聚合日志;单仓库 vigil 命令与底层逻辑零改动。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -163,6 +166,10 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 | 0025 | 0025/T4 | e2e 脚本演示反向补全闭环 | done | T3 | scripts/e2e-spec-0025-backfill-rfc.sh |
 | 0026 | 0026/T1 | 插入最简用法/Quickstart 段并同步目录锚点 | done | — | README.md |
 | 0026 | 0026/T2 | e2e 脚本断言 Quickstart 段位置 | done | T1 | scripts/e2e-spec-0026-readme-quickstart.sh |
+| 0027 | 0027/T1 | 配置加载:YAML 解析 + jsonschema 校验 + 默认合并 | done | — | openagents/fleet_config.py<br>tests/test_fleet_config.py |
+| 0027 | 0027/T2 | 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离 | done | T1 | openagents/fleet.py<br>tests/test_fleet.py |
+| 0027 | 0027/T3 | CLI 接线 vigil-all(--config/--once) | done | T2 | openagents/cli.py<br>tests/test_cli_fleet.py |
+| 0027 | 0027/T4 | e2e 脚本演示多仓库统管闭环 | done | T3 | scripts/e2e-spec-0027-vigil-all.sh |
 
 ## 跨 feature 关系图
 
@@ -301,6 +308,12 @@ graph LR
         n0026_T1["T1 插入最简用法/Quickstart 段并同步目录锚点"]
         n0026_T2["T2 e2e 脚本断言 Quickstart 段位置"]
     end
+    subgraph G0027[0027 multi-repo-vigil]
+        n0027_T1["T1 配置加载:YAML 解析 + jsonschema 校验 + 默认合并"]
+        n0027_T2["T2 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离"]
+        n0027_T3["T3 CLI 接线 vigil-all(--config/--once)"]
+        n0027_T4["T4 e2e 脚本演示多仓库统管闭环"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -381,6 +394,9 @@ graph LR
     n0025_T3 --> n0025_T2
     n0025_T4 --> n0025_T3
     n0026_T2 --> n0026_T1
+    n0027_T2 --> n0027_T1
+    n0027_T3 --> n0027_T2
+    n0027_T4 --> n0027_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -396,7 +412,7 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024 |
 | openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
@@ -1065,4 +1081,32 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0027 多仓库统管:单进程按配置文件并发守夜一组仓库（issue #77）
+
+```mermaid
+graph LR
+    nT1["T1 配置加载:YAML 解析 + jsonschema 校验 + 默认合并"]
+    nT2["T2 并发编排:每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离"]
+    nT3["T3 CLI 接线 vigil-all(--config/--once)"]
+    nT4["T4 e2e 脚本演示多仓库统管闭环"]
+    nT1 --> nT2
+    nT2 --> nT3
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```
