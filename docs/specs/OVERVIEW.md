@@ -77,7 +77,7 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 语义解决，分层降级 indexheal→agent→人工。
 
 ### 0029 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能
-把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；历史 spec/设计文档正文里的 RFC-NNNN 作为冻结记录保留。
+把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；清扫覆盖每个活源文件与活模板——含包级 docstring openagents/__init__.py 的招牌标语与看板模板 openagents/templates/board.html 的 RFC-0001。冻结/prior-art allowlist（显式保留、不清扫、e2e 不误报）：历史 spec/设计文档正文里的 RFC-NNNN、rust-RFC 形态名、openagents/spec/ 与 tests/test_spec_* 里记录旧 rfc.py 改名的历史引用、scripts/e2e-rfc-*.sh 历史脚本名。
 
 ## 全局看板
 
@@ -184,7 +184,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0029 | 0029/T2 | 线上/持久化值硬切 | pending | — | openagents/state.py<br>openagents/github.py<br>openagents/reviewer.py<br>tests/test_state.py<br>tests/test_github.py<br>tests/test_reviewer.py<br>tests/test_ensure_prerequisites.py |
 | 0029 | 0029/T3 | orchestrator/backfill 内部标识符重命名 | pending | T2 | openagents/orchestrator.py<br>openagents/backfill.py<br>tests/test_orchestrator.py<br>tests/test_orchestrator_pr_body.py<br>tests/test_backfill.py |
 | 0029 | 0029/T4 | CLI 子命令与 messages/vigil 消费者对齐 | pending | T3 | openagents/cli.py<br>openagents/messages.py<br>openagents/vigil.py<br>tests/test_cli.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_vigil.py |
-| 0029 | 0029/T5 | 残余 RFC-NNNN 注释清扫 | pending | T4 | openagents/e2e.py<br>openagents/workspace.py<br>openagents/rebase.py<br>openagents/results.py<br>openagents/release.py<br>openagents/config.py<br>openagents/fleet.py<br>openagents/identity.py<br>openagents/spec/signpost.py<br>openagents/backends/__init__.py<br>openagents/backends/base.py<br>openagents/backends/claude_code.py<br>tests/test_e2e.py<br>tests/test_workspace.py<br>tests/test_rebase.py<br>tests/test_results.py<br>tests/test_release.py<br>tests/test_config.py<br>tests/test_fleet.py<br>tests/test_identity.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py |
+| 0029 | 0029/T5 | 残余 RFC-NNNN 注释清扫 | pending | T4 | openagents/__init__.py<br>openagents/e2e.py<br>openagents/workspace.py<br>openagents/rebase.py<br>openagents/results.py<br>openagents/templates/board.html<br>openagents/release.py<br>openagents/config.py<br>openagents/fleet.py<br>openagents/identity.py<br>openagents/backends/__init__.py<br>openagents/backends/base.py<br>openagents/backends/claude_code.py<br>tests/test_e2e.py<br>tests/test_workspace.py<br>tests/test_rebase.py<br>tests/test_results.py<br>tests/test_release.py<br>tests/test_config.py<br>tests/test_fleet.py<br>tests/test_identity.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py |
 | 0029 | 0029/T6 | 端到端校验脚本：断言零残余 rfc | pending | T5 | scripts/e2e-spec-0029-rfc-to-spec.sh |
 
 ## 跨 feature 关系图
@@ -449,6 +449,7 @@ graph LR
 | README.md | 0026, 0029 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
+| openagents/__init__.py | 0001, 0029 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029 |
@@ -472,9 +473,10 @@ graph LR
 | openagents/spec/mutate.py | 0014, 0015 |
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015, 0024 |
-| openagents/spec/signpost.py | 0024, 0028, 0029 |
+| openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029 |
+| openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |

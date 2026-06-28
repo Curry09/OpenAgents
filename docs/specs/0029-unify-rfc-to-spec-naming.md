@@ -3,7 +3,7 @@ number: "0029"
 title: 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能
 issue: 81
 slug: unify-rfc-to-spec-naming
-summary: 把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；历史 spec/设计文档正文里的 RFC-NNNN 作为冻结记录保留。
+summary: 把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；清扫覆盖每个活源文件与活模板——含包级 docstring openagents/__init__.py 的招牌标语与看板模板 openagents/templates/board.html 的 RFC-0001。冻结/prior-art allowlist（显式保留、不清扫、e2e 不误报）：历史 spec/设计文档正文里的 RFC-NNNN、rust-RFC 形态名、openagents/spec/ 与 tests/test_spec_* 里记录旧 rfc.py 改名的历史引用、scripts/e2e-rfc-*.sh 历史脚本名。
 tasks:
   - id: T1
     title: 文档与技能退场
@@ -84,15 +84,16 @@ tasks:
     relates-to: []
     parallel: false
     files:
+      - openagents/__init__.py
       - openagents/e2e.py
       - openagents/workspace.py
       - openagents/rebase.py
       - openagents/results.py
+      - openagents/templates/board.html
       - openagents/release.py
       - openagents/config.py
       - openagents/fleet.py
       - openagents/identity.py
-      - openagents/spec/signpost.py
       - openagents/backends/__init__.py
       - openagents/backends/base.py
       - openagents/backends/claude_code.py
@@ -106,8 +107,8 @@ tasks:
       - tests/test_identity.py
       - tests/test_base.py
       - tests/test_backend_claude_code.py
-    scope: 'A–D 未覆盖的源/测试文件里，把 # RFC-NNNN 代码注释与 rfc 字样 docstring 改成 # Spec-NNNN（数字不变）；不改任何行为、不动跨文件符号。'
-    acceptance: '本 Task 名下文件均不含 # RFC- 注释前缀或 rfc 字样 docstring；无行为变化，全部既有测试保持绿；ruff 通过。'
+    scope: 'A–D 未覆盖的活源/测试文件 + 活模板里，把 # RFC-NNNN 代码注释、rfc 字样设计 docstring/散文、看板模板的 RFC-0001 改成 Spec（数字不变）：openagents/__init__.py:1 包级 docstring 招牌标语「RFC 驱动的多 Agent 框架」→「spec 驱动…」（第二行 Spec-0001 已正确，不动）；openagents/templates/board.html:41 渲染文案 `· RFC-0001 决策 9`→`· Spec-0001 决策 9`（results.py 是其渲染方，同属本 Task）。不改任何行为、不动跨文件符号。冻结/prior-art 不在本 Task：openagents/spec/（rust-RFC 形态名 + issue #53/#69 历史、记录旧 rfc.py 改名）整目录与 test_spec_* 不归本 Task；本 Task 名下若出现记录旧符号/旧文件名的历史注释（如 tests/test_workspace.py 的「取代 RFC-0008 changed_rfc_path」），按冻结历史保留、不改。'
+    acceptance: '本 Task 名下文件不含 # RFC- 注释前缀，不含 rfc 字样设计 docstring/散文；openagents/__init__.py 包 docstring 不再自称「RFC 驱动」；openagents/templates/board.html 不含 RFC-0001（改为 Spec-0001）；记录旧符号/旧文件名的历史注释作为冻结记录保留（不视作残余）；无行为变化，全部既有测试保持绿；ruff 通过。'
   - id: T6
     title: 端到端校验脚本：断言零残余 rfc
     status: pending
@@ -119,8 +120,8 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0029-rfc-to-spec.sh
-    scope: 新增纯静态 e2e 脚本：grep 全仓断言 rfc 技能目录已删、openagents/+tests/ 无 rfc 标识符/# RFC- 注释、无线上值字面量 rfc-approved/rfc-review/kind="rfc"、三处文档无 rfc 散文；排除 docs/specs/*.md 冻结正文与 scripts/e2e-rfc-*.sh 历史文件名。不调真实 GitHub。
-    acceptance: bash scripts/e2e-spec-0029-rfc-to-spec.sh 退出码 0：断言 (1) .claude/skills/rfc-driven-development/ 不存在 (2) openagents/+tests/ 无 start_rfc/refine_rfc/backfill_rfc/_DRAFT_RFC_TASK/STATUS_RFC_REVIEW/# RFC- (3) 无 rfc-approved/rfc-review/kind="rfc" 字面量 (4) CLAUDE.md/README.md/docs/specs/README.md 无 rfc 指针/命令/标签散文；排除项不误报；无外部依赖可复跑。
+    scope: 新增纯静态 e2e 脚本：grep 全仓断言 rfc 技能目录已删、openagents/+tests/ 无 rfc 标识符/# RFC- 注释、无线上值字面量 rfc-approved/rfc-review/kind="rfc"、三处文档无 rfc 散文；并加一条**更宽的 banned-word 断言**——openagents/+tests/ 的 .py/.html 活文件里，除显式 allowlist 外不得出现 rfc 词（忽略大小写、词边界），以兜住 board.html 的 RFC-0001、__init__.py 的「RFC 驱动」等无 `# ` 前缀的残余。allowlist（写进脚本注释 + 正文）：openagents/spec/ 整目录、tests/test_spec_* 文件（rust-RFC 形态名 + issue #53/#69 历史）、任意行含 rust-RFC、记录旧符号/旧文件名的历史注释（取代 …RFC-NNNN…/旧 rfc.py/changed_rfc_path）。排除 docs/specs/*.md 冻结正文与 scripts/e2e-rfc-*.sh 历史文件名。不调真实 GitHub。
+    acceptance: bash scripts/e2e-spec-0029-rfc-to-spec.sh 退出码 0：断言 (1) .claude/skills/rfc-driven-development/ 不存在 (2) openagents/+tests/ 无 start_rfc/refine_rfc/backfill_rfc/_DRAFT_RFC_TASK/STATUS_RFC_REVIEW/# RFC- (3) 无 rfc-approved/rfc-review/kind="rfc" 字面量 (4) CLAUDE.md/README.md/docs/specs/README.md 无 rfc 指针/命令/标签散文 (5) **broad**：openagents/+tests/ 的 .py/.html 减去 allowlist（openagents/spec/、tests/test_spec_*、含 rust-RFC 行、历史符号/文件名注释）后 grep -iw rfc 为空——故 board.html=Spec-0001、__init__.py 无「RFC 驱动」才放行；allowlist 内的 rust-RFC/历史引用既不误报也不漏报；无外部依赖可复跑。
 ---
 
 # 0029 · 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能
@@ -138,7 +139,8 @@ tasks:
 - **技能目录未删**：`.claude/skills/rfc-driven-development/`（含 `SKILL.md`、`references/code-comment-conventions.md`、`rfc-template.md`、`rfc-readme-template.md`、`verification-checklist.md`）仍在，与 `spec-driven-development` 并存，给 agent 两套互相矛盾的入口。
 - **`CLAUDE.md` 指针指错**：代码规范一节写「代码注释……详见 `.claude/skills/rfc-driven-development/references/code-comment-conventions.md`」，指向即将删除的目录。
 - **散文仍说 RFC**：`README.md`（约 30+ 处：「issue → RFC → PR」心智模型、命令参考表里的 `rfc <issue>`、`refine-rfc <pr>`、`rfc-approved` 标签、`rfc-review` 状态等）与 `docs/specs/README.md`（rust-RFC 形态描述等）。
-- **代码标识符与注释**：`openagents/` 几乎每个模块都带 `# RFC-NNNN` 注释；函数 `start_rfc()`/`refine_rfc()`/`backfill_rfc()`（`orchestrator.py`）、prompt 常量 `_DRAFT_RFC_TASK`（`orchestrator.py:54`）、状态常量 `STATUS_RFC_REVIEW`（`state.py:31`）。`tests/` 镜像同样的标识符。
+- **代码标识符与注释**：`openagents/` 几乎每个模块都带 `# RFC-NNNN` 注释；函数 `start_rfc()`/`refine_rfc()`/`backfill_rfc()`（`orchestrator.py`）、prompt 常量 `_DRAFT_RFC_TASK`（`orchestrator.py:54`）、状态常量 `STATUS_RFC_REVIEW`（`state.py:31`）。`tests/` 镜像同样的标识符。两处**非 `# RFC-` 前缀、易漏网**的活残余：`openagents/__init__.py:1` 的包级招牌 docstring `"""OpenAgents —— RFC 驱动的多 Agent 框架。"""`（整个包仍自称「RFC 驱动」），与 `openagents/templates/board.html:41` 渲染到看板 UI 的活模板文案 `生成于 … · RFC-0001 决策 9`。
+- **活模板**：`openagents/templates/board.html` 是渲染到看板的活模板（非 `docs/specs/*.md` 冻结正文），带 `RFC-0001` 活引用，须随活代码一并清扫。
 - **CLI 子命令**：`openagents rfc` / `refine-rfc` / `backfill-rfc`（`cli.py` 的 parser 与 dispatch 表）。
 - **对外/持久化线上值（最关键，硬切面）**：
   - GitHub 标签 `APPROVAL_LABEL = "rfc-approved"`（`github.py:65`）——全票 PASS 的批准信号，写到 GitHub 上、由 bootstrap 幂等预建、被消息层读取以放行 implement 阶段。
@@ -160,7 +162,12 @@ tasks:
 - **看 GitHub 的人**：流程标签从 `rfc-approved` 变成 `spec-approved`；draft PR 评审阶段在本地状态里叫 `spec-review`（原 `rfc-review`）。一条 spec 评审通过的闭环不变——全票 PASS → 自动打 `spec-approved` → 转入 coding——只是标签名换了。
 - **读代码的 agent**：代码注释里的设计引用统一成 `# Spec-NNNN/Tn`（原 `# RFC-NNNN`）。注意 spec 组号与旧 RFC 号 1:1 兼容（spec NNNN ≡ 旧 RFC NNNN），所以注释里的数字不变、只换前缀词。
 
-**唯一不变的 RFC：** 历史 spec 文件（`docs/specs/0001-…0028`）和 dated 设计文档（`docs/specs/YYYY-MM-DD-*-design.md`）**正文里**的 `RFC-NNNN` 是写完即冻结的设计记录，照旧保留——它们记录的是「当时叫 RFC」的历史事实，改了反而失真。本组只清扫**活代码、活文档、线上值**里的 rfc，不动冻结历史。
+**保留不动的 RFC（冻结 / prior-art allowlist）：** 三类 `RFC` 字样照旧保留，改了反而失真——
+- **冻结设计记录**：历史 spec 文件（`docs/specs/0001-…0028`）和 dated 设计文档（`docs/specs/YYYY-MM-DD-*-design.md`）**正文里**的 `RFC-NNNN`，记录的是「当时叫 RFC」的历史事实；
+- **prior-art 形态名**：`rust-RFC`（rust-lang/rfcs 的 9 段形态名，spec 工具链对标的来源），集中在 `openagents/spec/`（`model.py`/`__init__.py`/`signpost.py`）与 `tests/test_spec_*`；
+- **历史符号/文件名引用**：记录一次过往改名的注释，如 `signpost.py` 的「取代 RFC-0008/RFC-0013 的 `rfc.py`」、`tests/test_workspace.py` 的「取代 RFC-0008 `changed_rfc_path`」——这些 `rfc.py`/`changed_rfc_path` 是真实存在过的旧文件/旧符号名，改名会篡改历史。
+
+本组只清扫**活代码、活文档、活模板、线上值**里作为**当前设计词汇**的 rfc，不动上述三类。这条「清扫 vs 保留」边界由 T6 的 e2e allowlist **机械固化**（不靠逐人判断），见 Reference-level。
 
 ## Reference-level explanation
 
@@ -179,7 +186,11 @@ tasks:
 
 **D. CLI 子命令重命名。** `cli.py`：parser `add_parser("rfc"|"refine-rfc"|"backfill-rfc")` 与 dispatch 表 key、`_cmd_rfc`/`_cmd_refine_rfc`/`_cmd_backfill_rfc` 处理函数名一并改 spec 系（最终子命令名见 Unresolved，默认 `spec`/`refine-spec`/`backfill-spec`）。
 
-**E. 残余 `# RFC-NNNN` 注释清扫。** 上述 A–D 未覆盖的文件里，把 `# RFC-NNNN` 代码注释与 rfc 字样 docstring 改成 `# Spec-NNNN`（数字不变）。
+**E. 残余 rfc 清扫（活源 + 活模板，A–D 未覆盖处）。** 把 `# RFC-NNNN` 代码注释、rfc 字样设计 docstring/散文改成 `Spec-NNNN`（数字不变）。两处此前漏网、本组显式纳入：
+- `openagents/__init__.py:1` 包级 docstring 招牌标语 `"""OpenAgents —— RFC 驱动的多 Agent 框架。"""` → `spec 驱动…`（第二行 `Spec-0001` 已正确）。这是整个包的自我标语，不清它则硬切完成后框架仍自称「RFC 驱动」，直接打脸 Summary「整个仓库只有一个设计词汇 spec」。
+- `openagents/templates/board.html:41` 渲染到看板 UI 的活模板文案 `生成于 … · RFC-0001 决策 9` → `· Spec-0001 决策 9`。它由 `results.py`（`_TEMPLATE_PATH = templates/board.html`）渲染，故与 `results.py` 同归 T5，文件所有权不与他组重叠。
+
+**保留不动**（不在 E 清扫，是 T6 allowlist）：`openagents/spec/` 整目录（`rust-RFC` 形态名 + issue #53/#69 历史、旧 `rfc.py` 引用）与 `tests/test_spec_*`；以及散落在本组文件里的历史符号/文件名注释（如 `tests/test_workspace.py` 的「取代 RFC-0008 `changed_rfc_path`」）——见 Guide-level 三类保留。`openagents/spec/signpost.py` 经核仅含此类 prior-art/历史引用、无任何待重命名的活标识符，故**不列入任何 Task 的 owns files**。
 
 **一次性迁移（运维步骤，非文件改动）：** 硬切上线后，对**现存已打 `rfc-approved` 的 open PR** 执行一次性标签迁移——`gh label create spec-approved`（若 bootstrap 未先建）后，对每个受影响 PR `gh pr edit <n> --add-label spec-approved --remove-label rfc-approved`，再 `gh label delete rfc-approved`。进行中的 `rfc-review` 本地 run 读不出即丢弃重建。此步写进 PR 描述 / 端到端脚本的说明，由人在合并时执行一次。
 
@@ -191,7 +202,7 @@ tasks:
 | T2 | 线上/持久化值硬切：`spec-approved` 标签、`spec-review` 状态常量、reviewer kind `'spec'`、bootstrap 幂等建新标签 | `openagents/state.py`, `openagents/github.py`, `openagents/reviewer.py`, `tests/test_state.py`, `tests/test_github.py`, `tests/test_reviewer.py`, `tests/test_ensure_prerequisites.py` | — |
 | T3 | orchestrator/backfill 内部标识符重命名 + 消费 T2 的新常量/kind | `openagents/orchestrator.py`, `openagents/backfill.py`, `tests/test_orchestrator.py`, `tests/test_orchestrator_pr_body.py`, `tests/test_backfill.py` | T2 |
 | T4 | CLI 子命令重命名 + messages/vigil 消费者对齐（状态/标签/kind 字面量、调用 T3 新函数名） | `openagents/cli.py`, `openagents/messages.py`, `openagents/vigil.py`, `tests/test_cli.py`, `tests/test_messages.py`, `tests/test_messages_resolve.py`, `tests/test_vigil.py` | T2, T3 |
-| T5 | 残余 `# RFC-NNNN` 注释/docstring 清扫（A–D 未覆盖的文件） | `openagents/e2e.py`, `openagents/workspace.py`, `openagents/rebase.py`, `openagents/results.py`, `openagents/release.py`, `openagents/config.py`, `openagents/fleet.py`, `openagents/identity.py`, `openagents/spec/signpost.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `openagents/backends/claude_code.py`, `tests/test_e2e.py`, `tests/test_workspace.py`, `tests/test_rebase.py`, `tests/test_results.py`, `tests/test_release.py`, `tests/test_config.py`, `tests/test_fleet.py`, `tests/test_identity.py`, `tests/test_base.py`, `tests/test_backend_claude_code.py` | T3, T4 |
+| T5 | 残余 rfc 清扫（A–D 未覆盖的活源 + 活模板）：含 `__init__.py` 包标语、`board.html` 的 RFC-0001；保留历史符号注释 | `openagents/__init__.py`, `openagents/e2e.py`, `openagents/workspace.py`, `openagents/rebase.py`, `openagents/results.py`, `openagents/templates/board.html`, `openagents/release.py`, `openagents/config.py`, `openagents/fleet.py`, `openagents/identity.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `openagents/backends/claude_code.py`, `tests/test_e2e.py`, `tests/test_workspace.py`, `tests/test_rebase.py`, `tests/test_results.py`, `tests/test_release.py`, `tests/test_config.py`, `tests/test_fleet.py`, `tests/test_identity.py`, `tests/test_base.py`, `tests/test_backend_claude_code.py` | T3, T4 |
 | T6 | 端到端校验脚本：grep 全仓断言零残余 rfc（排除冻结历史 spec/设计文档正文与历史 e2e 脚本文件名） | `scripts/e2e-spec-0029-rfc-to-spec.sh` | T1, T2, T3, T4, T5 |
 
 ```mermaid
@@ -209,17 +220,31 @@ graph LR
   T5 --> T6
 ```
 
-**端到端验证**：`bash scripts/e2e-spec-0029-rfc-to-spec.sh`——纯静态校验，不调真实 GitHub。脚本断言：(1) `.claude/skills/rfc-driven-development/` 不存在；(2) `grep` 在 `openagents/` + `tests/` 找不到 `start_rfc`/`refine_rfc`/`backfill_rfc`/`_DRAFT_RFC_TASK`/`STATUS_RFC_REVIEW` 标识符，也找不到 `# RFC-` 注释前缀；(3) 找不到线上值字面量 `rfc-approved` / `rfc-review` / reviewer `kind="rfc"`；(4) `CLAUDE.md`/`README.md`/`docs/specs/README.md` 不含指向 rfc 技能的指针或 rfc 命令/标签散文；(5) **排除项**：`docs/specs/*.md` 正文里的 `RFC-NNNN` 与 `scripts/e2e-rfc-*.sh` 历史文件名不计入残余。
+**端到端验证**：`bash scripts/e2e-spec-0029-rfc-to-spec.sh`——纯静态校验，不调真实 GitHub。脚本断言：
+
+1. `.claude/skills/rfc-driven-development/` 不存在；
+2. `grep` 在 `openagents/` + `tests/` 找不到 `start_rfc`/`refine_rfc`/`backfill_rfc`/`_DRAFT_RFC_TASK`/`STATUS_RFC_REVIEW` 标识符，也找不到 `# RFC-` 注释前缀；
+3. 找不到线上值字面量 `rfc-approved` / `rfc-review` / reviewer `kind="rfc"`；
+4. `CLAUDE.md`/`README.md`/`docs/specs/README.md` 不含指向 rfc 技能的指针或 rfc 命令/标签散文；
+5. **broad banned-word（兜底，与「零残余」自洽的关键）**：对 `openagents/` + `tests/` 的 `*.py`/`*.html` 活文件，减去下方 allowlist 后，忽略大小写、按词边界 grep `rfc` 必须为空。它专门兜住 (2)/(3) 的特定标识符集合**漏掉的**残余——尤其 `board.html` 的 `RFC-0001`（无 `# ` 前缀）与 `__init__.py` 的「RFC 驱动」（docstring 散文）。没有这条，脚本会绿灯放行一个仍自称 RFC-驱动的仓库，断言集与目标不自洽。
+
+**Allowlist（既防误报又不漏报，写进脚本注释 + 本段）：** 下列属合理 prior-art / 冻结历史，从断言 (5) 中排除：
+- 路径 `openagents/spec/`（整目录：`rust-RFC` 形态名 + issue #53/#69 历史叙述 + 旧 `rfc.py` 引用）；
+- 文件 `tests/test_spec_*.py`（镜像同样的 rust-RFC/历史引用）；
+- 任意行包含 `rust-RFC`（防御性，万一出现在 `spec/` 之外）；
+- 记录旧符号/旧文件名的历史注释，模式 `取代 …RFC-NNNN…` / `旧 rfc.py` / `changed_rfc_path`（如 `tests/test_workspace.py:146`）。
+
+**仓库级排除项**（同样不计入残余）：`docs/specs/*.md` 冻结正文里的 `RFC-NNNN`，与 `scripts/e2e-rfc-*.sh` 历史脚本文件名（见 Unresolved，本组默认不改）。
 
 ### files 互斥校验
 
-每个源文件/测试文件恰好归属一个 Task；跨文件的符号重命名（如 `STATUS_RFC_REVIEW` 改名涟漪到 orchestrator/messages 的 import 行）由**依赖边**排序协调（消费 Task `depends-on` 定义 Task），而非共享文件所有权——满足「单一 writer」与协同模式无冲突。
+每个**需改动的**源文件/测试文件恰好归属一个 Task，且 `files` 集两两不相交（含本轮新纳入的 `openagents/__init__.py` 与 `openagents/templates/board.html`，二者均不被他 Task 拥有）。`openagents/spec/signpost.py` 经核仅含 prior-art/历史引用、无待改动，故不属于任何 Task——无 writer 即无冲突。跨文件的符号重命名（如 `STATUS_RFC_REVIEW` 改名涟漪到 orchestrator/messages 的 import 行）由**依赖边**排序协调（消费 Task `depends-on` 定义 Task），而非共享文件所有权——满足「单一 writer」与协同模式无冲突。
 
 ## Drawbacks
 
 - **改动面极大、几乎触全仓**：rfc 命名渗透到每个模块，本组是一次大范围机械重命名，review 成本高、与其它在途 PR 冲突概率大（需尽快合并、抢在大改动前）。
 - **硬切破坏在途状态**：进行中的 `rfc-review` 本地 run 与已打 `rfc-approved` 的 PR 在切换瞬间失配，需要一次性运维迁移 + 可能的重建；若迁移步骤漏执行，会出现「PR 卡在旧标签、消息层认不出」的短暂故障。
-- **冻结历史与活命名的边界要人判断**：「哪些 `RFC-NNNN` 是冻结历史正文、哪些是该改的活注释」需要清扫者逐处分辨（docs/specs 正文 = 冻结；openagents/tests 代码注释 = 改），机械全局替换会误伤冻结记录。
+- **冻结/prior-art 与活命名的边界要人判断，但已机械固化兜底**：「哪些 `RFC-NNNN`/`rfc` 是该保留的冻结正文、`rust-RFC` 形态名、旧符号/文件名历史引用，哪些是该改的活注释/标语/模板文案」本质需要清扫者逐处分辨，机械全局替换会误伤冻结记录。为把这条软约定硬化（理念），T6 的 broad 断言带一份**显式 allowlist**（`openagents/spec/`、`tests/test_spec_*`、`rust-RFC` 行、历史符号注释），让边界变成可复跑的 CI 规则而非纯人脑判断——既不漏放残余（如 `board.html`/`__init__.py`），也不误伤 prior-art。allowlist 本身仍需在新增 prior-art 文件时维护，是残余的人工成本。
 - **e2e 脚本文件名的 rfc 不在本组清扫**：`scripts/e2e-rfc-NNNN-*.sh` 仍带 rfc（见 Unresolved），留下视觉上的不一致。
 
 ## Rationale and alternatives
