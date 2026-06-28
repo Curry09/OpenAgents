@@ -76,6 +76,9 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0028 PR 自动化两处改进：spec 草稿 PR 内嵌 9 段总览摘要 + merge 冲突派 agent 语义解冲突
 spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 语义解决，分层降级 indexheal→agent→人工。
 
+### 0029 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能
+把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；历史 spec/设计文档正文里的 RFC-NNNN 作为冻结记录保留。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -177,6 +180,12 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0028 | 0028/T2 | 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂） | done | — | openagents/conflict.py<br>tests/test_conflict.py |
 | 0028 | 0028/T3 | 改进2：接线 rebase / messages / cli（分层降级 + 门控） | done | T2 | openagents/rebase.py<br>openagents/messages.py<br>openagents/cli.py<br>tests/test_rebase_resolve.py<br>tests/test_messages_resolve.py |
 | 0028 | 0028/T4 | hermetic e2e 脚本（无网络、不触真实 LLM） | done | T1, T3 | scripts/e2e-spec-0028-pr-digest-and-conflict.sh |
+| 0029 | 0029/T1 | 文档与技能退场 | pending | — | CLAUDE.md<br>README.md<br>docs/specs/README.md<br>.claude/skills/rfc-driven-development/ |
+| 0029 | 0029/T2 | 线上/持久化值硬切 | pending | — | openagents/state.py<br>openagents/github.py<br>openagents/reviewer.py<br>tests/test_state.py<br>tests/test_github.py<br>tests/test_reviewer.py<br>tests/test_ensure_prerequisites.py |
+| 0029 | 0029/T3 | orchestrator/backfill 内部标识符重命名 | pending | T2 | openagents/orchestrator.py<br>openagents/backfill.py<br>tests/test_orchestrator.py<br>tests/test_orchestrator_pr_body.py<br>tests/test_backfill.py |
+| 0029 | 0029/T4 | CLI 子命令与 messages/vigil 消费者对齐 | pending | T3 | openagents/cli.py<br>openagents/messages.py<br>openagents/vigil.py<br>tests/test_cli.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_vigil.py |
+| 0029 | 0029/T5 | 残余 RFC-NNNN 注释清扫 | pending | T4 | openagents/e2e.py<br>openagents/workspace.py<br>openagents/rebase.py<br>openagents/results.py<br>openagents/release.py<br>openagents/config.py<br>openagents/fleet.py<br>openagents/identity.py<br>openagents/spec/signpost.py<br>openagents/backends/__init__.py<br>openagents/backends/base.py<br>openagents/backends/claude_code.py<br>tests/test_e2e.py<br>tests/test_workspace.py<br>tests/test_rebase.py<br>tests/test_results.py<br>tests/test_release.py<br>tests/test_config.py<br>tests/test_fleet.py<br>tests/test_identity.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py |
+| 0029 | 0029/T6 | 端到端校验脚本：断言零残余 rfc | pending | T5 | scripts/e2e-spec-0029-rfc-to-spec.sh |
 
 ## 跨 feature 关系图
 
@@ -327,6 +336,14 @@ graph LR
         n0028_T3["T3 改进2：接线 rebase / messages / cli（分层降级 + 门控）"]
         n0028_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM）"]
     end
+    subgraph G0029[0029 unify-rfc-to-spec-naming]
+        n0029_T1["T1 文档与技能退场"]
+        n0029_T2["T2 线上/持久化值硬切"]
+        n0029_T3["T3 orchestrator/backfill 内部标识符重命名"]
+        n0029_T4["T4 CLI 子命令与 messages/vigil 消费者对齐"]
+        n0029_T5["T5 残余 RFC-NNNN 注释清扫"]
+        n0029_T6["T6 端到端校验脚本：断言零残余 rfc"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -413,6 +430,10 @@ graph LR
     n0028_T3 --> n0028_T2
     n0028_T4 --> n0028_T1
     n0028_T4 --> n0028_T3
+    n0029_T3 --> n0029_T2
+    n0029_T4 --> n0029_T3
+    n0029_T5 --> n0029_T4
+    n0029_T6 --> n0029_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -425,45 +446,66 @@ graph LR
 |----|----|
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
 | .github/workflows/ci.yml | 0014, 0023 |
+| README.md | 0026, 0029 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
-| docs/specs/README.md | 0014, 0024 |
-| openagents/backends/claude_code.py | 0001, 0003 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028 |
+| docs/specs/README.md | 0014, 0024, 0029 |
+| openagents/backends/__init__.py | 0001, 0029 |
+| openagents/backends/base.py | 0001, 0029 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029 |
+| openagents/backfill.py | 0025, 0029 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029 |
+| openagents/config.py | 0001, 0029 |
+| openagents/e2e.py | 0013, 0029 |
+| openagents/fleet.py | 0027, 0029 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
+| openagents/identity.py | 0011, 0029 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029 |
 | openagents/promote.py | 0012, 0023 |
-| openagents/rebase.py | 0009, 0011, 0028 |
-| openagents/reviewer.py | 0012, 0021 |
+| openagents/rebase.py | 0009, 0011, 0028, 0029 |
+| openagents/release.py | 0023, 0029 |
+| openagents/results.py | 0001, 0029 |
+| openagents/reviewer.py | 0012, 0021, 0029 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024 |
 | openagents/spec/mutate.py | 0014, 0015 |
 | openagents/spec/render.py | 0014, 0015 |
 | openagents/spec/schema.py | 0014, 0015, 0024 |
-| openagents/spec/signpost.py | 0024, 0028 |
+| openagents/spec/signpost.py | 0024, 0028, 0029 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023 |
-| openagents/workspace.py | 0005, 0008 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
+| openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
-| tests/test_backend_claude_code.py | 0001, 0003 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029 |
+| tests/test_backfill.py | 0025, 0029 |
+| tests/test_base.py | 0001, 0029 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029 |
+| tests/test_config.py | 0001, 0029 |
+| tests/test_e2e.py | 0013, 0029 |
+| tests/test_ensure_prerequisites.py | 0023, 0029 |
+| tests/test_fleet.py | 0027, 0029 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
+| tests/test_identity.py | 0011, 0029 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029 |
+| tests/test_messages_resolve.py | 0028, 0029 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029 |
+| tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
-| tests/test_rebase.py | 0009, 0011 |
-| tests/test_reviewer.py | 0012, 0021 |
+| tests/test_rebase.py | 0009, 0011, 0029 |
+| tests/test_release.py | 0023, 0029 |
+| tests/test_results.py | 0001, 0029 |
+| tests/test_reviewer.py | 0012, 0021, 0029 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
 | tests/test_spec_model.py | 0014, 0015, 0024 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
 | tests/test_spec_render.py | 0014, 0015 |
 | tests/test_spec_validate.py | 0014, 0015, 0024 |
-| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021 |
-| tests/test_vigil.py | 0004, 0007, 0010, 0020 |
-| tests/test_workspace.py | 0005, 0008 |
+| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029 |
+| tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
+| tests/test_workspace.py | 0005, 0008, 0029 |
 
 ## 各 feature 详情
 
@@ -1154,4 +1196,39 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0029 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能（issue #81）
+
+```mermaid
+graph LR
+    nT1["T1 文档与技能退场"]
+    nT2["T2 线上/持久化值硬切"]
+    nT3["T3 orchestrator/backfill 内部标识符重命名"]
+    nT4["T4 CLI 子命令与 messages/vigil 消费者对齐"]
+    nT5["T5 残余 RFC-NNNN 注释清扫"]
+    nT6["T6 端到端校验脚本：断言零残余 rfc"]
+    nT2 --> nT3
+    nT3 --> nT4
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
+    class v_T6_1 st_pending;
 ```
