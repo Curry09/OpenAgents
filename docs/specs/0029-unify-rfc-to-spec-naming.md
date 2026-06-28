@@ -115,6 +115,7 @@ tasks:
     priority: P1
     tags: []
     depends-on:
+      - T1
       - T5
     relates-to: []
     parallel: false
@@ -203,7 +204,7 @@ tasks:
 | T3 | orchestrator/backfill 内部标识符重命名 + 消费 T2 的新常量/kind | `openagents/orchestrator.py`, `openagents/backfill.py`, `tests/test_orchestrator.py`, `tests/test_orchestrator_pr_body.py`, `tests/test_backfill.py` | T2 |
 | T4 | CLI 子命令重命名 + messages/vigil 消费者对齐（状态/标签/kind 字面量、调用 T3 新函数名） | `openagents/cli.py`, `openagents/messages.py`, `openagents/vigil.py`, `tests/test_cli.py`, `tests/test_messages.py`, `tests/test_messages_resolve.py`, `tests/test_vigil.py` | T2, T3 |
 | T5 | 残余 rfc 清扫（A–D 未覆盖的活源 + 活模板）：含 `__init__.py` 包标语、`board.html` 的 RFC-0001；保留历史符号注释 | `openagents/__init__.py`, `openagents/e2e.py`, `openagents/workspace.py`, `openagents/rebase.py`, `openagents/results.py`, `openagents/templates/board.html`, `openagents/release.py`, `openagents/config.py`, `openagents/fleet.py`, `openagents/identity.py`, `openagents/backends/__init__.py`, `openagents/backends/base.py`, `openagents/backends/claude_code.py`, `tests/test_e2e.py`, `tests/test_workspace.py`, `tests/test_rebase.py`, `tests/test_results.py`, `tests/test_release.py`, `tests/test_config.py`, `tests/test_fleet.py`, `tests/test_identity.py`, `tests/test_base.py`, `tests/test_backend_claude_code.py` | T3, T4 |
-| T6 | 端到端校验脚本：grep 全仓断言零残余 rfc（排除冻结历史 spec/设计文档正文与历史 e2e 脚本文件名） | `scripts/e2e-spec-0029-rfc-to-spec.sh` | T1, T2, T3, T4, T5 |
+| T6 | 端到端校验脚本：grep 全仓断言零残余 rfc（排除冻结历史 spec/设计文档正文与历史 e2e 脚本文件名） | `scripts/e2e-spec-0029-rfc-to-spec.sh` | T1, T5（T2/T3/T4 经 T5 传递；T1 因不在 T5 链上须显式入边——见下） |
 
 ```mermaid
 graph LR
@@ -214,11 +215,10 @@ graph LR
   T3 --> T5[T5 注释清扫]
   T4 --> T5
   T1 --> T6[T6 e2e 校验]
-  T2 --> T6
-  T3 --> T6
-  T4 --> T6
   T5 --> T6
 ```
+
+> **T6 入边说明（传递归约）**：T6 直接依赖 **T1 与 T5**。T2/T3/T4 经 `T5 → {T3,T4} → T2` 链传递可达，故不在 T6 的 `depends-on` 里重复列出。但 **T1 不在该链上**（没有任何 Task 依赖 T1），而 T6 的 acceptance (1)（rfc 技能目录已删）与 (4)（三处文档无 rfc 散文）直接断言 T1 的交付物——若 frontmatter 只写 T5，执行器可能在 T1 完成前调度 T6，导致静态 e2e 在 (1)/(4) 失败。故 T1 必须作为显式入边写进 frontmatter `depends-on: [T1, T5]`。
 
 **端到端验证**：`bash scripts/e2e-spec-0029-rfc-to-spec.sh`——纯静态校验，不调真实 GitHub。脚本断言：
 

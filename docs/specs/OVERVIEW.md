@@ -185,7 +185,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0029 | 0029/T3 | orchestrator/backfill 内部标识符重命名 | pending | T2 | openagents/orchestrator.py<br>openagents/backfill.py<br>tests/test_orchestrator.py<br>tests/test_orchestrator_pr_body.py<br>tests/test_backfill.py |
 | 0029 | 0029/T4 | CLI 子命令与 messages/vigil 消费者对齐 | pending | T3 | openagents/cli.py<br>openagents/messages.py<br>openagents/vigil.py<br>tests/test_cli.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_vigil.py |
 | 0029 | 0029/T5 | 残余 RFC-NNNN 注释清扫 | pending | T4 | openagents/__init__.py<br>openagents/e2e.py<br>openagents/workspace.py<br>openagents/rebase.py<br>openagents/results.py<br>openagents/templates/board.html<br>openagents/release.py<br>openagents/config.py<br>openagents/fleet.py<br>openagents/identity.py<br>openagents/backends/__init__.py<br>openagents/backends/base.py<br>openagents/backends/claude_code.py<br>tests/test_e2e.py<br>tests/test_workspace.py<br>tests/test_rebase.py<br>tests/test_results.py<br>tests/test_release.py<br>tests/test_config.py<br>tests/test_fleet.py<br>tests/test_identity.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py |
-| 0029 | 0029/T6 | 端到端校验脚本：断言零残余 rfc | pending | T5 | scripts/e2e-spec-0029-rfc-to-spec.sh |
+| 0029 | 0029/T6 | 端到端校验脚本：断言零残余 rfc | pending | T1, T5 | scripts/e2e-spec-0029-rfc-to-spec.sh |
 
 ## 跨 feature 关系图
 
@@ -433,6 +433,7 @@ graph LR
     n0029_T3 --> n0029_T2
     n0029_T4 --> n0029_T3
     n0029_T5 --> n0029_T4
+    n0029_T6 --> n0029_T1
     n0029_T6 --> n0029_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
@@ -1213,6 +1214,7 @@ graph LR
     nT2 --> nT3
     nT3 --> nT4
     nT4 --> nT5
+    nT1 --> nT6
     nT5 --> nT6
 ```
 
