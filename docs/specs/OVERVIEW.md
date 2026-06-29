@@ -85,6 +85,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0031 merge 闸解挂语义重设计：人解挂后派 agent 主动解冲突、有界重试再挂起
 人摘 needs-human 解挂 merge 冲突后不即时重挂，而是进入 armed 模式派 agent 有界重试解冲突，用尽仍冲突才重新挂起
 
+### 0032 needs-human 全程在 GitHub 闭环：阻塞留足信息 + 人回新评论即自动解挂喂内容重试
+阻塞时按 gate 留一条信息充分的结构化评论；检测到 block 之后的新人类评论即自动摘 needs-human + 把评论当 detail 喂给对应闸 agent，恢复流转——人机交流全程在 PR 评论里闭环（仅新评论 + 仅人类签名过滤，定向解除 RFC-0019 的不读评论限制）
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -200,6 +203,12 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0031 | 0031/T1 | state：block_gate/merge_attempts 字段 + 计数/重置方法 | done | — | openagents/state.py<br>tests/test_state_merge_unblock.py |
 | 0031 | 0031/T2 | messages：merge 闸 armed 解挂语义 + MAX_MERGE_ATTEMPTS knob | done | T1 | openagents/messages.py<br>tests/test_messages_merge_unblock.py |
 | 0031 | 0031/T3 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T1, T2 | scripts/e2e-spec-0031-merge-unblock-agent-resolve.sh |
+| 0032 | 0032/T1 | state：block_watermark 字段 + setter | pending | — | openagents/state.py<br>tests/test_state_needs_human_unblock.py |
+| 0032 | 0032/T2 | github：remove_label 幂等封装 | pending | — | openagents/github.py<br>tests/test_github_remove_label.py |
+| 0032 | 0032/T3 | blocknote：结构化阻塞评论构造（新模块） | pending | — | openagents/blocknote.py<br>tests/test_blocknote.py |
+| 0032 | 0032/T4 | identity：new_human_comments 读侧复活 | pending | — | openagents/identity.py<br>tests/test_identity_new_human_comments.py |
+| 0032 | 0032/T5 | messages：_block enrich + watermark + 回评论解挂路由 | pending | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_needs_human_unblock.py |
+| 0032 | 0032/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | pending | T5 | scripts/e2e-spec-0032-needs-human-comment-unblock.sh |
 
 ## 跨 feature 关系图
 
@@ -370,6 +379,14 @@ graph LR
         n0031_T2["T2 messages：merge 闸 armed 解挂语义 + MAX_MERGE_ATTEMPTS knob"]
         n0031_T3["T3 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
     end
+    subgraph G0032[0032 needs-human-comment-unblock-loop]
+        n0032_T1["T1 state：block_watermark 字段 + setter"]
+        n0032_T2["T2 github：remove_label 幂等封装"]
+        n0032_T3["T3 blocknote：结构化阻塞评论构造（新模块）"]
+        n0032_T4["T4 identity：new_human_comments 读侧复活"]
+        n0032_T5["T5 messages：_block enrich + watermark + 回评论解挂路由"]
+        n0032_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -468,6 +485,11 @@ graph LR
     n0031_T2 --> n0031_T1
     n0031_T3 --> n0031_T1
     n0031_T3 --> n0031_T2
+    n0032_T5 --> n0032_T1
+    n0032_T5 --> n0032_T2
+    n0032_T5 --> n0032_T3
+    n0032_T5 --> n0032_T4
+    n0032_T6 --> n0032_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -492,9 +514,9 @@ graph LR
 | openagents/config.py | 0001, 0029 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
-| openagents/identity.py | 0011, 0029 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
+| openagents/identity.py | 0011, 0029, 0032 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029 |
@@ -509,7 +531,7 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
 | openagents/workspace.py | 0005, 0008, 0029 |
@@ -1325,4 +1347,40 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0032 needs-human 全程在 GitHub 闭环：阻塞留足信息 + 人回新评论即自动解挂喂内容重试（issue #89）
+
+```mermaid
+graph LR
+    nT1["T1 state：block_watermark 字段 + setter"]
+    nT2["T2 github：remove_label 幂等封装"]
+    nT3["T3 blocknote：结构化阻塞评论构造（新模块）"]
+    nT4["T4 identity：new_human_comments 读侧复活"]
+    nT5["T5 messages：_block enrich + watermark + 回评论解挂路由"]
+    nT6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
+    nT1 --> nT5
+    nT2 --> nT5
+    nT3 --> nT5
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
+    class v_T6_1 st_pending;
 ```
