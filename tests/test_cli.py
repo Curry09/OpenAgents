@@ -4,6 +4,7 @@ RFC-0005：solve 已移除，改为 rfc / refine-rfc / implement / iterate 四�
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -653,10 +654,49 @@ def test_init_runs_interactive_preflight(monkeypatch):
         "openagents.github.ensure_prerequisites",
         lambda: bootstrapped.append(True),
     )
+    # Spec-0030/T3：init 末尾接了 envcheck 体检——打桩 envcheck.check 避免触达真实 ~/.claude.json。
+    monkeypatch.setattr(
+        "openagents.envcheck.check",
+        lambda: SimpleNamespace(text="▶ 体检", all_ok=True),
+    )
     code = main(["init"])
     assert code == 0
     assert calls == [True]
     assert bootstrapped == [True]
+
+
+def test_init_prints_envcheck_report_and_stays_zero_on_missing(monkeypatch, capsys):
+    # Spec-0030/T3：缺 browser MCP / 非全放行时，init 打印含安装命令与设置方式的体检段且仍 return 0。
+    _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    report_text = (
+        "▶ 前端 e2e 环境体检（非阻塞，仅 claude-code 后端）\n"
+        "  ⚠ 未检测到 browser MCP\n"
+        "      claude mcp add playwright -s user -- npx @playwright/mcp@latest\n"
+        "      export OPENAGENTS_PERMISSION_MODE=bypassPermissions"
+    )
+    monkeypatch.setattr(
+        "openagents.envcheck.check",
+        lambda: SimpleNamespace(text=report_text, all_ok=False),
+    )
+    code = main(["init"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "前端 e2e 环境体检" in out
+    assert "claude mcp add playwright" in out
+    assert "export OPENAGENTS_PERMISSION_MODE=bypassPermissions" in out
+
+
+def test_init_envcheck_failure_does_not_break_init(monkeypatch):
+    # Spec-0030/T3：即便 envcheck 内部出错也不该改变 init 退出码——但体检设计为从不抛，
+    # 这里断言正常态 return 0（体检不抛、不改 init 退出码）。
+    _patch_ensure(monkeypatch)
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr(
+        "openagents.envcheck.check",
+        lambda: SimpleNamespace(text="▶ 体检 ✓", all_ok=True),
+    )
+    assert main(["init"]) == 0
 
 
 # --------------------------------------------------------------------------- #

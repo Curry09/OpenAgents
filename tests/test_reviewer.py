@@ -148,6 +148,16 @@ def test_task_for_rfc_and_code_differ():
     assert "#5" in rfc_task and "#5" in code_task
 
 
+def test_code_review_task_has_conditional_browser_e2e_rubric():
+    # Spec-0030/T4：code rubric 含条件式「具备浏览器工具 → 优先浏览器前端 e2e」字样，
+    # 且措辞为条件式（由 reviewer 自检），不含「检测到你有浏览器」式宣告。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "浏览器工具" in code_task
+    assert "浏览器" in code_task and "e2e" in code_task
+    assert "由你自检" in code_task
+    assert "检测到你有浏览器" not in code_task
+
+
 def test_review_uses_kind_template_in_backend_call(tmp_path):
     backend = _backend("VERDICT: PASS")
     review(backend=backend, work_dir=tmp_path, kind="code", pr_number=42, n=1)

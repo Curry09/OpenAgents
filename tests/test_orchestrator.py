@@ -36,6 +36,16 @@ class _FakeBackend:
         return self._result
 
 
+def test_draft_and_backfill_templates_have_conditional_browser_e2e_guidance():
+    # Spec-0030/T4：起草 / 反向补全两处 prompt 模板均含条件式「具备浏览器工具 → 优先浏览器
+    # 前端 e2e」引导，且措辞为条件式（由 agent 自检），不含「检测到你有浏览器」式宣告。
+    for template in (orch_module._DRAFT_RFC_TASK, orch_module._BACKFILL_RFC_TASK):
+        assert "浏览器工具" in template
+        assert "前端 e2e" in template
+        assert "自检" in template
+        assert "检测到你有浏览器" not in template
+
+
 class _GitRecorder:
     """subprocess.run 替身，记录所有 git 命令并返回成功。"""
 

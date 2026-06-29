@@ -51,6 +51,14 @@ DEFAULT_BASE = "main"
 # 后端为 cli-agent（如 Claude Code），自带 spec-driven-development skill（取代 rfc-driven-
 # development），故任务只需指明意图与约束，细节交由其遵循该 skill。设计产物从「docs/rfcs/
 # 单个 RFC.md」改为「docs/specs/ 下的 spec 活快照组」，用 `spec` CLI 创作（见 #53）。
+# Spec-0030/T4：条件式 browser-e2e 方法论引导（由 agent 自检自己的工具列表决定是否适用）。
+# 落 in-code 方法论面而非后端适配器/编排核心（理念 10 解耦；且全局硬约束禁写 .claude/）：
+# 不检测 MCP、不替 agent 宣告「你有浏览器」，措辞为条件式——agent 本就知道自己有哪些工具。
+_BROWSER_E2E_GUIDANCE = (
+    "设计成果测试（理念 8）时，如果你具备浏览器工具（如 Playwright / Chrome DevTools MCP），"
+    "就优先设计基于浏览器的前端 e2e（导航 / 交互 / 截图 / 断言 / console·network 检查），"
+    "而不是仅声明 shell 脚本或跳过；是否具备由你自检自己的工具列表决定。"
+)
 _DRAFT_RFC_TASK = (
     "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2"
     "（rust-RFC 形态，总览先行）：\n"
@@ -62,7 +70,9 @@ _DRAFT_RFC_TASK = (
     "Rationale and alternatives（≥1 备选）/ Prior art / Unresolved questions / Future possibilities;\n"
     "3) **再**用 `spec add-task` 逐个加工作分解行（必填 `--files` 互斥 + `--acceptance`，含依赖、范围）;\n"
     "4) 最后 `spec validate`（必填段空/缺 acceptance/files 重叠 = error）+ `spec render` + `spec graph`。\n"
-    "只产出 spec（docs/specs/ 下），不要写实现代码。\n\nissue 正文：\n{body}"
+    "只产出 spec（docs/specs/ 下），不要写实现代码。\n"
+    + _BROWSER_E2E_GUIDANCE
+    + "\n\nissue 正文：\n{body}"
 )
 _REFINE_RFC_TASK = (
     "本 issue 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
@@ -96,7 +106,9 @@ _BACKFILL_RFC_TASK = (
     "允许显式写 `> 待人工补全（brownfield 反推困难）` 占位，但**不得滥用**——能反推的段不许标待补;\n"
     "5) **再**用 `spec add-task` 逐个加工作分解行（必填 `--files` 互斥 + `--acceptance`）;\n"
     "6) 最后 `spec validate`（必填段空 / 缺 acceptance / files 重叠 = error）+ `spec render` + "
-    "`spec graph`。只产出 spec（docs/specs/ 下），不要改实现代码。\n\n代码盘点：\n{inventory}"
+    "`spec graph`。只产出 spec（docs/specs/ 下），不要改实现代码。\n"
+    + _BROWSER_E2E_GUIDANCE
+    + "\n\n代码盘点：\n{inventory}"
 )
 
 

@@ -53,12 +53,22 @@ _RFC_REVIEW_TASK = (
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
     "实现代码）。\n" + _RUBRIC_TAIL
 )
+# Spec-0030/T4：条件式 browser-e2e 方法论 rubric——若被评为前端改动且作者具备浏览器工具，
+# 检查是否优先设计了浏览器 e2e 而非仅声明脚本。措辞为条件式（由 reviewer 自检自己的工具），
+# 不做「OpenAgents 检测到你有浏览器」式宣告；落 in-code rubric（reviewer.py）而非后端适配器。
+_BROWSER_E2E_RUBRIC = (
+    "若被评 PR 是前端改动且作者具备浏览器工具（如 Playwright / Chrome DevTools MCP），"
+    "检查是否优先设计了基于浏览器的前端 e2e（导航 / 交互 / 截图 / 断言）而非仅声明 shell "
+    "脚本或跳过；是否具备由你自检自己的工具列表决定。\n"
+)
 _CODE_REVIEW_TASK = (
     "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"
     "用 `git diff` 查看本分支相对 base 的改动并读涉及文件的完整上下文。判定：是否"
     "真的实现了对应 spec 的 Task 与验收标准、有无 tautological test / 绕过真实路径、"
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
-    "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n" + _RUBRIC_TAIL
+    "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n"
+    + _BROWSER_E2E_RUBRIC
+    + _RUBRIC_TAIL
 )
 
 

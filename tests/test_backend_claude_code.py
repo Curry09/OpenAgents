@@ -15,8 +15,10 @@ from openagents.backends.base import AgentBackend, AgentResult
 from openagents.backends.claude_code import (
     _GUARDRAIL,
     CLAUDE_BIN,
+    PERMISSION_MODE_ENV,
     ClaudeCodeBackend,
     _build_prompt,
+    effective_permission_mode,
 )
 
 
@@ -235,3 +237,60 @@ def test_accepts_path_work_dir(monkeypatch, tmp_path):
 
     result = ClaudeCodeBackend().run(work_dir=Path(tmp_path), task="t", context="c")
     assert result.changed is True
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0030/T1：权限模式最小 env 开关（默认 acceptEdits 不变 / 可经 env 覆写）
+# --------------------------------------------------------------------------- #
+
+
+def test_effective_permission_mode_defaults_accept_edits(monkeypatch):
+    # 未设 OPENAGENTS_PERMISSION_MODE → 回退缺省 acceptEdits（默认行为不变）。
+    monkeypatch.delenv(PERMISSION_MODE_ENV, raising=False)
+    assert effective_permission_mode() == "acceptEdits"
+
+
+def test_effective_permission_mode_blank_falls_back(monkeypatch):
+    # 空白值视同未设 → 仍回退缺省（避免拿空串去拼命令行）。
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "   ")
+    assert effective_permission_mode() == "acceptEdits"
+
+
+def test_effective_permission_mode_override(monkeypatch):
+    # 设为 bypassPermissions → 访问器随之返回该值。
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
+    assert effective_permission_mode() == "bypassPermissions"
+
+
+def test_command_line_uses_default_permission_mode(monkeypatch, tmp_path):
+    # 默认态：claude 命令行仍为 --permission-mode acceptEdits（默认不变）。
+    monkeypatch.delenv(PERMISSION_MODE_ENV, raising=False)
+    popen_calls, _ = _patch(
+        monkeypatch,
+        claude_lines=[_result("ok")],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    cmd, _ = popen_calls[0]
+    idx = cmd.index("--permission-mode")
+    assert cmd[idx + 1] == "acceptEdits"
+
+
+def test_command_line_honors_permission_mode_override(monkeypatch, tmp_path):
+    # 覆写态：env 设为 bypassPermissions → 命令行随之变为 --permission-mode bypassPermissions。
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
+    popen_calls, _ = _patch(
+        monkeypatch,
+        claude_lines=[_result("ok")],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    cmd, _ = popen_calls[0]
+    idx = cmd.index("--permission-mode")
+    assert cmd[idx + 1] == "bypassPermissions"
