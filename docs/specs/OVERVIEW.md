@@ -215,8 +215,8 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0032 | 0032/T4 | identity：new_human_comments 读侧复活 | done | — | openagents/identity.py<br>tests/test_identity_new_human_comments.py |
 | 0032 | 0032/T5 | messages：_block enrich + watermark + 回评论解挂路由 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_needs_human_unblock.py |
 | 0032 | 0032/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0032-needs-human-comment-unblock.sh |
-| 0033 | 0033/T1 | _bootstrap 新建远端后 git remote add origin | pending | — | openagents/config.py |
-| 0033 | 0033/T2 | 回归测试 + e2e 覆盖 remote-add 路径 | pending | T1 | tests/test_config.py<br>scripts/e2e-spec-0033-init-remote-add.sh |
+| 0033 | 0033/T1 | _bootstrap 新建远端后 git remote add origin | done | — | openagents/config.py |
+| 0033 | 0033/T2 | 回归测试 + e2e 覆盖 remote-add 路径 | done | T1 | tests/test_config.py<br>scripts/e2e-spec-0033-init-remote-add.sh |
 | 0034 | 0034/T1 | conflictdiag：merge-tree 诊断采集 + 格式化（新模块） | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py |
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
@@ -1427,9 +1427,9 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
 
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出（issue #92）

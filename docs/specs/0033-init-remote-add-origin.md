@@ -7,7 +7,7 @@ summary: 冷启动新建 GitHub 仓库后补做 git remote add origin，修复�
 tasks:
   - id: T1
     title: _bootstrap 新建远端后 git remote add origin
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -19,7 +19,7 @@ tasks:
     acceptance: '冷启动新建远端后，git config --get remote.origin.url 返回该 url；ruff + 既有 test_config 通过；该改动处按代码注释规范带 Spec-0033/T1 的 RFC 引用注释'
   - id: T2
     title: 回归测试 + e2e 覆盖 remote-add 路径
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
