@@ -14,6 +14,7 @@ RFC-0003 决策 6：求解过程**实时透传**。`claude -p` 默认 `--output-
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -22,9 +23,26 @@ from openagents.backends.base import AgentResult
 # RFC-0001 T2: claude 可执行名做成模块级常量，便于测试 mock / 替换。
 CLAUDE_BIN = "claude"
 
-# RFC-0001 T2: headless 模式下必须显式放行编辑，否则 claude 不会落盘改动
-# （端到端验证发现：缺此参数 run 永远返回 changed=False）。
-_PERMISSION_MODE = "acceptEdits"
+# Spec-0030/T1: 权限模式的环境变量旋钮与缺省值。
+# 缺省 acceptEdits——headless 模式下必须显式放行编辑，否则 claude 不会落盘改动
+# （端到端验证发现：缺此参数 run 永远返回 changed=False，见 RFC-0001 T2）。
+# 与既有 OPENAGENTS_REVIEWERS 同款最小 env 旋钮（reviewer.py）：不引入配置文件、缺省取默认，
+# 让 envcheck 报告里「export OPENAGENTS_PERMISSION_MODE=bypassPermissions」真正可操作
+# （把 browser MCP 在 headless 下放行，见 Spec-0030 Reference-level (B)）。
+PERMISSION_MODE_ENV = "OPENAGENTS_PERMISSION_MODE"
+_DEFAULT_PERMISSION_MODE = "acceptEdits"
+
+
+def effective_permission_mode() -> str:
+    """Spec-0030/T1: 派 claude 时实际使用的权限模式（单一真相源）。
+
+    读环境变量 ``OPENAGENTS_PERMISSION_MODE``，未设或为空白则回退缺省 ``acceptEdits``
+    （默认行为不变，非侵入）。envcheck 体检经此访问器读模式，保证「报告里告知的模式」
+    永远等于「派单实际用的模式」（否则告知会撒谎，见 Spec-0030 (A)）。
+    """
+    value = os.environ.get(PERMISSION_MODE_ENV, "").strip()
+    return value or _DEFAULT_PERMISSION_MODE
+
 
 # RFC-0003 决策 6: 实时事件流格式（stream-json 需配 --verbose 才输出完整事件）。
 _STREAM_ARGS = ["--output-format", "stream-json", "--verbose"]
@@ -139,7 +157,14 @@ class ClaudeCodeBackend:
         RuntimeError（带已知错误详情）。
         """
         proc = subprocess.Popen(
-            [CLAUDE_BIN, "-p", prompt, "--permission-mode", _PERMISSION_MODE, *_STREAM_ARGS],
+            [
+                CLAUDE_BIN,
+                "-p",
+                prompt,
+                "--permission-mode",
+                effective_permission_mode(),
+                *_STREAM_ARGS,
+            ],
             cwd=work_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

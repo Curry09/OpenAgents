@@ -231,6 +231,12 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # 门控退役后日常 base 改回恒存在的 main，已无需任何分支自举。
     github.ensure_prerequisites()
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
+    # Spec-0030/T3：项目就绪后追加一段非阻塞前端 e2e 环境体检（检测 browser MCP + 权限模式），
+    # 缺失只打印告知与设置方式、不改退出码（恒 return 0）。仅此一处接线，编排核心不感知体检。
+    from openagents import envcheck
+
+    print()
+    print(envcheck.check().text)
     return 0
 
 

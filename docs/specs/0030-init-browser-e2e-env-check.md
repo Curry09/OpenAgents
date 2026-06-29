@@ -7,7 +7,7 @@ summary: 在 openagents init 的 preflight 里加一段非阻塞环境体检：�
 tasks:
   - id: T1
     title: 权限模式最小开关：常量改为读 OPENAGENTS_PERMISSION_MODE
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 未设 OPENAGENTS_PERMISSION_MODE 时 effective_permission_mode() 返回 acceptEdits、claude 命令行仍为 --permission-mode acceptEdits（默认不变）；设为 bypassPermissions 时命令行随之变为 --permission-mode bypassPermissions；单测覆盖默认/覆写两态；ruff + pytest 全绿。
   - id: T2
     title: 体检核心模块 envcheck：browser MCP 检测 + 权限模式读取 + 报告渲染
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: detect_browser_mcp 对含/缺 mcpServers、缺文件、非法 JSON 各返回正确在册标志且不抛；render_report 在缺失态输出含 playwright 安装命令与 export OPENAGENTS_PERMISSION_MODE=bypassPermissions、在满足态输出两条 ✓ 且不含安装命令；模块不修改 ~/.claude.json；单测打桩 HOME/env 覆盖各分支；ruff + pytest 全绿。
   - id: T3
     title: 把环境体检接进 openagents init（非阻塞）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: _cmd_init 在缺 browser MCP / 非全放行时打印含安装命令与设置方式的体检段且仍 return 0；满足态打印两条 ✓；体检不抛、不改 init 退出码；单测打桩 envcheck 断言输出与返回码；ruff + pytest 全绿。
   - id: T4
     title: 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on: []
@@ -63,7 +63,7 @@ tasks:
     acceptance: _DRAFT_RFC_TASK / _BACKFILL_RFC_TASK / reviewer rubric 三处模板均含条件式「具备浏览器工具→优先浏览器前端 e2e」字样；措辞为条件式（由 agent 自检），不含「OpenAgents 检测到你有浏览器」式宣告；claude_code.py 不被改动；单测断言三处模板含该引导；ruff + pytest 全绿。
   - id: T5
     title: e2e 脚本：体检两态输出 + 方法论文案注入断言
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
