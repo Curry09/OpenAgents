@@ -1,5 +1,5 @@
 ---
-number: "0033"
+number: "0034"
 title: 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 issue: 92
 slug: conflict-notification-diagnostics
@@ -57,12 +57,12 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0033-conflict-diagnostics.sh
+      - scripts/e2e-spec-0034-conflict-diagnostics.sh
     scope: 新增 hermetic e2e 脚本：① ruff check + format --check + pytest 离线确定性验证；② 用 fake run（喂固定 git merge-tree 输出）+ fake github.has_label/post_signed_comment 闭环演练『冲突→采集诊断→带文件清单+hunk摘要的评论；已 needs-human 的 PR 扇出→跳过不重发；诊断为空→退回泛化文案』整条轨迹，全程不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端
-    acceptance: bash scripts/e2e-spec-0033-conflict-diagnostics.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM/git 远端；两段均通过（离线确定性 + 诊断/收敛/降级轨迹）
+    acceptance: bash scripts/e2e-spec-0034-conflict-diagnostics.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM/git 远端；两段均通过（离线确定性 + 诊断/收敛/降级轨迹）
 ---
 
-# 0033 · 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
+# 0034 · 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -249,7 +249,7 @@ body=rebase.CONFLICT_COMMENT, agent_id=…)` 留言并继续下一个（无状�
   带诊断 + 触发 T2 的重发收敛）。`_block` 自身的评论/标签/水位线次序与语义（含 #89 的 watermark 落盘）
   **完全不变**——本组只换 `blocker` 的内容来源。
 
-**e2e 脚本（T4）**：`scripts/e2e-spec-0033-conflict-diagnostics.sh`（hermetic，见下）。
+**e2e 脚本（T4）**：`scripts/e2e-spec-0034-conflict-diagnostics.sh`（hermetic，见下）。
 
 ### DAG + 文件分配
 
@@ -270,7 +270,7 @@ graph TD
 | T1 | conflictdiag：`merge-tree` 诊断采集 + 格式化（新模块） | `openagents/conflictdiag.py`, `tests/test_conflictdiag.py` | — |
 | T2 | rebase：扇出冲突评论带诊断 + 已 `needs-human` 不重发 | `openagents/rebase.py`, `tests/test_rebase_conflict_diag.py` | T1 |
 | T3 | messages：merge 闸 `blocker` 带诊断 + 扇出注入诊断器 | `openagents/messages.py`, `tests/test_messages_conflict_diag.py` | T1 |
-| T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | `scripts/e2e-spec-0033-conflict-diagnostics.sh` | T2, T3 |
+| T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | `scripts/e2e-spec-0034-conflict-diagnostics.sh` | T2, T3 |
 
 `files` 同组互斥（单一 writer 所有权，理念 6）。T2、T3 互不依赖、可并行（分别改 rebase / messages 两个
 解耦通道，各带专属新测试文件，**不改既有 `tests/test_rebase*.py` / `tests/test_messages*.py`**，把跨
@@ -279,13 +279,13 @@ graph TD
 `openagents/blocknote.py`（#89 四段模板）**复用不改**——本组只补诊断字段与扇出收敛，不重写解冲突/读侧/
 评论模板能力（边界，理念 10 解耦）。
 
-**e2e 脚本路径**：`scripts/e2e-spec-0033-conflict-diagnostics.sh`（hermetic，两段：① `ruff check` +
+**e2e 脚本路径**：`scripts/e2e-spec-0034-conflict-diagnostics.sh`（hermetic，两段：① `ruff check` +
 `ruff format --check` + `pytest -q` 离线确定性验证；② 用 fake `run`（喂固定的 `git merge-tree` 输出）
 + fake `github.has_label` / `post_signed_comment` 闭环演练「冲突→采集诊断→带文件清单+hunk 摘要的评论；
 对已 needs-human 的 PR 扇出→跳过不重发；诊断为空→退回泛化文案」整条轨迹，全程不触网、不调真实 LLM、不
 碰真实 gh、不连真实 git 远端）。
 
-每层新代码注释按代码注释规范标注本组 spec id（`Spec-0033/Tn`）。
+每层新代码注释按代码注释规范标注本组 spec id（`Spec-0034/Tn`）。
 
 ### 防自循环 / 安全不变式
 

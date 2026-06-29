@@ -247,7 +247,7 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
     monkeypatch.setattr(messages_module.github, "mergeability", lambda *, pr_number: _MS())
     monkeypatch.setattr(messages_module.github, "add_label", lambda *, pr_number, name: None)
-    # Spec-0033/T3：merge 闸 blocker 改取 _conflict_blocker→诊断器；桩 make_diagnoser 返回静态
+    # Spec-0034/T3：merge 闸 blocker 改取 _conflict_blocker→诊断器；桩 make_diagnoser 返回静态
     # CONFLICT_COMMENT，保持 hermetic（不触真实 git/gh）且 CONFLICT_COMMENT 断言不变。
     monkeypatch.setattr(
         messages_module.conflictdiag,

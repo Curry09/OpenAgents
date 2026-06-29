@@ -1,4 +1,4 @@
-"""Spec-0033/T2：rebase_open_prs 冲突回落的「带诊断首发」+「已 needs-human 抑制重发」单元测试。
+"""Spec-0034/T2：rebase_open_prs 冲突回落的「带诊断首发」+「已 needs-human 抑制重发」单元测试。
 
 github.list_open_prs / update_branch / has_label / post_comment 全部 monkeypatch，保持 hermetic
 （不触达真实 gh）。诊断器 diagnose 以注入桩提供。专属新测试文件——不改既有 tests/test_rebase.py

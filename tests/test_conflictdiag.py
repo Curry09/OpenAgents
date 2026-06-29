@@ -1,4 +1,4 @@
-"""Spec-0033/T1：conflictdiag.collect / format_blocker / make_diagnoser 单元测试。
+"""Spec-0034/T1：conflictdiag.collect / format_blocker / make_diagnoser 单元测试。
 
 run（git）与 github 全部注入桩，保持 hermetic（不触达真实 git / 真实 gh）。merge-tree 输出取自实测
 git 2.39 `git merge-tree --write-tree` 的冲突格式（首行 tree OID + `<mode> <obj> <stage>\t<path>`

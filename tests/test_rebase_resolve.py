@@ -38,7 +38,7 @@ def _patch(monkeypatch, *, open_prs, update):
         return outcome
 
     monkeypatch.setattr(rebase_module.github, "update_branch", _update_branch)
-    # Spec-0033/T2：冲突回落新增 has_label（重发收敛）门控——默认 False（未 needs-human），保持
+    # Spec-0034/T2：冲突回落新增 has_label（重发收敛）门控——默认 False（未 needs-human），保持
     # 既有 heal→resolve→留言 降级行为；抑制/带诊断的专属断言在 tests/test_rebase_conflict_diag.py。
     monkeypatch.setattr(rebase_module.github, "has_label", lambda *, pr_number, name: False)
     monkeypatch.setattr(

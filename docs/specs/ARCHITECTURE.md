@@ -17,7 +17,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。 |
-| `conflictdiag.py` | Spec-0033/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
+| `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
 | `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
 | `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |

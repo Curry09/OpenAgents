@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0033 端到端测试启动脚本：冲突/挂起通知带可定位诊断 + 合并扇出重发收敛的 hermetic 闭环演练。
+# Spec-0034 端到端测试启动脚本：冲突/挂起通知带可定位诊断 + 合并扇出重发收敛的 hermetic 闭环演练。
 #
 # 本组让所有「合并冲突」通知从无诊断的静态罐头变成可定位诊断（冲突文件清单 + 关键 hunk 摘要），
 # 并堵住唯一还在机械重发罐头的通道——合并扇出对已 needs-human 的 PR 跳过留言（把对话交回 #89 读侧）。
@@ -14,7 +14,7 @@
 #      重发；诊断为空→退回泛化 CONFLICT_COMMENT。全程不触真实 git 远端 / gh / LLM。
 #
 # 用法：
-#   bash scripts/e2e-spec-0033-conflict-diagnostics.sh
+#   bash scripts/e2e-spec-0034-conflict-diagnostics.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -27,7 +27,7 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/2] 离线闭环演练：诊断采集 + 扇出带诊断/抑制重发整条轨迹（fake run / fake github）"
 uv run --extra dev python - <<'PY'
-# Spec-0033/T4：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
+# Spec-0034/T4：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
 # 直接替换 rebase 模块里的 github/identity 函数（非 pytest，故直接赋值；进程退出即销毁，无副作用）。
 import subprocess
 
@@ -46,7 +46,7 @@ MERGE_TREE_CONFLICT = (
 MERGE_TREE_CLEAN = "024c0515807b89dc52f29f54d0025ae41eee4aca\n"
 BLOB_WITH_CONFLICT = (
     "| 0031 | merge 解挂 |\n"
-    "<<<<<<< (ours)\n| 0032 | 评论闭环 |\n=======\n| 0033 | 冲突诊断 |\n>>>>>>> origin/main\n"
+    "<<<<<<< (ours)\n| 0032 | 评论闭环 |\n=======\n| 0034 | 冲突诊断 |\n>>>>>>> origin/main\n"
 )
 
 
@@ -145,9 +145,9 @@ assert rebase.CONFLICT_COMMENT in comments[0]["body"]
 print("  ✓ 步骤 5：无诊断器（手动 sync-prs）→ 退回静态 CONFLICT_COMMENT，向后兼容")
 
 print()
-print("✓ Spec-0033 hermetic 演练通过：诊断采集→带诊断评论→已 needs-human 抑制重发→空诊断降级，")
+print("✓ Spec-0034 hermetic 演练通过：诊断采集→带诊断评论→已 needs-human 抑制重发→空诊断降级，")
 print("  全程不触网/无 LLM/无 gh/无真实 git 远端。")
 PY
 
 echo
-echo "✓ Spec-0033 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"
+echo "✓ Spec-0034 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"

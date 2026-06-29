@@ -1,4 +1,4 @@
-"""Spec-0033/T3：Messages 的 merge 闸诊断接线单元测试。
+"""Spec-0034/T3：Messages 的 merge 闸诊断接线单元测试。
 
 覆盖 _make_diagnoser 门控（work_dir+base 齐备才构造、缺一返 None）、_conflict_blocker 取舍（有诊断器
 带诊断 / 无诊断器退回 CONFLICT_COMMENT）、merge 闸三处 _block 的「卡在哪」段携带诊断、合并扇出

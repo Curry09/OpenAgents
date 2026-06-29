@@ -225,7 +225,7 @@ class Messages:
             # 自愈不了再由 rebase 层留言。
             # Spec-0028/T3：分层降级 heal → resolve → 人工——resolve 派 coding agent 语义解
             # indexheal 不适用的真冲突（只在自动 poll 扇出启用，故在此注入；手动 sync-prs 不注入）。
-            # Spec-0033/T3：补传 diagnose 使扇出冲突评论带诊断（冲突文件清单 + 关键 hunk 摘要），
+            # Spec-0034/T3：补传 diagnose 使扇出冲突评论带诊断（冲突文件清单 + 关键 hunk 摘要），
             # 并触发 T2 的重发收敛（对已 needs-human 的 PR 跳过留言）。
             synced = rebase.rebase_open_prs(
                 merged_pr_number=pr_number,
@@ -375,7 +375,7 @@ class Messages:
                 return {"pr_number": pr_number, "reason": "resolved"}
             # Spec-0032/T5：挂起评论统一由 _block 经 blocknote 出（取代这里单独贴 CONFLICT_COMMENT）；
             # merge 闸把冲突提示文案当 blocker 喂进结构化评论的「卡在哪」段。
-            # Spec-0033/T3：blocker 改取 _conflict_blocker（有诊断器时带冲突文件清单 + 关键 hunk 摘要）。
+            # Spec-0034/T3：blocker 改取 _conflict_blocker（有诊断器时带冲突文件清单 + 关键 hunk 摘要）。
             self._block(
                 record=record, gate="merge", blocker=self._conflict_blocker(pr_number=pr_number)
             )
@@ -405,7 +405,7 @@ class Messages:
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
             github.close_issue(number=record.issue_number)
-            # Spec-0033/T3：合并扇出补传 diagnose（带诊断 + 触发 T2 重发收敛），与上方已合并分支同款。
+            # Spec-0034/T3：合并扇出补传 diagnose（带诊断 + 触发 T2 重发收敛），与上方已合并分支同款。
             synced = rebase.rebase_open_prs(
                 merged_pr_number=pr_number,
                 agent_id=self._agent_id,
@@ -463,7 +463,7 @@ class Messages:
         # 2. 无 backend（resolve is None）：重试无意义，直接回落人工兜底，不空转。
         if resolve is None:
             # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（blocker = 冲突提示文案）。
-            # Spec-0033/T3：blocker 改取 _conflict_blocker（有诊断器时带诊断）。
+            # Spec-0034/T3：blocker 改取 _conflict_blocker（有诊断器时带诊断）。
             self._block(
                 record=record, gate="merge", blocker=self._conflict_blocker(pr_number=pr_number)
             )
@@ -472,7 +472,7 @@ class Messages:
         attempts = self._state.increment_merge_attempts(issue_number=record.issue_number)
         if attempts < MAX_MERGE_ATTEMPTS:
             return {"pr_number": pr_number, "reason": "merge-retry"}
-        # Spec-0033/T3：达上限挂起的 blocker 同样带诊断。
+        # Spec-0034/T3：达上限挂起的 blocker 同样带诊断。
         self._block(
             record=record, gate="merge", blocker=self._conflict_blocker(pr_number=pr_number)
         )
@@ -544,7 +544,7 @@ class Messages:
         )
 
     def _make_diagnoser(self):
-        """Spec-0033/T3：work_dir + base 齐备时构造 worktree-free 冲突诊断器，否则 None（退回静态文案）。
+        """Spec-0034/T3：work_dir + base 齐备时构造 worktree-free 冲突诊断器，否则 None（退回静态文案）。
 
         镜像 _make_heal 的门控（缺一即 None）；不要求 backend——诊断只读冲突（merge-tree + git show），
         不起 coding 后端。供合并扇出 rebase_open_prs(diagnose=…) 与 merge 闸 _conflict_blocker 复用。
@@ -555,7 +555,7 @@ class Messages:
         return conflictdiag.make_diagnoser(work_dir=self._work_dir, base=self._base)
 
     def _conflict_blocker(self, *, pr_number: int) -> str:
-        """Spec-0033/T3：merge 闸三处 _block 统一取 blocker——有诊断器则带诊断，否则退回静态文案。
+        """Spec-0034/T3：merge 闸三处 _block 统一取 blocker——有诊断器则带诊断，否则退回静态文案。
 
         有诊断器（work_dir+base 齐备）→ diagnose(pr_number) 产出带冲突文件清单 + 关键 hunk 摘要的
         「卡在哪」段（诊断为空时 conflictdiag.format_blocker 已内部退回 rebase.CONFLICT_COMMENT）；

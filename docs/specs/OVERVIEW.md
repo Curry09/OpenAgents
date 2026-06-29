@@ -88,7 +88,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0032 needs-human 全程在 GitHub 闭环：阻塞留足信息 + 人回新评论即自动解挂喂内容重试
 阻塞时按 gate 留一条信息充分的结构化评论；检测到 block 之后的新人类评论即自动摘 needs-human + 把评论当 detail 喂给对应闸 agent，恢复流转——人机交流全程在 PR 评论里闭环（仅新评论 + 仅人类签名过滤，定向解除 RFC-0019 的不读评论限制）
 
-### 0033 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
+### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环
 
 ## 全局看板
@@ -212,10 +212,10 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0032 | 0032/T4 | identity：new_human_comments 读侧复活 | done | — | openagents/identity.py<br>tests/test_identity_new_human_comments.py |
 | 0032 | 0032/T5 | messages：_block enrich + watermark + 回评论解挂路由 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_needs_human_unblock.py |
 | 0032 | 0032/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0032-needs-human-comment-unblock.sh |
-| 0033 | 0033/T1 | conflictdiag：merge-tree 诊断采集 + 格式化（新模块） | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py |
-| 0033 | 0033/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
-| 0033 | 0033/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
-| 0033 | 0033/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0033-conflict-diagnostics.sh |
+| 0034 | 0034/T1 | conflictdiag：merge-tree 诊断采集 + 格式化（新模块） | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py |
+| 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
+| 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
+| 0034 | 0034/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0034-conflict-diagnostics.sh |
 
 ## 跨 feature 关系图
 
@@ -394,11 +394,11 @@ graph LR
         n0032_T5["T5 messages：_block enrich + watermark + 回评论解挂路由"]
         n0032_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
     end
-    subgraph G0033[0033 conflict-notification-diagnostics]
-        n0033_T1["T1 conflictdiag：merge-tree 诊断采集 + 格式化（新模块）"]
-        n0033_T2["T2 rebase：扇出冲突评论带诊断 + 已 needs-human 不重发"]
-        n0033_T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
-        n0033_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
+    subgraph G0034[0034 conflict-notification-diagnostics]
+        n0034_T1["T1 conflictdiag：merge-tree 诊断采集 + 格式化（新模块）"]
+        n0034_T2["T2 rebase：扇出冲突评论带诊断 + 已 needs-human 不重发"]
+        n0034_T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
+        n0034_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -503,10 +503,10 @@ graph LR
     n0032_T5 --> n0032_T3
     n0032_T5 --> n0032_T4
     n0032_T6 --> n0032_T5
-    n0033_T2 --> n0033_T1
-    n0033_T3 --> n0033_T1
-    n0033_T4 --> n0033_T2
-    n0033_T4 --> n0033_T3
+    n0034_T2 --> n0034_T1
+    n0034_T3 --> n0034_T1
+    n0034_T4 --> n0034_T2
+    n0034_T4 --> n0034_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -533,10 +533,10 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0033 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030 |
 | openagents/promote.py | 0012, 0023 |
-| openagents/rebase.py | 0009, 0011, 0028, 0029, 0033 |
+| openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030 |
@@ -1402,7 +1402,7 @@ graph LR
     class v_T6_1 st_done;
 ```
 
-### 0033 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出（issue #92）
+### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出（issue #92）
 
 ```mermaid
 graph LR

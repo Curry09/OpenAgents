@@ -1,4 +1,4 @@
-"""Spec-0033/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。
+"""Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。
 
 issue #92 的根：所有「合并冲突」通知今天都拿 `rebase.CONFLICT_COMMENT` 一句永不带诊断的静态串
 当正文——结构上答不出「具体什么 conflict」。本模块用 **`git merge-tree --write-tree
@@ -29,27 +29,27 @@ from pathlib import Path
 
 from openagents import github, rebase
 
-# Spec-0033/T1：冲突文件信息行——`git merge-tree --write-tree` 冲突输出里每个未消解 stage 一行，
+# Spec-0034/T1：冲突文件信息行——`git merge-tree --write-tree` 冲突输出里每个未消解 stage 一行，
 # 形如 `100644 <40位 sha> 1\t<path>`（mode SP object SP stage TAB path）。stage∈{1,2,3}，同一文件
 # 多 stage → 去重保序。只认这种结构化行，信息段（"Auto-merging" / "CONFLICT (...)"）天然不匹配。
 _CONFLICT_FILE_RE = re.compile(r"^[0-7]{6} [0-9a-f]{7,64} [123]\t(.+)$")
 
-# Spec-0033/T1：冲突标记前缀（与 conflict._CONFLICT_MARKER 同义，本模块独立持有避免跨模块耦合）。
+# Spec-0034/T1：冲突标记前缀（与 conflict._CONFLICT_MARKER 同义，本模块独立持有避免跨模块耦合）。
 _MARK_OURS = "<<<<<<<"
 _MARK_THEIRS = ">>>>>>>"
 
-# Spec-0033/T1：关键 hunk 摘要的字符上限——为「一眼定位」服务、不刷屏（Drawbacks：截断阈值列入
+# Spec-0034/T1：关键 hunk 摘要的字符上限——为「一眼定位」服务、不刷屏（Drawbacks：截断阈值列入
 # Unresolved，此处取保守值）。超限即截断并附省略提示，人可据冲突文件清单本地 `git diff` 看全。
 _MAX_HUNK_CHARS = 600
 _TRUNCATED_HINT = "…（已截断，完整冲突请本地 git diff 查看）"
 
-# Spec-0033/T1：make_diagnoser 默认「卡在哪一步」描述模板（合并目标分支撞冲突的统一语境）。
+# Spec-0034/T1：make_diagnoser 默认「卡在哪一步」描述模板（合并目标分支撞冲突的统一语境）。
 _DEFAULT_STEP = "自动合并目标分支 origin/{base} 时"
 
 
 @dataclass(frozen=True)
 class ConflictDiag:
-    """Spec-0033/T1：一次合并冲突的诊断快照——冲突文件清单 + 每文件关键 hunk 摘要。
+    """Spec-0034/T1：一次合并冲突的诊断快照——冲突文件清单 + 每文件关键 hunk 摘要。
 
     files：冲突文件清单（去重保序，权威来源是 merge-tree 的未消解 stage 行）。
     hunks：file -> 关键 hunk 摘要（首个冲突块、按 _MAX_HUNK_CHARS 截断）；拿不到内容的文件可缺省。
@@ -71,7 +71,7 @@ _EMPTY = ConflictDiag()
 def collect(
     *, base: str, head: str, run: Callable[..., subprocess.CompletedProcess[str]]
 ) -> ConflictDiag:
-    """Spec-0033/T1：经注入 run 跑 merge-tree 并解析为 ConflictDiag（worktree-free，安全降级）。
+    """Spec-0034/T1：经注入 run 跑 merge-tree 并解析为 ConflictDiag（worktree-free，安全降级）。
 
     run 签名 `run(*, args: list[str]) -> CompletedProcess`（args 不含 "git" 前缀）。流程：
     1. `merge-tree --write-tree origin/<base> origin/<head>` —— 干净合并 stdout 仅一行 tree OID
@@ -101,7 +101,7 @@ def collect(
 
 
 def format_blocker(*, diag: ConflictDiag, step: str) -> str:
-    """Spec-0033/T1：把 ConflictDiag 渲成「卡在哪」段 markdown（纯函数，无 IO）。
+    """Spec-0034/T1：把 ConflictDiag 渲成「卡在哪」段 markdown（纯函数，无 IO）。
 
     非空诊断 → 「卡在哪一步 + 冲突文件清单 + 关键 hunk 摘要」；下游（blocknote.build）会把整段当
     blocker 逐行包成引用块，故此处只产纯文本、不自带签名/引用前缀。空诊断 → 退回 rebase.CONFLICT_COMMENT
@@ -123,7 +123,7 @@ def format_blocker(*, diag: ConflictDiag, step: str) -> str:
 
 
 def make_diagnoser(*, work_dir: str, base: str) -> Callable[..., str]:
-    """Spec-0033/T1：构造 rebase_open_prs / messages 用的 diagnose 回调 `(*, pr_number) -> str`。
+    """Spec-0034/T1：构造 rebase_open_prs / messages 用的 diagnose 回调 `(*, pr_number) -> str`。
 
     与 conflict.make_resolver 同构（IO 工厂）：闭包内取 PR head 分支 → `git fetch` base/head →
     collect + format_blocker，整体 best-effort。任何环节失败（取分支失败 / fetch 失败 / 异常）→ 退回
