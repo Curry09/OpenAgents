@@ -392,6 +392,33 @@ def add_label(*, pr_number: int, name: str) -> None:
     _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
 
 
+def remove_label(*, pr_number: int, name: str) -> None:
+    """Spec-0032/T2：摘掉 PR 上的标签（`gh pr edit <n> --remove-label <name>`），与 add_label 对称。
+
+    供解挂分支自动摘 needs-human（检测到人回新评论时）。幂等容错：标签本就不在时 gh 以非零退出
+    并报「not found / does not have ... label」之类——吞掉视为成功 no-op（与 ensure_label 吞
+    "already exists"、close_issue 吞 "already closed" 同一容错风格），使「人已先手动摘了标签、
+    框架又摘一次」不报错。其它 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
+    """
+    try:
+        _run_gh(["pr", "edit", str(pr_number), "--remove-label", name], allow_returncodes=set())
+    except GithubError as exc:
+        if _is_label_absent(reason=str(exc)):
+            return
+        raise
+
+
+def _is_label_absent(*, reason: str) -> bool:
+    """Spec-0032/T2：remove_label 的「标签本不在」幂等识别——判定要「窄」（同 _is_not_found 风格）。
+
+    gh 对摘一个 PR 上不存在的标签以非零退出，文案大致为 "could not remove label: 'X' not found"
+    或 "label does not exist / pull request does not have ... label"；大小写不一，统一小写后按
+    子串匹配。只认这两类业务性结果，其它 gh 错误一律不命中、照常上抛。
+    """
+    lowered = reason.lower()
+    return "not found" in lowered or "does not have" in lowered or "does not exist" in lowered
+
+
 def close_issue(*, number: int) -> None:
     """RFC-0017 T1：显式关闭 issue（`gh issue close <number>`）。
 

@@ -43,6 +43,7 @@ class _FakeState:
         self._runs = list(runs)
         self.status_updates = []
         self.block_gate_sets = []
+        self.watermark_sets = []
         self.reset_calls = []
 
     def all_runs(self):
@@ -65,6 +66,13 @@ class _FakeState:
         record = self._find(issue_number)
         if record is not None:
             record.block_gate = gate
+
+    def set_block_watermark(self, *, issue_number, watermark):
+        # Spec-0032/T1：_block 现会落「解挂水位线」。
+        self.watermark_sets.append({"issue_number": issue_number, "watermark": watermark})
+        record = self._find(issue_number)
+        if record is not None:
+            record.block_watermark = watermark
 
     def reset_rounds(self, *, issue_number):
         self.reset_calls.append(issue_number)
@@ -138,9 +146,16 @@ def test_max_merge_attempts_below_one_falls_back(monkeypatch):
 
 def test_block_records_block_gate(monkeypatch):
     monkeypatch.setattr(messages_module.github, "add_label", lambda *, pr_number, name: None)
+    # Spec-0032/T5：_block 现会贴结构化签名评论 + 读最新评论 createdAt 落水位线——桩掉这两个 IO。
+    monkeypatch.setattr(
+        messages_module.identity,
+        "post_signed_comment",
+        lambda *, pr_number, body, agent_id: None,
+    )
+    monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
     msgs = _messages(runs=[_run(issue_number=3, pr_number=5)])
 
-    msgs._block(record=msgs._state.all_runs()[0], gate="merge")
+    msgs._block(record=msgs._state.all_runs()[0], gate="merge", blocker="冲突提示")
 
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
@@ -152,9 +167,13 @@ def test_block_records_block_gate(monkeypatch):
 
 
 def _patch_blocked_unlabeled(monkeypatch):
-    """让 poll 走到 blocked 解挂分支：未合并/未关闭、needs-human 已摘。"""
+    """让 poll 走到 blocked 解挂的「人手动摘标签」兜底分支：未合并/未关闭、无新人类评论、needs-human 已摘。"""
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+    # Spec-0032/T5：解挂主路径先读新人类评论；这些用例专测标签兜底，故桩为无新评论。
+    monkeypatch.setattr(
+        messages_module.identity, "new_human_comments", lambda *, pr_number, since: []
+    )
 
     def _has_label(*, pr_number, name):
         return False  # needs-human 与 rfc-approved 都视为未打
@@ -197,6 +216,10 @@ def test_unblock_keeps_blocked_when_label_present(monkeypatch):
     # needs-human 仍在 → 保持挂起（返回 None，不动状态）。零回归。
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+    # Spec-0032/T5：解挂主路径先读新人类评论；本用例专测「标签仍在 → 保持挂起」兜底，故桩为无新评论。
+    monkeypatch.setattr(
+        messages_module.identity, "new_human_comments", lambda *, pr_number, since: []
+    )
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: True)
     msgs = _messages(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_BLOCKED, block_gate="merge")]
@@ -224,6 +247,8 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
     monkeypatch.setattr(messages_module.github, "mergeability", lambda *, pr_number: _MS())
     monkeypatch.setattr(messages_module.github, "add_label", lambda *, pr_number, name: None)
+    # Spec-0032/T5：_block 落水位线要读最新评论 createdAt——桩为空。
+    monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
     monkeypatch.setattr(
         messages_module.identity,
         "post_signed_comment",
@@ -274,7 +299,10 @@ def test_armed_resolve_none_falls_back_to_block(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 
@@ -311,7 +339,10 @@ def test_armed_resolve_fail_reaching_limit_blocks(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
 
@@ -348,7 +379,10 @@ def test_first_discovery_resolve_fail_blocks_with_merge_gate(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
     # 首次发现不递增 merge_attempts（只试一次）。
@@ -364,7 +398,10 @@ def test_first_discovery_no_backend_keeps_legacy_block(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 

@@ -51,6 +51,12 @@ class _FakeState:
             if record.issue_number == issue_number:
                 record.block_gate = gate
 
+    def set_block_watermark(self, *, issue_number, watermark):
+        # Spec-0032/T1：_block 现会落「解挂水位线」。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.block_watermark = watermark
+
 
 def _run(*, issue_number=3, pr_number=5, status=STATUS_PR_OPEN):
     return RunRecord(
@@ -129,6 +135,8 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
     monkeypatch.setattr(messages_module.github, "mergeability", lambda *, pr_number: _MS())
     monkeypatch.setattr(messages_module.github, "add_label", lambda *, pr_number, name: None)
+    # Spec-0032/T5：_block 落水位线要读最新评论 createdAt——桩为空。
+    monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
     monkeypatch.setattr(
         messages_module.identity,
         "post_signed_comment",
@@ -169,7 +177,9 @@ def test_coding_conflict_resolve_fails_falls_back_to_block(monkeypatch):
 
     # resolve 失败：逐字节回落现状——发一条 CONFLICT 留言 + 置 BLOCKED。
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 
@@ -182,7 +192,9 @@ def test_coding_conflict_no_backend_keeps_legacy_block(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    assert comments == [{"pr_number": 5, "body": messages_module.rebase.CONFLICT_COMMENT}]
+    assert len(comments) == 1 and comments[0]["pr_number"] == 5
+    # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
+    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 

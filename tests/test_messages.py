@@ -122,6 +122,12 @@ class _FakeState:
             if record.issue_number == issue_number:
                 record.block_gate = gate
 
+    def set_block_watermark(self, *, issue_number, watermark):
+        # Spec-0032/T1：_block 现会落「解挂水位线」（挂起时刻最新评论 createdAt）。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.block_watermark = watermark
+
     def increment_merge_attempts(self, *, issue_number):
         # Spec-0031/T2：镜像 increment_rounds，但计 armed 模式 agent 解冲突重试次数。
         for record in self._runs:
@@ -185,6 +191,12 @@ def _patch_github(
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
+    # Spec-0032/T5：_block 落水位线要读最新评论 createdAt；blocked 解挂主路径要读新人类评论。
+    # 默认桩为空（无评论 / 无新人类评论），使既有 block / blocked 用例零回归（走标签兜底路径）。
+    monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
+    monkeypatch.setattr(
+        messages_module.identity, "new_human_comments", lambda *, pr_number, since: []
+    )
     monkeypatch.setattr(
         messages_module.github,
         "check_status",
@@ -433,8 +445,9 @@ def test_coding_reviewer_fail_over_k_blocks(monkeypatch):
 
 
 def test_coding_unmergeable_blocks_and_posts_one_rebase_comment(monkeypatch):
-    # 真冲突（DIRTY/CONFLICTING）：不评审、不 merge；恰发一次 rebase 提示且 body 为
-    # rebase.CONFLICT_COMMENT；record 置 BLOCKED + needs-human；事件 reason == "unmergeable"。
+    # 真冲突（DIRTY/CONFLICTING）：不评审、不 merge；恰发一次结构化挂起评论（Spec-0032/T5：由
+    # _block 经 blocknote 统一出，merge 闸把 CONFLICT_COMMENT 当 blocker 包进「卡在哪」段）；
+    # record 置 BLOCKED + needs-human；事件 reason == "unmergeable"。
     msgs, orch, state = _make(runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)])
     rec = _patch_github(monkeypatch, mergeable="CONFLICTING", merge_state_status="DIRTY")
 
@@ -443,7 +456,9 @@ def test_coding_unmergeable_blocks_and_posts_one_rebase_comment(monkeypatch):
     assert orch.review_code_calls == []
     assert rec["merged"] == []
     assert len(rec["comments"]) == 1
-    assert rec["comments"][0]["body"] == messages_module.rebase.CONFLICT_COMMENT
+    body = rec["comments"][0]["body"]
+    assert "gate=merge" in body  # 结构化挂起评论（按 gate 出原因短语）
+    assert messages_module.rebase.CONFLICT_COMMENT in body  # 冲突提示作 blocker 嵌在「卡在哪」段
     assert rec["comments"][0]["agent_id"] == _AGENT_ID
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
     assert (5, BLOCKED_LABEL) in rec["labels"]
@@ -962,6 +977,11 @@ def _patch_github_labels(monkeypatch, *, merged=False, closed=False, labels=()):
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(
         messages_module.github, "has_label", lambda *, pr_number, name: name in labels
+    )
+    # Spec-0032/T5：blocked 解挂主路径先读「block 之后的新人类评论」；这些用例专测「人手动摘标签」
+    # 兜底路径，故桩为无新评论，使解挂走既有 label 分支（零回归）。
+    monkeypatch.setattr(
+        messages_module.identity, "new_human_comments", lambda *, pr_number, since: []
     )
     monkeypatch.setattr(
         messages_module.github,
