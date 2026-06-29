@@ -222,7 +222,7 @@ def _patch_github(
     monkeypatch.setattr(
         messages_module.rebase,
         "rebase_open_prs",
-        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None: [],
+        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None: [],
     )
     return rec
 
@@ -388,7 +388,9 @@ def test_coding_ci_green_reviewer_pass_merges_and_fans_out(monkeypatch):
     rec = _patch_github(monkeypatch)
     seen = {}
 
-    def _fake_rebase(*, merged_pr_number=None, agent_id=None, heal=None, resolve=None):
+    def _fake_rebase(
+        *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None
+    ):
         seen["merged_pr_number"] = merged_pr_number
         seen["agent_id"] = agent_id
         return [{"pr_number": 8, "result": "updated"}]
@@ -996,7 +998,7 @@ def _patch_github_labels(monkeypatch, *, merged=False, closed=False, labels=()):
     monkeypatch.setattr(
         messages_module.rebase,
         "rebase_open_prs",
-        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None: [],
+        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None: [],
     )
     return rec
 

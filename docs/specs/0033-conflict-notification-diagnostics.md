@@ -7,7 +7,7 @@ summary: '冲突通知不再是无诊断的静态罐头：新增 worktree-free �
 tasks:
   - id: T1
     title: conflictdiag：merge-tree 诊断采集 + 格式化（新模块）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: collect 把 merge-tree 冲突输出解析为冲突文件清单 + 每文件关键 hunk 摘要（按字符上限截断），git 无冲突/命令缺失/非0/任何异常时返回空 ConflictDiag 不抛；format_blocker 渲出清单+hunk摘要+step，diag 为空时返回等价今日 CONFLICT_COMMENT 语义的兜底文案；make_diagnoser 在 work_dir 缺省/失败时回退空诊断兜底；纯函数/注入 run，hermetic 由 tests/test_conflictdiag.py 覆盖；ruff check + format --check + pytest 全绿
   - id: T2
     title: rebase：扇出冲突评论带诊断 + 已 needs-human 不重发
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: 已打 needs-human 的 PR 在扇出冲突回落时被跳过留言（不重发）并记可区分结果分类；未打标签的 PR 留一条带冲突文件清单+hunk摘要的签名评论，diagnose 缺省/兜底时退回静态 CONFLICT_COMMENT；签名/错误隔离/续跑后续 PR 行为不变；hermetic（fake has_label/post_signed_comment/diagnose）由 tests/test_rebase_conflict_diag.py 覆盖；ruff check + format --check + pytest 全绿
   - id: T3
     title: messages：merge 闸 blocker 带诊断 + 扇出注入诊断器
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: 'merge 闸三处挂起评论的「卡在哪」段携带冲突文件清单+hunk摘要（有诊断器时），无 work_dir/诊断为空时退回 CONFLICT_COMMENT；合并扇出调用注入 diagnose 使扇出评论带诊断并触发 T2 重发收敛；_block 的标签/状态/block_gate/block_watermark 落盘次序与 #89 解挂读侧语义零改动；hermetic（注入 conflictdiag/github/state）由 tests/test_messages_conflict_diag.py 覆盖；ruff check + format --check + pytest 全绿'
   - id: T4
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
