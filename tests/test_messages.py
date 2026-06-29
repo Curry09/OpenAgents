@@ -109,10 +109,26 @@ class _FakeState:
 
     def reset_rounds(self, *, issue_number):
         # Spec-0021/T2：reset_rounds 同点把 review_invalid 一并归零。
+        # Spec-0031/T2：同点把 merge_attempts 一并归零（但不动 block_gate）。
         for record in self._runs:
             if record.issue_number == issue_number:
                 record.rounds = 0
                 record.review_invalid = 0
+                record.merge_attempts = 0
+
+    def set_block_gate(self, *, issue_number, gate):
+        # Spec-0031/T2：落盘某 run 的 block_gate（""/rfc/code/merge/*-unparseable）。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.block_gate = gate
+
+    def increment_merge_attempts(self, *, issue_number):
+        # Spec-0031/T2：镜像 increment_rounds，但计 armed 模式 agent 解冲突重试次数。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.merge_attempts += 1
+                return record.merge_attempts
+        return 0
 
 
 def _run(*, issue_number, pr_number, status, rounds=0, review_invalid=0):
