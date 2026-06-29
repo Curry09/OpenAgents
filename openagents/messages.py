@@ -101,6 +101,28 @@ def _configured_max_review_retries() -> int:
 
 MAX_REVIEW_RETRIES = _configured_max_review_retries()
 
+# Spec-0031/T2：armed 模式下 agent 解 merge 冲突的有界重试上限旋钮——env
+# OPENAGENTS_MAX_MERGE_ATTEMPTS，默认 3（对齐 MAX_ROUNDS）。逐字镜像 _configured_max_rounds
+# 的读取/兜底/可 monkeypatch 约定。独立于 MAX_ROUNDS / MAX_REVIEW_RETRIES：merge 解冲突重试
+# 与评审回合 / 评审无效是不同性质的预算，互不偷吃、可分别调参。
+MAX_MERGE_ATTEMPTS_ENV = "OPENAGENTS_MAX_MERGE_ATTEMPTS"
+_DEFAULT_MAX_MERGE_ATTEMPTS = 3
+
+
+def _configured_max_merge_attempts() -> int:
+    """读 OPENAGENTS_MAX_MERGE_ATTEMPTS；缺省/非法/<1 回落到默认值（至少给一次解冲突机会）。"""
+    raw = os.environ.get(MAX_MERGE_ATTEMPTS_ENV)
+    if not raw:
+        return _DEFAULT_MAX_MERGE_ATTEMPTS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_MERGE_ATTEMPTS
+    return value if value >= 1 else _DEFAULT_MAX_MERGE_ATTEMPTS
+
+
+MAX_MERGE_ATTEMPTS = _configured_max_merge_attempts()
+
 
 class Messages:
     """RFC-0001 T5 + RFC-0005 + RFC-0012：按阶段轮询 PR 的 merge/CI/评审闸，路由回编排层。"""
@@ -134,8 +156,10 @@ class Messages:
 
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
         "approved", "rfc-pass", "refine", "ci", "review", "review-invalid", "blocked",
-        "resumed", "hold-spec", "hold-merge"}），便于日志与测试断言。Spec-0021/T2：新增
-        "review-invalid"（评审无效本轮等下一轮重评，不吃 round、不空转）。
+        "resumed", "resolved", "unmergeable", "merge-retry", "hold-spec", "hold-merge"}），
+        便于日志与测试断言。Spec-0021/T2：新增 "review-invalid"（评审无效本轮等下一轮重评，不吃
+        round、不空转）。Spec-0031/T2：新增 "merge-retry"（armed 模式本轮派 agent 解冲突未成、
+        未达上限，保持 pr-open 等下一轮再试，不重挂）。
 
         Spec-0020/T3：新增关键字参数 hold（Hold），默认「全不停」以保持现有调用与行为；
         poll 内部把 hold 下传给两道闸的私有处理函数，spec / merge 闸据 hold 选择「停在闸门
@@ -210,13 +234,24 @@ class Messages:
         if record.status == STATUS_BLOCKED:
             if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
                 return None
+            # Spec-0031/T2：人摘标签后按 block_gate 区分解挂入口。
             self._state.reset_rounds(issue_number=record.issue_number)
+            # merge 闸挂起的：进入 armed 模式——reset_rounds 已清 merge_attempts（给满 agent 解冲突
+            # 预算）、恢复 pr-open，但**保留 block_gate="merge"** 作 armed 标记（reset_rounds 刻意
+            # 不动 block_gate）。下一轮 poll 回到 _process_coding 据此派 agent 主动解冲突，而非被动
+            # 重检即时重挂。状态机不变式保证「block_gate=="merge" 且 pr-open」只能由此产生。
+            if record.block_gate == "merge":
+                self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
+                return {"pr_number": pr_number, "reason": "resumed"}
+            # 其余闸（rfc/code/*-unparseable）：现状行为（按是否已过 RFC 闸恢复阶段），并清残留
+            # block_gate（避免 "rfc"/"code" 误判后续 merge 入口）。返回 "resumed"，行为零回归。
             resumed = (
                 STATUS_PR_OPEN
                 if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
                 else STATUS_RFC_REVIEW
             )
             self._state.update_status(issue_number=record.issue_number, status=resumed)
+            self._state.set_block_gate(issue_number=record.issue_number, gate="")
             return {"pr_number": pr_number, "reason": "resumed"}
 
         # 2. 按阶段路由（决策 5）。
@@ -263,15 +298,18 @@ class Messages:
         # 判定取「或」更稳：DIRTY 与 CONFLICTING 在冲突场景同时出现（实例 PR #61）。
         merge_state = github.mergeability(pr_number=pr_number)
         if merge_state.merge_state_status == "DIRTY" or merge_state.mergeable == "CONFLICTING":
-            # Spec-0028/T3：真冲突先试 agent 语义解冲突（resolve 注入时）——成功则本轮不 block，
-            # push 后等下一轮 poll 重查（CI 因 synchronize 重排，状态自然推进）。resolve=None /
-            # 失败才走下面既有的人工留言 + _block 路径（逐字节回落现状，零回归）。
+            # Spec-0031/T2：按 block_gate=="merge"（armed）区分「人解挂后主动解冲突」与「系统首次
+            # 发现冲突」两个入口。armed 只可能由人解挂一个 merge 冲突挂起的 run 产生（状态机不变式）。
+            if record.block_gate == "merge":
+                return self._process_armed_conflict(record=record)
+            # 首次发现冲突（block_gate != "merge"）：逐字节保持 Spec-0028 现状——试一次 agent 语义
+            # 解冲突（resolve 注入时），成功本轮不 block、push 后等下一轮重查；resolve=None / 失败
+            # 才发一次 rebase 提示 + _block 置 BLOCKED+needs-human（此 _block 把 block_gate 置
+            # "merge"，为将来人解挂铺好 armed 入口）。「恰一条评论」由状态机短路天然保证：blocked 后
+            # 下一轮 poll 经 _process_run 的 blocked 分支 return None，永不再进 _process_coding。
             resolve = self._make_resolver()
             if resolve is not None and resolve(pr_number=pr_number):
                 return {"pr_number": pr_number, "reason": "resolved"}
-            # 真冲突解不了：发一次 rebase 提示（复用 rebase.CONFLICT_COMMENT 单一文案来源，避免
-            # 漂移），再走既有 _block 置 BLOCKED+needs-human。「恰一条评论」由状态机短路天然保证：
-            # blocked 后下一轮 poll 经 _process_run 的 blocked 分支 return None，永不再进 _process_coding。
             identity.post_signed_comment(
                 pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
             )
@@ -330,6 +368,42 @@ class Messages:
             return self._block(record=record, gate=gate)
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
+    def _process_armed_conflict(self, *, record: RunRecord) -> dict:
+        """Spec-0031/T2：armed 模式（人解挂 merge 冲突后）下派 agent 主动解冲突的有界重试。
+
+        每轮 poll 进来一次（block_gate=="merge" 且回到 pr-open）：
+        - resolve 成功 → 清 armed（block_gate="" + reset 预算）、返回 "resolved"，下一轮 CI 因
+          synchronize 重排自然推进。
+        - resolve is None（无 backend，重试无意义）→ 直接回落人工（CONFLICT_COMMENT + _block），
+          不空转重试。
+        - resolve 失败 → merge_attempts +1：未达 MAX_MERGE_ATTEMPTS 返回 "merge-retry"、保持
+          pr-open、**不重挂**（跨轮有界重试，给 agent「若干次」真正动手的机会）；达上限才发提示 +
+          _block(gate="merge") 重新挂起等人（block_gate 再次置 "merge"，下次人解挂可再 arm）。
+        """
+        pr_number = record.pr_number
+        resolve = self._make_resolver()
+        # 1. 解决了：清 armed 标记 + 重置预算，本轮返回 resolved（push 已在 resolve 内完成）。
+        if resolve is not None and resolve(pr_number=pr_number):
+            self._state.set_block_gate(issue_number=record.issue_number, gate="")
+            self._state.reset_rounds(issue_number=record.issue_number)
+            return {"pr_number": pr_number, "reason": "resolved"}
+        # 2. 无 backend（resolve is None）：重试无意义，直接回落人工兜底，不空转。
+        if resolve is None:
+            identity.post_signed_comment(
+                pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
+            )
+            self._block(record=record, gate="merge")
+            return {"pr_number": pr_number, "reason": "unmergeable"}
+        # 3. 解不了：计数 +1，未达上限跨轮重试（保持 pr-open、不重挂），达上限才重新挂起。
+        attempts = self._state.increment_merge_attempts(issue_number=record.issue_number)
+        if attempts < MAX_MERGE_ATTEMPTS:
+            return {"pr_number": pr_number, "reason": "merge-retry"}
+        identity.post_signed_comment(
+            pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
+        )
+        self._block(record=record, gate="merge")
+        return {"pr_number": pr_number, "reason": "unmergeable"}
+
     def _block(self, *, record: RunRecord, gate: str) -> dict:
         """RFC-0012 决策 5：评审超 K 轮 → 置 STATUS_BLOCKED + 打 needs-human + PR 不关。
 
@@ -342,6 +416,10 @@ class Messages:
         # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（release 预检与人的可观测性都依赖标签）。
         github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        # Spec-0031/T2：记录是哪道闸挂的（沿用 issue #47 的「GitHub 副作用先行、state 后行」次序：
+        # add_label → update_status → set_block_gate）。merge 闸据此在人解挂时判 armed；gate=="merge"
+        # 的 _block 为将来人解挂铺好 armed 入口（解挂分支保留它作 armed 标记并派 agent 解冲突）。
+        self._state.set_block_gate(issue_number=record.issue_number, gate=gate)
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
 
     def _make_heal(self):

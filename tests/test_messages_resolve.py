@@ -45,6 +45,12 @@ class _FakeState:
             if record.issue_number == issue_number:
                 record.status = status
 
+    def set_block_gate(self, *, issue_number, gate):
+        # Spec-0031/T2：_block 现会记录挂起入口；首次发现冲突路径（block_gate=="" 默认）会命中。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.block_gate = gate
+
 
 def _run(*, issue_number=3, pr_number=5, status=STATUS_PR_OPEN):
     return RunRecord(

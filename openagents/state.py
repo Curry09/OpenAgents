@@ -68,6 +68,17 @@ class RunRecord:
     # 「reviewer 输出无法解析」这一真实理由升级 needs-human（区别于真 REWORK 攒满 MAX_ROUNDS）。
     # 与 rounds 同生命周期：reset_rounds（implement / 解挂）同点一并归零，但二者预算彼此独立。
     review_invalid: int = 0
+    # Spec-0031/T1：上一次 _block 是哪道闸挂起的（""/"rfc"/"code"/"merge"/*-unparseable）。
+    # 默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧 state.json）。merge 闸据
+    # block_gate=="merge"（且 status 已回 pr-open）判「armed」——人解挂 merge 冲突后派 agent
+    # 主动解冲突的标记；状态机不变式保证该组合只能由 merge 解挂产生，故无需再加 armed 布尔。
+    # 兼作可观测性（日志/看板可读「哪道闸挂的」）。由 _block / 解挂分支经 set_block_gate 显式管理。
+    block_gate: str = ""
+    # Spec-0031/T1：armed 窗口内已用的 agent 解冲突重试次数（类比 rounds / review_invalid，
+    # 独立预算）。默认 0 向后兼容旧记录。每轮 poll 派一次 agent 解冲突失败则 +1；达
+    # MAX_MERGE_ATTEMPTS 才重新挂起。与 rounds 同生命周期：reset_rounds 同点归零（给满预算），
+    # 但 reset_rounds 不动 block_gate（armed 标记独立管理）。
+    merge_attempts: int = 0
 
 
 class State:
@@ -168,17 +179,50 @@ class State:
         self._save(data=data)
         return new_value
 
+    def set_block_gate(self, *, issue_number: int, gate: str) -> None:
+        """Spec-0031/T1：落盘某 issue 对应 run 的 block_gate（哪道闸挂的），gate="" 即清除。
+
+        供 _block 记账挂起入口、供解挂分支判 armed（block_gate=="merge"），以及解 armed 时
+        显式清除（gate=""，避免 "rfc"/"code" 残留误判后续 merge 入口）。block_gate 是 armed
+        标记，刻意独立于 reset_rounds 的生命周期——只由 _block / 解挂 / armed 解决经此显式管理。
+        """
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["block_gate"] = gate
+        self._save(data=data)
+
+    def increment_merge_attempts(self, *, issue_number: int) -> int:
+        """Spec-0031/T1：把某 issue 对应 run 的 merge_attempts +1 并落盘，返回新值。
+
+        镜像 increment_rounds，但计的是 armed 模式下 agent 解冲突的重试次数，与 rounds /
+        review_invalid 预算彼此独立。用 record.get("merge_attempts", 0) 兜底缺该键的旧记录
+        （向后兼容）。调用方据返回值与 MAX_MERGE_ATTEMPTS 比较，决定本轮 merge-retry 还是重新挂起。
+        """
+        data = self._load()
+        new_value = 0
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                new_value = record.get("merge_attempts", 0) + 1
+                record["merge_attempts"] = new_value
+        self._save(data=data)
+        return new_value
+
     def reset_rounds(self, *, issue_number: int) -> None:
         """RFC-0012 决策 6：把某 issue 对应 run 的 rounds 归零（阶段切换时调，如 implement）。
 
         Spec-0021/T2：同点把 review_invalid 也归零——评审无效计数与 rounds 同生命周期
         （implement / 解挂时一并清），但二者预算独立（评审无效不偷吃真 REWORK 的 rounds）。
+        Spec-0031/T1：同点把 merge_attempts 也归零（解挂 arm 时给满 agent 解冲突预算），但
+        **不动 block_gate**——block_gate 是 armed 标记，由解挂分支 / merge 闸经 set_block_gate
+        显式管理（解挂 merge 闸时刻意保留 "merge" 作 armed 标记，故不能在此一并清掉）。
         """
         data = self._load()
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["rounds"] = 0
                 record["review_invalid"] = 0
+                record["merge_attempts"] = 0
         self._save(data=data)
 
     def get_agent_id(self) -> str | None:

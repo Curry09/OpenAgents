@@ -7,7 +7,7 @@ summary: 人摘 needs-human 解挂 merge 冲突后不即时重挂，而是进入
 tasks:
   - id: T1
     title: state：block_gate/merge_attempts 字段 + 计数/重置方法
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 新字段缺省值使 RunRecord(**旧记录) 不报错；set_block_gate/increment_merge_attempts/reset_rounds 行为由 tests/test_state_merge_unblock.py hermetic 覆盖（含旧记录兜底、reset 不清 block_gate）；ruff check + format --check + pytest 全绿
   - id: T2
     title: messages：merge 闸 armed 解挂语义 + MAX_MERGE_ATTEMPTS knob
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: armed 模式下 resolve 失败且未达 MAX_MERGE_ATTEMPTS 返回 merge-retry、保持 pr-open 不重挂，达上限才 _block(gate=merge)；resolve 成功清 block_gate；resolve=None 的 armed 直接重挂；block_gate=='' 的首次发现路径行为逐字节同 Spec-0028（零回归）；needs-human 字面量与 _block 软挂起语义不变；hermetic 注入 github/resolve 的 tests/test_messages_merge_unblock.py 覆盖；ruff+pytest 全绿
   - id: T3
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
