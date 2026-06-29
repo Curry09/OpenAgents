@@ -7,7 +7,7 @@ summary: 阻塞时按 gate 留一条信息充分的结构化评论；检测到 b
 tasks:
   - id: T1
     title: state：block_watermark 字段 + setter
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: block_watermark 缺省值使 RunRecord(**旧记录) 不报错；set_block_watermark 行为由 tests/test_state_needs_human_unblock.py hermetic 覆盖（含旧记录兜底、与 block_gate/merge_attempts 互不干扰）；ruff check + format --check + pytest 全绿
   - id: T2
     title: github：remove_label 幂等封装
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: remove_label 调用 gh pr edit --remove-label；标签不存在时幂等返回不抛；其它 gh 错误照常抛 GithubError；由 tests/test_github_remove_label.py（monkeypatch _run_gh）覆盖；ruff check + format --check + pytest 全绿
   - id: T3
     title: blocknote：结构化阻塞评论构造（新模块）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -46,7 +46,7 @@ tasks:
     acceptance: build 对各 gate（rfc/code/merge/rfc-unparseable/code-unparseable）产出四段齐全、含『回复即继续』指引、gate→原因短语正确的正文；纯函数无 IO；由 tests/test_blocknote.py 覆盖；ruff check + format --check + pytest 全绿
   - id: T4
     title: identity：new_human_comments 读侧复活
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -59,7 +59,7 @@ tasks:
     acceptance: 签名评论（任意 agent_id）被滤掉、created_at<=since 被滤掉、仅 block 之后的人类评论返回且升序；since='' 时返回全部人类评论；由 tests/test_identity_new_human_comments.py（fake list_comments）覆盖；ruff check + format --check + pytest 全绿
   - id: T5
     title: messages：_block enrich + watermark + 回评论解挂路由
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -76,7 +76,7 @@ tasks:
     acceptance: 任意 gate 挂起均贴一条四段结构化签名评论并落 block_watermark；block 之后的新人类评论触发自动 remove_label + reset_rounds + 按 block_gate 喂 detail 到对应 orchestrator 路径 + 恢复对应状态、返回 resumed；机器签名评论与历史评论不触发解挂；手动摘标签兜底路径行为不变；needs-human 字面量与 _block 软挂起语义不变；hermetic 注入 github/identity/orchestrator 的 tests/test_messages_needs_human_unblock.py 覆盖；ruff check + format --check + pytest 全绿
   - id: T6
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

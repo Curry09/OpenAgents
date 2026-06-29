@@ -13,6 +13,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `__init__.py` | OpenAgents —— RFC 驱动的多 Agent 框架。 |
 | `align.py` | Spec-0020/T1: issue 前门对齐——把模糊想法复述成「要做 X / 边界 Y / 不做 Z」。 |
 | `backfill.py` | Spec-0025/T1: 代码盘点助手——扫存量代码路径产出结构化 inventory。 |
+| `blocknote.py` | Spec-0032/T3: 结构化阻塞评论构造（纯函数模块，解耦理念 10）。 |
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。 |
@@ -70,6 +71,7 @@ graph LR
     nopenagents_backends_base["backends.base"]
     nopenagents_backends_claude_code["backends.claude_code"]
     nopenagents_backfill["openagents.backfill"]
+    nopenagents_blocknote["openagents.blocknote"]
     nopenagents_cli["openagents.cli"]
     nopenagents_config["openagents.config"]
     nopenagents_conflict["openagents.conflict"]
@@ -141,6 +143,7 @@ graph LR
     nopenagents_indexheal --> nopenagents_spec_render
     nopenagents_messages --> nopenagents
     nopenagents_messages --> nopenagents_backends_base
+    nopenagents_messages --> nopenagents_blocknote
     nopenagents_messages --> nopenagents_conflict
     nopenagents_messages --> nopenagents_github
     nopenagents_messages --> nopenagents_hold

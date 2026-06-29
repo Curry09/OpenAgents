@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import time
 
-from openagents import conflict, github, identity, indexheal, rebase
+from openagents import blocknote, conflict, github, identity, indexheal, rebase
 from openagents.backends.base import AgentBackend
 from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
@@ -122,6 +122,17 @@ def _configured_max_merge_attempts() -> int:
 
 
 MAX_MERGE_ATTEMPTS = _configured_max_merge_attempts()
+
+# Spec-0032/T5: gate → 挂起评论「我试过什么」段的人类可读文案。messages 据持久化 gate 选一句
+# 传给 blocknote.build（展示文案，不参与路由判定）；未知 gate 回落到通用句、绝不抛。
+_TRIED_BY_GATE = {
+    "rfc": "已按 reviewer 反馈多轮精炼 RFC，仍未通过评审",
+    "code": "已按 reviewer 反馈多轮迭代代码，仍未通过评审",
+    "rfc-unparseable": "多次重评仍无法解析 reviewer 对 RFC 的裁决",
+    "code-unparseable": "多次重评仍无法解析 reviewer 对代码的裁决",
+    "merge": "已尝试自动解冲突，但仍与目标分支存在冲突",
+}
+_DEFAULT_TRIED = "已反复尝试，仍未通过"
 
 
 class Messages:
@@ -227,37 +238,85 @@ class Messages:
             self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
             return {"pr_number": pr_number, "reason": "closed"}
 
-        # 1c. issue #49：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile（人合掉修好的
-        # PR → done；人关掉 → closed）。若 PR 仍 open 但人已摘掉 needs-human 标签（语义：「我处理
-        # 好了，继续跑」），则解挂——rounds 清零，按是否已过 RFC 闸回到对应阶段重新流转；标签仍在
-        # 则保持挂起（返回 None，不动状态）。这消除了「进得去、出不来、release 被永久焊死」。
+        # 1c. issue #49 / Spec-0032/T5：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile。
+        # 仍 open 的 blocked run 走两层解挂：① 回评论解挂主路径（人在 block 之后回新评论 = 解挂信号，
+        # 把评论当 detail 喂给对应闸）；② 兜底人手动摘 needs-human 标签（既有路径，保留）。
         if record.status == STATUS_BLOCKED:
-            if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
-                return None
-            # Spec-0031/T2：人摘标签后按 block_gate 区分解挂入口。
-            self._state.reset_rounds(issue_number=record.issue_number)
-            # merge 闸挂起的：进入 armed 模式——reset_rounds 已清 merge_attempts（给满 agent 解冲突
-            # 预算）、恢复 pr-open，但**保留 block_gate="merge"** 作 armed 标记（reset_rounds 刻意
-            # 不动 block_gate）。下一轮 poll 回到 _process_coding 据此派 agent 主动解冲突，而非被动
-            # 重检即时重挂。状态机不变式保证「block_gate=="merge" 且 pr-open」只能由此产生。
-            if record.block_gate == "merge":
-                self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
-                return {"pr_number": pr_number, "reason": "resumed"}
-            # 其余闸（rfc/code/*-unparseable）：现状行为（按是否已过 RFC 闸恢复阶段），并清残留
-            # block_gate（避免 "rfc"/"code" 误判后续 merge 入口）。返回 "resumed"，行为零回归。
-            resumed = (
-                STATUS_PR_OPEN
-                if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
-                else STATUS_RFC_REVIEW
-            )
-            self._state.update_status(issue_number=record.issue_number, status=resumed)
-            self._state.set_block_gate(issue_number=record.issue_number, gate="")
-            return {"pr_number": pr_number, "reason": "resumed"}
+            return self._process_blocked(record=record)
 
         # 2. 按阶段路由（决策 5）。
         if record.status == STATUS_RFC_REVIEW:
             return self._process_rfc_review(record=record, hold=hold)
         return self._process_coding(record=record, hold=hold)
+
+    def _process_blocked(self, *, record: RunRecord) -> dict | None:
+        """Spec-0032/T5：blocked run 的两层解挂——回评论解挂（主）+ 人手动摘标签（兜底）。
+
+        主路径：identity.new_human_comments(since=block_watermark) 取「block 之后的无签名人类
+        评论」（仅新评论 + 仅人类两道硬约束化解 RFC-0019 自循环顾虑）；命中即把最后一条评论正文当
+        detail 自动解挂（_unblock_with_comment）。无新评论则退回兜底：needs-human 仍在 → 保持挂起
+        （return None）；标签已被人手动摘 → 走既有 label 解挂（_unblock_by_label，零回归）。
+        """
+        pr_number = record.pr_number
+        news = identity.new_human_comments(pr_number=pr_number, since=record.block_watermark)
+        if news:
+            return self._unblock_with_comment(record=record, detail=news[-1].body)
+        if github.has_label(pr_number=pr_number, name=BLOCKED_LABEL):
+            return None
+        return self._unblock_by_label(record=record)
+
+    def _unblock_with_comment(self, *, record: RunRecord, detail: str) -> dict:
+        """Spec-0032/T5：回评论解挂——自动摘标签 + 清回合预算 + 按 block_gate 把评论喂给对应闸。
+
+        路由（按持久化 block_gate）：rfc/rfc-unparseable → refine_rfc(detail)（内部置 rfc-review）+
+        清残留 block_gate；code/code-unparseable → iterate(reason="human", detail)（内部置
+        iterating）+ 清残留 block_gate；merge → 不直接喂解冲突器，按 armed 语义恢复 pr-open、**保留**
+        block_gate="merge" 作标记（reset_rounds 已清 merge_attempts 给满预算），解冲突交
+        _process_armed_conflict（Spec-0031）；""（理论兜底）→ 按 rfc-approved 决定恢复阶段。
+        """
+        pr_number = record.pr_number
+        issue_number = record.issue_number
+        # 自动摘 needs-human（remove_label 幂等：人可能已先手动摘）+ 清回合预算。
+        github.remove_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        self._state.reset_rounds(issue_number=issue_number)
+        gate = record.block_gate
+        if gate in ("rfc", "rfc-unparseable"):
+            self._orchestrator.refine_rfc(pr_number=pr_number, detail=detail)
+            self._state.set_block_gate(issue_number=issue_number, gate="")
+        elif gate in ("code", "code-unparseable"):
+            self._orchestrator.iterate(pr_number=pr_number, reason="human", detail=detail)
+            self._state.set_block_gate(issue_number=issue_number, gate="")
+        elif gate == "merge":
+            self._state.update_status(issue_number=issue_number, status=STATUS_PR_OPEN)
+        else:
+            resumed = (
+                STATUS_PR_OPEN
+                if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
+                else STATUS_RFC_REVIEW
+            )
+            self._state.update_status(issue_number=issue_number, status=resumed)
+        return {"pr_number": pr_number, "reason": "resumed"}
+
+    def _unblock_by_label(self, *, record: RunRecord) -> dict:
+        """issue #49 / Spec-0031/T2：人手动摘 needs-human 标签后的解挂（无 detail 注入）——兜底路径。
+
+        逐字节保持既有行为（零回归）：reset_rounds 后按 block_gate 区分——merge 闸进 armed（恢复
+        pr-open、保留 block_gate="merge" 作标记）；其余闸按是否已过 RFC 闸恢复阶段并清残留 block_gate。
+        """
+        pr_number = record.pr_number
+        issue_number = record.issue_number
+        self._state.reset_rounds(issue_number=issue_number)
+        if record.block_gate == "merge":
+            self._state.update_status(issue_number=issue_number, status=STATUS_PR_OPEN)
+            return {"pr_number": pr_number, "reason": "resumed"}
+        resumed = (
+            STATUS_PR_OPEN
+            if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL)
+            else STATUS_RFC_REVIEW
+        )
+        self._state.update_status(issue_number=issue_number, status=resumed)
+        self._state.set_block_gate(issue_number=issue_number, gate="")
+        return {"pr_number": pr_number, "reason": "resumed"}
 
     def _process_rfc_review(self, *, record: RunRecord, hold: Hold) -> dict | None:
         """RFC 评审闸（RFC-0012 决策 1/3）：标签 / reviewer 全票 PASS → implement；非 PASS → refine 或 BLOCKED。"""
@@ -282,7 +341,8 @@ class Messages:
         if decision.actionable:
             rounds = self._state.increment_rounds(issue_number=record.issue_number)
             if rounds >= MAX_ROUNDS:
-                return self._block(record=record, gate="rfc")
+                # Spec-0032/T5：超 K 挂起时把 reviewer 反馈原文当 blocker 喂进结构化挂起评论。
+                return self._block(record=record, gate="rfc", blocker=decision.feedback)
             self._orchestrator.refine_rfc(pr_number=pr_number, detail=decision.feedback)
             return {"pr_number": pr_number, "reason": "refine"}
         # 评审无效（裁决无法解析/无可操作反馈）：不 rounds++、不 refine（不空转写码 agent），
@@ -310,10 +370,9 @@ class Messages:
             resolve = self._make_resolver()
             if resolve is not None and resolve(pr_number=pr_number):
                 return {"pr_number": pr_number, "reason": "resolved"}
-            identity.post_signed_comment(
-                pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
-            )
-            self._block(record=record, gate="merge")
+            # Spec-0032/T5：挂起评论统一由 _block 经 blocknote 出（取代这里单独贴 CONFLICT_COMMENT）；
+            # merge 闸把冲突提示文案当 blocker 喂进结构化评论的「卡在哪」段。
+            self._block(record=record, gate="merge", blocker=rebase.CONFLICT_COMMENT)
             return {"pr_number": pr_number, "reason": "unmergeable"}
         if merge_state.mergeable == "UNKNOWN":
             # GitHub 异步尚未算完（刚 push 常见）：本轮不评审也不 block，下个 interval 重查——
@@ -347,7 +406,8 @@ class Messages:
         if decision.actionable:
             rounds = self._state.increment_rounds(issue_number=record.issue_number)
             if rounds >= MAX_ROUNDS:
-                return self._block(record=record, gate="code")
+                # Spec-0032/T5：超 K 挂起时把 reviewer 反馈原文当 blocker 喂进结构化挂起评论。
+                return self._block(record=record, gate="code", blocker=decision.feedback)
             self._orchestrator.iterate(
                 pr_number=pr_number, reason="review", detail=decision.feedback
             )
@@ -365,7 +425,9 @@ class Messages:
         """
         invalid = self._state.increment_review_invalid(issue_number=record.issue_number)
         if invalid >= MAX_REVIEW_RETRIES:
-            return self._block(record=record, gate=gate)
+            # Spec-0032/T5：评审无法解析时无可操作的 reviewer 反馈正文，blocker 留空（blocknote
+            # 占位「暂无更多细节」），其余四段仍由 gate→原因/试过短语填满。
+            return self._block(record=record, gate=gate, blocker="")
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
     def _process_armed_conflict(self, *, record: RunRecord) -> dict:
@@ -389,38 +451,58 @@ class Messages:
             return {"pr_number": pr_number, "reason": "resolved"}
         # 2. 无 backend（resolve is None）：重试无意义，直接回落人工兜底，不空转。
         if resolve is None:
-            identity.post_signed_comment(
-                pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
-            )
-            self._block(record=record, gate="merge")
+            # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（blocker = 冲突提示文案）。
+            self._block(record=record, gate="merge", blocker=rebase.CONFLICT_COMMENT)
             return {"pr_number": pr_number, "reason": "unmergeable"}
         # 3. 解不了：计数 +1，未达上限跨轮重试（保持 pr-open、不重挂），达上限才重新挂起。
         attempts = self._state.increment_merge_attempts(issue_number=record.issue_number)
         if attempts < MAX_MERGE_ATTEMPTS:
             return {"pr_number": pr_number, "reason": "merge-retry"}
-        identity.post_signed_comment(
-            pr_number=pr_number, body=rebase.CONFLICT_COMMENT, agent_id=self._agent_id
-        )
-        self._block(record=record, gate="merge")
+        self._block(record=record, gate="merge", blocker=rebase.CONFLICT_COMMENT)
         return {"pr_number": pr_number, "reason": "unmergeable"}
 
-    def _block(self, *, record: RunRecord, gate: str) -> dict:
-        """RFC-0012 决策 5：评审超 K 轮 → 置 STATUS_BLOCKED + 打 needs-human + PR 不关。
+    def _block(self, *, record: RunRecord, gate: str, blocker: str) -> dict:
+        """RFC-0012 决策 5 + Spec-0032/T5：超 K 轮挂起——留足信息的结构化评论 + 置 BLOCKED + 标签 + 水位线。
 
-        STATUS_BLOCKED 不在 _OPEN_STATUSES，下一轮 poll 自动跳过（软挂起）；needs-human
-        标签是给人/release 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
+        STATUS_BLOCKED 不在 _OPEN_STATUSES，下一轮 poll 自动跳过（软挂起）；needs-human 标签是给人/
+        release 预检看的「求救」信号。PR 保持 open，等人修完再恢复流转。
+
+        Spec-0032/T5：挂起即按 gate 经 blocknote.build 贴**一条**结构化签名评论（统一所有闸——取代今天
+        只有 merge 闸单独贴 CONFLICT_COMMENT、其余闸只甩标签的半张嘴体验）；blocker 由调用方按闸传入
+        （rfc/code 传 reviewer 反馈原文、merge 传冲突提示、*-unparseable 留空）。贴完取当前最新评论
+        createdAt 经 set_block_watermark 落盘作「解挂水位线」——含本实例刚贴的挂起评论，故解挂判定
+        （只认水位线之后的无签名人类评论）天然不会读到自己这条评论自触发。
         """
         pr_number = record.pr_number
-        # issue #47：GitHub 副作用先行、state 落盘后行。add_label 失败（gh 瞬时错误 / 标签缺失）
+        # 先贴结构化挂起评论（沿用 merge 闸既有的「先评论、后 _block」次序）。盖本实例签名 →
+        # 解挂读侧的 new_human_comments 会按签名把它滤掉，不会自触发。
+        body = blocknote.build(
+            gate=gate, tried=_TRIED_BY_GATE.get(gate, _DEFAULT_TRIED), blocker=blocker
+        )
+        identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
+        # issue #47：GitHub 标签副作用先行、state 落盘后行。add_label 失败（gh 瞬时错误 / 标签缺失）
         # 时异常上抛，但此时 state 尚未变 blocked——下一轮 poll 仍把它当 open，自然重试整个 _block，
         # 避免「state=blocked 但 PR 无 needs-human 标签」的双源发散（release 预检与人的可观测性都依赖标签）。
         github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
-        # Spec-0031/T2：记录是哪道闸挂的（沿用 issue #47 的「GitHub 副作用先行、state 后行」次序：
-        # add_label → update_status → set_block_gate）。merge 闸据此在人解挂时判 armed；gate=="merge"
-        # 的 _block 为将来人解挂铺好 armed 入口（解挂分支保留它作 armed 标记并派 agent 解冲突）。
+        # Spec-0031/T2：记录是哪道闸挂的（次序：add_label → update_status → set_block_gate）。merge 闸
+        # 据此在人解挂时判 armed；gate=="merge" 的 _block 为将来人解挂铺好 armed 入口。
         self._state.set_block_gate(issue_number=record.issue_number, gate=gate)
+        # Spec-0032/T5：落「解挂水位线」——挂起时刻 PR 上最新评论 createdAt（含上面刚贴的挂起评论）。
+        self._state.set_block_watermark(
+            issue_number=record.issue_number, watermark=self._latest_created_at(pr_number=pr_number)
+        )
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
+
+    def _latest_created_at(self, *, pr_number: int) -> str:
+        """Spec-0032/T5：取 PR 当前最新评论的 createdAt（无评论返回 ""）——供 _block 落水位线。
+
+        createdAt 是 GitHub 权威时序源（ISO 8601，字典序即时序，无需读系统时钟、hermetic 可测）。
+        """
+        return max(
+            (comment.created_at for comment in github.list_comments(pr_number=pr_number)),
+            default="",
+        )
 
     def _make_heal(self):
         """issue #48：当 work_dir + base 都已注入时构造索引冲突自愈 heal，否则 None（退回留言）。"""

@@ -79,6 +79,13 @@ class RunRecord:
     # MAX_MERGE_ATTEMPTS 才重新挂起。与 rounds 同生命周期：reset_rounds 同点归零（给满预算），
     # 但 reset_rounds 不动 block_gate（armed 标记独立管理）。
     merge_attempts: int = 0
+    # Spec-0032/T1：上一次 _block 时刻 PR 上最新评论的 createdAt（ISO 8601 字符串，字典序即
+    # 时序）——「挂起水位线」。默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧
+    # state.json），且任何真实 createdAt 都 > ""，故挂起后第一条人类评论即可触发解挂。解挂判定
+    # 只认 createdAt 严格大于该水位线的评论——历史评论、本实例刚贴的挂起评论都在水位线之内、
+    # 不会误触发（化解 RFC-0019 自循环顾虑的两道硬约束之一，另一道是只认无签名的人类评论）。
+    # 由 _block 经 set_block_watermark 落盘、由解挂分支经 identity.new_human_comments 消费。
+    block_watermark: str = ""
 
 
 class State:
@@ -190,6 +197,19 @@ class State:
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["block_gate"] = gate
+        self._save(data=data)
+
+    def set_block_watermark(self, *, issue_number: int, watermark: str) -> None:
+        """Spec-0032/T1：落盘某 issue 对应 run 的 block_watermark（挂起时刻最新评论 createdAt）。
+
+        镜像 set_block_gate 的写法（按 issue 定位 run、改单字段、整体落盘）。_block 贴完结构化
+        挂起评论后取当前最新评论 createdAt 写入；解挂分支只考虑 createdAt 严格大于它的人类新评论，
+        故本实例刚贴的挂起评论天然在水位线之内、不会自触发（与 block_gate/merge_attempts 互不干扰）。
+        """
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["block_watermark"] = watermark
         self._save(data=data)
 
     def increment_merge_attempts(self, *, issue_number: int) -> int:
