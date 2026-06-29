@@ -216,6 +216,10 @@ def test_unblock_keeps_blocked_when_label_present(monkeypatch):
     # needs-human 仍在 → 保持挂起（返回 None，不动状态）。零回归。
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+    # Spec-0032/T5：解挂主路径先读新人类评论；本用例专测「标签仍在 → 保持挂起」兜底，故桩为无新评论。
+    monkeypatch.setattr(
+        messages_module.identity, "new_human_comments", lambda *, pr_number, since: []
+    )
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: True)
     msgs = _messages(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_BLOCKED, block_gate="merge")]
