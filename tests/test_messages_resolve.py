@@ -135,6 +135,13 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
     monkeypatch.setattr(messages_module.github, "mergeability", lambda *, pr_number: _MS())
     monkeypatch.setattr(messages_module.github, "add_label", lambda *, pr_number, name: None)
+    # Spec-0034/T3：merge 闸 blocker 改取 _conflict_blocker→诊断器（work_dir 齐备时构造）。桩
+    # make_diagnoser 直接返回静态 CONFLICT_COMMENT，保持 hermetic（不触真实 git/gh）且断言不变。
+    monkeypatch.setattr(
+        messages_module.conflictdiag,
+        "make_diagnoser",
+        lambda *, work_dir, base: lambda *, pr_number: messages_module.rebase.CONFLICT_COMMENT,
+    )
     # Spec-0032/T5：_block 落水位线要读最新评论 createdAt——桩为空。
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
     monkeypatch.setattr(

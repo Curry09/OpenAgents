@@ -17,6 +17,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。 |
+| `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
 | `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
 | `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
@@ -75,6 +76,7 @@ graph LR
     nopenagents_cli["openagents.cli"]
     nopenagents_config["openagents.config"]
     nopenagents_conflict["openagents.conflict"]
+    nopenagents_conflictdiag["openagents.conflictdiag"]
     nopenagents_e2e["openagents.e2e"]
     nopenagents_envcheck["openagents.envcheck"]
     nopenagents_fleet["openagents.fleet"]
@@ -126,6 +128,9 @@ graph LR
     nopenagents_conflict --> nopenagents
     nopenagents_conflict --> nopenagents_backends_base
     nopenagents_conflict --> nopenagents_github
+    nopenagents_conflictdiag --> nopenagents
+    nopenagents_conflictdiag --> nopenagents_github
+    nopenagents_conflictdiag --> nopenagents_rebase
     nopenagents_envcheck --> nopenagents_backends_claude_code
     nopenagents_fleet --> nopenagents
     nopenagents_fleet --> nopenagents_cli
@@ -145,6 +150,7 @@ graph LR
     nopenagents_messages --> nopenagents_backends_base
     nopenagents_messages --> nopenagents_blocknote
     nopenagents_messages --> nopenagents_conflict
+    nopenagents_messages --> nopenagents_conflictdiag
     nopenagents_messages --> nopenagents_github
     nopenagents_messages --> nopenagents_hold
     nopenagents_messages --> nopenagents_identity
