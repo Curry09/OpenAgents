@@ -79,6 +79,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0029 统一 rfc→spec 命名硬切并退场 rfc-driven-development 技能
 把仓库残留的 rfc 命名全量改为 spec：删除 rfc-driven-development 技能目录、改 CLAUDE.md/README 散文、重命名 openagents/+tests/ 里的标识符与 CLI 子命令、并硬切三个线上/持久化值（GitHub 标签 rfc-approved→spec-approved、状态 rfc-review→spec-review、reviewer kind 'rfc'→'spec'），无兼容垫片；清扫覆盖每个活源文件与活模板——含包级 docstring openagents/__init__.py 的招牌标语与看板模板 openagents/templates/board.html 的 RFC-0001。冻结/prior-art allowlist（显式保留、不清扫、e2e 不误报）：历史 spec/设计文档正文里的 RFC-NNNN、rust-RFC 形态名、openagents/spec/ 与 tests/test_spec_* 里记录旧 rfc.py 改名的历史引用、scripts/e2e-rfc-*.sh 历史脚本名。
 
+### 0030 init 环境体检：检测 browser MCP 与权限放行（非阻塞）+ 前端 e2e 方法论引导
+在 openagents init 的 preflight 里加一段非阻塞环境体检：读 ~/.claude.json 检测 browser MCP（playwright/chrome-devtools）是否注册、读 OpenAgents 派 claude 的有效权限模式是否为全放行（bypassPermissions），缺失则打印安装/设置方式但不阻断 init；同时把「具备浏览器工具就优先设计前端浏览器 e2e」的条件式引导写进 in-code 方法论面（起草 prompt 模板 + reviewer rubric）。只检测+提示+方法论文案，不自动改 MCP 配置/权限、不在编排核心耦合 MCP、不驱动浏览器跑断言。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -186,6 +189,11 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0029 | 0029/T4 | CLI 子命令与 messages/vigil 消费者对齐 | pending | T3 | openagents/cli.py<br>openagents/messages.py<br>openagents/vigil.py<br>tests/test_cli.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_vigil.py |
 | 0029 | 0029/T5 | 残余 RFC-NNNN 注释清扫 | pending | T4 | openagents/__init__.py<br>openagents/e2e.py<br>openagents/workspace.py<br>openagents/rebase.py<br>openagents/results.py<br>openagents/templates/board.html<br>openagents/release.py<br>openagents/config.py<br>openagents/fleet.py<br>openagents/identity.py<br>openagents/backends/__init__.py<br>openagents/backends/base.py<br>openagents/backends/claude_code.py<br>tests/test_e2e.py<br>tests/test_workspace.py<br>tests/test_rebase.py<br>tests/test_results.py<br>tests/test_release.py<br>tests/test_config.py<br>tests/test_fleet.py<br>tests/test_identity.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py |
 | 0029 | 0029/T6 | 端到端校验脚本：断言零残余 rfc | pending | T1, T5 | scripts/e2e-spec-0029-rfc-to-spec.sh |
+| 0030 | 0030/T1 | 权限模式最小开关：常量改为读 OPENAGENTS_PERMISSION_MODE | pending | — | openagents/backends/claude_code.py<br>tests/test_backend_claude_code.py |
+| 0030 | 0030/T2 | 体检核心模块 envcheck：browser MCP 检测 + 权限模式读取 + 报告渲染 | pending | T1 | openagents/envcheck.py<br>tests/test_envcheck.py |
+| 0030 | 0030/T3 | 把环境体检接进 openagents init（非阻塞） | pending | T2 | openagents/cli.py<br>tests/test_cli.py |
+| 0030 | 0030/T4 | 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric | pending | — | openagents/orchestrator.py<br>openagents/reviewer.py<br>tests/test_orchestrator.py<br>tests/test_reviewer.py |
+| 0030 | 0030/T5 | e2e 脚本：体检两态输出 + 方法论文案注入断言 | pending | T3, T4 | scripts/e2e-spec-0030-init-env-check.sh |
 
 ## 跨 feature 关系图
 
@@ -344,6 +352,13 @@ graph LR
         n0029_T5["T5 残余 RFC-NNNN 注释清扫"]
         n0029_T6["T6 端到端校验脚本：断言零残余 rfc"]
     end
+    subgraph G0030[0030 init-browser-e2e-env-check]
+        n0030_T1["T1 权限模式最小开关：常量改为读 OPENAGENTS_PERMISSION_MODE"]
+        n0030_T2["T2 体检核心模块 envcheck：browser MCP 检测 + 权限模式读取 + 报告渲染"]
+        n0030_T3["T3 把环境体检接进 openagents init（非阻塞）"]
+        n0030_T4["T4 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric"]
+        n0030_T5["T5 e2e 脚本：体检两态输出 + 方法论文案注入断言"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -435,6 +450,10 @@ graph LR
     n0029_T5 --> n0029_T4
     n0029_T6 --> n0029_T1
     n0029_T6 --> n0029_T5
+    n0030_T2 --> n0030_T1
+    n0030_T3 --> n0030_T2
+    n0030_T5 --> n0030_T3
+    n0030_T5 --> n0030_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -453,21 +472,21 @@ graph LR
 | openagents/__init__.py | 0001, 0029 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030 |
 | openagents/config.py | 0001, 0029 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | openagents/identity.py | 0011, 0029 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024 |
@@ -481,10 +500,10 @@ graph LR
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
-| tests/test_backend_claude_code.py | 0001, 0003, 0029 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030 |
 | tests/test_config.py | 0001, 0029 |
 | tests/test_e2e.py | 0013, 0029 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
@@ -493,13 +512,13 @@ graph LR
 | tests/test_identity.py | 0011, 0029 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029 |
 | tests/test_messages_resolve.py | 0028, 0029 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
-| tests/test_reviewer.py | 0012, 0021, 0029 |
+| tests/test_reviewer.py | 0012, 0021, 0029, 0030 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
 | tests/test_spec_model.py | 0014, 0015, 0024 |
@@ -1235,4 +1254,36 @@ graph LR
     class v_T4_1 st_pending;
     class v_T5_1 st_pending;
     class v_T6_1 st_pending;
+```
+
+### 0030 init 环境体检：检测 browser MCP 与权限放行（非阻塞）+ 前端 e2e 方法论引导（issue #85）
+
+```mermaid
+graph LR
+    nT1["T1 权限模式最小开关：常量改为读 OPENAGENTS_PERMISSION_MODE"]
+    nT2["T2 体检核心模块 envcheck：browser MCP 检测 + 权限模式读取 + 报告渲染"]
+    nT3["T3 把环境体检接进 openagents init（非阻塞）"]
+    nT4["T4 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric"]
+    nT5["T5 e2e 脚本：体检两态输出 + 方法论文案注入断言"]
+    nT1 --> nT2
+    nT2 --> nT3
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
