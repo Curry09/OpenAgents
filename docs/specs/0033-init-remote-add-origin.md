@@ -15,8 +15,8 @@ tasks:
     parallel: false
     files:
       - openagents/config.py
-    scope: 在 config._bootstrap 远端分支 create_repo 成功后插入 subprocess.run(['git','remote','add','origin',remote], check=True) 把远端写回本地 git config
-    acceptance: '冷启动新建远端后，git config --get remote.origin.url 返回该 url；ruff + 既有 test_config 通过；config._bootstrap 处带 # Spec-0033/T1 注释'
+    scope: 在 config._bootstrap 远端分支 create_repo 成功返回后、构造 ProjectContext 之前，用与同函数 git init -b main 同款的 check=True 校验式子进程执行 git remote add origin，把新建远端写回本地 git config
+    acceptance: '冷启动新建远端后，git config --get remote.origin.url 返回该 url；ruff + 既有 test_config 通过；该改动处按代码注释规范带 Spec-0033/T1 的 RFC 引用注释'
   - id: T2
     title: 回归测试 + e2e 覆盖 remote-add 路径
     status: pending
@@ -101,15 +101,12 @@ $ openagents init
 
 ### 技术方案
 
-在 `openagents/config.py:_bootstrap` 的远端新建分支里，于 `create_repo` 成功返回后、构造新
-`ProjectContext` 之前，插入一次**校验式**的 git 子进程调用，把远端写入本地 config：
-
-```python
-remote = create_repo(name=name, private=private)
-# Spec-0033/T1: 把新建的远端写回本地 git config，否则后续 gh 命令找不到目标仓库
-subprocess.run(["git", "remote", "add", "origin", remote], check=True, capture_output=True)
-ctx = ProjectContext(repo_root=ctx.repo_root, remote=remote)
-```
+在 `openagents/config.py:_bootstrap` 的远端新建分支里，于 `create_repo` 成功返回 remote url
+**之后**、构造新 `ProjectContext` **之前**，补一次**校验式**的 git 子进程调用，把这个 url 作为
+`origin` 远端写回本地 git config：复用与同函数内 `git init -b main` 同款的 `check=True` 校验式
+子进程（git 失败立即冒泡、不静默吞错）执行 `git remote add origin <url>`，随后再用同一个 url
+构造返回的 `ProjectContext`。该改动处按代码注释规范带 Spec-0033/T1 的 RFC 引用注释，说明「把
+新建的远端写回本地 git config，否则后续 gh 命令找不到目标仓库」。
 
 设计要点：
 
