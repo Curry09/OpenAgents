@@ -88,6 +88,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0032 needs-human 全程在 GitHub 闭环：阻塞留足信息 + 人回新评论即自动解挂喂内容重试
 阻塞时按 gate 留一条信息充分的结构化评论；检测到 block 之后的新人类评论即自动摘 needs-human + 把评论当 detail 喂给对应闸 agent，恢复流转——人机交流全程在 PR 评论里闭环（仅新评论 + 仅人类签名过滤，定向解除 RFC-0019 的不读评论限制）
 
+### 0033 openagents init 新建远端后自动 git remote add origin
+冷启动新建 GitHub 仓库后补做 git remote add origin，修复后续 gh 命令 no git remotes found
+
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环
 
@@ -212,6 +215,8 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0032 | 0032/T4 | identity：new_human_comments 读侧复活 | done | — | openagents/identity.py<br>tests/test_identity_new_human_comments.py |
 | 0032 | 0032/T5 | messages：_block enrich + watermark + 回评论解挂路由 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_needs_human_unblock.py |
 | 0032 | 0032/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0032-needs-human-comment-unblock.sh |
+| 0033 | 0033/T1 | _bootstrap 新建远端后 git remote add origin | pending | — | openagents/config.py |
+| 0033 | 0033/T2 | 回归测试 + e2e 覆盖 remote-add 路径 | pending | T1 | tests/test_config.py<br>scripts/e2e-spec-0033-init-remote-add.sh |
 | 0034 | 0034/T1 | conflictdiag：merge-tree 诊断采集 + 格式化（新模块） | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py |
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
@@ -394,6 +399,10 @@ graph LR
         n0032_T5["T5 messages：_block enrich + watermark + 回评论解挂路由"]
         n0032_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
     end
+    subgraph G0033[0033 init-remote-add-origin]
+        n0033_T1["T1 _bootstrap 新建远端后 git remote add origin"]
+        n0033_T2["T2 回归测试 + e2e 覆盖 remote-add 路径"]
+    end
     subgraph G0034[0034 conflict-notification-diagnostics]
         n0034_T1["T1 conflictdiag：merge-tree 诊断采集 + 格式化（新模块）"]
         n0034_T2["T2 rebase：扇出冲突评论带诊断 + 已 needs-human 不重发"]
@@ -503,6 +512,7 @@ graph LR
     n0032_T5 --> n0032_T3
     n0032_T5 --> n0032_T4
     n0032_T6 --> n0032_T5
+    n0033_T2 --> n0033_T1
     n0034_T2 --> n0034_T1
     n0034_T3 --> n0034_T1
     n0034_T4 --> n0034_T2
@@ -528,7 +538,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030 |
-| openagents/config.py | 0001, 0029 |
+| openagents/config.py | 0001, 0029, 0033 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
@@ -557,7 +567,7 @@ graph LR
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030 |
-| tests/test_config.py | 0001, 0029 |
+| tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_e2e.py | 0013, 0029 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_fleet.py | 0027, 0029 |
@@ -1400,6 +1410,26 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0033 openagents init 新建远端后自动 git remote add origin（issue #93）
+
+```mermaid
+graph LR
+    nT1["T1 _bootstrap 新建远端后 git remote add origin"]
+    nT2["T2 回归测试 + e2e 覆盖 remote-add 路径"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
 ```
 
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出（issue #92）
