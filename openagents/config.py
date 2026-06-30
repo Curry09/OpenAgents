@@ -72,6 +72,10 @@ def _bootstrap(ctx: ProjectContext | None) -> ProjectContext:
         name = _prompt("远端仓库名（owner/repo）：")
         private = _confirm("设为私有仓库？")
         remote = create_repo(name=name, private=private)
+        # Spec-0033/T1: 把新建的远端写回本地 git config，否则后续 gh 命令找不到
+        # 目标仓库（no git remotes found）。复用同函数 git init 的 check=True 校验式
+        # 子进程：git 失败立即冒泡、不静默吞错。必须在 create_repo 成功之后、返回 ctx 之前。
+        subprocess.run(["git", "remote", "add", "origin", remote], check=True, capture_output=True)
         ctx = ProjectContext(repo_root=ctx.repo_root, remote=remote)
     return ctx
 

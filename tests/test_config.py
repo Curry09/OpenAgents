@@ -98,3 +98,29 @@ def test_ensure_project_interactive_git_init_then_declines_remote(tmp_path, monk
         ensure_project(interactive=True)
 
     assert (tmp_path / ".git").exists()  # git init 确实执行了
+
+
+def test_ensure_project_interactive_cold_start_writes_remote_origin(tmp_path, monkeypatch):
+    """Spec-0033/T2: 冷启动新建远端后，本地 git config 的 remote.origin.url 已写入。
+
+    stub 掉 github.create_repo（无网），驱动 ensure_project(interactive=True) 走完
+    git init → 新建远端分支，断言收尾时 _bootstrap 已执行 git remote add origin。
+    """
+    url = "https://github.com/acme/widget.git"
+    monkeypatch.chdir(tmp_path)
+    # 同意 git init、同意新建远端、仓库名、设为私有
+    answers = iter(["y", "y", "acme/widget", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr("openagents.github.create_repo", lambda *, name, private: url)
+
+    ctx = ensure_project(interactive=True)
+
+    assert ctx.remote == url
+    written = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert written.stdout.strip() == url
