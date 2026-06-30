@@ -224,8 +224,8 @@ messages.poll 的两个 rebase_open_prs 扇出调用点能力不对称——is_m
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
 | 0034 | 0034/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0034-conflict-diagnostics.sh |
-| 0035 | 0035/T1 | messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试 | pending | — | openagents/messages.py<br>tests/test_messages_merge_fanout_symmetry.py |
-| 0035 | 0035/T2 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | pending | T1 | scripts/e2e-spec-0035-merge-fanout-symmetry.sh |
+| 0035 | 0035/T1 | messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试 | done | — | openagents/messages.py<br>tests/test_messages_merge_fanout_symmetry.py |
+| 0035 | 0035/T2 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T1 | scripts/e2e-spec-0035-merge-fanout-symmetry.sh |
 
 ## 跨 feature 关系图
 
@@ -1486,7 +1486,7 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```

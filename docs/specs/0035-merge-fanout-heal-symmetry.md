@@ -7,7 +7,7 @@ summary: messages.poll 的两个 rebase_open_prs 扇出调用点能力不对称�
 tasks:
   - id: T1
     title: messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 自动合并扇出与 reconcile 扇出注入的 heal/resolve/diagnose 完全一致（三者皆传）；新回归测试驱动 poll 两条扇出路径捕获 rebase_open_prs kwargs 并断言两处 heal/resolve/diagnose 均非 None（任一处漏注入则测试红）；rebase/indexheal/conflict/conflictdiag 零改动；门控 None 时行为不劣于今天；新代码注释标 Spec-0035/T1；ruff check + ruff format --check + pytest 全绿
   - id: T2
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

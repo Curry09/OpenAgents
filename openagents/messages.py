@@ -406,9 +406,13 @@ class Messages:
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
             github.close_issue(number=record.issue_number)
             # Spec-0034/T3：合并扇出补传 diagnose（带诊断 + 触发 T2 重发收敛），与上方已合并分支同款。
+            # Spec-0035/T1：自动合并扇出补回 heal/resolve，与 reconcile（is_merged）扇出能力对称——
+            # 一个确定性可愈的 OVERVIEW.md 聚合索引冲突不再因走自动合并路径而跳过 indexheal、误升级 needs-human。
             synced = rebase.rebase_open_prs(
                 merged_pr_number=pr_number,
                 agent_id=self._agent_id,
+                heal=self._make_heal(),
+                resolve=self._make_resolver(),
                 diagnose=self._make_diagnoser(),
             )
             return {"pr_number": pr_number, "reason": "merged", "synced": synced}
