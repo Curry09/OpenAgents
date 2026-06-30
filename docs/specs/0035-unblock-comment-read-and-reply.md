@@ -72,8 +72,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages_comment_reply.py
-    scope: _unblock_with_comment：rfc/code 捕获 refine_rfc(announce=False)/iterate 回传 summary，经 replynote.build(original=news[-1].body, response=summary) 恰贴一条引用原评论的签名回应；merge 闸新增 set_unblock_detail(detail=news[-1].body) 存评论 (本轮不回)。_process_armed_conflict：unblock_detail 非空则传 resolve(guidance=detail) 且本轮跑完贴一条引用原评论的结论回应后 set_unblock_detail('') 清空；空则 resolve(guidance='') 不回应 (逐字节同 Spec-0031 现状)。messages 不含 prompt 文案、不含回应模板字符串
-    acceptance: rfc/code 解挂恰贴一条引用 news[-1] 原评论 + agent summary 的签名回应 (refine_rfc 不再叠加 _REFINE_COMMENT 广播)；merge 解挂当轮存 unblock_detail 不回，下一轮 armed 把 detail 当 guidance 喂 resolve 且跑完恰贴一条引用原评论结论回应并清空 unblock_detail；手动摘标签解挂 (无评论) 路径不回应、resolve(guidance='') 行为逐字节同 Spec-0031 (零回归)；回应均带签名不自触发；hermetic 注入 github/identity/orchestrator/resolve 的 tests/test_messages_comment_reply.py 覆盖；ruff check + format --check + pytest 全绿
+      - tests/test_messages_needs_human_unblock.py
+      - tests/test_messages_merge_unblock.py
+    scope: _unblock_with_comment：rfc/code 捕获 refine_rfc(announce=False)/iterate 回传 summary，经 replynote.build(original=news[-1].body, response=summary) 恰贴一条引用原评论的签名回应；merge 闸新增 set_unblock_detail(detail=news[-1].body) 存评论 (本轮不回)。_process_armed_conflict：unblock_detail 非空则传 resolve(guidance=detail) 且本轮跑完贴一条引用原评论的结论回应后 set_unblock_detail('') 清空；空则 resolve(guidance='') 不回应 (逐字节同 Spec-0031 现状)。messages 不含 prompt 文案、不含回应模板字符串。同步更新本组 messages.py 改动必然打破的既有测试 (T5 拥有写权，单一 writer 理念 6)：tests/test_messages_needs_human_unblock.py 的 _FakeOrchestrator.refine_rfc 加 announce 形参、_FakeState 加 set_unblock_detail、rfc/code 解挂用例桩掉 post_signed_comment 并断言引用回应；tests/test_messages_merge_unblock.py 的 fake resolve 签名加 guidance kwarg、armed 用例补 unblock_detail 断言 (空 guidance 零回归 + 非空喂 guidance 路径)
+    acceptance: rfc/code 解挂恰贴一条引用 news[-1] 原评论 + agent summary 的签名回应 (refine_rfc 不再叠加 _REFINE_COMMENT 广播)；merge 解挂当轮存 unblock_detail 不回，下一轮 armed 把 detail 当 guidance 喂 resolve 且跑完恰贴一条引用原评论结论回应并清空 unblock_detail；手动摘标签解挂 (无评论) 路径不回应、resolve(guidance='') 行为逐字节同 Spec-0031 (零回归)；回应均带签名不自触发；hermetic 注入 github/identity/orchestrator/resolve 的 tests/test_messages_comment_reply.py 覆盖；既有 tests/test_messages_needs_human_unblock.py / tests/test_messages_merge_unblock.py 的 fake 签名 (announce/guidance) 与 _FakeState (set_unblock_detail) 已随本组改动更新、断言适配后两文件全绿；ruff check + format --check + pytest 全绿 (含上述两既有测试文件，无任何未认领文件被打破)
   - id: T6
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh）
     status: pending
@@ -268,6 +270,17 @@ issue 的两半各有一条主线：
     逐字节保持 Spec-0031 现状（零回归）。
 - messages **不含任何 prompt 文案**（提示在 orchestrator / conflict 模板里）、**不含回应模板字符串**
   （模板在 `replynote` 里）——路由核心只做「取数 + 调原子操作 + 引用原评论盖签名贴出」。
+- **同步更新本组改动必然打破的既有 messages 测试**（T5 拥有这两文件的写权，理念 6 单一 writer；它们直接
+  对 `messages.py` 的 fake double 建模，故必须随 `messages.py` 的接口/行为变更一起改，否则 pytest 必红）：
+  - `tests/test_messages_needs_human_unblock.py`：`_FakeOrchestrator.refine_rfc` 加 `announce` 形参
+    （T5 以 `announce=False` 调用，旧签名 → `TypeError`）；`_FakeState` 加 `set_unblock_detail`
+    （merge 解挂路径调用，旧 fake → `AttributeError`）；rfc/code 解挂用例桩掉 `post_signed_comment` 并
+    新增「恰贴一条引用原评论签名回应」的断言（这些用例原先未桩发帖出口，T5 新增的回应贴帖会落到真实
+    `post_signed_comment`）。
+  - `tests/test_messages_merge_unblock.py`：`_patch_resolver` 的 fake `resolve` 签名加 `guidance` kwarg
+    （T5 `_process_armed_conflict` 以 `resolve(guidance=…)` 调用，空/非空都带该 kwarg，旧 fake →
+    `TypeError`）；armed 用例补「`unblock_detail` 空 → `guidance=''` 零回归」「非空 → 评论作 guidance 喂
+    `resolve` 且跑完贴一条引用原评论结论回应后清空」两路断言。
 
 ### 解挂回应路由表（按持久化 `block_gate`）
 
@@ -309,15 +322,31 @@ graph TD
 | T2 | replynote：引用原评论的回应构造（新模块） | `openagents/replynote.py`, `tests/test_replynote.py` | — |
 | T3 | conflict：解冲突器接受人类 guidance | `openagents/conflict.py`, `tests/test_conflict_guidance.py` | — |
 | T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + `announce` 开关 | `openagents/orchestrator.py`, `tests/test_orchestrator_comment_reply.py` | — |
-| T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | `openagents/messages.py`, `tests/test_messages_comment_reply.py` | T1, T2, T3, T4 |
+| T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | `openagents/messages.py`, `tests/test_messages_comment_reply.py`, `tests/test_messages_needs_human_unblock.py`, `tests/test_messages_merge_unblock.py` | T1, T2, T3, T4 |
 | T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | `scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh` | T5 |
 
 `files` 同组互斥（单一 writer 所有权，理念 6）。T1–T4 互不依赖、可并行（四个叶子改动），T5 汇总集成，
-T6 验证。**特意为每个被改模块新增专属测试文件**（不改既有 `tests/test_messages*.py` / `tests/test_state.py`
-/ `tests/test_orchestrator*.py` / `tests/test_conflict*.py`），既保持组内 `files` 互斥，又把跨并行 PR
-的共享测试文件冲突面降到最小。`openagents/identity.py`（`post_signed_comment` / `new_human_comments` /
-`parse_agent_id`）、`openagents/blocknote.py`、`openagents/rebase.py` **复用不改**——本组不在路由层之外
-重写发帖 / 签名 / 读评论 / auto-rebase 能力（边界，理念 10 解耦）。
+T6 验证。**每个被改模块新增专属测试文件**（`test_state_unblock_detail` / `test_replynote` /
+`test_conflict_guidance` / `test_orchestrator_comment_reply` / `test_messages_comment_reply`），把跨并行
+PR 的共享测试文件冲突面降到最小。
+
+**关于既有测试文件的归属（针对评审「跨 Task 测试归属缺口」的修订）**：T5 对 `messages.py` 的接口/行为
+变更会**必然打破两个直接对 `messages.py` 建 fake double 的既有测试文件**——`tests/test_messages_needs_human_unblock.py`
+（`_FakeOrchestrator.refine_rfc` 缺 `announce`、`_FakeState` 缺 `set_unblock_detail`、rfc/code 用例未桩
+`post_signed_comment`）与 `tests/test_messages_merge_unblock.py`（fake `resolve` 缺 `guidance` kwarg）。
+**故撤回此前「不改既有 `tests/test_messages*.py`」的承诺**：这两文件**显式纳入 T5 的 `files`**，由 T5
+（`messages.py` 的单一 writer）一并更新 fake 签名与断言（见上「改动点 · T5」逐条）——这样既守住理念 6
+单一 writer 所有权（改 `messages.py` 的人同时改它建模的 fake），又让 T5 的 `acceptance「pytest 全绿」`
+与 DAG 文件分配**自洽、可独立实现到绿**，不留任何「未被认领却被打破」的测试文件。
+**其余既有测试逐字节保持绿、不需认领**：`tests/test_messages_resolve.py`（走首次发现冲突 `_process_coding`
+的 `resolve(pr_number=…)`，T5 不给该 callsite 加 `guidance`）、`tests/test_orchestrator*.py`（T4 的
+`announce` 默认 `True`、返回值新增且既有用例忽略返回值，行为不变）、`tests/test_conflict*.py`（T3 的
+`guidance=""` 缺省即逐字节同今天）——三者均经默认值/未触 callsite 保持零回归，故**不**进任何 Task 的
+`files`。
+
+`openagents/identity.py`（`post_signed_comment` / `new_human_comments` / `parse_agent_id`）、
+`openagents/blocknote.py`、`openagents/rebase.py` **复用不改**——本组不在路由层之外重写发帖 / 签名 /
+读评论 / auto-rebase 能力（边界，理念 10 解耦）。
 
 **e2e 脚本路径**：`scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh`（hermetic，两段：① ruff
 check + format --check + pytest 离线确定性验证；② 用 fake `github` + fake orchestrator / resolve 闭环

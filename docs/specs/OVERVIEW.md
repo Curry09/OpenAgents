@@ -228,7 +228,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0035 | 0035/T2 | replynote：引用原评论的回应构造（新模块） | pending | — | openagents/replynote.py<br>tests/test_replynote.py |
 | 0035 | 0035/T3 | conflict：解冲突器接受人类 guidance | pending | — | openagents/conflict.py<br>tests/test_conflict_guidance.py |
 | 0035 | 0035/T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关 | pending | — | openagents/orchestrator.py<br>tests/test_orchestrator_comment_reply.py |
-| 0035 | 0035/T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | pending | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_comment_reply.py |
+| 0035 | 0035/T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | pending | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_comment_reply.py<br>tests/test_messages_needs_human_unblock.py<br>tests/test_messages_merge_unblock.py |
 | 0035 | 0035/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | pending | T5 | scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh |
 
 ## 跨 feature 关系图
@@ -597,6 +597,8 @@ graph LR
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_identity.py | 0011, 0029 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029 |
+| tests/test_messages_merge_unblock.py | 0031, 0035 |
+| tests/test_messages_needs_human_unblock.py | 0032, 0035 |
 | tests/test_messages_resolve.py | 0028, 0029 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
