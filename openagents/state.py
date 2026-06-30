@@ -86,7 +86,7 @@ class RunRecord:
     # 不会误触发（化解 RFC-0019 自循环顾虑的两道硬约束之一，另一道是只认无签名的人类评论）。
     # 由 _block 经 set_block_watermark 落盘、由解挂分支经 identity.new_human_comments 消费。
     block_watermark: str = ""
-    # Spec-0035/T1：merge 闸解挂时人类评论正文——从「解挂 arming 这一轮」带到「下一轮 armed
+    # Spec-0036/T1：merge 闸解挂时人类评论正文——从「解挂 arming 这一轮」带到「下一轮 armed
     # 解冲突」（二者跨 poll）。默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧
     # state.json）。_process_armed_conflict 取它当解冲突 guidance 透传给解冲突器，并在回应时
     # 引用原评论；消费后 / 重新挂起时经 set_unblock_detail("") 清除，避免陈旧 guidance 渗进后续轮次。
@@ -218,7 +218,7 @@ class State:
         self._save(data=data)
 
     def set_unblock_detail(self, *, issue_number: int, detail: str) -> None:
-        """Spec-0035/T1：落盘某 issue 对应 run 的 unblock_detail（merge 闸解挂时人类评论正文）。
+        """Spec-0036/T1：落盘某 issue 对应 run 的 unblock_detail（merge 闸解挂时人类评论正文）。
 
         镜像 set_block_gate / set_block_watermark 的写法（按 issue 定位 run、改单字段、整体落盘）。
         merge 闸解挂当轮存触发评论正文，供下一轮 armed 解冲突取出当 guidance + 回应时引用原文；

@@ -94,7 +94,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环
 
-### 0035 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
+### 0036 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
 让评论驱动协作真正双向：所有闸（含此前丢弃内容的 merge 闸）解挂都把人类评论喂给 agent；agent 完成本轮动作后，由编排层确定性贴回一条引用原评论的签名回应（答追问/说明做了什么/解不了讲清原因），复用既有发帖出口、不依赖 prompt 记性、不踩 headless 发帖权限坑
 
 ## 全局看板
@@ -224,12 +224,12 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
 | 0034 | 0034/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0034-conflict-diagnostics.sh |
-| 0035 | 0035/T1 | state：unblock_detail 字段 + setter | done | — | openagents/state.py<br>tests/test_state_unblock_detail.py |
-| 0035 | 0035/T2 | replynote：引用原评论的回应构造（新模块） | done | — | openagents/replynote.py<br>tests/test_replynote.py |
-| 0035 | 0035/T3 | conflict：解冲突器接受人类 guidance | done | — | openagents/conflict.py<br>tests/test_conflict_guidance.py |
-| 0035 | 0035/T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator_comment_reply.py |
-| 0035 | 0035/T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_comment_reply.py<br>tests/test_messages_needs_human_unblock.py<br>tests/test_messages_merge_unblock.py |
-| 0035 | 0035/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh |
+| 0036 | 0036/T1 | state：unblock_detail 字段 + setter | done | — | openagents/state.py<br>tests/test_state_unblock_detail.py |
+| 0036 | 0036/T2 | replynote：引用原评论的回应构造（新模块） | done | — | openagents/replynote.py<br>tests/test_replynote.py |
+| 0036 | 0036/T3 | conflict：解冲突器接受人类 guidance | done | — | openagents/conflict.py<br>tests/test_conflict_guidance.py |
+| 0036 | 0036/T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator_comment_reply.py |
+| 0036 | 0036/T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_comment_reply.py<br>tests/test_messages_needs_human_unblock.py<br>tests/test_messages_merge_unblock.py |
+| 0036 | 0036/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
 
 ## 跨 feature 关系图
 
@@ -418,13 +418,13 @@ graph LR
         n0034_T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
         n0034_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
     end
-    subgraph G0035[0035 unblock-comment-read-and-reply]
-        n0035_T1["T1 state：unblock_detail 字段 + setter"]
-        n0035_T2["T2 replynote：引用原评论的回应构造（新模块）"]
-        n0035_T3["T3 conflict：解冲突器接受人类 guidance"]
-        n0035_T4["T4 orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关"]
-        n0035_T5["T5 messages：merge 喂内容 + 三闸确定性贴回引用原评论"]
-        n0035_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
+    subgraph G0036[0036 unblock-comment-read-and-reply]
+        n0036_T1["T1 state：unblock_detail 字段 + setter"]
+        n0036_T2["T2 replynote：引用原评论的回应构造（新模块）"]
+        n0036_T3["T3 conflict：解冲突器接受人类 guidance"]
+        n0036_T4["T4 orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关"]
+        n0036_T5["T5 messages：merge 喂内容 + 三闸确定性贴回引用原评论"]
+        n0036_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -534,11 +534,11 @@ graph LR
     n0034_T3 --> n0034_T1
     n0034_T4 --> n0034_T2
     n0034_T4 --> n0034_T3
-    n0035_T5 --> n0035_T1
-    n0035_T5 --> n0035_T2
-    n0035_T5 --> n0035_T3
-    n0035_T5 --> n0035_T4
-    n0035_T6 --> n0035_T5
+    n0036_T5 --> n0036_T1
+    n0036_T5 --> n0036_T2
+    n0036_T5 --> n0036_T3
+    n0036_T5 --> n0036_T4
+    n0036_T6 --> n0036_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -561,13 +561,13 @@ graph LR
 | openagents/backfill.py | 0025, 0029 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030 |
 | openagents/config.py | 0001, 0029, 0033 |
-| openagents/conflict.py | 0028, 0035 |
+| openagents/conflict.py | 0028, 0036 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0035 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0035 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -581,7 +581,7 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0035 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
 | openagents/workspace.py | 0005, 0008, 0029 |
@@ -597,8 +597,8 @@ graph LR
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_identity.py | 0011, 0029 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029 |
-| tests/test_messages_merge_unblock.py | 0031, 0035 |
-| tests/test_messages_needs_human_unblock.py | 0032, 0035 |
+| tests/test_messages_merge_unblock.py | 0031, 0036 |
+| tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
@@ -1486,7 +1486,7 @@ graph LR
     class v_T4_1 st_done;
 ```
 
-### 0035 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论（issue #97）
+### 0036 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论（issue #97）
 
 ```mermaid
 graph LR

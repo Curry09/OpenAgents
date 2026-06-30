@@ -1,4 +1,4 @@
-"""Spec-0035/T4：orchestrator 原子操作回传 summary + 人类解挂 prompt + announce 开关单测。
+"""Spec-0036/T4：orchestrator 原子操作回传 summary + 人类解挂 prompt + announce 开关单测。
 
 外部副作用全部注入/monkeypatch（backend / github / git subprocess），hermetic（不触网、不调真实
 LLM/gh）。覆盖：

@@ -1,5 +1,5 @@
 ---
-number: "0035"
+number: "0036"
 title: 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
 issue: 97
 slug: unblock-comment-read-and-reply
@@ -86,12 +86,12 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh
+      - scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh
     scope: 新增 hermetic e2e 脚本：① ruff check + format --check + pytest 离线确定性验证；② 用 fake github + fake orchestrator/resolve 闭环演练『rfc/code 闸解挂→引用原评论贴回 agent 回应』『merge 闸解挂→评论作 guidance 喂解冲突器→armed 跑完引用原评论贴回结论』整条轨迹，全程不触网/不调真实 LLM/不碰真实 gh
-    acceptance: bash scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM；两段均通过
+    acceptance: bash scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM；两段均通过
 ---
 
-# 0035 · 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
+# 0036 · 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -323,7 +323,7 @@ graph TD
 | T3 | conflict：解冲突器接受人类 guidance | `openagents/conflict.py`, `tests/test_conflict_guidance.py` | — |
 | T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + `announce` 开关 | `openagents/orchestrator.py`, `tests/test_orchestrator_comment_reply.py` | — |
 | T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | `openagents/messages.py`, `tests/test_messages_comment_reply.py`, `tests/test_messages_needs_human_unblock.py`, `tests/test_messages_merge_unblock.py` | T1, T2, T3, T4 |
-| T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | `scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh` | T5 |
+| T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | `scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh` | T5 |
 
 `files` 同组互斥（单一 writer 所有权，理念 6）。T1–T4 互不依赖、可并行（四个叶子改动），T5 汇总集成，
 T6 验证。**每个被改模块新增专属测试文件**（`test_state_unblock_detail` / `test_replynote` /
@@ -348,12 +348,12 @@ PR 的共享测试文件冲突面降到最小。
 `openagents/blocknote.py`、`openagents/rebase.py` **复用不改**——本组不在路由层之外重写发帖 / 签名 /
 读评论 / auto-rebase 能力（边界，理念 10 解耦）。
 
-**e2e 脚本路径**：`scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh`（hermetic，两段：① ruff
+**e2e 脚本路径**：`scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh`（hermetic，两段：① ruff
 check + format --check + pytest 离线确定性验证；② 用 fake `github` + fake orchestrator / resolve 闭环
 演练「rfc/code 闸解挂→引用原评论贴回 agent 回应」「merge 闸解挂→评论作 guidance 喂解冲突器→armed
 跑完引用原评论贴回结论」整条轨迹，全程不触网、不调真实 LLM、不碰真实 gh）。
 
-每层新代码注释按代码注释规范标注本组 spec id（`Spec-0035/Tn`）。
+每层新代码注释按代码注释规范标注本组 spec id（`Spec-0036/Tn`）。
 
 ## Drawbacks
 

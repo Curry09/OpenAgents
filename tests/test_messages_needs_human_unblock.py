@@ -29,7 +29,7 @@ _AGENT_ID = "agent-self"
 class _FakeOrchestrator:
     """记录 refine_rfc / iterate 调用（含 detail/reason/announce）；review_* 不该在解挂/挂起路径被调。
 
-    Spec-0035/T5：refine_rfc 加 announce 形参（T5 以 announce=False 调用，旧签名 → TypeError）；
+    Spec-0036/T5：refine_rfc 加 announce 形参（T5 以 announce=False 调用，旧签名 → TypeError）；
     refine_rfc / iterate 回传 summary 供 messages 组回应（默认返回固定串，断言回应正文含它）。
     """
 
@@ -79,7 +79,7 @@ class _FakeState:
             record.status = status
 
     def set_unblock_detail(self, *, issue_number, detail):
-        # Spec-0035/T5：merge 闸解挂路径调用——记录轨迹 + 应用到记录。
+        # Spec-0036/T5：merge 闸解挂路径调用——记录轨迹 + 应用到记录。
         self.unblock_detail_sets.append({"issue_number": issue_number, "detail": detail})
         record = self._find(issue_number)
         if record is not None:
@@ -218,7 +218,7 @@ def test_block_comment_body_matches_blocknote(monkeypatch):
 def _patch_unblock_reads(monkeypatch, *, news):
     """让 poll 走到 blocked 解挂主路径：未合并/未关闭、有指定的新人类评论。
 
-    Spec-0035/T5：rfc/code 解挂会经 identity.post_signed_comment 贴一条引用原评论的回应——桩掉它
+    Spec-0036/T5：rfc/code 解挂会经 identity.post_signed_comment 贴一条引用原评论的回应——桩掉它
     并把回应正文记进 posted，供「恰一条引用回应」断言。返回 {removed, posted} 供调用方断言。
     """
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)

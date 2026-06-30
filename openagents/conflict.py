@@ -38,7 +38,7 @@ _RESOLVE_TASK = (
     "现状、不要清除冲突标记（外层会据残留标记回落人工）。\n\n冲突文件：\n{files}"
 )
 
-# Spec-0035/T3：人类对本次解冲突的指导段（guidance 非空时拼到 _RESOLVE_TASK 之后）。人在被 merge
+# Spec-0036/T3：人类对本次解冲突的指导段（guidance 非空时拼到 _RESOLVE_TASK 之后）。人在被 merge
 # 冲突挂起的 PR 下回的评论（如「先解 X 再动 Y」）经此喂给解冲突 agent——补齐「merge 闸也听人话」
 # （issue #97 A 项）。guidance="" 时该段不拼接，行为逐字节同今天（零回归）。
 _GUIDANCE_SECTION = "\n\n人类对本次解冲突的指导（请据此优先处理）：\n{guidance}"
@@ -63,7 +63,7 @@ def resolve_branch(
       （`--diff-filter=U` 为空且 grep 无 `<<<<<<<`）→ `git add -A` + `commit --no-edit` → True。
     - 仍有残留冲突标记 / 自测失败（agent 按指令保留残标）/ 任何异常 → `merge --abort` → False。
 
-    Spec-0035/T3：guidance 为人类对本次解冲突的指导（merge 闸解挂时的评论正文）。`guidance=""`
+    Spec-0036/T3：guidance 为人类对本次解冲突的指导（merge 闸解挂时的评论正文）。`guidance=""`
     （缺省）即不带人类指导，喂给 agent 的 task 逐字节同今天（零回归）；非空时拼进 _RESOLVE_TASK 的
     「人类对本次解冲突的指导」段，让解冲突 agent 看到人说了什么。返回类型保持 bool 不变（不波及
     rebase.rebase_open_prs 对 resolve(...) 的真值判断）。
@@ -113,7 +113,7 @@ def make_resolver(
     bucket = _RESOLVE_SUBDIR / agent_id.replace("/", "-")
 
     def resolve(*, pr_number: int, guidance: str = "") -> bool:
-        # Spec-0035/T3：guidance 透传给 resolve_branch（merge 闸解挂时人类评论正文当解冲突指导）。
+        # Spec-0036/T3：guidance 透传给 resolve_branch（merge 闸解挂时人类评论正文当解冲突指导）。
         # guidance=""（缺省，含 auto-rebase 等无人类评论场景）即行为逐字节同今天（零回归）。
         try:
             branch = github.pr_head_branch(pr_number=pr_number)
@@ -143,7 +143,7 @@ def make_resolver(
 
 
 def _resolve_task(*, conflicts: list[Path], guidance: str) -> str:
-    """Spec-0035/T3：拼解冲突任务 prompt——基础 _RESOLVE_TASK，guidance 非空时追加人类指导段。
+    """Spec-0036/T3：拼解冲突任务 prompt——基础 _RESOLVE_TASK，guidance 非空时追加人类指导段。
 
     guidance=""（缺省）即只返回基础模板，逐字节同今天（零回归）；非空时在冲突文件清单之后追加
     「人类对本次解冲突的指导」段。私有纯函数，调用方显式传参。

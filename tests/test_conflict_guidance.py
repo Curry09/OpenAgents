@@ -1,4 +1,4 @@
-"""Spec-0035/T3：conflict.resolve_branch / resolve 的 guidance 入参单元测试。
+"""Spec-0036/T3：conflict.resolve_branch / resolve 的 guidance 入参单元测试。
 
 git 与 backend 全部注入桩，保持 hermetic（不触达真实 git / 真实 LLM）。覆盖：
 - guidance=""（缺省）时喂给 backend 的 task 逐字节同今天（零回归，不含指导段）；

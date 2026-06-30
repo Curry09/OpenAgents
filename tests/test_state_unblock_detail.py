@@ -1,4 +1,4 @@
-"""Spec-0035/T1：State 的 unblock_detail 字段 + set_unblock_detail 方法单元测试。
+"""Spec-0036/T1：State 的 unblock_detail 字段 + set_unblock_detail 方法单元测试。
 
 用 tmp_path 真实读写临时 .openagents/state.json（hermetic，不触网）；覆盖：
 - 新字段缺省值使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧 state.json）；

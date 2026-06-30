@@ -1,4 +1,4 @@
-"""Spec-0035/T5：解挂后确定性贴回「引用原评论的签名回应」端到端单元测试。
+"""Spec-0036/T5：解挂后确定性贴回「引用原评论的签名回应」端到端单元测试。
 
 github / identity / orchestrator / resolve 全部 hermetic 注入（monkeypatch / fake），不触网、
 不调真实 LLM/gh。覆盖整条轨迹：

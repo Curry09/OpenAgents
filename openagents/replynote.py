@@ -1,4 +1,4 @@
-"""Spec-0035/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。
+"""Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。
 
 把「agent 完成本轮动作后对触发它的那条人类评论的回应」长什么样收敛进一个可单测的纯函数
 `build`：把『引用原评论（markdown 引用块包裹人类评论正文）+ agent 回应正文』拼成回应评论的
@@ -20,7 +20,7 @@ _EMPTY_RESPONSE = "（本轮无更多说明）"
 
 
 def build(*, original: str, response: str) -> str:
-    """Spec-0035/T2：把「引用原评论 + agent 回应」拼成回应评论正文（纯函数，不含签名、无 IO）。
+    """Spec-0036/T2：把「引用原评论 + agent 回应」拼成回应评论正文（纯函数，不含签名、无 IO）。
 
     - 引用原评论：markdown 引用块逐行包裹人类评论 `original`（为空时占位，保证引用段不缺）；
     - 回应正文：agent 本轮动作的 `response`（summary / 结论文案），为空时占位「（本轮无更多

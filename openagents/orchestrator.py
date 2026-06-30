@@ -87,7 +87,7 @@ _IMPLEMENT_TASK = (
 # refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
 _REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
 
-# Spec-0035/T4：iterate(reason="human") 的人类解挂专属任务 prompt（提示落点放方法论层，不在
+# Spec-0036/T4：iterate(reason="human") 的人类解挂专属任务 prompt（提示落点放方法论层，不在
 # messages 硬编码——理念 10 解耦 + #85 编排不耦合具体生态）。把 detail 框定为「人类回复了你的挂起
 # 评论」，并要求 agent 在摘要里正面回应——回应正文（summary）随后由 messages 经 replynote 引用原
 # 评论贴回。与普通 comment/ci 反馈（_ITERATE_TASK）区分：那是泛化反馈，这是「对人的正面回应」。
@@ -303,7 +303,7 @@ class Orchestrator:
     def refine_rfc(self, *, pr_number: int, detail: str, announce: bool = True) -> str:
         """RFC-0005：按评审评论精炼 RFC，状态维持 rfc-review；返回 agent 本轮动作的 summary。
 
-        Spec-0035/T4：返回 `result.summary`（供 messages 在人类解挂路径作回应文本）；返回值是新增
+        Spec-0036/T4：返回 `result.summary`（供 messages 在人类解挂路径作回应文本）；返回值是新增
         信息，既有忽略返回值的调用方（reviewer 驱动的 refine 路径）零影响。`announce` 控制是否回贴
         泛化的 `_REFINE_COMMENT` 广播：reviewer 驱动路径 `announce=True`（保持现状，回贴「已据评审
         更新 spec」）；人类解挂路径 `announce=False`——抑制广播，使该交互恰产生一条评论 = messages
@@ -325,7 +325,7 @@ class Orchestrator:
         )
         # 决策 6：reviewer 驱动路径回贴评论说明改动，让人类知道 RFC 已据评审更新。
         # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计。
-        # Spec-0035/T4：announce=False（人类解挂路径）抑制此泛化广播——回应由 messages 经 replynote
+        # Spec-0036/T4：announce=False（人类解挂路径）抑制此泛化广播——回应由 messages 经 replynote
         # 引用原评论统一贴出，不在此叠加第二条评论。
         if announce:
             identity.post_signed_comment(
@@ -484,7 +484,7 @@ class Orchestrator:
         reason ∈ {"comment", "ci", "review", "human"}：决定喂回上下文的来源与任务 prompt 文案。
         不 force-push，仅 add/commit/push 追加一个新 commit；状态置 iterating。
 
-        Spec-0035/T4：reason="human"（Spec-0032 已引入该取值，人解挂 code 闸）走人类解挂专属任务
+        Spec-0036/T4：reason="human"（Spec-0032 已引入该取值，人解挂 code 闸）走人类解挂专属任务
         prompt（_HUMAN_UNBLOCK_TASK），把 detail 框定为「人类回复了你的挂起评论，请正面回应」；其余
         reason 沿用泛化反馈模板（_ITERATE_TASK，逐字节同今天）。返回 `result.summary` 供 messages 在
         人类解挂路径作回应文本——返回值是新增信息，既有忽略返回值的调用方（ci/review 闸）零影响。

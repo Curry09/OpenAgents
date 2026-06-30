@@ -143,7 +143,7 @@ _TRIED_BY_GATE = {
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
-# Spec-0035/T5：merge 闸 armed 解冲突跑完后回应人类的「结论文案」（response 内容，非展示模板——
+# Spec-0036/T5：merge 闸 armed 解冲突跑完后回应人类的「结论文案」（response 内容，非展示模板——
 # 展示模板〔引用块 + 回应段布局〕在 replynote.build 里）。conflict.resolve 返回 bool 不带 summary，
 # 故 merge 闸的回应正文由 messages 据 resolve 结果选一句结论；rfc/code 闸的回应正文则取 agent summary。
 _RESOLVE_REPLY_SUCCESS = "已按你的指导解冲突并 push，PR 将重新跑 CI。"
@@ -284,17 +284,17 @@ class Messages:
         return self._unblock_by_label(record=record)
 
     def _unblock_with_comment(self, *, record: RunRecord, detail: str) -> dict:
-        """Spec-0032/T5 + Spec-0035/T5：回评论解挂——摘标签 + 清回合预算 + 按 block_gate 喂评论给对应闸。
+        """Spec-0032/T5 + Spec-0036/T5：回评论解挂——摘标签 + 清回合预算 + 按 block_gate 喂评论给对应闸。
 
         路由（按持久化 block_gate）：
         - rfc/rfc-unparseable → refine_rfc(detail, announce=False)（内部置 rfc-review）+ 清残留
-          block_gate + **引用原评论贴回 agent 回应**（Spec-0035/T5：announce=False 抑制泛化广播，
+          block_gate + **引用原评论贴回 agent 回应**（Spec-0036/T5：announce=False 抑制泛化广播，
           换成一条针对性回应）。
         - code/code-unparseable → iterate(reason="human", detail)（内部置 iterating）+ 清残留
           block_gate + **引用原评论贴回 agent 回应**。
         - merge → 不直接喂解冲突器，按 armed 语义恢复 pr-open、**保留** block_gate="merge" 作标记
           （reset_rounds 已清 merge_attempts 给满预算），并 set_unblock_detail 把评论正文存进 state
-          供下一轮 armed 解冲突当 guidance + 回应时引用（Spec-0035/T5）。**本轮不回应**（动作尚未发生，
+          供下一轮 armed 解冲突当 guidance + 回应时引用（Spec-0036/T5）。**本轮不回应**（动作尚未发生，
           下一轮 armed 跑完才回）。解冲突交 _process_armed_conflict（Spec-0031）。
         - ""（理论兜底）→ 按 rfc-approved 决定恢复阶段（不回应）。
         """
@@ -327,7 +327,7 @@ class Messages:
         return {"pr_number": pr_number, "reason": "resumed"}
 
     def _post_comment_reply(self, *, pr_number: int, original: str, response: str) -> None:
-        """Spec-0035/T5：引用触发解挂的那条人类评论，盖签名贴回一条 agent 回应（恰一条）。
+        """Spec-0036/T5：引用触发解挂的那条人类评论，盖签名贴回一条 agent 回应（恰一条）。
 
         路由核心只做「取数 + 引用原评论盖签名贴出」——展示模板（引用块 + 回应段布局）在
         replynote.build 里，回应正文（response）由调用方提供（rfc/code 取 agent summary、merge 取
@@ -478,7 +478,7 @@ class Messages:
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
     def _process_armed_conflict(self, *, record: RunRecord) -> dict:
-        """Spec-0031/T2 + Spec-0035/T5：armed 模式下派 agent 解冲突的有界重试 + 引用原评论贴回结论。
+        """Spec-0031/T2 + Spec-0036/T5：armed 模式下派 agent 解冲突的有界重试 + 引用原评论贴回结论。
 
         每轮 poll 进来一次（block_gate=="merge" 且回到 pr-open）：
         - resolve 成功 → 清 armed（block_gate="" + reset 预算）、返回 "resolved"，下一轮 CI 因
@@ -488,7 +488,7 @@ class Messages:
           pr-open、**不重挂**（跨轮有界重试，给 agent「若干次」真正动手的机会）；达上限才 _block
           重新挂起等人（block_gate 再次置 "merge"，下次人解挂可再 arm）。
 
-        Spec-0035/T5：record.unblock_detail（人解挂时存的评论正文）非空时——① 当作 guidance 透传给
+        Spec-0036/T5：record.unblock_detail（人解挂时存的评论正文）非空时——① 当作 guidance 透传给
         resolve（merge 闸也听人话，A 项）；② 解冲突**跑完**（终态：解决 / 重新挂起）后经
         _post_comment_reply 引用原评论恰贴一条结论回应，并 set_unblock_detail("") 清空（避免重复回应 /
         陈旧 guidance）。merge-retry（未达上限、保持 pr-open）不算跑完，**不回应、不清 detail**，下一轮
@@ -543,7 +543,7 @@ class Messages:
     def _reply_resolve_outcome(
         self, *, pr_number: int, issue_number: int, detail: str, response: str
     ) -> None:
-        """Spec-0035/T5：merge 闸 armed 跑完后，detail 非空才引用原评论贴回结论并清空 unblock_detail。
+        """Spec-0036/T5：merge 闸 armed 跑完后，detail 非空才引用原评论贴回结论并清空 unblock_detail。
 
         detail 空（手动摘标签解挂，无评论触发）→ 不回应、不清（逐字节同 Spec-0031 现状，零回归）。
         detail 非空 → 恰贴一条引用原评论的结论回应，随后清空 unblock_detail（避免重复回应 / 陈旧 guidance）。

@@ -63,7 +63,7 @@ class _FakeState:
             record.status = status
 
     def set_unblock_detail(self, *, issue_number, detail):
-        # Spec-0035/T5：armed 跑完清 unblock_detail / merge 解挂存评论正文——记录轨迹 + 应用。
+        # Spec-0036/T5：armed 跑完清 unblock_detail / merge 解挂存评论正文——记录轨迹 + 应用。
         self.unblock_detail_sets.append({"issue_number": issue_number, "detail": detail})
         record = self._find(issue_number)
         if record is not None:
@@ -283,7 +283,7 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
 
 def _patch_resolver(monkeypatch, *, result):
-    # Spec-0035/T5：_process_armed_conflict 以 resolve(pr_number=…, guidance=…) 调用——fake resolve
+    # Spec-0036/T5：_process_armed_conflict 以 resolve(pr_number=…, guidance=…) 调用——fake resolve
     # 签名加 guidance kwarg（空/非空都带），并记录收到的 guidance 供「评论作 guidance 喂 resolve」断言。
     seen = {"guidance": None}
 

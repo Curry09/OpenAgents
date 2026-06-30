@@ -1,4 +1,4 @@
-"""Spec-0035/T2：replynote.build 引用原评论回应构造的单元测试（纯函数，无 IO）。
+"""Spec-0036/T2：replynote.build 引用原评论回应构造的单元测试（纯函数，无 IO）。
 
 覆盖：
 - 正常 original/response → 引用块 + 回应段齐全；

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0035/T6 端到端测试启动脚本：解挂后 agent 读取并正面回应人的评论——
+# Spec-0036/T6 端到端测试启动脚本：解挂后 agent 读取并正面回应人的评论——
 # 「所有闸解挂都把人类评论喂给 agent（含此前丢弃内容的 merge 闸）+ 编排层确定性贴回引用原评论的回应」。
 #
 # 两段（均离线、确定性、可重复、不触网、不调真实 LLM/gh）：
@@ -11,7 +11,7 @@
 #        ② merge 闸解挂 → 评论作 guidance 喂解冲突器 → armed 跑完引用原评论贴回结论。
 #
 # 用法：
-#   bash scripts/e2e-spec-0035-unblock-comment-read-and-reply.sh
+#   bash scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -24,7 +24,7 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/2] 离线闭环时间线演示：三闸解挂喂内容 + 引用原评论贴回回应"
 uv run python - <<'PY'
-# Spec-0035/T6：离线驱动 Messages.poll，演示「读评论 + 正面回应」整条轨迹（rfc/code 同步回应、
+# Spec-0036/T6：离线驱动 Messages.poll，演示「读评论 + 正面回应」整条轨迹（rfc/code 同步回应、
 # merge 闸喂 guidance + armed 跑完回应）。全程 fake，不触网、不调真实 LLM/gh。
 from openagents import messages as messages_module
 from openagents.github import Comment
@@ -256,4 +256,4 @@ print("✓ 两条轨迹断言全部通过：所有闸解挂都喂内容给 agent
 PY
 
 echo
-echo "✓ Spec-0035/T6 端到端演示完成（离线、可重复、不触网、不调真实 LLM/gh）。"
+echo "✓ Spec-0036/T6 端到端演示完成（离线、可重复、不触网、不调真实 LLM/gh）。"
