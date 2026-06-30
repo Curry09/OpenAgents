@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0035 端到端测试启动脚本：合并扇出两调用点能力对称的 hermetic 闭环演练。
+# Spec-0037 端到端测试启动脚本：合并扇出两调用点能力对称的 hermetic 闭环演练。
 #
 # 守夜人 messages.poll 有两个 rebase.rebase_open_prs 扇出调用点（都把刚进 main 的改动并入其余 open PR）：
 #   ① reconcile（下一轮 poll 发现 is_merged）路径——历史上已注入 heal/resolve/diagnose 三层；
@@ -15,7 +15,7 @@
 #      扇出路径，捕获两次调用 kwargs，断言两处 heal/resolve/diagnose 均为非 None callable 且逐键一致。
 #
 # 用法：
-#   bash scripts/e2e-spec-0035-merge-fanout-symmetry.sh
+#   bash scripts/e2e-spec-0037-merge-fanout-symmetry.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,7 +28,7 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/2] 离线闭环演练：两条扇出路径能力对称整条轨迹（fake github / 捕获式 rebase_open_prs）"
 uv run --extra dev python - <<'PY'
-# Spec-0035/T2：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
+# Spec-0037/T2：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
 # 直接替换 messages 模块里的 github / 三个能力工厂 / rebase.rebase_open_prs（非 pytest，故直接赋值；
 # 进程退出即销毁，无副作用）。驱动真实 messages.poll 走两条扇出路径，捕获注入的 kwargs。
 from openagents import messages as m
@@ -154,9 +154,9 @@ assert captured[0] == captured[1], (captured[0], captured[1])
 print("  ✓ 两调用点逐键对称：reconcile 与 auto-merge 扇出注入的 heal/resolve/diagnose 完全一致")
 
 print()
-print("✓ Spec-0035 hermetic 演练通过：两条扇出路径能力对称（都注入 heal/resolve/diagnose），")
+print("✓ Spec-0037 hermetic 演练通过：两条扇出路径能力对称（都注入 heal/resolve/diagnose），")
 print("  全程不触网/无 LLM/无 gh/无真实 git 远端。")
 PY
 
 echo
-echo "✓ Spec-0035 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"
+echo "✓ Spec-0037 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"

@@ -1,4 +1,4 @@
-"""Spec-0035/T1：合并扇出两调用点能力对称回归测试。
+"""Spec-0037/T1：合并扇出两调用点能力对称回归测试。
 
 守夜人 messages.Messages.poll 有两个 rebase.rebase_open_prs 扇出调用点（都把刚进 main 的改动并入
 其余 open PR）：① reconcile（下一轮 poll 发现 is_merged）路径；② reviewer-PASS 框架自动合并（同轮立即

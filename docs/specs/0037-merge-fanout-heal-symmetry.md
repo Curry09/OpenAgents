@@ -1,5 +1,5 @@
 ---
-number: "0035"
+number: "0037"
 title: 合并扇出两调用点能力对称：自动合并路径补注入 heal/resolve，确定性自愈的 OVERVIEW.md 冲突不再误升级 needs-human
 issue: 96
 slug: merge-fanout-heal-symmetry
@@ -17,7 +17,7 @@ tasks:
       - openagents/messages.py
       - tests/test_messages_merge_fanout_symmetry.py
     scope: 给 messages.py 第 409 行附近的自动合并扇出 rebase.rebase_open_prs(...) 补回 heal=self._make_heal() + resolve=self._make_resolver()，使其与第 230 行附近 reconcile(is_merged) 扇出逐字节能力对称（不改 rebase/indexheal/conflict，仅补第二个调用点实参）；新增 hermetic 回归测试 tests/test_messages_merge_fanout_symmetry.py：monkeypatch rebase.rebase_open_prs 为捕获器，在 work_dir+base+backend 齐备夹具下分别驱动 poll 走 reconcile 路径与 reviewer-PASS 自动合并路径，断言两次调用 kwargs 的 heal/resolve/diagnose 均为非 None callable（不改既有 tests/test_messages*.py）
-    acceptance: 自动合并扇出与 reconcile 扇出注入的 heal/resolve/diagnose 完全一致（三者皆传）；新回归测试驱动 poll 两条扇出路径捕获 rebase_open_prs kwargs 并断言两处 heal/resolve/diagnose 均非 None（任一处漏注入则测试红）；rebase/indexheal/conflict/conflictdiag 零改动；门控 None 时行为不劣于今天；新代码注释标 Spec-0035/T1；ruff check + ruff format --check + pytest 全绿
+    acceptance: 自动合并扇出与 reconcile 扇出注入的 heal/resolve/diagnose 完全一致（三者皆传）；新回归测试驱动 poll 两条扇出路径捕获 rebase_open_prs kwargs 并断言两处 heal/resolve/diagnose 均非 None（任一处漏注入则测试红）；rebase/indexheal/conflict/conflictdiag 零改动；门控 None 时行为不劣于今天；新代码注释标 Spec-0037/T1；ruff check + ruff format --check + pytest 全绿
   - id: T2
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）
     status: done
@@ -28,12 +28,12 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0035-merge-fanout-symmetry.sh
-    scope: 新增 hermetic e2e 脚本 scripts/e2e-spec-0035-merge-fanout-symmetry.sh：① ruff check + ruff format --check + pytest -q 离线确定性验证；② 以捕获式 rebase.rebase_open_prs + 齐备 work_dir/base/backend 夹具，闭环演练『reviewer PASS → 自动合并 → 扇出注入了 heal/resolve/diagnose』与『reconcile is_merged → 扇出同样三层齐全』两条轨迹的对称，全程不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端
-    acceptance: bash scripts/e2e-spec-0035-merge-fanout-symmetry.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM/git 远端；两段均通过（离线确定性 + 两条扇出路径能力对称轨迹）
+      - scripts/e2e-spec-0037-merge-fanout-symmetry.sh
+    scope: 新增 hermetic e2e 脚本 scripts/e2e-spec-0037-merge-fanout-symmetry.sh：① ruff check + ruff format --check + pytest -q 离线确定性验证；② 以捕获式 rebase.rebase_open_prs + 齐备 work_dir/base/backend 夹具，闭环演练『reviewer PASS → 自动合并 → 扇出注入了 heal/resolve/diagnose』与『reconcile is_merged → 扇出同样三层齐全』两条轨迹的对称，全程不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端
+    acceptance: bash scripts/e2e-spec-0037-merge-fanout-symmetry.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM/git 远端；两段均通过（离线确定性 + 两条扇出路径能力对称轨迹）
 ---
 
-# 0035 · 合并扇出两调用点能力对称：自动合并路径补注入 heal/resolve，确定性自愈的 OVERVIEW.md 冲突不再误升级 needs-human
+# 0037 · 合并扇出两调用点能力对称：自动合并路径补注入 heal/resolve，确定性自愈的 OVERVIEW.md 冲突不再误升级 needs-human
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -151,7 +151,7 @@ synced = rebase.rebase_open_prs(
 补成与第 230 行附近 reconcile 路径**逐字节对称**：
 
 ```python
-# Spec-0035/T1：自动合并扇出补回 heal/resolve，与 reconcile（is_merged）扇出能力对称——
+# Spec-0037/T1：自动合并扇出补回 heal/resolve，与 reconcile（is_merged）扇出能力对称——
 # 一个确定性可愈的 OVERVIEW.md 聚合索引冲突不再因走自动合并路径而跳过 indexheal、误升级 needs-human。
 synced = rebase.rebase_open_prs(
     merged_pr_number=pr_number,
@@ -206,13 +206,13 @@ graph TD
 | Task | 标题 | files | 依赖 |
 |---|---|---|---|
 | T1 | messages：自动合并扇出补回 `heal`/`resolve` + 两调用点对称回归测试 | `openagents/messages.py`, `tests/test_messages_merge_fanout_symmetry.py` | — |
-| T2 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | `scripts/e2e-spec-0035-merge-fanout-symmetry.sh` | T1 |
+| T2 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | `scripts/e2e-spec-0037-merge-fanout-symmetry.sh` | T1 |
 
 `files` 同组互斥（单一 writer 所有权，理念 6）。T1 同时拥有产品改动文件与其专属新测试文件（与 0034 的
 T1 同款：prod + 其 test 归一个 Task）；T2 仅拥有 e2e 脚本，依赖 T1 完成。每层新代码/注释按代码注释规范
-标注本组 spec id（`Spec-0035/Tn`）。
+标注本组 spec id（`Spec-0037/Tn`）。
 
-**e2e 脚本路径**：`scripts/e2e-spec-0035-merge-fanout-symmetry.sh`（hermetic，两段：① `ruff check` +
+**e2e 脚本路径**：`scripts/e2e-spec-0037-merge-fanout-symmetry.sh`（hermetic，两段：① `ruff check` +
 `ruff format --check` + `pytest -q` 离线确定性验证；② 以捕获式 `rebase.rebase_open_prs` + 齐备
 `work_dir`/`base`/`backend` 夹具，闭环演练「reviewer PASS → 自动合并 → 扇出**注入了 heal/resolve/
 diagnose**」与「reconcile is_merged → 扇出同样三层齐全」两条轨迹的对称，全程不触网、不调真实 LLM、不碰
