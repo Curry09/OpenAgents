@@ -27,17 +27,23 @@ _AGENT_ID = "agent-self"
 
 
 class _FakeOrchestrator:
-    """记录 refine_rfc / iterate 调用（含 detail/reason）；review_* 不该在解挂/挂起路径被调。"""
+    """记录 refine_rfc / iterate 调用（含 detail/reason/announce）；review_* 不该在解挂/挂起路径被调。
+
+    Spec-0036/T5：refine_rfc 加 announce 形参（T5 以 announce=False 调用，旧签名 → TypeError）；
+    refine_rfc / iterate 回传 summary 供 messages 组回应（默认返回固定串，断言回应正文含它）。
+    """
 
     def __init__(self):
         self.refine_calls = []
         self.iterate_calls = []
 
-    def refine_rfc(self, *, pr_number, detail):
-        self.refine_calls.append({"pr_number": pr_number, "detail": detail})
+    def refine_rfc(self, *, pr_number, detail, announce=True):
+        self.refine_calls.append({"pr_number": pr_number, "detail": detail, "announce": announce})
+        return "已据评审更新 spec 摘要"
 
     def iterate(self, *, pr_number, reason, detail):
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
+        return "已据人类指导迭代代码摘要"
 
     def review_rfc(self, *, pr_number):
         raise AssertionError("解挂/挂起路径不应调 review_rfc")
@@ -54,6 +60,7 @@ class _FakeState:
         self.status_updates = []
         self.block_gate_sets = []
         self.watermark_sets = []
+        self.unblock_detail_sets = []
         self.reset_calls = []
 
     def all_runs(self):
@@ -70,6 +77,13 @@ class _FakeState:
         record = self._find(issue_number)
         if record is not None:
             record.status = status
+
+    def set_unblock_detail(self, *, issue_number, detail):
+        # Spec-0036/T5：merge 闸解挂路径调用——记录轨迹 + 应用到记录。
+        self.unblock_detail_sets.append({"issue_number": issue_number, "detail": detail})
+        record = self._find(issue_number)
+        if record is not None:
+            record.unblock_detail = detail
 
     def set_block_gate(self, *, issue_number, gate):
         self.block_gate_sets.append({"issue_number": issue_number, "gate": gate})
@@ -105,6 +119,7 @@ def _run(*, issue_number=3, pr_number=5, status=STATUS_BLOCKED, block_gate="", b
         block_gate=block_gate,
         merge_attempts=0,
         block_watermark=block_watermark,
+        unblock_detail="",
     )
 
 
@@ -201,7 +216,11 @@ def test_block_comment_body_matches_blocknote(monkeypatch):
 
 
 def _patch_unblock_reads(monkeypatch, *, news):
-    """让 poll 走到 blocked 解挂主路径：未合并/未关闭、有指定的新人类评论。"""
+    """让 poll 走到 blocked 解挂主路径：未合并/未关闭、有指定的新人类评论。
+
+    Spec-0036/T5：rfc/code 解挂会经 identity.post_signed_comment 贴一条引用原评论的回应——桩掉它
+    并把回应正文记进 posted，供「恰一条引用回应」断言。返回 {removed, posted} 供调用方断言。
+    """
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
     monkeypatch.setattr(
@@ -213,11 +232,19 @@ def _patch_unblock_reads(monkeypatch, *, news):
         "remove_label",
         lambda *, pr_number, name: removed.append({"pr_number": pr_number, "name": name}),
     )
-    return removed
+    posted = []
+    monkeypatch.setattr(
+        messages_module.identity,
+        "post_signed_comment",
+        lambda *, pr_number, body, agent_id: posted.append(
+            {"pr_number": pr_number, "body": body, "agent_id": agent_id}
+        ),
+    )
+    return {"removed": removed, "posted": posted}
 
 
-def test_unblock_rfc_feeds_refine_rfc(monkeypatch):
-    removed = _patch_unblock_reads(
+def test_unblock_rfc_feeds_refine_rfc_and_replies(monkeypatch):
+    captured = _patch_unblock_reads(
         monkeypatch, news=[_comment(created_at="t2", body="按这个思路改 RFC")]
     )
     msgs, orch, state = _messages(
@@ -227,26 +254,36 @@ def test_unblock_rfc_feeds_refine_rfc(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "resumed"}]
-    assert removed == [{"pr_number": 5, "name": BLOCKED_LABEL}]
+    assert captured["removed"] == [{"pr_number": 5, "name": BLOCKED_LABEL}]
     assert 3 in state.reset_calls
-    assert orch.refine_calls == [{"pr_number": 5, "detail": "按这个思路改 RFC"}]
+    # refine_rfc 以 announce=False 调用（抑制泛化广播），detail 即触发评论正文。
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "按这个思路改 RFC", "announce": False}]
     assert orch.iterate_calls == []
     assert {"issue_number": 3, "gate": ""} in state.block_gate_sets  # 清残留
+    # 恰贴一条引用原评论 + agent summary 的签名回应。
+    assert len(captured["posted"]) == 1
+    body = captured["posted"][0]["body"]
+    assert "> 按这个思路改 RFC" in body  # 引用原评论
+    assert "已据评审更新 spec 摘要" in body  # agent summary 作回应正文
+    assert captured["posted"][0]["agent_id"] == _AGENT_ID
 
 
 def test_unblock_rfc_unparseable_also_feeds_refine_rfc(monkeypatch):
-    _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="人工指导")])
+    captured = _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="人工指导")])
     msgs, orch, _state = _messages(
         runs=[_run(issue_number=3, pr_number=5, block_gate="rfc-unparseable", block_watermark="t1")]
     )
 
     msgs.poll()
 
-    assert orch.refine_calls == [{"pr_number": 5, "detail": "人工指导"}]
+    assert orch.refine_calls == [{"pr_number": 5, "detail": "人工指导", "announce": False}]
+    assert len(captured["posted"]) == 1  # 引用回应
 
 
-def test_unblock_code_feeds_iterate_reason_human(monkeypatch):
-    _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="别动 messages")])
+def test_unblock_code_feeds_iterate_reason_human_and_replies(monkeypatch):
+    captured = _patch_unblock_reads(
+        monkeypatch, news=[_comment(created_at="t2", body="别动 messages")]
+    )
     msgs, orch, state = _messages(
         runs=[_run(issue_number=3, pr_number=5, block_gate="code", block_watermark="t1")]
     )
@@ -257,10 +294,15 @@ def test_unblock_code_feeds_iterate_reason_human(monkeypatch):
     assert orch.iterate_calls == [{"pr_number": 5, "reason": "human", "detail": "别动 messages"}]
     assert orch.refine_calls == []
     assert {"issue_number": 3, "gate": ""} in state.block_gate_sets
+    # 恰贴一条引用原评论 + agent summary 的签名回应。
+    assert len(captured["posted"]) == 1
+    body = captured["posted"][0]["body"]
+    assert "> 别动 messages" in body
+    assert "已据人类指导迭代代码摘要" in body
 
 
 def test_unblock_code_unparseable_also_feeds_iterate(monkeypatch):
-    _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="人工指导")])
+    captured = _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="人工指导")])
     msgs, orch, _state = _messages(
         runs=[
             _run(issue_number=3, pr_number=5, block_gate="code-unparseable", block_watermark="t1")
@@ -270,11 +312,15 @@ def test_unblock_code_unparseable_also_feeds_iterate(monkeypatch):
     msgs.poll()
 
     assert orch.iterate_calls == [{"pr_number": 5, "reason": "human", "detail": "人工指导"}]
+    assert len(captured["posted"]) == 1
 
 
-def test_unblock_merge_arms_without_feeding(monkeypatch):
-    # merge 闸解挂：不喂解冲突器，按 armed 语义恢复 pr-open、保留 block_gate="merge"。
-    _patch_unblock_reads(monkeypatch, news=[_comment(created_at="t2", body="我已表态，去解冲突")])
+def test_unblock_merge_arms_stores_detail_without_feeding_or_replying(monkeypatch):
+    # merge 闸解挂：不喂解冲突器、本轮不回应，按 armed 语义恢复 pr-open、保留 block_gate="merge"，
+    # 并 set_unblock_detail 把评论正文存进 state（供下一轮 armed 当 guidance + 回应引用）。
+    captured = _patch_unblock_reads(
+        monkeypatch, news=[_comment(created_at="t2", body="先解 OVERVIEW.md 再动 state.py")]
+    )
     msgs, orch, state = _messages(
         runs=[_run(issue_number=3, pr_number=5, block_gate="merge", block_watermark="t1")]
     )
@@ -288,6 +334,14 @@ def test_unblock_merge_arms_without_feeding(monkeypatch):
     # armed 标记保留：解挂没把 block_gate 清成 ""。
     assert {"issue_number": 3, "gate": ""} not in state.block_gate_sets
     assert state.all_runs()[0].block_gate == "merge"
+    # 评论正文存进 unblock_detail，供下一轮 armed 取用。
+    assert {
+        "issue_number": 3,
+        "detail": "先解 OVERVIEW.md 再动 state.py",
+    } in state.unblock_detail_sets
+    assert state.all_runs()[0].unblock_detail == "先解 OVERVIEW.md 再动 state.py"
+    # 本轮不回应（动作尚未发生，下一轮 armed 跑完才回）。
+    assert captured["posted"] == []
 
 
 def test_unblock_feeds_last_human_comment(monkeypatch):

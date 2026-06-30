@@ -30,6 +30,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `orchestrator.py` | RFC-0005: issue → RFC-first → 代码 的原子操作编排（取代单体 solve）。 |
 | `rebase.py` | RFC-0009 T2: 合并后自动同步其余 open PR 的扇出模块。 |
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
+| `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `reviewer.py` | RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。 |
 | `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
@@ -89,6 +90,7 @@ graph LR
     nopenagents_orchestrator["openagents.orchestrator"]
     nopenagents_rebase["openagents.rebase"]
     nopenagents_release["openagents.release"]
+    nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
     nopenagents_reviewer["openagents.reviewer"]
     nopenagents_spec["openagents.spec"]
@@ -157,6 +159,7 @@ graph LR
     nopenagents_messages --> nopenagents_indexheal
     nopenagents_messages --> nopenagents_orchestrator
     nopenagents_messages --> nopenagents_rebase
+    nopenagents_messages --> nopenagents_replynote
     nopenagents_messages --> nopenagents_state
     nopenagents_orchestrator --> nopenagents
     nopenagents_orchestrator --> nopenagents_backends_base

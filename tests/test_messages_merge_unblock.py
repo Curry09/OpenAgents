@@ -44,6 +44,7 @@ class _FakeState:
         self.status_updates = []
         self.block_gate_sets = []
         self.watermark_sets = []
+        self.unblock_detail_sets = []
         self.reset_calls = []
 
     def all_runs(self):
@@ -60,6 +61,13 @@ class _FakeState:
         record = self._find(issue_number)
         if record is not None:
             record.status = status
+
+    def set_unblock_detail(self, *, issue_number, detail):
+        # Spec-0036/T5：armed 跑完清 unblock_detail / merge 解挂存评论正文——记录轨迹 + 应用。
+        self.unblock_detail_sets.append({"issue_number": issue_number, "detail": detail})
+        record = self._find(issue_number)
+        if record is not None:
+            record.unblock_detail = detail
 
     def set_block_gate(self, *, issue_number, gate):
         self.block_gate_sets.append({"issue_number": issue_number, "gate": gate})
@@ -88,7 +96,15 @@ class _FakeState:
         return record.merge_attempts
 
 
-def _run(*, issue_number=3, pr_number=5, status=STATUS_PR_OPEN, block_gate="", merge_attempts=0):
+def _run(
+    *,
+    issue_number=3,
+    pr_number=5,
+    status=STATUS_PR_OPEN,
+    block_gate="",
+    merge_attempts=0,
+    unblock_detail="",
+):
     return RunRecord(
         issue_number=issue_number,
         branch=f"openagents/issue-{issue_number}",
@@ -100,6 +116,7 @@ def _run(*, issue_number=3, pr_number=5, status=STATUS_PR_OPEN, block_gate="", m
         review_invalid=0,
         block_gate=block_gate,
         merge_attempts=merge_attempts,
+        unblock_detail=unblock_detail,
     )
 
 
@@ -266,11 +283,19 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
 
 def _patch_resolver(monkeypatch, *, result):
-    monkeypatch.setattr(
-        messages_module.conflict,
-        "make_resolver",
-        lambda *, work_dir, base, backend, agent_id: lambda *, pr_number: result,
-    )
+    # Spec-0036/T5：_process_armed_conflict 以 resolve(pr_number=…, guidance=…) 调用——fake resolve
+    # 签名加 guidance kwarg（空/非空都带），并记录收到的 guidance 供「评论作 guidance 喂 resolve」断言。
+    seen = {"guidance": None}
+
+    def _make(*, work_dir, base, backend, agent_id):
+        def _resolve(*, pr_number, guidance=""):
+            seen["guidance"] = guidance
+            return result
+
+        return _resolve
+
+    monkeypatch.setattr(messages_module.conflict, "make_resolver", _make)
+    return seen
 
 
 class _FakeBackend:
@@ -280,10 +305,11 @@ class _FakeBackend:
         raise AssertionError("resolve 已被 monkeypatch，不应真起 backend")
 
 
-def test_armed_resolve_success_clears_armed(monkeypatch):
+def test_armed_resolve_success_empty_detail_no_reply(monkeypatch):
+    # unblock_detail 空（手动摘标签解挂，无评论）→ resolve(guidance="")、不回应——逐字节同 Spec-0031。
     comments: list[dict] = []
     _patch_conflict_precheck(monkeypatch, comments=comments)
-    _patch_resolver(monkeypatch, result=True)
+    seen = _patch_resolver(monkeypatch, result=True)
     msgs = _messages(
         runs=[_run(issue_number=3, pr_number=5, block_gate="merge")], backend=_FakeBackend()
     )
@@ -291,10 +317,44 @@ def test_armed_resolve_success_clears_armed(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "resolved"}]
-    assert comments == []  # 解决了不留言
+    assert seen["guidance"] == ""  # 空 detail → 空 guidance（零回归）
+    assert comments == []  # 解决了 + 无评论触发 → 不留言
     assert {"issue_number": 3, "gate": ""} in msgs._state.block_gate_sets  # 清 armed
     assert 3 in msgs._state.reset_calls  # reset 预算
     assert {"issue_number": 3, "status": STATUS_BLOCKED} not in msgs._state.status_updates
+
+
+def test_armed_resolve_success_with_detail_feeds_guidance_and_replies(monkeypatch):
+    # unblock_detail 非空（人解挂带评论）→ 评论作 guidance 喂 resolve，跑完恰贴一条引用原评论结论
+    # 回应（成功文案），并清空 unblock_detail。
+    comments: list[dict] = []
+    _patch_conflict_precheck(monkeypatch, comments=comments)
+    seen = _patch_resolver(monkeypatch, result=True)
+    msgs = _messages(
+        runs=[
+            _run(
+                issue_number=3,
+                pr_number=5,
+                block_gate="merge",
+                unblock_detail="先解 OVERVIEW.md 再动 state.py",
+            )
+        ],
+        backend=_FakeBackend(),
+    )
+
+    events = msgs.poll()
+
+    assert events == [{"pr_number": 5, "reason": "resolved"}]
+    # 评论作 guidance 喂解冲突器。
+    assert seen["guidance"] == "先解 OVERVIEW.md 再动 state.py"
+    # 恰贴一条引用原评论的成功结论回应。
+    assert len(comments) == 1
+    body = comments[0]["body"]
+    assert "> 先解 OVERVIEW.md 再动 state.py" in body  # 引用原评论
+    assert messages_module._RESOLVE_REPLY_SUCCESS in body  # 成功结论文案
+    # 跑完清空 unblock_detail（避免重复回应 / 陈旧 guidance）。
+    assert {"issue_number": 3, "detail": ""} in msgs._state.unblock_detail_sets
+    assert {"issue_number": 3, "gate": ""} in msgs._state.block_gate_sets
 
 
 def test_armed_resolve_none_falls_back_to_block(monkeypatch):
@@ -315,24 +375,31 @@ def test_armed_resolve_none_falls_back_to_block(monkeypatch):
 
 def test_armed_resolve_fail_under_limit_retries(monkeypatch):
     # armed，resolve 失败，merge_attempts 未达上限 → merge-retry，保持 pr-open、不留言、不重挂。
+    # detail 非空时本轮不算「跑完」：不回应、不清 detail（下一轮仍喂同一 guidance）。
     comments: list[dict] = []
     _patch_conflict_precheck(monkeypatch, comments=comments)
-    _patch_resolver(monkeypatch, result=False)
+    seen = _patch_resolver(monkeypatch, result=False)
     monkeypatch.setattr(messages_module, "MAX_MERGE_ATTEMPTS", 3)
     msgs = _messages(
-        runs=[_run(issue_number=3, pr_number=5, block_gate="merge")], backend=_FakeBackend()
+        runs=[_run(issue_number=3, pr_number=5, block_gate="merge", unblock_detail="人类指导")],
+        backend=_FakeBackend(),
     )
 
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "merge-retry"}]
-    assert comments == []  # 未挂起不留言
+    assert seen["guidance"] == "人类指导"  # 仍喂 guidance
+    assert comments == []  # 未挂起、未跑完 → 不留言
     assert {"issue_number": 3, "status": STATUS_BLOCKED} not in msgs._state.status_updates
     assert msgs._state.all_runs()[0].merge_attempts == 1
+    # 未跑完不清 detail（下一轮还要喂同一 guidance）。
+    assert {"issue_number": 3, "detail": ""} not in msgs._state.unblock_detail_sets
+    assert msgs._state.all_runs()[0].unblock_detail == "人类指导"
 
 
 def test_armed_resolve_fail_reaching_limit_blocks(monkeypatch):
-    # armed，resolve 失败，本次递增到达上限 → 留言 + _block(gate=merge) 重新挂起。
+    # armed，resolve 失败，本次递增到达上限 → 留言（挂起评论）+ _block(gate=merge) 重新挂起。
+    # 空 detail：只有 _block 的挂起评论一条，不回应（零回归）。
     comments: list[dict] = []
     _patch_conflict_precheck(monkeypatch, comments=comments)
     _patch_resolver(monkeypatch, result=False)
@@ -352,6 +419,39 @@ def test_armed_resolve_fail_reaching_limit_blocks(monkeypatch):
     assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
+
+
+def test_armed_resolve_fail_reaching_limit_with_detail_replies_and_clears(monkeypatch):
+    # detail 非空且达上限 → 两条评论：_block 挂起评论 + 引用原评论的未解结论回应，且清空 unblock_detail。
+    comments: list[dict] = []
+    _patch_conflict_precheck(monkeypatch, comments=comments)
+    _patch_resolver(monkeypatch, result=False)
+    monkeypatch.setattr(messages_module, "MAX_MERGE_ATTEMPTS", 3)
+    msgs = _messages(
+        runs=[
+            _run(
+                issue_number=3,
+                pr_number=5,
+                block_gate="merge",
+                merge_attempts=2,
+                unblock_detail="先解 OVERVIEW.md",
+            )
+        ],
+        backend=_FakeBackend(),
+    )
+
+    events = msgs.poll()
+
+    assert events == [{"pr_number": 5, "reason": "unmergeable"}]
+    # 两条评论：挂起评论（blocknote）+ 引用原评论的未解结论回应（replynote）。
+    bodies = [c["body"] for c in comments]
+    assert any(messages_module.rebase.CONFLICT_COMMENT in b for b in bodies)
+    reply = [b for b in bodies if "> 先解 OVERVIEW.md" in b]
+    assert len(reply) == 1
+    assert messages_module._RESOLVE_REPLY_UNRESOLVED in reply[0]
+    # 重新挂起 + 清空 unblock_detail（避免下次 arm 误用陈旧 guidance）。
+    assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
+    assert {"issue_number": 3, "detail": ""} in msgs._state.unblock_detail_sets
 
 
 # --------------------------------------------------------------------------- #
