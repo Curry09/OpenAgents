@@ -7,7 +7,7 @@ summary: 让评论驱动协作真正双向：所有闸（含此前丢弃内容�
 tasks:
   - id: T1
     title: state：unblock_detail 字段 + setter
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: unblock_detail 缺省值使 RunRecord(**旧记录) 不报错；set_unblock_detail 行为由 tests/test_state_unblock_detail.py hermetic 覆盖 (含旧记录兜底、与 block_gate/block_watermark 互不干扰、detail='' 清除)；ruff check + format --check + pytest 全绿
   - id: T2
     title: replynote：引用原评论的回应构造（新模块）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: build 对正常 original/response 产出『引用块 + 回应段齐全』正文；response 为空时占位不缺段；纯函数无 IO；由 tests/test_replynote.py 覆盖；ruff check + format --check + pytest 全绿
   - id: T3
     title: conflict：解冲突器接受人类 guidance
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -46,7 +46,7 @@ tasks:
     acceptance: guidance='' 时解冲突任务 prompt 与行为逐字节同今天 (零回归)；guidance 非空时该文本出现在喂给 backend 的 task 里；resolve/resolve_branch 返回仍为 bool；由 tests/test_conflict_guidance.py (注入 fake run/backend) 覆盖；ruff check + format --check + pytest 全绿
   - id: T4
     title: orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -59,7 +59,7 @@ tasks:
     acceptance: refine_rfc/iterate 返回 agent summary 字符串；iterate(reason='human') 的 task 文案含『回应人类评论』框定且不同于 ci/review；refine_rfc(announce=False) 不调 post_signed_comment 广播、announce=True 仍广播 (零回归)；CI/reviewer 闸既有调用方行为不变；由 tests/test_orchestrator_comment_reply.py (注入 fake backend/identity) 覆盖；ruff check + format --check + pytest 全绿
   - id: T5
     title: messages：merge 喂内容 + 三闸确定性贴回引用原评论
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -78,7 +78,7 @@ tasks:
     acceptance: rfc/code 解挂恰贴一条引用 news[-1] 原评论 + agent summary 的签名回应 (refine_rfc 不再叠加 _REFINE_COMMENT 广播)；merge 解挂当轮存 unblock_detail 不回，下一轮 armed 把 detail 当 guidance 喂 resolve 且跑完恰贴一条引用原评论结论回应并清空 unblock_detail；手动摘标签解挂 (无评论) 路径不回应、resolve(guidance='') 行为逐字节同 Spec-0031 (零回归)；回应均带签名不自触发；hermetic 注入 github/identity/orchestrator/resolve 的 tests/test_messages_comment_reply.py 覆盖；既有 tests/test_messages_needs_human_unblock.py / tests/test_messages_merge_unblock.py 的 fake 签名 (announce/guidance) 与 _FakeState (set_unblock_detail) 已随本组改动更新、断言适配后两文件全绿；ruff check + format --check + pytest 全绿 (含上述两既有测试文件，无任何未认领文件被打破)
   - id: T6
     title: hermetic e2e 脚本（无网络、不触真实 LLM/gh）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

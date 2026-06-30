@@ -87,6 +87,18 @@ _IMPLEMENT_TASK = (
 # refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
 _REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
 
+# Spec-0035/T4：iterate(reason="human") 的人类解挂专属任务 prompt（提示落点放方法论层，不在
+# messages 硬编码——理念 10 解耦 + #85 编排不耦合具体生态）。把 detail 框定为「人类回复了你的挂起
+# 评论」，并要求 agent 在摘要里正面回应——回应正文（summary）随后由 messages 经 replynote 引用原
+# 评论贴回。与普通 comment/ci 反馈（_ITERATE_TASK）区分：那是泛化反馈，这是「对人的正面回应」。
+_HUMAN_UNBLOCK_TASK = (
+    "人类在 PR #{pr_number} 上回复了你之前的挂起评论：\n{detail}\n\n"
+    "请据此继续修改代码，并在最后用一两句话**正面回应这条评论**："
+    "回答其追问 / 说明你做了什么 / 若仍解不了就讲清原因（你的这段回应会被引用原评论后贴回 PR）。"
+)
+# 普通 comment / ci 反馈的迭代任务模板（沿用原内联文案，抽常量与 _HUMAN_UNBLOCK_TASK 并列）。
+_ITERATE_TASK = "针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}"
+
 # Spec-0025/T2：反向补全任务模板（prompt）。与 _DRAFT_RFC_TASK 镜像，但输入端从「issue 编号」
 # 换成「代码路径 + 盘点摘要」，任务端从「据 issue 起草」换成「据代码反推」。关键约束（见
 # Spec-0025 Guide-level / Drawbacks）：**必填四段据实写满**、**难反推段标待补**，再过 spec
@@ -288,8 +300,15 @@ class Orchestrator:
         return body
 
     # --- 原子操作 2：按评审精炼 RFC -------------------------------------- #
-    def refine_rfc(self, *, pr_number: int, detail: str) -> None:
-        """RFC-0005：按评审评论精炼 RFC、回贴一条改动说明评论，状态维持 rfc-review。"""
+    def refine_rfc(self, *, pr_number: int, detail: str, announce: bool = True) -> str:
+        """RFC-0005：按评审评论精炼 RFC，状态维持 rfc-review；返回 agent 本轮动作的 summary。
+
+        Spec-0035/T4：返回 `result.summary`（供 messages 在人类解挂路径作回应文本）；返回值是新增
+        信息，既有忽略返回值的调用方（reviewer 驱动的 refine 路径）零影响。`announce` 控制是否回贴
+        泛化的 `_REFINE_COMMENT` 广播：reviewer 驱动路径 `announce=True`（保持现状，回贴「已据评审
+        更新 spec」）；人类解挂路径 `announce=False`——抑制广播，使该交互恰产生一条评论 = messages
+        随后贴的「引用原评论的回应」（奥卡姆：一轮人类解挂 → 一条针对性回应，不叠加泛化广播）。
+        """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
 
@@ -304,15 +323,18 @@ class Orchestrator:
             branch=record.branch,
             message=f"docs: refine RFC for PR #{pr_number} per review",
         )
-        # 决策 6：回贴评论说明改动，让人类知道 RFC 已据评审更新。
-        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计
-        # （RFC-0019：评论驱动读侧已退役，poll 不读评论；自动流转由 reviewer 闸驱动，无自循环）。
-        identity.post_signed_comment(
-            pr_number=pr_number,
-            body=_REFINE_COMMENT.format(summary=result.summary or "（无摘要）"),
-            agent_id=self._agent_id,
-        )
+        # 决策 6：reviewer 驱动路径回贴评论说明改动，让人类知道 RFC 已据评审更新。
+        # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计。
+        # Spec-0035/T4：announce=False（人类解挂路径）抑制此泛化广播——回应由 messages 经 replynote
+        # 引用原评论统一贴出，不在此叠加第二条评论。
+        if announce:
+            identity.post_signed_comment(
+                pr_number=pr_number,
+                body=_REFINE_COMMENT.format(summary=result.summary or "（无摘要）"),
+                agent_id=self._agent_id,
+            )
         self._state.update_status(issue_number=record.issue_number, status=STATUS_RFC_REVIEW)
+        return result.summary
 
     # --- 原子操作 3：RFC 获批后实现代码 --------------------------------- #
     def implement(self, *, pr_number: int) -> None:
@@ -456,23 +478,32 @@ class Orchestrator:
             self._progress(message=f"⚠ 端到端结果评论发送失败（已忽略）：{error}")
 
     # --- 原子操作 4：coding 阶段迭代（CI/comment 反馈）------------------ #
-    def iterate(self, *, pr_number: int, reason: str, detail: str) -> None:
-        """RFC-0001（决策 7）+ RFC-0005：在 issue 的 worktree 内续写并**追加 commit**。
+    def iterate(self, *, pr_number: int, reason: str, detail: str) -> str:
+        """RFC-0001（决策 7）+ RFC-0005：在 issue 的 worktree 内续写并**追加 commit**；返回 agent summary。
 
-        reason ∈ {"comment", "ci"}：决定喂回上下文的来源（评论正文或 CI 失败日志）。
+        reason ∈ {"comment", "ci", "review", "human"}：决定喂回上下文的来源与任务 prompt 文案。
         不 force-push，仅 add/commit/push 追加一个新 commit；状态置 iterating。
+
+        Spec-0035/T4：reason="human"（Spec-0032 已引入该取值，人解挂 code 闸）走人类解挂专属任务
+        prompt（_HUMAN_UNBLOCK_TASK），把 detail 框定为「人类回复了你的挂起评论，请正面回应」；其余
+        reason 沿用泛化反馈模板（_ITERATE_TASK，逐字节同今天）。返回 `result.summary` 供 messages 在
+        人类解挂路径作回应文本——返回值是新增信息，既有忽略返回值的调用方（ci/review 闸）零影响。
         """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
 
-        task = f"针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}"
-        self._backend.run(work_dir=worktree, task=task, context=detail)
+        if reason == "human":
+            task = _HUMAN_UNBLOCK_TASK.format(pr_number=pr_number, detail=detail)
+        else:
+            task = _ITERATE_TASK.format(pr_number=pr_number, reason=reason, detail=detail)
+        result = self._backend.run(work_dir=worktree, task=task, context=detail)
         self._workspace.commit_and_push(
             worktree=worktree,
             branch=record.branch,
             message=f"fix: address {reason} feedback on PR #{pr_number}",
         )
         self._state.update_status(issue_number=record.issue_number, status=STATUS_ITERATING)
+        return result.summary
 
     def _require_run(self, *, pr_number: int) -> RunRecord:
         """按 PR number 定位 run；找不到则抛 OrchestratorError（refine/implement/iterate 复用）。"""

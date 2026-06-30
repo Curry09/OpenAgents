@@ -38,6 +38,11 @@ _RESOLVE_TASK = (
     "现状、不要清除冲突标记（外层会据残留标记回落人工）。\n\n冲突文件：\n{files}"
 )
 
+# Spec-0035/T3：人类对本次解冲突的指导段（guidance 非空时拼到 _RESOLVE_TASK 之后）。人在被 merge
+# 冲突挂起的 PR 下回的评论（如「先解 X 再动 Y」）经此喂给解冲突 agent——补齐「merge 闸也听人话」
+# （issue #97 A 项）。guidance="" 时该段不拼接，行为逐字节同今天（零回归）。
+_GUIDANCE_SECTION = "\n\n人类对本次解冲突的指导（请据此优先处理）：\n{guidance}"
+
 
 class ConflictResolveError(Exception):
     """解冲突过程中的 git 操作失败（IO 层 / resolve_branch 据此降级为 False）。"""
@@ -49,6 +54,7 @@ def resolve_branch(
     base: str,
     backend: AgentBackend,
     run: Callable[..., subprocess.CompletedProcess[str]],
+    guidance: str = "",
 ) -> bool:
     """在 worktree 内把 `origin/<base>` 并入当前分支并尝试语义解冲突，返回是否已解决（待调用方 push）。
 
@@ -56,6 +62,11 @@ def resolve_branch(
     - 冲突 → 把冲突文件清单喂给 backend.run 让 agent 语义解决 + 自测；解完**无残留冲突标记**
       （`--diff-filter=U` 为空且 grep 无 `<<<<<<<`）→ `git add -A` + `commit --no-edit` → True。
     - 仍有残留冲突标记 / 自测失败（agent 按指令保留残标）/ 任何异常 → `merge --abort` → False。
+
+    Spec-0035/T3：guidance 为人类对本次解冲突的指导（merge 闸解挂时的评论正文）。`guidance=""`
+    （缺省）即不带人类指导，喂给 agent 的 task 逐字节同今天（零回归）；非空时拼进 _RESOLVE_TASK 的
+    「人类对本次解冲突的指导」段，让解冲突 agent 看到人说了什么。返回类型保持 bool 不变（不波及
+    rebase.rebase_open_prs 对 resolve(...) 的真值判断）。
 
     任何异常都吞成 False（安全降级）：解冲突是优化，失败即退回人工留言路径，绝不解错后静默 push。
     """
@@ -70,7 +81,7 @@ def resolve_branch(
             return False
         backend.run(
             work_dir=worktree,
-            task=_RESOLVE_TASK.format(files="\n".join(str(path) for path in conflicts)),
+            task=_resolve_task(conflicts=conflicts, guidance=guidance),
             context="\n".join(str(path) for path in conflicts),
         )
         if _has_residual_conflict(worktree=worktree, run=run, files=conflicts):
@@ -101,7 +112,9 @@ def make_resolver(
     # agent_id 进 worktree 路径：多 agent 并发解同一/不同 PR 时按身份隔离临时工作区（理念 6）。
     bucket = _RESOLVE_SUBDIR / agent_id.replace("/", "-")
 
-    def resolve(*, pr_number: int) -> bool:
+    def resolve(*, pr_number: int, guidance: str = "") -> bool:
+        # Spec-0035/T3：guidance 透传给 resolve_branch（merge 闸解挂时人类评论正文当解冲突指导）。
+        # guidance=""（缺省，含 auto-rebase 等无人类评论场景）即行为逐字节同今天（零回归）。
         try:
             branch = github.pr_head_branch(pr_number=pr_number)
         except github.GithubError:
@@ -115,7 +128,9 @@ def make_resolver(
                 cwd=root,
                 check=True,
             )
-            if not resolve_branch(worktree=path, base=base, backend=backend, run=_git):
+            if not resolve_branch(
+                worktree=path, base=base, backend=backend, run=_git, guidance=guidance
+            ):
                 return False
             _git(args=["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=path, check=True)
             return True
@@ -125,6 +140,18 @@ def make_resolver(
             _cleanup(root=root, path=path)
 
     return resolve
+
+
+def _resolve_task(*, conflicts: list[Path], guidance: str) -> str:
+    """Spec-0035/T3：拼解冲突任务 prompt——基础 _RESOLVE_TASK，guidance 非空时追加人类指导段。
+
+    guidance=""（缺省）即只返回基础模板，逐字节同今天（零回归）；非空时在冲突文件清单之后追加
+    「人类对本次解冲突的指导」段。私有纯函数，调用方显式传参。
+    """
+    task = _RESOLVE_TASK.format(files="\n".join(str(path) for path in conflicts))
+    if guidance.strip():
+        task += _GUIDANCE_SECTION.format(guidance=guidance)
+    return task
 
 
 def _conflicted(
