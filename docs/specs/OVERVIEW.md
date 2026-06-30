@@ -94,6 +94,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环
 
+### 0035 合并扇出两调用点能力对称：自动合并路径补注入 heal/resolve，确定性自愈的 OVERVIEW.md 冲突不再误升级 needs-human
+messages.poll 的两个 rebase_open_prs 扇出调用点能力不对称——is_merged reconcile 路径有 heal+resolve+diagnose，框架自动合并路径只有 diagnose；本组给自动合并路径补回 heal=self._make_heal()+resolve=self._make_resolver() 使两处对称，并加回归测试断言两个调用点都注入 heal/resolve/diagnose 防再退化
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -221,6 +224,8 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
 | 0034 | 0034/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0034-conflict-diagnostics.sh |
+| 0035 | 0035/T1 | messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试 | pending | — | openagents/messages.py<br>tests/test_messages_merge_fanout_symmetry.py |
+| 0035 | 0035/T2 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | pending | T1 | scripts/e2e-spec-0035-merge-fanout-symmetry.sh |
 
 ## 跨 feature 关系图
 
@@ -409,6 +414,10 @@ graph LR
         n0034_T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
         n0034_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
     end
+    subgraph G0035[0035 merge-fanout-heal-symmetry]
+        n0035_T1["T1 messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试"]
+        n0035_T2["T2 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -517,6 +526,7 @@ graph LR
     n0034_T3 --> n0034_T1
     n0034_T4 --> n0034_T2
     n0034_T4 --> n0034_T3
+    n0035_T2 --> n0035_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -543,7 +553,7 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0035 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
@@ -1459,4 +1469,24 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0035 合并扇出两调用点能力对称：自动合并路径补注入 heal/resolve，确定性自愈的 OVERVIEW.md 冲突不再误升级 needs-human（issue #96）
+
+```mermaid
+graph LR
+    nT1["T1 messages：自动合并扇出补回 heal/resolve + 两调用点对称回归测试"]
+    nT2["T2 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
 ```
