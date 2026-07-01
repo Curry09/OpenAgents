@@ -19,12 +19,13 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
-from openagents import backfill, e2e, github, identity, reviewer
+from openagents import backfill, evidence_gate, github, identity, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
-from openagents.spec import signpost, validate
+from openagents.spec import model, signpost, validate
 from openagents.state import (
     STATUS_ITERATING,
     STATUS_PR_OPEN,
@@ -131,6 +132,45 @@ _BACKFILL_RFC_TASK = (
     + _BROWSER_E2E_GUIDANCE
     + "\n\n代码盘点：\n{inventory}"
 )
+
+
+# Spec-0039/T5：定稿说明书文件名（③ 定稿说明书的落点，与 evidence_gate 的 result.md 同目录）。
+_RUNBOOK_FILENAME = "runbook.md"
+# 定稿 runbook 的任务模板（派实现者 backend）：把 RFC 阶段的 e2e 粗规划落成【具体可执行说明书】。
+# tautology guard 防线①支点：runbook 必须落在 RFC 批准意图内，不得把强意图偷换成更弱的检查。
+_FINALIZE_RUNBOOK_TASK = (
+    "代码已实现完毕，请把本 PR #{pr_number} 的 e2e 粗规划**定稿**成一份具体可执行的说明书 runbook，"
+    "写到文件 `{runbook_path}`（若目录不存在请创建）。\n"
+    "【RFC 批准的意图（不可偷换、不得弱化）】\n{intent}\n\n"
+    "runbook 内容要求（prose 说明书，给独立 executor 照做）：\n"
+    "1) 声明执行形态 form={form}（executor 据此选工具真跑）;\n"
+    "2) 列出**具体命令 / 请求 / 操作**、期望输出、判定点（怎么起、跑什么、看什么算过），"
+    "每一条都要对得上上面的意图与验收行为——不得把「无 origin 报错」偷换成「跑 --help 不崩」式弱化;\n"
+    "3) 只写 runbook 这一个文件，不要改实现代码。"
+)
+
+
+@dataclass(frozen=True)
+class RunbookHandle:
+    """Spec-0039/T5：finalize_runbook 的产物——供 messages 接 executor / 证据闸的定位信息。
+
+    worktree: PR 的隔离 worktree（executor / 证据闸 backend.run 的 cwd）。
+    runbook_path: 定稿说明书路径（executor 读它按形态真跑）。
+    evidence_dir: 证据落点 `worktree/docs/e2e-results/<pr>/`（executor 写、证据闸读）。
+    intent: RFC 批准的意图 + 验收行为文本（证据闸拿它对照证据判达成，tautology guard 防线①/③）。
+    """
+
+    worktree: Path
+    runbook_path: Path
+    evidence_dir: Path
+    intent: str
+
+
+def _intent_text(*, plan: model.E2EPlan) -> str:
+    """把组级 e2e 粗规划渲成给 runbook / 证据闸的意图文本（意图 + 逐条验收行为）。"""
+    lines = [f"意图：{plan.intent}", "验收行为："]
+    lines.extend(f"- {behavior}" for behavior in plan.acceptance)
+    return "\n".join(lines)
 
 
 class OrchestratorError(Exception):
@@ -362,9 +402,9 @@ class Orchestrator:
             branch=record.branch,
             message=f"feat: implement issue #{record.issue_number} per RFC",
         )
-        # RFC-0013：转正前实跑本分支 RFC 的 e2e 脚本，把「合否 + 日志末尾」作为签名评论发出
-        # （指路牌 → 实跑结果，理念 8）。整段尽力而为、绝不阻断转正（决策 6）。
-        self._post_e2e_result(worktree=worktree, pr_number=pr_number)
+        # Spec-0039/T5：退役 implement 内的一次性 smoke（旧 _post_e2e_result，病灶：测过期版本 + 没牙 +
+        # 结果没人消费）。e2e 改由 merge 前的证据闸负责（finalize_runbook → executor → 证据闸门控合并，
+        # 见 messages._process_coding），测的是最终要合的集成态、且 FAIL 挡合并。
         self._progress(message="▶ 取消 draft，PR 转正 …")
         github.mark_ready(pr_number=pr_number)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
@@ -458,39 +498,83 @@ class Orchestrator:
         latest = max(same_kind, key=lambda comment: comment.created_at)
         return verdict_line in latest.body.splitlines()
 
-    def _post_e2e_result(self, *, worktree: Path, pr_number: int) -> None:
-        """RFC-0013：定位本分支 spec 的 e2e 脚本 → 实跑 → 渲染 → 签名评论发出（尽力而为）。
+    # --- 证据闸：定稿 runbook + 固化证据（Spec-0039/T5）------------------ #
+    def finalize_runbook(self, *, pr_number: int) -> RunbookHandle | None:
+        """Spec-0039/T5（③）：把本分支 spec 的 e2e 粗规划定稿成可执行 runbook 并 commit。
 
-        脚本定位单一来源于 spec（issue #53：changed_spec_group + signpost.script_path_for_group）；
-        run_e2e_script 契约上绝不抛错；渲染/发评论一步若因 gh 故障抛错，只记进度并吞掉，
-        绝不把整条 implement 流程拖崩或拦住 mark_ready（决策 6）。
+        代码在了才定稿（具体命令/判定点这时才定得下来）：读本分支改动的 spec 组的组级 e2e 粗规划
+        （form/intent/acceptance，Spec-0039/T1）——**未声明即返回 None**（非交互 PR，证据闸空过，
+        零回归）。声明则派**实现者 backend**（它最懂代码）把粗规划落成 `docs/e2e-results/<pr>/runbook.md`
+        （声明形态、列出「怎么起、跑什么、看什么算过」），受 tautology guard 约束：runbook 必须落在 RFC
+        批准的意图内、不得偷换。写完 commit+push 进 PR。返回 RunbookHandle 供 messages 接 executor/证据闸。
         """
-        self._progress(message="▶ 转正前实跑端到端脚本（ruff + pytest）…")
-        # 1. 单一来源定位脚本：本分支改动的 spec 组 → 各 Task tests 里的脚本路径（None 即 skipped）。
-        spec_group = self._workspace.changed_spec_group(worktree=worktree, base=DEFAULT_BASE)
-        script_path = signpost.script_path_for_group(group_path=spec_group) if spec_group else None
-        # 2. 实跑离线段并截退出码与日志末尾（绝不抛错）。
-        result = e2e.run_e2e_script(
-            worktree=worktree,
-            script_path=script_path,
-            timeout_seconds=e2e.DEFAULT_TIMEOUT_SECONDS,
-            tail_lines=e2e.DEFAULT_TAIL_LINES,
-        )
-        # 3. 渲染 + RFC-0011 盖章发评论；发评论失败仅记进度并吞掉，不拖垮主流程。
-        try:
-            identity.post_signed_comment(
+        record = self._require_run(pr_number=pr_number)
+        worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
+        plan = self._e2e_plan(worktree=worktree)
+        if plan is None:
+            self._progress(message=f"▶ PR #{pr_number} 无 e2e 粗规划，证据闸空过")
+            return None
+
+        evidence_dir = worktree / evidence_gate.evidence_dir_for(pr_number=pr_number)
+        runbook_path = evidence_dir / _RUNBOOK_FILENAME
+        intent = _intent_text(plan=plan)
+
+        self._progress(message=f"▶ 定稿 PR #{pr_number} 的 e2e 说明书 runbook（形态 {plan.form}）…")
+        self._backend.run(
+            work_dir=worktree,
+            task=_FINALIZE_RUNBOOK_TASK.format(
                 pr_number=pr_number,
-                body=e2e.render_result(result=result, tail_lines=e2e.DEFAULT_TAIL_LINES),
-                agent_id=self._agent_id,
-            )
-        except Exception as error:  # noqa: BLE001 — 旁路尽力而为，任何 gh 故障都不得阻断转正
-            self._progress(message=f"⚠ 端到端结果评论发送失败（已忽略）：{error}")
+                form=plan.form,
+                intent=intent,
+                runbook_path=runbook_path,
+            ),
+            context=intent,
+        )
+        self._workspace.commit_and_push(
+            worktree=worktree,
+            branch=record.branch,
+            message=f"test: finalize e2e runbook for PR #{pr_number}",
+        )
+        return RunbookHandle(
+            worktree=worktree,
+            runbook_path=runbook_path,
+            evidence_dir=evidence_dir,
+            intent=intent,
+        )
+
+    def commit_evidence(self, *, pr_number: int) -> None:
+        """Spec-0039/T5（⑤）：把 executor 写进 evidence_dir 的证据 commit+push 进 PR（durable）。
+
+        executor.run_executor 已把 result.md / 日志写进 worktree 的 `docs/e2e-results/<pr>/`；这里统一
+        提交（无改动时 commit_and_push 内部幂等无操作）。让证据 durable、可被证据闸读、也给人看成果
+        （理念 8）。ensure worktree 幂等（复用 finalize 已建的）。
+        """
+        record = self._require_run(pr_number=pr_number)
+        worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
+        self._workspace.commit_and_push(
+            worktree=worktree,
+            branch=record.branch,
+            message=f"test: e2e evidence for PR #{pr_number}",
+        )
+
+    def _e2e_plan(self, *, worktree: Path) -> model.E2EPlan | None:
+        """读本分支改动的 spec 组的组级 e2e 粗规划；无改动组 / 组不可读 / 未声明 → None。"""
+        spec_group = self._workspace.changed_spec_group(worktree=worktree, base=DEFAULT_BASE)
+        if spec_group is None or not spec_group.is_file():
+            return None
+        try:
+            group = model.load_group(path=spec_group)
+        except (OSError, ValueError):
+            return None
+        return group.metadata.e2e
 
     # --- 原子操作 4：coding 阶段迭代（CI/comment 反馈）------------------ #
     def iterate(self, *, pr_number: int, reason: str, detail: str) -> str:
         """RFC-0001（决策 7）+ RFC-0005：在 issue 的 worktree 内续写并**追加 commit**；返回 agent summary。
 
-        reason ∈ {"comment", "ci", "review", "human"}：决定喂回上下文的来源与任务 prompt 文案。
+        reason ∈ {"comment", "ci", "review", "human", "e2e"}：决定喂回上下文的来源与任务 prompt 文案。
+        Spec-0039/T5：新增 "e2e"——证据闸 FAIL 时把「哪条验收行为没达成/避重就轻」喂回改代码，走
+        泛化反馈模板（与 ci/review 同款，逐字节文案：把 reason 填进 _ITERATE_TASK 的「{reason}反馈」）。
         不 force-push，仅 add/commit/push 追加一个新 commit；状态置 iterating。
 
         Spec-0036/T4：reason="human"（Spec-0032 已引入该取值，人解挂 code 闸）走人类解挂专属任务

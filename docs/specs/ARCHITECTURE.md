@@ -18,8 +18,9 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。 |
 | `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
-| `e2e.py` | RFC-0013: 实跑端到端脚本并把「合否 + 日志末尾」渲染成 PR 评论（纯旁路模块）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
+| `evidence_gate.py` | Spec-0039/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。 |
+| `executor.py` | Spec-0039/T2: executor —— 独立的运行时验证 agent（cli/api/backend 形态，Phase 1 骨架）。 |
 | `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
 | `fleet_config.py` | Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
@@ -76,8 +77,9 @@ graph LR
     nopenagents_config["openagents.config"]
     nopenagents_conflict["openagents.conflict"]
     nopenagents_conflictdiag["openagents.conflictdiag"]
-    nopenagents_e2e["openagents.e2e"]
     nopenagents_envcheck["openagents.envcheck"]
+    nopenagents_evidence_gate["openagents.evidence_gate"]
+    nopenagents_executor["openagents.executor"]
     nopenagents_fleet["openagents.fleet"]
     nopenagents_fleet_config["openagents.fleet_config"]
     nopenagents_github["openagents.github"]
@@ -127,6 +129,9 @@ graph LR
     nopenagents_conflictdiag --> nopenagents
     nopenagents_conflictdiag --> nopenagents_github
     nopenagents_envcheck --> nopenagents_backends_claude_code
+    nopenagents_evidence_gate --> nopenagents_backends_base
+    nopenagents_executor --> nopenagents_backends_base
+    nopenagents_executor --> nopenagents_spec_schema
     nopenagents_fleet --> nopenagents
     nopenagents_fleet --> nopenagents_cli
     nopenagents_fleet --> nopenagents_config
@@ -142,6 +147,8 @@ graph LR
     nopenagents_messages --> nopenagents_blocknote
     nopenagents_messages --> nopenagents_conflict
     nopenagents_messages --> nopenagents_conflictdiag
+    nopenagents_messages --> nopenagents_evidence_gate
+    nopenagents_messages --> nopenagents_executor
     nopenagents_messages --> nopenagents_github
     nopenagents_messages --> nopenagents_hold
     nopenagents_messages --> nopenagents_identity
@@ -151,11 +158,12 @@ graph LR
     nopenagents_orchestrator --> nopenagents
     nopenagents_orchestrator --> nopenagents_backends_base
     nopenagents_orchestrator --> nopenagents_backfill
-    nopenagents_orchestrator --> nopenagents_e2e
+    nopenagents_orchestrator --> nopenagents_evidence_gate
     nopenagents_orchestrator --> nopenagents_github
     nopenagents_orchestrator --> nopenagents_identity
     nopenagents_orchestrator --> nopenagents_reviewer
     nopenagents_orchestrator --> nopenagents_spec
+    nopenagents_orchestrator --> nopenagents_spec_model
     nopenagents_orchestrator --> nopenagents_spec_signpost
     nopenagents_orchestrator --> nopenagents_spec_validate
     nopenagents_orchestrator --> nopenagents_state

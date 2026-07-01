@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import Group, Metadata, Overview, RelatesTo, Task
+from openagents.spec.model import E2EPlan, Group, Metadata, Overview, RelatesTo, Task
 from openagents.spec.validate import validate
 
 
@@ -241,6 +241,64 @@ def test_bare_cross_spec_ref_is_warning(tmp_path: Path) -> None:
     report = validate(specs_root=tmp_path)
     assert report.ok is True  # 仅 warning，不破 ok
     assert any("Spec-0012" in m for m in _warnings(report))
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0039/T1: 组级 e2e 粗规划硬化（声明才校验，向后兼容）
+# --------------------------------------------------------------------------- #
+
+
+def _group_with_e2e(*, root: Path, e2e: E2EPlan | None) -> Path:
+    """落一个带（或不带）e2e 粗规划的合规组，便于对 _e2e_checks 做正反例。"""
+    group = Group(
+        number="0001",
+        metadata=Metadata(title="alpha", issue=1, slug="alpha", summary="alpha TL;DR", e2e=e2e),
+        tasks=[_task(id="T1", files=["a.py"])],
+        overview=_overview(),
+    )
+    path = model.group_path(specs_root=root, number="0001", slug="alpha")
+    model.dump_group(group=group, path=path)
+    return path
+
+
+def test_valid_e2e_block_is_ok(tmp_path: Path) -> None:
+    """合法 e2e 块（form 合法 + intent 非空 + acceptance≥1）→ 无 e2e 相关 error。"""
+    _group_with_e2e(
+        root=tmp_path,
+        e2e=E2EPlan(form="cli", intent="init 无 origin 必须报错", acceptance=["非零退出"]),
+    )
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True
+    assert not any("e2e" in m for m in _errors(report))
+
+
+def test_e2e_illegal_form_is_error(tmp_path: Path) -> None:
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="mobile", intent="x", acceptance=["a"]))
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("e2e.form 非法" in m for m in _errors(report))
+
+
+def test_e2e_empty_intent_is_error(tmp_path: Path) -> None:
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="cli", intent="  ", acceptance=["a"]))
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("e2e.intent 为空" in m for m in _errors(report))
+
+
+def test_e2e_empty_acceptance_is_error(tmp_path: Path) -> None:
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="cli", intent="x", acceptance=[]))
+    report = validate(specs_root=tmp_path)
+    assert report.ok is False
+    assert any("e2e.acceptance 为空" in m for m in _errors(report))
+
+
+def test_no_e2e_block_is_ok_zero_regression(tmp_path: Path) -> None:
+    """无 e2e 块的既有组：validate 不报任何 e2e 相关 error（向后兼容）。"""
+    _group_with_e2e(root=tmp_path, e2e=None)
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True
+    assert not any("e2e" in m for m in _errors(report))
 
 
 def test_task_without_acceptance_is_schema_error(tmp_path: Path) -> None:

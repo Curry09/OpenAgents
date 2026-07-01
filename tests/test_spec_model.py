@@ -13,7 +13,7 @@ import jsonschema
 import pytest
 
 from openagents.spec import model, schema
-from openagents.spec.model import Group, Metadata, Overview, RelatesTo, Task
+from openagents.spec.model import E2EPlan, Group, Metadata, Overview, RelatesTo, Task
 
 
 def _sample_overview() -> Overview:
@@ -171,3 +171,51 @@ def test_qualified_id() -> None:
 def test_schemas_are_valid_jsonschema(doc: dict) -> None:
     """schema 本身是合法 JSON Schema（draft 2020-12 可编译）。"""
     jsonschema.Draft202012Validator.check_schema(doc)
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0039/T1: 组级 e2e 粗规划字段 round-trip / 可选 / 归一化
+# --------------------------------------------------------------------------- #
+
+
+def test_e2e_plan_round_trip(tmp_path: Path) -> None:
+    """声明 e2e 粗规划的组：render_group→load_group 保真 form/intent/acceptance。"""
+    group = _sample_group()
+    group = Group(
+        number=group.number,
+        metadata=Metadata(
+            title=group.metadata.title,
+            issue=group.metadata.issue,
+            slug=group.metadata.slug,
+            summary=group.metadata.summary,
+            e2e=E2EPlan(
+                form="cli",
+                intent="init 无 origin 必须显式失败。",
+                acceptance=["无 origin 跑 init → 非零退出", "补 origin 再跑 → 成功"],
+            ),
+        ),
+        tasks=group.tasks,
+        overview=group.overview,
+    )
+    path = _write_group(root=tmp_path, group=group)
+    reloaded = model.load_group(path=path)
+    assert reloaded.metadata.e2e == group.metadata.e2e
+    # frontmatter 落了 e2e 块，正文不含它。
+    head, _body = path.read_text(encoding="utf-8").split("\n---\n", 1)
+    assert "e2e:" in head and "form: cli" in head
+    # 字节级确定性。
+    assert model.render_group(group=group) == model.render_group(group=reloaded)
+
+
+def test_e2e_absent_defaults_none_and_omitted(tmp_path: Path) -> None:
+    """未声明 e2e 的组：metadata.e2e 为 None，且 frontmatter 不出现 e2e 键（零回归）。"""
+    path = _write_group(root=tmp_path, group=_sample_group())
+    reloaded = model.load_group(path=path)
+    assert reloaded.metadata.e2e is None
+    assert "e2e:" not in path.read_text(encoding="utf-8")
+
+
+def test_e2e_from_mapping_none_returns_none() -> None:
+    assert model.e2e_from_mapping(data=None) is None
+    plan = model.e2e_from_mapping(data={"form": "api", "intent": "x", "acceptance": ["a"]})
+    assert plan == E2EPlan(form="api", intent="x", acceptance=["a"])

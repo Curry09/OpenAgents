@@ -4,10 +4,17 @@ title: 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Pha
 issue: 104
 slug: e2e-runbook-driven-evidence-gate
 summary: 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
+e2e:
+  form: cli
+  intent: 证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
+  acceptance:
+    - 造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
+    - 喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。
+    - 喂「达成」证据 → 判 PASS 且照常放行 merge。
 tasks:
   - id: T1
     title: spec 增 e2e 粗规划字段 + validate 硬化
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -25,7 +32,7 @@ tasks:
     acceptance: 单测：带合法 e2e 块的组 validate 通过且 render 显示意图+验收行为；form 非法/intent 空/acceptance 为空各报 error；无 e2e 块的既有组 validate 不报错（零回归）。ruff + pytest 通过。
   - id: T2
     title: executor 角色：独立运行时验证 agent（cli/api/backend 形态）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -38,7 +45,7 @@ tasks:
     acceptance: 单测（假 backend）：cli 形态 runbook→run_executor 调 backend 真跑并把证据写进 evidence_dir、outcome 随子过程退出码映射 passed/failed；backend 抛错→outcome=failed 不抛出；ui 形态→skipped 且 notes 标注 Phase 2。ruff + pytest 通过。
   - id: T3
     title: 证据固化 + 证据闸 reviewer
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -52,7 +59,7 @@ tasks:
     acceptance: 单测（假 backend）：证据显示意图达成→passed=True、feedback 空；证据缺失/与意图不符/避重就轻→passed=False 且 feedback 非空；evidence_dir_for 对 pr=12 返回 docs/e2e-results/12/。ruff + pytest 通过。
   - id: T4
     title: reviewer 职责收口 + RFC rubric 硬规则
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -65,7 +72,7 @@ tasks:
     acceptance: 单测：_CODE_REVIEW_TASK 不再含 browser-e2e 措辞且含「不判运行时行为」；_RFC_REVIEW_TASK 含「前端/交互类改动未声明 e2e 粗规划→REWORK」硬规则；既有 reviewer.review 聚合/裁决解析用例零回归。ruff + pytest 通过。
   - id: T5
     title: 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
