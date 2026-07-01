@@ -97,6 +97,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0036 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
 让评论驱动协作真正双向：所有闸（含此前丢弃内容的 merge 闸）解挂都把人类评论喂给 agent；agent 完成本轮动作后，由编排层确定性贴回一条引用原评论的签名回应（答追问/说明做了什么/解不了讲清原因），复用既有发帖出口、不依赖 prompt 记性、不踩 headless 发帖权限坑
 
+### 0038 合并冲突改拉式同步 + 解冲突 agent 用带签名工具自回评论
+守夜人合并/冲突处理从「推式扇出+确定性 heal」改为「门2 拉式同步+agent 能动性」；解冲突 agent 用带签名 reply-comment 工具亲自回人类评论（根治牛头不对马嘴）
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -230,6 +233,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0036 | 0036/T4 | orchestrator：原子操作回传 summary + 人类解挂 prompt + announce 开关 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator_comment_reply.py |
 | 0036 | 0036/T5 | messages：merge 喂内容 + 三闸确定性贴回引用原评论 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages_comment_reply.py<br>tests/test_messages_needs_human_unblock.py<br>tests/test_messages_merge_unblock.py |
 | 0036 | 0036/T6 | hermetic e2e 脚本（无网络、不触真实 LLM/gh） | done | T5 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
+| 0038 | 0038/T1 | 门2 拉式同步 + 删 push 扇出 | done | — | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_messages_conflict_diag.py<br>tests/test_messages_merge_unblock.py<br>tests/test_messages_comment_reply.py |
+| 0038 | 0038/T2 | 删死代码 + CONFLICT_COMMENT 迁移 | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py<br>scripts/e2e-spec-0034-conflict-diagnostics.sh |
+| 0038 | 0038/T3 | 解冲突 agent 用带签名工具自回评论 | done | — | openagents/conflict.py<br>openagents/cli.py<br>openagents/orchestrator.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py<br>tests/test_cli.py<br>scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
 
 ## 跨 feature 关系图
 
@@ -426,6 +432,11 @@ graph LR
         n0036_T5["T5 messages：merge 喂内容 + 三闸确定性贴回引用原评论"]
         n0036_T6["T6 hermetic e2e 脚本（无网络、不触真实 LLM/gh）"]
     end
+    subgraph G0038[0038 pull-sync-and-agent-reply]
+        n0038_T1["T1 门2 拉式同步 + 删 push 扇出"]
+        n0038_T2["T2 删死代码 + CONFLICT_COMMENT 迁移"]
+        n0038_T3["T3 解冲突 agent 用带签名工具自回评论"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -559,15 +570,16 @@ graph LR
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038 |
 | openagents/config.py | 0001, 0029, 0033 |
-| openagents/conflict.py | 0028, 0036 |
+| openagents/conflict.py | 0028, 0036, 0038 |
+| openagents/conflictdiag.py | 0034, 0038 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -586,20 +598,27 @@ graph LR
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
+| scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
+| scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038 |
 | tests/test_config.py | 0001, 0029, 0033 |
+| tests/test_conflict.py | 0028, 0038 |
+| tests/test_conflict_guidance.py | 0036, 0038 |
+| tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029 |
-| tests/test_messages_merge_unblock.py | 0031, 0036 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038 |
+| tests/test_messages_comment_reply.py | 0036, 0038 |
+| tests/test_messages_conflict_diag.py | 0034, 0038 |
+| tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
-| tests/test_messages_resolve.py | 0028, 0029 |
+| tests/test_messages_resolve.py | 0028, 0029, 0038 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
@@ -1520,4 +1539,26 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0038 合并冲突改拉式同步 + 解冲突 agent 用带签名工具自回评论（issue #96）
+
+```mermaid
+graph LR
+    nT1["T1 门2 拉式同步 + 删 push 扇出"]
+    nT2["T2 删死代码 + CONFLICT_COMMENT 迁移"]
+    nT3["T3 解冲突 agent 用带签名工具自回评论"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```
