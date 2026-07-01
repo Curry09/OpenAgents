@@ -63,7 +63,7 @@ def test_clean_merge_returns_true_without_agent(tmp_path):
     git = _FakeGit(merge_rc=0, conflicts=[])
     backend = _FakeBackend(on_run=lambda wt: None)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is True
+    assert ok.resolved is True
     assert backend.calls == []  # 干净合并不调 agent
     assert ["merge", "origin/main", "--no-edit"] in git.calls
     assert not _abort_called(git)
@@ -79,7 +79,7 @@ def test_agent_resolves_and_commits(tmp_path):
 
     backend = _FakeBackend(on_run=_resolve)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is True
+    assert ok.resolved is True
     assert len(backend.calls) == 1
     # 任务里带上了冲突文件清单。
     assert "a.py" in backend.calls[0]["task"]
@@ -98,7 +98,7 @@ def test_residual_conflict_marker_aborts(tmp_path):
 
     backend = _FakeBackend(on_run=_leave_marker)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is False
+    assert ok.resolved is False
     assert _abort_called(git)
     assert ["commit", "--no-edit"] not in git.calls
 
@@ -108,7 +108,7 @@ def test_still_unmerged_aborts(tmp_path):
     # agent 啥也没解，unmerged 文件仍在 → --diff-filter=U 非空 → abort。
     backend = _FakeBackend(on_run=lambda wt: None)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is False
+    assert ok.resolved is False
     assert _abort_called(git)
 
 
@@ -117,7 +117,7 @@ def test_merge_failure_without_conflicts_aborts(tmp_path):
     git = _FakeGit(merge_rc=1, conflicts=[])
     backend = _FakeBackend(on_run=lambda wt: None)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is False
+    assert ok.resolved is False
     assert backend.calls == []
     assert _abort_called(git)
 
@@ -130,7 +130,7 @@ def test_backend_exception_swallowed_to_false(tmp_path):
 
     backend = _FakeBackend(on_run=_boom)
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
-    assert ok is False  # 任何异常吞成 False
+    assert ok.resolved is False  # 任何异常吞成 resolved=False
     assert _abort_called(git)
 
 
@@ -144,7 +144,7 @@ def test_make_resolver_degrades_on_github_error(monkeypatch, tmp_path):
     resolve = conflict.make_resolver(
         work_dir=tmp_path, base="main", backend=backend, agent_id="agent-x"
     )
-    assert resolve(pr_number=7) is False
+    assert resolve(pr_number=7).resolved is False
 
 
 if __name__ == "__main__":

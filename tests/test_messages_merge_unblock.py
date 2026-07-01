@@ -269,7 +269,9 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
     monkeypatch.setattr(
         messages_module.conflictdiag,
         "make_diagnoser",
-        lambda *, work_dir, base: lambda *, pr_number: messages_module.rebase.CONFLICT_COMMENT,
+        lambda *, work_dir, base: (
+            lambda *, pr_number: messages_module.conflictdiag.CONFLICT_COMMENT
+        ),
     )
     # Spec-0032/T5：_block 落水位线要读最新评论 createdAt——桩为空。
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
@@ -283,14 +285,15 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
 
 
 def _patch_resolver(monkeypatch, *, result):
-    # Spec-0036/T5：_process_armed_conflict 以 resolve(pr_number=…, guidance=…) 调用——fake resolve
-    # 签名加 guidance kwarg（空/非空都带），并记录收到的 guidance 供「评论作 guidance 喂 resolve」断言。
-    seen = {"guidance": None}
+    # _process_armed_conflict 以 resolve(pr_number=…, guidance=…) 调用，拿回 ResolveOutcome(resolved)。
+    # 真实里解冲突 agent 会自己用 reply-comment 工具回评论——框架不代发回复；fake resolve 只记 guidance。
+    seen = {"guidance": None, "pr_number": None}
 
     def _make(*, work_dir, base, backend, agent_id):
         def _resolve(*, pr_number, guidance=""):
             seen["guidance"] = guidance
-            return result
+            seen["pr_number"] = pr_number
+            return messages_module.conflict.ResolveOutcome(resolved=result)
 
         return _resolve
 
@@ -324,9 +327,9 @@ def test_armed_resolve_success_empty_detail_no_reply(monkeypatch):
     assert {"issue_number": 3, "status": STATUS_BLOCKED} not in msgs._state.status_updates
 
 
-def test_armed_resolve_success_with_detail_feeds_guidance_and_replies(monkeypatch):
-    # unblock_detail 非空（人解挂带评论）→ 评论作 guidance 喂 resolve，跑完恰贴一条引用原评论结论
-    # 回应（成功文案），并清空 unblock_detail。
+def test_armed_resolve_success_with_detail_feeds_guidance_and_clears(monkeypatch):
+    # unblock_detail 非空（人解挂带评论）→ 评论作 guidance 喂 resolve（连 pr_number 一起透传，供 agent
+    # 用 reply-comment --pr 回评论）；框架**不代发回复**（agent 自己用工具回），跑完清 armed + 清 detail。
     comments: list[dict] = []
     _patch_conflict_precheck(monkeypatch, comments=comments)
     seen = _patch_resolver(monkeypatch, result=True)
@@ -345,16 +348,11 @@ def test_armed_resolve_success_with_detail_feeds_guidance_and_replies(monkeypatc
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "resolved"}]
-    # 评论作 guidance 喂解冲突器。
-    assert seen["guidance"] == "先解 OVERVIEW.md 再动 state.py"
-    # 恰贴一条引用原评论的成功结论回应。
-    assert len(comments) == 1
-    body = comments[0]["body"]
-    assert "> 先解 OVERVIEW.md 再动 state.py" in body  # 引用原评论
-    assert messages_module._RESOLVE_REPLY_SUCCESS in body  # 成功结论文案
-    # 跑完清空 unblock_detail（避免重复回应 / 陈旧 guidance）。
-    assert {"issue_number": 3, "detail": ""} in msgs._state.unblock_detail_sets
-    assert {"issue_number": 3, "gate": ""} in msgs._state.block_gate_sets
+    assert seen["guidance"] == "先解 OVERVIEW.md 再动 state.py"  # 评论作 guidance 喂解冲突器
+    assert seen["pr_number"] == 5  # pr_number 透传（供 agent `reply-comment --pr 5`）
+    assert comments == []  # 框架不代发回复（agent 自己用带签名工具回）
+    assert {"issue_number": 3, "detail": ""} in msgs._state.unblock_detail_sets  # 跑完清 detail
+    assert {"issue_number": 3, "gate": ""} in msgs._state.block_gate_sets  # 清 armed
 
 
 def test_armed_resolve_none_falls_back_to_block(monkeypatch):
@@ -368,7 +366,7 @@ def test_armed_resolve_none_falls_back_to_block(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
@@ -415,14 +413,14 @@ def test_armed_resolve_fail_reaching_limit_blocks(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
 
 
-def test_armed_resolve_fail_reaching_limit_with_detail_replies_and_clears(monkeypatch):
-    # detail 非空且达上限 → 两条评论：_block 挂起评论 + 引用原评论的未解结论回应，且清空 unblock_detail。
+def test_armed_resolve_fail_reaching_limit_with_detail_clears(monkeypatch):
+    # detail 非空且达上限 → 只有 _block 的挂起评论一条（框架不代发回复），且清空 unblock_detail。
     comments: list[dict] = []
     _patch_conflict_precheck(monkeypatch, comments=comments)
     _patch_resolver(monkeypatch, result=False)
@@ -443,12 +441,10 @@ def test_armed_resolve_fail_reaching_limit_with_detail_replies_and_clears(monkey
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
-    # 两条评论：挂起评论（blocknote）+ 引用原评论的未解结论回应（replynote）。
+    # 只有 _block 的挂起评论一条；框架**不再**贴引用原评论的回复（回复是 agent 用工具自己发的）。
     bodies = [c["body"] for c in comments]
-    assert any(messages_module.rebase.CONFLICT_COMMENT in b for b in bodies)
-    reply = [b for b in bodies if "> 先解 OVERVIEW.md" in b]
-    assert len(reply) == 1
-    assert messages_module._RESOLVE_REPLY_UNRESOLVED in reply[0]
+    assert any(messages_module.conflictdiag.CONFLICT_COMMENT in b for b in bodies)
+    assert not any("> 先解 OVERVIEW.md" in b for b in bodies)
     # 重新挂起 + 清空 unblock_detail（避免下次 arm 误用陈旧 guidance）。
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "detail": ""} in msgs._state.unblock_detail_sets
@@ -488,7 +484,7 @@ def test_first_discovery_resolve_fail_blocks_with_merge_gate(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
     assert {"issue_number": 3, "gate": "merge"} in msgs._state.block_gate_sets
@@ -507,7 +503,7 @@ def test_first_discovery_no_backend_keeps_legacy_block(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert "gate=merge" in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 

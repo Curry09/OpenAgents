@@ -83,6 +83,10 @@ _REFINE_RFC_TASK = (
 _IMPLEMENT_TASK = (
     "issue #{number} 的 spec 已获批准（rfc-approved）。请阅读 docs/specs/ 下对应 spec 组，"
     "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。"
+    # 收尾前先对齐最新 main，把机械冲突就地解掉，别留给 merge 闸机械式报错（issue #48 indexheal 同源）。
+    "\n收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决"
+    "——`docs/specs/OVERVIEW.md` 这类生成式索引直接 `spec render` 重渲消解、其余语义解决——"
+    "确保 PR 处于可干净合并状态，不要把机械冲突留给 merge 闸。"
 )
 # refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
 _REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
@@ -97,7 +101,12 @@ _HUMAN_UNBLOCK_TASK = (
     "回答其追问 / 说明你做了什么 / 若仍解不了就讲清原因（你的这段回应会被引用原评论后贴回 PR）。"
 )
 # 普通 comment / ci 反馈的迭代任务模板（沿用原内联文案，抽常量与 _HUMAN_UNBLOCK_TASK 并列）。
-_ITERATE_TASK = "针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}"
+# 收尾前同 _IMPLEMENT_TASK：先对齐最新 main、就地解机械冲突，别留给 merge 闸（issue #48 indexheal 同源）。
+_ITERATE_TASK = (
+    "针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}\n"
+    "改完收尾前先确认本分支能与最新 `origin/main` 干净合并：若有冲突就地解决"
+    "（`docs/specs/OVERVIEW.md` 这类生成索引用 `spec render` 重渲、其余语义解决），别把机械冲突留给 merge 闸。"
+)
 
 # Spec-0025/T2：反向补全任务模板（prompt）。与 _DRAFT_RFC_TASK 镜像，但输入端从「issue 编号」
 # 换成「代码路径 + 盘点摘要」，任务端从「据 issue 起草」换成「据代码反推」。关键约束（见

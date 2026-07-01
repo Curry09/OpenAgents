@@ -22,9 +22,9 @@ COMMANDS = [
     "implement",
     "iterate",
     "issue",
+    "reply-comment",
     "poll",
     "watch",
-    "sync-prs",
     "board",
     "vigil",
     "release",
@@ -541,56 +541,20 @@ def test_poll_runs_preflight_then_polls(monkeypatch):
     assert calls == [True]
 
 
-# --------------------------------------------------------------------------- #
-# sync-prs（RFC-0009 T4：合并后手动同步其余 open PR）
-# --------------------------------------------------------------------------- #
-
-
-def test_sync_prs_runs_preflight_with_defaults(monkeypatch):
-    # 缺省：不排除任何 PR（merged_pr_number=None）、默认 merge（rebase=False）。
-    calls = _patch_ensure(monkeypatch)
-    # RFC-0011 T6：sync-prs 透传 agent_id；打桩 _agent_id_for 避免触达真实 state。
-    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
-    seen = {}
-
-    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id, heal=None):
-        seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
-        return [{"pr_number": 8, "result": "updated"}]
-
-    monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
-    code = main(["sync-prs"])
-    assert code == 0
-    assert calls == [True]
-    assert seen == {"merged_pr_number": None, "rebase": False, "agent_id": "agent-x"}
-
-
-def test_sync_prs_passes_merged_and_rebase(monkeypatch):
+def test_reply_comment_posts_signed_comment(monkeypatch):
+    # reply-comment 工具：以本实例 agent_id 盖签名回复指定 PR（供解冲突 agent 亲自回评论、防自循环）。
     _patch_ensure(monkeypatch)
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
-
-    def fake_rebase_open_prs(*, merged_pr_number, rebase, agent_id, heal=None):
-        seen.update(merged_pr_number=merged_pr_number, rebase=rebase, agent_id=agent_id)
-        return []
-
-    monkeypatch.setattr("openagents.rebase.rebase_open_prs", fake_rebase_open_prs)
-    code = main(["sync-prs", "--merged", "5", "--rebase"])
+    monkeypatch.setattr(
+        "openagents.identity.post_signed_comment",
+        lambda *, pr_number, body, agent_id: seen.update(
+            pr_number=pr_number, body=body, agent_id=agent_id
+        ),
+    )
+    code = main(["reply-comment", "--pr", "5", "--body", "已解冲突"])
     assert code == 0
-    assert seen == {"merged_pr_number": 5, "rebase": True, "agent_id": "agent-x"}
-
-
-def test_sync_prs_reports_error_cleanly(monkeypatch, capsys):
-    _patch_ensure(monkeypatch)
-    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
-    from openagents.github import GithubError
-
-    def boom(*, merged_pr_number, rebase, agent_id, heal=None):
-        raise GithubError("gh pr list 失败")
-
-    monkeypatch.setattr("openagents.rebase.rebase_open_prs", boom)
-    code = main(["sync-prs"])
-    assert code == 1
-    assert "✗" in capsys.readouterr().err
+    assert seen == {"pr_number": 5, "body": "已解冲突", "agent_id": "agent-x"}
 
 
 def test_vigil_runs_preflight_with_defaults(monkeypatch):
