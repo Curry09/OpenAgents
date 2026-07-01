@@ -100,6 +100,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0038 合并冲突改拉式同步 + 解冲突 agent 用带签名工具自回评论
 守夜人合并/冲突处理从「推式扇出+确定性 heal」改为「门2 拉式同步+agent 能动性」；解冲突 agent 用带签名 reply-comment 工具亲自回人类评论（根治牛头不对马嘴）
 
+### 0039 vigil 多后端并发派单去重：引入「已派发」认领标签（第 3 道闸 + 过期回收）
+给发现段加一道跨后端可见的 GitHub「已派发」认领标签闸，把同一 issue 被多后端重复派单的概率压到可接受，并用标签事件时戳做过期回收兜底僵尸认领。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -236,6 +239,10 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0038 | 0038/T1 | 门2 拉式同步 + 删 push 扇出 | done | — | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_messages_conflict_diag.py<br>tests/test_messages_merge_unblock.py<br>tests/test_messages_comment_reply.py |
 | 0038 | 0038/T2 | 删死代码 + CONFLICT_COMMENT 迁移 | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py<br>scripts/e2e-spec-0034-conflict-diagnostics.sh |
 | 0038 | 0038/T3 | 解冲突 agent 用带签名工具自回评论 | done | — | openagents/conflict.py<br>openagents/cli.py<br>openagents/orchestrator.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py<br>tests/test_cli.py<br>scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
+| 0039 | 0039/T1 | github 认领原语层 | pending | — | openagents/github.py<br>tests/test_github_claim_label.py |
+| 0039 | 0039/T2 | 发现段第 3 道闸 + 过期回收 | pending | T1 | openagents/vigil.py<br>tests/test_vigil_claim.py |
+| 0039 | 0039/T3 | start_rfc 认领打标与清理 | pending | T1 | openagents/orchestrator.py<br>tests/test_orchestrator_claim.py |
+| 0039 | 0039/T4 | 端到端去重成果测试（含浏览器看板断言） | pending | T2, T3 | scripts/e2e-spec-0039-vigil-claim-dedup.sh<br>tests/test_claim_dedup_integration.py |
 
 ## 跨 feature 关系图
 
@@ -437,6 +444,12 @@ graph LR
         n0038_T2["T2 删死代码 + CONFLICT_COMMENT 迁移"]
         n0038_T3["T3 解冲突 agent 用带签名工具自回评论"]
     end
+    subgraph G0039[0039 vigil-dispatch-claim-label]
+        n0039_T1["T1 github 认领原语层"]
+        n0039_T2["T2 发现段第 3 道闸 + 过期回收"]
+        n0039_T3["T3 start_rfc 认领打标与清理"]
+        n0039_T4["T4 端到端去重成果测试（含浏览器看板断言）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -550,6 +563,10 @@ graph LR
     n0036_T5 --> n0036_T3
     n0036_T5 --> n0036_T4
     n0036_T6 --> n0036_T5
+    n0039_T2 --> n0039_T1
+    n0039_T3 --> n0039_T1
+    n0039_T4 --> n0039_T2
+    n0039_T4 --> n0039_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -576,10 +593,10 @@ graph LR
 | openagents/conflictdiag.py | 0034, 0038 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039 |
 | openagents/identity.py | 0011, 0029, 0032 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -595,7 +612,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -1561,4 +1578,33 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0039 vigil 多后端并发派单去重：引入「已派发」认领标签（第 3 道闸 + 过期回收）（issue #102）
+
+```mermaid
+graph LR
+    nT1["T1 github 认领原语层"]
+    nT2["T2 发现段第 3 道闸 + 过期回收"]
+    nT3["T3 start_rfc 认领打标与清理"]
+    nT4["T4 端到端去重成果测试（含浏览器看板断言）"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
 ```
