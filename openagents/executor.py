@@ -1,12 +1,12 @@
-"""Spec-0039/T2: executor —— 独立的运行时验证 agent（cli/api/backend 形态，Phase 1 骨架）。
+"""Spec-0040/T2: executor —— 独立的运行时验证 agent（cli/api/backend 形态，Phase 1 骨架）。
 
-重设计 e2e 的第④步（见 docs/specs/0039-e2e-runbook-driven-evidence-gate.md）：一个**独立** agent
+重设计 e2e 的第④步（见 docs/specs/0040-e2e-runbook-driven-evidence-gate.md）：一个**独立** agent
 （跑的人 ≠ 写代码的人，tautology guard 防线②）读一份定稿说明书 runbook，按其**声明的执行形态**
 选工具**真起系统走真实路径**，把每步观察/输出固化进 evidence_dir，返回结构化 {outcome, form,
 notes}。角色结构仿 `reviewer.review`（决策 4：与解题 agent 同 backend，不引第二套运行机制）：
 以一段 executor 任务模板调既有 `AgentBackend.run`，从 `AgentResult.summary` 解析 outcome。
 
-两条正交轴（Spec-0039 Summary）：**A 执行形态可变**——form 由 runbook 声明，executor 据此选工具；
+两条正交轴（Spec-0040 Summary）：**A 执行形态可变**——form 由 runbook 声明，executor 据此选工具；
 本组（Phase 1）只落非浏览器形态 `cli`/`api`/`backend`，`ui` 浏览器形态返回 `skipped` 留 Phase 2。
 **B 独立执行不变**——无论何形态都由独立 agent 真跑。
 
@@ -27,7 +27,7 @@ from pathlib import Path
 from openagents.backends.base import AgentBackend
 from openagents.spec.schema import E2E_FORM_VALUES
 
-# Spec-0039/T2：三种 outcome——真跑通 / 真跑挂或无法验证 / 形态本组不支持（ui 留 Phase 2）。
+# Spec-0040/T2：三种 outcome——真跑通 / 真跑挂或无法验证 / 形态本组不支持（ui 留 Phase 2）。
 OUTCOME_PASSED = "passed"
 OUTCOME_FAILED = "failed"
 OUTCOME_SKIPPED = "skipped"
@@ -36,7 +36,7 @@ OUTCOME_SKIPPED = "skipped"
 _RUNTIME_FORMS = ("cli", "api", "backend")
 _UI_FORM = "ui"
 
-# ui 形态跳过时的 notes——明确标注留 Phase 2（见 Spec-0039 Future possibilities：接 browser MCP）。
+# ui 形态跳过时的 notes——明确标注留 Phase 2（见 Spec-0040 Future possibilities：接 browser MCP）。
 _UI_PHASE2_NOTE = (
     "ui 浏览器形态本组（Phase 1）不实现，留待 Phase 2 接 browser MCP"
     "（Playwright / Chrome DevTools）后支持前端 e2e。"
@@ -77,7 +77,7 @@ _EXECUTOR_TASK = (
 
 @dataclass(frozen=True)
 class ExecutorResult:
-    """Spec-0039/T2：一次 executor 运行的结构化结果。
+    """Spec-0040/T2：一次 executor 运行的结构化结果。
 
     outcome: "passed" | "failed" | "skipped"（ui 形态本组跳过）。
     form: runbook 声明的执行形态（无法识别时为 ""）。
@@ -97,7 +97,7 @@ def run_executor(
     evidence_dir: Path,
     pr_number: int,
 ) -> ExecutorResult:
-    """Spec-0039/T2：读 runbook → 按形态派独立 agent 真跑系统 → 固化证据 → 返回结构化结果。
+    """Spec-0040/T2：读 runbook → 按形态派独立 agent 真跑系统 → 固化证据 → 返回结构化结果。
 
     绝不抛错（契约，仿 e2e.run_e2e_script）：runbook 缺失 / 形态无法识别 / backend 抛错 都映射成
     `failed`（+ notes）。无论何 outcome 都把结构化结果写进 `evidence_dir/result.md`（⑤ 证据固化的

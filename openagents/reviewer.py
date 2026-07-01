@@ -45,10 +45,10 @@ _RUBRIC_TAIL = (
     "PASS 示例：\n  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
     "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
 )
-# Spec-0039/T4：「要不要有 e2e」从代码 reviewer 上移到 RFC 闸——加一条更硬的规则：前端/交互类
-# 改动的 spec 若没声明 e2e 粗规划（组级 frontmatter 的 e2e{form,intent,acceptance}，见 Spec-0039/
+# Spec-0040/T4：「要不要有 e2e」从代码 reviewer 上移到 RFC 闸——加一条更硬的规则：前端/交互类
+# 改动的 spec 若没声明 e2e 粗规划（组级 frontmatter 的 e2e{form,intent,acceptance}，见 Spec-0040/
 # T1）→ 直接 REWORK。这取代 Spec-0030/T4 挂在代码 reviewer 上的条件式 browser-e2e rubric：把「验不
-# 验、验什么」的把关前移到设计闸，代码 reviewer 只管静态质量（职责收口，Spec-0039 Reference-level）。
+# 验、验什么」的把关前移到设计闸，代码 reviewer 只管静态质量（职责收口，Spec-0040 Reference-level）。
 _RFC_E2E_RUBRIC = (
     "【e2e 粗规划硬规则】若本 PR 属前端/交互类改动（新增/改动用户可见行为、CLI 交互、HTTP 接口、"
     "前端页面等），其 spec 组必须在组级 frontmatter 声明 e2e 粗规划（e2e 块含 form/intent/"
@@ -63,8 +63,8 @@ _RFC_REVIEW_TASK = (
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
     "实现代码）。\n" + _RFC_E2E_RUBRIC + _RUBRIC_TAIL
 )
-# Spec-0039/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
-# （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0039 Reference-level）。删掉了
+# Spec-0040/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
+# （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0040 Reference-level）。删掉了
 # Spec-0030/T4 的条件式 browser-e2e rubric（那道「要不要有 e2e」的把关已上移到 _RFC_REVIEW_TASK）。
 _CODE_REVIEW_TASK = (
     "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"

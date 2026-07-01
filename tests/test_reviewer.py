@@ -149,7 +149,7 @@ def test_task_for_rfc_and_code_differ():
 
 
 def test_code_review_task_defers_runtime_behavior_to_evidence_gate():
-    # Spec-0039/T4：职责收口——code rubric 不再含 browser-e2e 措辞，改为明写「运行时行为由证据闸
+    # Spec-0040/T4：职责收口——code rubric 不再含 browser-e2e 措辞，改为明写「运行时行为由证据闸
     # 负责、你不判」，只留静态代码质量/安全/结构。
     code_task = _task_for(kind="code", pr_number=7)
     assert "浏览器工具" not in code_task
@@ -158,7 +158,7 @@ def test_code_review_task_defers_runtime_behavior_to_evidence_gate():
 
 
 def test_rfc_review_task_has_hard_e2e_rubric():
-    # Spec-0039/T4：「要不要有 e2e」上移到 RFC 闸——前端/交互类改动未声明 e2e 粗规划 → REWORK。
+    # Spec-0040/T4：「要不要有 e2e」上移到 RFC 闸——前端/交互类改动未声明 e2e 粗规划 → REWORK。
     rfc_task = _task_for(kind="rfc", pr_number=5)
     assert "e2e 粗规划" in rfc_task
     assert "REWORK" in rfc_task

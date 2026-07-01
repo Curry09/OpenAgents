@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0039 端到端测试启动脚本：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）hermetic 闭环。
+# Spec-0040 端到端测试启动脚本：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）hermetic 闭环。
 #
 # 本组把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为一条 merge 前的门控流水线：
 # spec 声明 e2e 意图 → 代码写完定稿 runbook → 独立 executor 按形态（cli/api/backend）真跑系统产出证据
@@ -14,7 +14,7 @@
 #      ② 「意图未达成」证据→证据闸判 FAIL；③ 「达成」证据→证据闸判 PASS。
 #
 # 用法：
-#   bash scripts/e2e-spec-0039-runbook-driven-evidence-gate.sh
+#   bash scripts/e2e-spec-0040-runbook-driven-evidence-gate.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -27,7 +27,7 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/2] 离线闭环演练：executor 真跑 + 证据闸门控（fake backend，真实管线）"
 uv run --extra dev python - <<'PY'
-# Spec-0039/T5：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
+# Spec-0040/T5：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端。
 import tempfile
 from pathlib import Path
 
@@ -104,9 +104,9 @@ with tempfile.TemporaryDirectory() as tmp:
     print("  ✓ 兜底：证据缺失（无 result.md）→ 硬判 FAIL，无证据即未达成")
 
 print()
-print("✓ Spec-0039 hermetic 演练通过：executor 真跑固化证据 → 证据闸拿 RFC 意图对照证据门控合并，")
+print("✓ Spec-0040 hermetic 演练通过：executor 真跑固化证据 → 证据闸拿 RFC 意图对照证据门控合并，")
 print("  证据 FAIL 挡合并 / 证据 PASS 放行 / 证据缺失硬 FAIL，全程不触网/无 LLM/无 gh/无真实 git 远端。")
 PY
 
 echo
-echo "✓ Spec-0039 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"
+echo "✓ Spec-0040 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"

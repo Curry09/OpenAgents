@@ -1,4 +1,4 @@
-"""Spec-0039/T2: executor（独立运行时验证 agent）单元测试。
+"""Spec-0040/T2: executor（独立运行时验证 agent）单元测试。
 
 打桩 AgentBackend（不触达真实 coding agent），覆盖：
 - cli 形态 runbook → 派 backend 真跑、把证据写进 evidence_dir、outcome 随 agent 结论映射 passed/failed；

@@ -142,7 +142,7 @@ _TRIED_BY_GATE = {
     "rfc-unparseable": "多次重评仍无法解析 reviewer 对 RFC 的裁决",
     "code-unparseable": "多次重评仍无法解析 reviewer 对代码的裁决",
     "merge": "已尝试自动解冲突，但仍与目标分支存在冲突",
-    # Spec-0039/T5：证据闸多轮 FAIL——独立 executor 真跑系统的证据始终对不上 RFC 意图。
+    # Spec-0040/T5：证据闸多轮 FAIL——独立 executor 真跑系统的证据始终对不上 RFC 意图。
     "e2e": "已多轮定稿说明书 + 独立 executor 真跑系统，证据仍未达成 RFC 批准的 e2e 意图",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
@@ -181,7 +181,7 @@ class Messages:
         "resumed", "resolved", "unmergeable", "merge-retry", "hold-spec", "hold-merge",
         "e2e"}），便于日志与测试断言。Spec-0021/T2：新增 "review-invalid"（评审无效本轮等下一轮
         重评，不吃 round、不空转）。Spec-0031/T2：新增 "merge-retry"（armed 模式本轮派 agent 解冲突
-        未成、未达上限，保持 pr-open 等下一轮再试，不重挂）。Spec-0039/T5：新增 "e2e"（reviewer PASS
+        未成、未达上限，保持 pr-open 等下一轮再试，不重挂）。Spec-0040/T5：新增 "e2e"（reviewer PASS
         后证据闸 FAIL，本轮走 iterate 回去改，未挂起）。
 
         Spec-0020/T3：新增关键字参数 hold（Hold），默认「全不停」以保持现有调用与行为；
@@ -429,7 +429,7 @@ class Messages:
         # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
         decision = self._orchestrator.review_code(pr_number=pr_number)
         if decision.passed:
-            # Spec-0039/T5：代码 reviewer PASS 后、merge 前插入**证据闸**——独立 executor 照定稿说明书
+            # Spec-0040/T5：代码 reviewer PASS 后、merge 前插入**证据闸**——独立 executor 照定稿说明书
             # 真跑系统、证据闸拿 RFC 意图对照证据门控合并。代码 reviewer PASS（看着对）但证据闸 FAIL
             # （真跑跑不通）正是要抓的：短路返回其事件（iterate(reason="e2e") / 超 K 挂起），不 merge。
             gate_event = self._evidence_gate(record=record)
@@ -478,9 +478,9 @@ class Messages:
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
     def _evidence_gate(self, *, record: RunRecord) -> dict | None:
-        """Spec-0039/T5：证据闸——定稿 runbook → executor 真跑 → 证据闸判 → 门控合并。
+        """Spec-0040/T5：证据闸——定稿 runbook → executor 真跑 → 证据闸判 → 门控合并。
 
-        插在代码 reviewer PASS 之后、merge 之前（_process_coding）。链路（Spec-0039 Reference-level）：
+        插在代码 reviewer PASS 之后、merge 之前（_process_coding）。链路（Spec-0040 Reference-level）：
         ③ orchestrator.finalize_runbook（派实现者定稿 runbook.md 并 commit；**无 e2e 粗规划则返 None
         →证据闸空过**，非交互 PR 零回归）→ ④ executor.run_executor（独立 agent 读 runbook 按形态真跑、
         把证据写进 evidence_dir）→ ⑤ orchestrator.commit_evidence（证据 commit 进 PR）→
@@ -519,7 +519,7 @@ class Messages:
         )
         if decision.passed:
             return None  # 证据真达成 RFC 意图 → 放行 merge。
-        # 证据 FAIL：复用现成回合预算与 code 闸共用一份 K（Spec-0039 状态机影响：不新增 status）。
+        # 证据 FAIL：复用现成回合预算与 code 闸共用一份 K（Spec-0040 状态机影响：不新增 status）。
         rounds = self._state.increment_rounds(issue_number=record.issue_number)
         if rounds >= MAX_ROUNDS:
             return self._block(record=record, gate="e2e", blocker=decision.feedback)

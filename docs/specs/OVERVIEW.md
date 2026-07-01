@@ -100,7 +100,7 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0038 合并冲突改拉式同步 + 解冲突 agent 用带签名工具自回评论
 守夜人合并/冲突处理从「推式扇出+确定性 heal」改为「门2 拉式同步+agent 能动性」；解冲突 agent 用带签名 reply-comment 工具亲自回人类评论（根治牛头不对马嘴）
 
-### 0039 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
+### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
 - e2e 粗规划（cli）：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
   - 验收行为：造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
@@ -243,11 +243,11 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0038 | 0038/T1 | 门2 拉式同步 + 删 push 扇出 | done | — | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_messages_conflict_diag.py<br>tests/test_messages_merge_unblock.py<br>tests/test_messages_comment_reply.py |
 | 0038 | 0038/T2 | 删死代码 + CONFLICT_COMMENT 迁移 | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py<br>scripts/e2e-spec-0034-conflict-diagnostics.sh |
 | 0038 | 0038/T3 | 解冲突 agent 用带签名工具自回评论 | done | — | openagents/conflict.py<br>openagents/cli.py<br>openagents/orchestrator.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py<br>tests/test_cli.py<br>scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
-| 0039 | 0039/T1 | spec 增 e2e 粗规划字段 + validate 硬化 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/validate.py<br>openagents/spec/render.py<br>tests/test_spec_model.py<br>tests/test_spec_validate.py<br>tests/test_spec_render.py |
-| 0039 | 0039/T2 | executor 角色：独立运行时验证 agent（cli/api/backend 形态） | done | — | openagents/executor.py<br>tests/test_executor.py |
-| 0039 | 0039/T3 | 证据固化 + 证据闸 reviewer | done | T1 | openagents/evidence_gate.py<br>tests/test_evidence_gate.py |
-| 0039 | 0039/T4 | reviewer 职责收口 + RFC rubric 硬规则 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0039 | 0039/T5 | 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke | done | T1, T2, T3, T4 | openagents/orchestrator.py<br>openagents/messages.py<br>openagents/e2e.py<br>tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_e2e.py |
+| 0040 | 0040/T1 | spec 增 e2e 粗规划字段 + validate 硬化 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/validate.py<br>openagents/spec/render.py<br>tests/test_spec_model.py<br>tests/test_spec_validate.py<br>tests/test_spec_render.py |
+| 0040 | 0040/T2 | executor 角色：独立运行时验证 agent（cli/api/backend 形态） | done | — | openagents/executor.py<br>tests/test_executor.py |
+| 0040 | 0040/T3 | 证据固化 + 证据闸 reviewer | done | T1 | openagents/evidence_gate.py<br>tests/test_evidence_gate.py |
+| 0040 | 0040/T4 | reviewer 职责收口 + RFC rubric 硬规则 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0040 | 0040/T5 | 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke | done | T1, T2, T3, T4 | openagents/orchestrator.py<br>openagents/messages.py<br>openagents/e2e.py<br>tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_e2e.py |
 
 ## 跨 feature 关系图
 
@@ -449,12 +449,12 @@ graph LR
         n0038_T2["T2 删死代码 + CONFLICT_COMMENT 迁移"]
         n0038_T3["T3 解冲突 agent 用带签名工具自回评论"]
     end
-    subgraph G0039[0039 e2e-runbook-driven-evidence-gate]
-        n0039_T1["T1 spec 增 e2e 粗规划字段 + validate 硬化"]
-        n0039_T2["T2 executor 角色：独立运行时验证 agent（cli/api/backend 形态）"]
-        n0039_T3["T3 证据固化 + 证据闸 reviewer"]
-        n0039_T4["T4 reviewer 职责收口 + RFC rubric 硬规则"]
-        n0039_T5["T5 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke"]
+    subgraph G0040[0040 e2e-runbook-driven-evidence-gate]
+        n0040_T1["T1 spec 增 e2e 粗规划字段 + validate 硬化"]
+        n0040_T2["T2 executor 角色：独立运行时验证 agent（cli/api/backend 形态）"]
+        n0040_T3["T3 证据固化 + 证据闸 reviewer"]
+        n0040_T4["T4 reviewer 职责收口 + RFC rubric 硬规则"]
+        n0040_T5["T5 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -569,11 +569,11 @@ graph LR
     n0036_T5 --> n0036_T3
     n0036_T5 --> n0036_T4
     n0036_T6 --> n0036_T5
-    n0039_T3 --> n0039_T1
-    n0039_T5 --> n0039_T1
-    n0039_T5 --> n0039_T2
-    n0039_T5 --> n0039_T3
-    n0039_T5 --> n0039_T4
+    n0040_T3 --> n0040_T1
+    n0040_T5 --> n0040_T1
+    n0040_T5 --> n0040_T2
+    n0040_T5 --> n0040_T3
+    n0040_T5 --> n0040_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -598,25 +598,25 @@ graph LR
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038 |
 | openagents/conflictdiag.py | 0034, 0038 |
-| openagents/e2e.py | 0013, 0029, 0039 |
+| openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0039 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0040 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0039 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
-| openagents/spec/model.py | 0014, 0015, 0024, 0039 |
+| openagents/spec/model.py | 0014, 0015, 0024, 0040 |
 | openagents/spec/mutate.py | 0014, 0015 |
-| openagents/spec/render.py | 0014, 0015, 0039 |
-| openagents/spec/schema.py | 0014, 0015, 0024, 0039 |
+| openagents/spec/render.py | 0014, 0015, 0040 |
+| openagents/spec/schema.py | 0014, 0015, 0024, 0040 |
 | openagents/spec/signpost.py | 0024, 0028 |
-| openagents/spec/validate.py | 0014, 0015, 0024, 0039 |
+| openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
@@ -632,30 +632,30 @@ graph LR
 | tests/test_conflict.py | 0028, 0038 |
 | tests/test_conflict_guidance.py | 0036, 0038 |
 | tests/test_conflictdiag.py | 0034, 0038 |
-| tests/test_e2e.py | 0013, 0029, 0039 |
+| tests/test_e2e.py | 0013, 0029, 0040 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0039 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
 | tests/test_messages_conflict_diag.py | 0034, 0038 |
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0039 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
-| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0039 |
+| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
-| tests/test_spec_model.py | 0014, 0015, 0024, 0039 |
+| tests/test_spec_model.py | 0014, 0015, 0024, 0040 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
-| tests/test_spec_render.py | 0014, 0015, 0039 |
-| tests/test_spec_validate.py | 0014, 0015, 0024, 0039 |
+| tests/test_spec_render.py | 0014, 0015, 0040 |
+| tests/test_spec_validate.py | 0014, 0015, 0024, 0040 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
 | tests/test_workspace.py | 0005, 0008, 0029 |
@@ -1587,7 +1587,7 @@ graph LR
     class v_T3_1 st_done;
 ```
 
-### 0039 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）（issue #104）
+### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）（issue #104）
 
 ```mermaid
 graph LR

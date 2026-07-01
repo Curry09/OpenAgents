@@ -545,7 +545,7 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0039/T5: 退役旧 smoke + 证据闸 finalize_runbook / commit_evidence
+# Spec-0040/T5: 退役旧 smoke + 证据闸 finalize_runbook / commit_evidence
 # --------------------------------------------------------------------------- #
 
 
@@ -555,7 +555,7 @@ def _write_spec_group(*, path, e2e):
     from openagents.spec.model import Group, Metadata, Overview, Task
 
     group = Group(
-        number="0039",
+        number="0040",
         metadata=Metadata(title="e2e", issue=104, slug="e2e-gate", summary="s", e2e=e2e),
         tasks=[Task(id="T1", title="t", status="done", priority="P1")],
         overview=Overview(reference_level="方案。"),
@@ -565,7 +565,7 @@ def _write_spec_group(*, path, e2e):
 
 
 def test_implement_no_longer_posts_e2e_smoke(tmp_path, monkeypatch):
-    # Spec-0039/T5：退役 _post_e2e_result——implement 只 mark_ready，不再实跑 smoke / 发端到端评论。
+    # Spec-0040/T5：退役 _post_e2e_result——implement 只 mark_ready，不再实跑 smoke / 发端到端评论。
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
@@ -590,7 +590,7 @@ def test_finalize_runbook_no_e2e_plan_returns_none(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
-    group_path = _write_spec_group(path=tmp_path / "0039-e2e-gate.md", e2e=None)
+    group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=None)
     monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
 
     assert orch.finalize_runbook(pr_number=5) is None
@@ -607,7 +607,7 @@ def test_finalize_runbook_with_e2e_plan_drafts_and_returns_handle(tmp_path, monk
     plan = E2EPlan(
         form="cli", intent="init 无 origin 必须报错", acceptance=["非零退出", "补 origin 成功"]
     )
-    group_path = _write_spec_group(path=tmp_path / "0039-e2e-gate.md", e2e=plan)
+    group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=plan)
     monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
 
     handle = orch.finalize_runbook(pr_number=5)

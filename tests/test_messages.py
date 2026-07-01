@@ -57,7 +57,7 @@ class _FakeOrchestrator:
         self.review_code_calls = []
         self._rfc_decision = rfc_decision
         self._code_decision = code_decision
-        # Spec-0039/T5：证据闸接线——finalize_runbook 返回预设 handle（None = 无 e2e 粗规划，空过）。
+        # Spec-0040/T5：证据闸接线——finalize_runbook 返回预设 handle（None = 无 e2e 粗规划，空过）。
         self._runbook_handle = runbook_handle
         self.finalize_calls = []
         self.commit_evidence_calls = []
@@ -174,7 +174,7 @@ def _make(
         rfc_decision=rfc_decision, code_decision=code_decision, runbook_handle=runbook_handle
     )
     state = _FakeState(runs=runs)
-    # Spec-0039/T5：注入 backend 才激活证据闸（无 backend → 闸空过，既有用例零回归）。
+    # Spec-0040/T5：注入 backend 才激活证据闸（无 backend → 闸空过，既有用例零回归）。
     msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id, backend=backend)
     return msgs, orch, state
 
@@ -450,7 +450,7 @@ def test_coding_reviewer_fail_over_k_blocks(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0039/T5: 证据闸——reviewer PASS 后、merge 前门控合并
+# Spec-0040/T5: 证据闸——reviewer PASS 后、merge 前门控合并
 # --------------------------------------------------------------------------- #
 
 

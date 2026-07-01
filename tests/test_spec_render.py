@@ -125,7 +125,7 @@ def test_empty_root_does_not_error(tmp_path: Path) -> None:
 
 
 def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
-    """Spec-0039/T1：声明 e2e 粗规划的组，OVERVIEW 的 TL;DR 显示意图 + 验收行为。"""
+    """Spec-0040/T1：声明 e2e 粗规划的组，OVERVIEW 的 TL;DR 显示意图 + 验收行为。"""
     group = Group(
         number="0001",
         metadata=Metadata(

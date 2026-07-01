@@ -1,11 +1,11 @@
-"""Spec-0039/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。
+"""Spec-0040/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。
 
-重设计 e2e 的第⑤⑥步（见 docs/specs/0039-e2e-runbook-driven-evidence-gate.md）：executor（T2）把真跑
+重设计 e2e 的第⑤⑥步（见 docs/specs/0040-e2e-runbook-driven-evidence-gate.md）：executor（T2）把真跑
 系统的证据固化进 `docs/e2e-results/<pr>/`；本模块给出**该目录的路径约定单一来源**（`evidence_dir_for`）
 并实现**证据闸** `review_evidence`——一个独立 reviewer agent 拿「**RFC 批准的意图**」对照「**实际证据**」，
 判是否**真达成 / 避重就轻**，产出 `{passed, feedback}` 门控合并（PASS 放行、FAIL 走 iterate 回去改）。
 
-tautology guard 防线③落此（Spec-0039 Reference-level）：runbook 即便被实现者写宽松，只要证据对不上
+tautology guard 防线③落此（Spec-0040 Reference-level）：runbook 即便被实现者写宽松，只要证据对不上
 RFC 意图，证据闸仍判 FAIL——「意图在 RFC 锁死 + executor 独立跑 + 证据 reviewer 独立核对」三道防线
 共同防「自定说明书自己过」。**证据缺失 = 未达成**：无 result.md 即硬判 FAIL（无需派 agent）。
 
@@ -57,7 +57,7 @@ _EVIDENCE_REVIEW_TASK = (
 
 @dataclass(frozen=True)
 class EvidenceDecision:
-    """Spec-0039/T3：证据闸裁决（结构镜像 reviewer.ReviewDecision）。
+    """Spec-0040/T3：证据闸裁决（结构镜像 reviewer.ReviewDecision）。
 
     passed: 证据是否真达成 RFC 意图（门控合并：True 放行、False 走 iterate 回去改）。
     feedback: passed=False 时汇总「哪条验收行为没达成 / 避重就轻」，喂给 iterate(reason="e2e")；
@@ -69,7 +69,7 @@ class EvidenceDecision:
 
 
 def evidence_dir_for(*, pr_number: int) -> Path:
-    """Spec-0039/T3：给出 PR 的证据落点相对路径 `docs/e2e-results/<pr>/`（路径约定单一来源）。
+    """Spec-0040/T3：给出 PR 的证据落点相对路径 `docs/e2e-results/<pr>/`（路径约定单一来源）。
 
     返回相对路径——由 orchestrator 拼到 worktree 下透传给 executor / 证据闸（二者不互相 import，
     保持解耦，理念 10）。例：pr=12 → docs/e2e-results/12。
@@ -85,7 +85,7 @@ def review_evidence(
     evidence_dir: Path,
     pr_number: int,
 ) -> EvidenceDecision:
-    """Spec-0039/T3：拿 RFC 意图对照 evidence_dir 的证据判 PASS/FAIL（门控合并）。
+    """Spec-0040/T3：拿 RFC 意图对照 evidence_dir 的证据判 PASS/FAIL（门控合并）。
 
     证据缺失（无 result.md）→ 直接 FAIL（无需派 agent，无证据即未达成，tautology guard 防线③）；
     证据在 → 派独立证据闸 agent 核对意图与证据，解析裁决。绝不抛错：任何异常映射成 FAIL（+ feedback），

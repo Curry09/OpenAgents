@@ -1,5 +1,5 @@
 ---
-number: "0039"
+number: "0040"
 title: 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 issue: 104
 slug: e2e-runbook-driven-evidence-gate
@@ -41,7 +41,7 @@ tasks:
     files:
       - openagents/executor.py
       - tests/test_executor.py
-    scope: 新建 openagents/executor.py，仿 reviewer.review 结构实现一次性 agent run_executor(*, backend, work_dir, runbook_path, evidence_dir, pr_number)->ExecutorResult：读 runbook（含形态声明）→按 form∈{cli,api,backend} 选工具真跑系统→把每步观察/输出写进 evidence_dir→返回结构化 {outcome:passed|failed, form, notes}。契约上绝不抛错（异常映射成 failed，仿 run_e2e_script）。ui 形态本组不实现（返回 skipped/notes 说明留 Phase 2）。模块 docstring 引用 Spec-0039/T2。
+    scope: 新建 openagents/executor.py，仿 reviewer.review 结构实现一次性 agent run_executor(*, backend, work_dir, runbook_path, evidence_dir, pr_number)->ExecutorResult：读 runbook（含形态声明）→按 form∈{cli,api,backend} 选工具真跑系统→把每步观察/输出写进 evidence_dir→返回结构化 {outcome:passed|failed, form, notes}。契约上绝不抛错（异常映射成 failed，仿 run_e2e_script）。ui 形态本组不实现（返回 skipped/notes 说明留 Phase 2）。模块 docstring 引用 Spec-0040/T2。
     acceptance: 单测（假 backend）：cli 形态 runbook→run_executor 调 backend 真跑并把证据写进 evidence_dir、outcome 随子过程退出码映射 passed/failed；backend 抛错→outcome=failed 不抛出；ui 形态→skipped 且 notes 标注 Phase 2。ruff + pytest 通过。
   - id: T3
     title: 证据固化 + 证据闸 reviewer
@@ -55,7 +55,7 @@ tasks:
     files:
       - openagents/evidence_gate.py
       - tests/test_evidence_gate.py
-    scope: 新建 openagents/evidence_gate.py：evidence_dir_for(*, pr_number)->Path 给出 docs/e2e-results/<pr>/ 路径约定（单一来源）；review_evidence(*, backend, work_dir, intent, evidence_dir, pr_number)->EvidenceDecision 仿 reviewer——把 RFC 批准意图对照 evidence_dir 里的 result.md 证据，判 {passed, feedback}（passed=False 时 feedback 汇总哪条验收行为没达成/避重就轻，供 iterate 喂回）。tautology guard 防线③落此。模块 docstring 引用 Spec-0039/T3。
+    scope: 新建 openagents/evidence_gate.py：evidence_dir_for(*, pr_number)->Path 给出 docs/e2e-results/<pr>/ 路径约定（单一来源）；review_evidence(*, backend, work_dir, intent, evidence_dir, pr_number)->EvidenceDecision 仿 reviewer——把 RFC 批准意图对照 evidence_dir 里的 result.md 证据，判 {passed, feedback}（passed=False 时 feedback 汇总哪条验收行为没达成/避重就轻，供 iterate 喂回）。tautology guard 防线③落此。模块 docstring 引用 Spec-0040/T3。
     acceptance: 单测（假 backend）：证据显示意图达成→passed=True、feedback 空；证据缺失/与意图不符/避重就轻→passed=False 且 feedback 非空；evidence_dir_for 对 pr=12 返回 docs/e2e-results/12/。ruff + pytest 通过。
   - id: T4
     title: reviewer 职责收口 + RFC rubric 硬规则
@@ -68,7 +68,7 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer.py
-    scope: 职责收口两处：① 从 _CODE_REVIEW_TASK 删掉条件式 _BROWSER_E2E_RUBRIC，并明写「运行时行为由证据闸负责、代码 reviewer 不判运行时行为」，只留静态代码质量/安全/结构；② 把「要不要有 e2e」上移到 _RFC_REVIEW_TASK，加一条更硬的规则：前端/交互类改动的 spec 没声明 e2e 粗规划 → REWORK。改动处注释引用 Spec-0039/T4。
+    scope: 职责收口两处：① 从 _CODE_REVIEW_TASK 删掉条件式 _BROWSER_E2E_RUBRIC，并明写「运行时行为由证据闸负责、代码 reviewer 不判运行时行为」，只留静态代码质量/安全/结构；② 把「要不要有 e2e」上移到 _RFC_REVIEW_TASK，加一条更硬的规则：前端/交互类改动的 spec 没声明 e2e 粗规划 → REWORK。改动处注释引用 Spec-0040/T4。
     acceptance: 单测：_CODE_REVIEW_TASK 不再含 browser-e2e 措辞且含「不判运行时行为」；_RFC_REVIEW_TASK 含「前端/交互类改动未声明 e2e 粗规划→REWORK」硬规则；既有 reviewer.review 聚合/裁决解析用例零回归。ruff + pytest 通过。
   - id: T5
     title: 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke
@@ -89,11 +89,11 @@ tasks:
       - tests/test_orchestrator.py
       - tests/test_messages.py
       - tests/test_e2e.py
-    scope: ① orchestrator 新增 finalize_runbook（派实现者 backend 把 spec e2e 粗规划定稿成 docs/e2e-results/<pr>/runbook.md 并 commit）；② messages._process_coding 在 review_code 全票 PASS 之后、merge_pr/hold-merge 之前插入证据闸：finalize_runbook→executor.run_executor→evidence_gate.review_evidence，PASS 照常合、FAIL 走 iterate(reason='e2e')、攒满 rounds>=MAX_ROUNDS 走 _block(gate='e2e')；orchestrator.iterate 的 reason 集合加 'e2e' 文案，_TRIED_BY_GATE 加 'e2e' 一句；③ 退役旧 smoke：删 orchestrator._post_e2e_result 及 implement 内调用与相关 import，删除 openagents/e2e.py + tests/test_e2e.py。改动处注释引用 Spec-0039/T5。
+    scope: ① orchestrator 新增 finalize_runbook（派实现者 backend 把 spec e2e 粗规划定稿成 docs/e2e-results/<pr>/runbook.md 并 commit）；② messages._process_coding 在 review_code 全票 PASS 之后、merge_pr/hold-merge 之前插入证据闸：finalize_runbook→executor.run_executor→evidence_gate.review_evidence，PASS 照常合、FAIL 走 iterate(reason='e2e')、攒满 rounds>=MAX_ROUNDS 走 _block(gate='e2e')；orchestrator.iterate 的 reason 集合加 'e2e' 文案，_TRIED_BY_GATE 加 'e2e' 一句；③ 退役旧 smoke：删 orchestrator._post_e2e_result 及 implement 内调用与相关 import，删除 openagents/e2e.py + tests/test_e2e.py。改动处注释引用 Spec-0040/T5。
     acceptance: 单测（假 backend + 假 github + monkeypatch executor/evidence_gate）：reviewer PASS 且证据闸 PASS→调用 merge_pr（或 hold 时停）；reviewer PASS 但证据闸 FAIL→调用 iterate(reason='e2e')、不调 merge_pr；证据闸连 FAIL 攒满 K→_block(gate='e2e') 打 needs-human；implement 不再调用 _post_e2e_result；全仓无残留 import openagents.e2e。ruff + pytest 通过。
 ---
 
-# 0039 · 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
+# 0040 · 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -260,7 +260,7 @@ CI 全绿 → review_code 全票 PASS
   **自检工具后的取舍**：本会话具备 Playwright / Chrome DevTools MCP 浏览器工具，但**执行形态跟着交付
   物走，而非跟着工具走**——交付物没有前端可导航/截图，`ui` 形态无处施展。选 `cli` 恰是本 spec 决策
   A（形态可变、e2e 不一定起前端）的第一个活样本；浏览器形态待 Phase 2 有真实前端可验时才引入。
-- **e2e 脚本**：`scripts/e2e-spec-0039-runbook-driven-evidence-gate.sh`（离线段 dogfood 上述三条断言，
+- **e2e 脚本**：`scripts/e2e-spec-0040-runbook-driven-evidence-gate.sh`（离线段 dogfood 上述三条断言，
   被 PR 指路牌拾取）。
 
 ### DAG 与文件分配

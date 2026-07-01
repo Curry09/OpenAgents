@@ -134,7 +134,7 @@ _BACKFILL_RFC_TASK = (
 )
 
 
-# Spec-0039/T5：定稿说明书文件名（③ 定稿说明书的落点，与 evidence_gate 的 result.md 同目录）。
+# Spec-0040/T5：定稿说明书文件名（③ 定稿说明书的落点，与 evidence_gate 的 result.md 同目录）。
 _RUNBOOK_FILENAME = "runbook.md"
 # 定稿 runbook 的任务模板（派实现者 backend）：把 RFC 阶段的 e2e 粗规划落成【具体可执行说明书】。
 # tautology guard 防线①支点：runbook 必须落在 RFC 批准意图内，不得把强意图偷换成更弱的检查。
@@ -152,7 +152,7 @@ _FINALIZE_RUNBOOK_TASK = (
 
 @dataclass(frozen=True)
 class RunbookHandle:
-    """Spec-0039/T5：finalize_runbook 的产物——供 messages 接 executor / 证据闸的定位信息。
+    """Spec-0040/T5：finalize_runbook 的产物——供 messages 接 executor / 证据闸的定位信息。
 
     worktree: PR 的隔离 worktree（executor / 证据闸 backend.run 的 cwd）。
     runbook_path: 定稿说明书路径（executor 读它按形态真跑）。
@@ -402,7 +402,7 @@ class Orchestrator:
             branch=record.branch,
             message=f"feat: implement issue #{record.issue_number} per RFC",
         )
-        # Spec-0039/T5：退役 implement 内的一次性 smoke（旧 _post_e2e_result，病灶：测过期版本 + 没牙 +
+        # Spec-0040/T5：退役 implement 内的一次性 smoke（旧 _post_e2e_result，病灶：测过期版本 + 没牙 +
         # 结果没人消费）。e2e 改由 merge 前的证据闸负责（finalize_runbook → executor → 证据闸门控合并，
         # 见 messages._process_coding），测的是最终要合的集成态、且 FAIL 挡合并。
         self._progress(message="▶ 取消 draft，PR 转正 …")
@@ -498,12 +498,12 @@ class Orchestrator:
         latest = max(same_kind, key=lambda comment: comment.created_at)
         return verdict_line in latest.body.splitlines()
 
-    # --- 证据闸：定稿 runbook + 固化证据（Spec-0039/T5）------------------ #
+    # --- 证据闸：定稿 runbook + 固化证据（Spec-0040/T5）------------------ #
     def finalize_runbook(self, *, pr_number: int) -> RunbookHandle | None:
-        """Spec-0039/T5（③）：把本分支 spec 的 e2e 粗规划定稿成可执行 runbook 并 commit。
+        """Spec-0040/T5（③）：把本分支 spec 的 e2e 粗规划定稿成可执行 runbook 并 commit。
 
         代码在了才定稿（具体命令/判定点这时才定得下来）：读本分支改动的 spec 组的组级 e2e 粗规划
-        （form/intent/acceptance，Spec-0039/T1）——**未声明即返回 None**（非交互 PR，证据闸空过，
+        （form/intent/acceptance，Spec-0040/T1）——**未声明即返回 None**（非交互 PR，证据闸空过，
         零回归）。声明则派**实现者 backend**（它最懂代码）把粗规划落成 `docs/e2e-results/<pr>/runbook.md`
         （声明形态、列出「怎么起、跑什么、看什么算过」），受 tautology guard 约束：runbook 必须落在 RFC
         批准的意图内、不得偷换。写完 commit+push 进 PR。返回 RunbookHandle 供 messages 接 executor/证据闸。
@@ -543,7 +543,7 @@ class Orchestrator:
         )
 
     def commit_evidence(self, *, pr_number: int) -> None:
-        """Spec-0039/T5（⑤）：把 executor 写进 evidence_dir 的证据 commit+push 进 PR（durable）。
+        """Spec-0040/T5（⑤）：把 executor 写进 evidence_dir 的证据 commit+push 进 PR（durable）。
 
         executor.run_executor 已把 result.md / 日志写进 worktree 的 `docs/e2e-results/<pr>/`；这里统一
         提交（无改动时 commit_and_push 内部幂等无操作）。让证据 durable、可被证据闸读、也给人看成果
@@ -573,7 +573,7 @@ class Orchestrator:
         """RFC-0001（决策 7）+ RFC-0005：在 issue 的 worktree 内续写并**追加 commit**；返回 agent summary。
 
         reason ∈ {"comment", "ci", "review", "human", "e2e"}：决定喂回上下文的来源与任务 prompt 文案。
-        Spec-0039/T5：新增 "e2e"——证据闸 FAIL 时把「哪条验收行为没达成/避重就轻」喂回改代码，走
+        Spec-0040/T5：新增 "e2e"——证据闸 FAIL 时把「哪条验收行为没达成/避重就轻」喂回改代码，走
         泛化反馈模板（与 ci/review 同款，逐字节文案：把 reason 填进 _ITERATE_TASK 的「{reason}反馈」）。
         不 force-push，仅 add/commit/push 追加一个新 commit；状态置 iterating。
 

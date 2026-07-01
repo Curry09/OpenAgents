@@ -94,7 +94,7 @@ def validate(*, specs_root: Path) -> ValidationReport:
 
 
 def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:
-    """Spec-0039/T1：组级 e2e 粗规划的硬化——**存在才校验**（不存在零回归，向后兼容）。
+    """Spec-0040/T1：组级 e2e 粗规划的硬化——**存在才校验**（不存在零回归，向后兼容）。
 
     e2e 块声明时：form 必须落在 E2E_FORM_VALUES（ui/api/cli/backend）、intent 去空白后非空、
     acceptance 至少 1 条。三者各报一条 error。schema 已保证键存在与类型，这里补 whitespace-only /

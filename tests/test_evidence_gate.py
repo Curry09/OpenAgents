@@ -1,4 +1,4 @@
-"""Spec-0039/T3: 证据闸（evidence_gate）单元测试。
+"""Spec-0040/T3: 证据闸（evidence_gate）单元测试。
 
 打桩 AgentBackend（不触达真实 coding agent），覆盖：
 - evidence_dir_for 路径约定（pr=12 → docs/e2e-results/12）；
