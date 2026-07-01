@@ -3,7 +3,7 @@
 git 与 backend 全部注入桩，保持 hermetic（不触达真实 git / 真实 LLM）。覆盖：
 - guidance=""（缺省）时喂给 backend 的 task 逐字节同今天（零回归，不含指导段）；
 - guidance 非空时该文本出现在喂给 backend 的 task 里（拼进「人类对本次解冲突的指导」段）；
-- resolve_branch / make_resolver 的 resolve 返回类型仍为 bool；
+- resolve_branch / make_resolver 的 resolve 返回 ResolveOutcome（resolved + reply，__bool__ 兼容）；
 - make_resolver 的 resolve 把 guidance 透传给 resolve_branch。
 """
 
@@ -74,7 +74,7 @@ def test_guidance_empty_task_matches_today(tmp_path):
 
     ok = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git)
 
-    assert ok is True
+    assert ok.resolved is True
     task = backend.calls[0]["task"]
     assert "人类对本次解冲突的指导" not in task
     # 缺省 task 逐字节等于不带 guidance 形参的旧行为（基础模板 + 冲突文件清单）。
@@ -104,7 +104,7 @@ def test_guidance_nonempty_appears_in_task(tmp_path):
         guidance="先解 OVERVIEW.md 的冲突，再动 state.py",
     )
 
-    assert ok is True  # 返回类型仍为 bool
+    assert ok.resolved is True  # 返回类型仍为 bool
     task = backend.calls[0]["task"]
     assert "人类对本次解冲突的指导" in task
     assert "先解 OVERVIEW.md 的冲突，再动 state.py" in task
@@ -122,13 +122,14 @@ def test_guidance_blank_treated_as_empty(tmp_path):
     assert "人类对本次解冲突的指导" not in backend.calls[0]["task"]
 
 
-def test_returns_bool_type(tmp_path):
-    # resolve_branch 返回严格 bool（含 guidance 时也不变——不波及 rebase 真值判断）。
+def test_returns_resolve_outcome_type(tmp_path):
+    # resolve_branch 返回 ResolveOutcome（resolved + reply）；__bool__ 兼容旧真值判断。
     git = _FakeGit(merge_rc=0, conflicts=[])
     backend = _FakeBackend(on_run=lambda wt: None)
     result = resolve_branch(worktree=tmp_path, base="main", backend=backend, run=git, guidance="x")
-    assert result is True
-    assert isinstance(result, bool)
+    assert isinstance(result, conflict.ResolveOutcome)
+    assert result.resolved is True
+    assert bool(result) is True  # __bool__ 兼容 `if resolve(...)`
 
 
 # --------------------------------------------------------------------------- #
@@ -140,9 +141,10 @@ def test_resolve_passes_guidance_to_resolve_branch(monkeypatch, tmp_path):
     # make_resolver 返回的 resolve(guidance=…) 把 guidance 透传给 resolve_branch。
     captured = {}
 
-    def _fake_resolve_branch(*, worktree, base, backend, run, guidance=""):
+    def _fake_resolve_branch(*, worktree, base, backend, run, guidance="", pr_number=None):
         captured["guidance"] = guidance
-        return True
+        captured["pr_number"] = pr_number
+        return conflict.ResolveOutcome(resolved=True)
 
     monkeypatch.setattr(conflict, "resolve_branch", _fake_resolve_branch)
     monkeypatch.setattr(conflict.github, "pr_head_branch", lambda *, pr_number: "feat/x")
@@ -155,7 +157,7 @@ def test_resolve_passes_guidance_to_resolve_branch(monkeypatch, tmp_path):
         work_dir=tmp_path, base="main", backend=backend, agent_id="agent-x"
     )
 
-    assert resolve(pr_number=7, guidance="人类指导") is True
+    assert resolve(pr_number=7, guidance="人类指导").resolved is True
     assert captured["guidance"] == "人类指导"
 
 
@@ -163,9 +165,10 @@ def test_resolve_guidance_defaults_empty(monkeypatch, tmp_path):
     # 不传 guidance（如 auto-rebase 路径）→ resolve_branch 收到 guidance=""（零回归）。
     captured = {}
 
-    def _fake_resolve_branch(*, worktree, base, backend, run, guidance=""):
+    def _fake_resolve_branch(*, worktree, base, backend, run, guidance="", pr_number=None):
         captured["guidance"] = guidance
-        return True
+        captured["pr_number"] = pr_number
+        return conflict.ResolveOutcome(resolved=True)
 
     monkeypatch.setattr(conflict, "resolve_branch", _fake_resolve_branch)
     monkeypatch.setattr(conflict.github, "pr_head_branch", lambda *, pr_number: "feat/x")
@@ -177,8 +180,34 @@ def test_resolve_guidance_defaults_empty(monkeypatch, tmp_path):
         work_dir=tmp_path, base="main", backend=backend, agent_id="agent-x"
     )
 
-    assert resolve(pr_number=7) is True
+    assert resolve(pr_number=7).resolved is True
     assert captured["guidance"] == ""
+
+
+# --------------------------------------------------------------------------- #
+# 回评论工具段：guidance + pr_number 时要求 agent 用 reply-comment 命令亲自回评论
+# --------------------------------------------------------------------------- #
+
+
+def test_reply_tool_section_present_with_guidance_and_pr_number():
+    task = conflict._resolve_task(conflicts=["a.py"], guidance="回我", pr_number=5)
+    assert "openagents reply-comment --pr 5" in task  # 指向带签名的工具命令 + 具体 PR 号
+    assert "无 OpenAgents 签名" in task  # 人类判定条件
+    assert "gh pr comment" in task  # 明确禁止裸命令（会自循环）
+
+
+def test_reply_tool_section_absent_without_pr_number():
+    # 只有 guidance、无 pr_number（如非 merge 路径）→ 只拼指导段，不拼回评论工具段。
+    task = conflict._resolve_task(conflicts=["a.py"], guidance="回我")
+    assert "人类对本次解冲突的指导" in task
+    assert "reply-comment" not in task
+
+
+def test_reply_tool_section_absent_without_guidance():
+    # 无 guidance → 既不拼指导段也不拼工具段（哪怕给了 pr_number）。
+    task = conflict._resolve_task(conflicts=["a.py"], guidance="", pr_number=5)
+    assert "reply-comment" not in task
+    assert "人类对本次解冲突的指导" not in task
 
 
 if __name__ == "__main__":

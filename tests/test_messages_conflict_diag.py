@@ -1,9 +1,8 @@
 """Spec-0034/T3：Messages 的 merge 闸诊断接线单元测试。
 
 覆盖 _make_diagnoser 门控（work_dir+base 齐备才构造、缺一返 None）、_conflict_blocker 取舍（有诊断器
-带诊断 / 无诊断器退回 CONFLICT_COMMENT）、merge 闸三处 _block 的「卡在哪」段携带诊断、合并扇出
-rebase_open_prs 被注入 diagnose。github / conflictdiag / rebase 全部 monkeypatch，hermetic（不触真实
-git/gh/LLM）。
+带诊断 / 无诊断器退回 CONFLICT_COMMENT）、merge 闸 _block 的「卡在哪」段携带诊断、合并 reconcile
+拉式同步后不再扇出。github / conflictdiag / rebase 全部 monkeypatch，hermetic（不触真实 git/gh/LLM）。
 """
 
 from openagents import messages as messages_module
@@ -123,7 +122,7 @@ def test_conflict_blocker_uses_diagnosis_when_available(monkeypatch):
 def test_conflict_blocker_falls_back_without_diagnoser():
     # work_dir=None → 无诊断器 → 退回静态 CONFLICT_COMMENT。
     msgs = _messages(runs=[_run()], work_dir=None)
-    assert msgs._conflict_blocker(pr_number=5) == messages_module.rebase.CONFLICT_COMMENT
+    assert msgs._conflict_blocker(pr_number=5) == messages_module.conflictdiag.CONFLICT_COMMENT
 
 
 # --------------------------------------------------------------------------- #
@@ -180,39 +179,29 @@ def test_block_comment_falls_back_to_static_without_diagnoser(monkeypatch):
     msgs.poll()
 
     assert len(comments) == 1
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
 
 
 # --------------------------------------------------------------------------- #
-# 合并扇出注入 diagnose
+# 合并 reconcile：拉式同步后不再扇出
 # --------------------------------------------------------------------------- #
 
 
-def test_merged_fanout_injects_diagnose(monkeypatch):
-    sentinel = lambda *, pr_number: _DIAG_BODY  # noqa: E731 - 测试用诊断器哨兵
-    monkeypatch.setattr(
-        messages_module.conflictdiag, "make_diagnoser", lambda *, work_dir, base: sentinel
-    )
+def test_merged_reconcile_no_fanout(monkeypatch):
+    # 拉式同步取代 push 扇出：is_merged（人手动合并）只 reconcile——置 done + 关 issue，**不再扇出**
+    # （rebase 模块已删，无从扇出）。其余 open PR 各自轮到时在 _process_coding 的 BEHIND 分支跟上。
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: True)
-    monkeypatch.setattr(messages_module.github, "close_issue", lambda *, number: None)
-    monkeypatch.setattr(messages_module.indexheal, "make_healer", lambda *, work_dir, base: None)
-    # resolve 注入与否不影响本断言；置 None 简化。
-    monkeypatch.setattr(messages_module.conflict, "make_resolver", lambda **kw: None)
-
-    captured = {}
-
-    def _fake_rebase(
-        *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None
-    ):
-        captured["diagnose"] = diagnose
-        return []
-
-    monkeypatch.setattr(messages_module.rebase, "rebase_open_prs", _fake_rebase)
-    msgs = _messages(runs=[_run(pr_number=5)])
+    closed: list[int] = []
+    monkeypatch.setattr(
+        messages_module.github, "close_issue", lambda *, number: closed.append(number)
+    )
+    msgs = _messages(runs=[_run(issue_number=3, pr_number=5)])
 
     events = msgs.poll()
 
     assert any(e["reason"] == "merged" for e in events)
-    # 扇出被注入诊断器（非 None），使扇出冲突评论带诊断并触发 T2 重发收敛。
-    assert captured["diagnose"] is sentinel
+    assert closed == [3]
     assert msgs._state.all_runs()[0].status == STATUS_DONE
+    # 守护：merged 事件不再带扇出结果 synced（拉式同步后无 push 扇出）。
+    merged_event = next(e for e in events if e["reason"] == "merged")
+    assert "synced" not in merged_event

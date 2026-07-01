@@ -274,14 +274,17 @@ def _arm_armed_conflict(monkeypatch, *, resolve_result):
     monkeypatch.setattr(
         messages_module.conflictdiag,
         "make_diagnoser",
-        lambda *, work_dir, base: lambda *, pr_number: messages_module.rebase.CONFLICT_COMMENT,
+        lambda *, work_dir, base: (
+            lambda *, pr_number: messages_module.conflictdiag.CONFLICT_COMMENT
+        ),
     )
     seen = {"guidance": None}
 
     def _make(*, work_dir, base, backend, agent_id):
         def _resolve(*, pr_number, guidance=""):
             seen["guidance"] = guidance
-            return resolve_result
+            # resolve 现返回 ResolveOutcome；reply="" → 回应退回模板（本组断言不涉 agent reply）。
+            return messages_module.conflict.ResolveOutcome(resolved=resolve_result)
 
         return _resolve
 
@@ -300,7 +303,7 @@ def _armed_messages(*, orch, state):
     )
 
 
-def test_armed_with_detail_feeds_guidance_and_replies_on_success(monkeypatch):
+def test_armed_with_detail_feeds_guidance_and_clears(monkeypatch):
     seen = _arm_armed_conflict(monkeypatch, resolve_result=True)
     posted = _capture_posts(monkeypatch)
     orch = _FakeOrchestrator()
@@ -314,14 +317,10 @@ def test_armed_with_detail_feeds_guidance_and_replies_on_success(monkeypatch):
     events = msgs.poll()
 
     assert events == [{"pr_number": 5, "reason": "resolved"}]
-    # 评论作 guidance 喂解冲突器。
+    # 评论作 guidance 喂解冲突器（解冲突 agent 会自己用 reply-comment 工具回评论）。
     assert seen["guidance"] == "先解 OVERVIEW.md 再动 state.py"
-    # 恰贴一条引用原评论的成功结论签名回应。
-    assert len(posted) == 1
-    body = posted[0]["body"]
-    assert "> 先解 OVERVIEW.md 再动 state.py" in body
-    assert messages_module._RESOLVE_REPLY_SUCCESS in body
-    assert identity_module.parse_agent_id(body=body) == _AGENT_ID
+    # 框架**不代发回复**（agent 自己用带签名工具回）。
+    assert posted == []
     # 跑完清空 unblock_detail。
     assert {"issue_number": 3, "detail": ""} in state.unblock_detail_sets
 

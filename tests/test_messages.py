@@ -7,7 +7,7 @@ RFC-0012 把两处「等人」换成「调 reviewer 闸 + 自动推进」，本�
   并记录 implement / refine_rfc / iterate 调用。
 - state：注入伪 State（all_runs / update_status / increment_rounds / reset_rounds）。
 - github.*：monkeypatch（is_merged / is_closed / has_label / check_status / merge_pr / add_label）。
-- rebase.rebase_open_prs / time.sleep：桩为 no-op。
+- time.sleep：桩为 no-op（拉式同步重构后合并不再扇出，rebase 模块已删）。
 
 覆盖：merged→done+扇出（优先级最高）；closed→closed；rfc 闸 标签/reviewer PASS→implement、
 reviewer 非 PASS→refine+rounds++、超 K→BLOCKED+needs-human(PR 不关)；coding 闸 CI fail→
@@ -218,12 +218,7 @@ def _patch_github(
         "close_issue",
         lambda *, number: rec["closed_issues"].append(number),
     )
-    # 合并分支会扇出 rebase；默认桩为 no-op，保持 hermetic。
-    monkeypatch.setattr(
-        messages_module.rebase,
-        "rebase_open_prs",
-        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None: [],
-    )
+    # 拉式同步重构后合并分支不再扇出（push 扇出已撤），无需再桩 rebase_open_prs。
     return rec
 
 
@@ -381,21 +376,13 @@ def test_coding_ci_pending_waits(monkeypatch):
     assert events == []
 
 
-def test_coding_ci_green_reviewer_pass_merges_and_fans_out(monkeypatch):
+def test_coding_ci_green_reviewer_pass_merges_no_fanout(monkeypatch):
+    # 拉式同步取代 push 扇出：PASS → merge_pr + 置 done + 关 issue，本轮**不再扇出**；其余 open PR
+    # 各自轮到时在 _process_coding 的 BEHIND 分支 update_branch 跟上（rebase 模块已删，无从扇出）。
     msgs, orch, state = _make(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_PASS
     )
     rec = _patch_github(monkeypatch)
-    seen = {}
-
-    def _fake_rebase(
-        *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None
-    ):
-        seen["merged_pr_number"] = merged_pr_number
-        seen["agent_id"] = agent_id
-        return [{"pr_number": 8, "result": "updated"}]
-
-    monkeypatch.setattr(messages_module.rebase, "rebase_open_prs", _fake_rebase)
 
     events = msgs.poll()
 
@@ -404,9 +391,8 @@ def test_coding_ci_green_reviewer_pass_merges_and_fans_out(monkeypatch):
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_DONE}]
     # RFC-0017 T2：代码闸 PASS → merge_pr 合进 test → 显式关联 issue（以 issue_number 调一次）。
     assert rec["closed_issues"] == [3]
-    assert seen == {"merged_pr_number": 5, "agent_id": _AGENT_ID}
     merged_event = next(e for e in events if e["reason"] == "merged")
-    assert merged_event["synced"] == [{"pr_number": 8, "result": "updated"}]
+    assert "synced" not in merged_event  # 拉式同步后 merged 事件不再带扇出结果
 
 
 def test_coding_reviewer_fail_iterates_review_and_increments(monkeypatch):
@@ -460,7 +446,9 @@ def test_coding_unmergeable_blocks_and_posts_one_rebase_comment(monkeypatch):
     assert len(rec["comments"]) == 1
     body = rec["comments"][0]["body"]
     assert "gate=merge" in body  # 结构化挂起评论（按 gate 出原因短语）
-    assert messages_module.rebase.CONFLICT_COMMENT in body  # 冲突提示作 blocker 嵌在「卡在哪」段
+    assert (
+        messages_module.conflictdiag.CONFLICT_COMMENT in body
+    )  # 冲突提示作 blocker 嵌在「卡在哪」段
     assert rec["comments"][0]["agent_id"] == _AGENT_ID
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
     assert (5, BLOCKED_LABEL) in rec["labels"]
@@ -995,11 +983,7 @@ def _patch_github_labels(monkeypatch, *, merged=False, closed=False, labels=()):
         "add_label",
         lambda *, pr_number, name: rec["labels"].append((pr_number, name)),
     )
-    monkeypatch.setattr(
-        messages_module.rebase,
-        "rebase_open_prs",
-        lambda *, merged_pr_number=None, agent_id=None, heal=None, resolve=None, diagnose=None: [],
-    )
+    # 拉式同步重构后合并分支不再扇出，无需再桩 rebase_open_prs。
     return rec
 
 

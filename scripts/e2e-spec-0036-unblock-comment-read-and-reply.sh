@@ -176,7 +176,7 @@ print("  [防自激] 回应带签名 → 下一轮 new_human_comments 滤除，a
 # 轨迹 ②：merge 闸解挂 → 评论作 guidance 喂解冲突器 → armed 跑完引用原评论贴回结论
 # ======================================================================= #
 print()
-print("--- 轨迹 ② merge 闸解挂：评论作 guidance 喂解冲突器 → armed 跑完引用原评论贴回结论 ---")
+print("--- 轨迹 ② merge 闸解挂：评论作 guidance + pr_number 喂解冲突器 → agent 自己用工具回、框架不代发 ---")
 pr_labels = {BLOCKED_LABEL}
 pr_comments.clear()
 messages_module.github.has_label = lambda *, pr_number, name: name in pr_labels
@@ -203,8 +203,8 @@ msgs2 = Messages(
     backend=FakeBackend(),
 )
 
-# fake 解冲突世界：mergeability 报冲突、诊断器返回静态文案、resolve 记录收到的 guidance。
-seen = {"guidance": None}
+# fake 解冲突世界：mergeability 报冲突、诊断器返回静态文案、resolve 记录收到的 guidance + pr_number。
+seen = {"guidance": None, "pr_number": None}
 
 
 class _MS:
@@ -214,14 +214,17 @@ class _MS:
 
 messages_module.github.mergeability = lambda *, pr_number: _MS()
 messages_module.conflictdiag.make_diagnoser = (
-    lambda *, work_dir, base: lambda *, pr_number: messages_module.rebase.CONFLICT_COMMENT
+    lambda *, work_dir, base: lambda *, pr_number: messages_module.conflictdiag.CONFLICT_COMMENT
 )
 
 
 def _make_resolver(*, work_dir, base, backend, agent_id):
     def _resolve(*, pr_number, guidance=""):
         seen["guidance"] = guidance
-        return True  # 本轮成功解冲突
+        seen["pr_number"] = pr_number
+        # 真实里解冲突 agent 会自己用 `openagents reply-comment --pr <n>` 回评论（带签名）；本演示 fake 掉
+        # resolve，不真起 agent，故框架侧不产生回复评论。
+        return messages_module.conflict.ResolveOutcome(resolved=True)
 
     return _resolve
 
@@ -240,16 +243,15 @@ assert record_merge.unblock_detail == "先把 OVERVIEW.md 的冲突按保留两�
 assert _signed_count() == 0, "merge 解挂当轮不回应（动作尚未发生）"
 print("  [解挂当轮] 存 unblock_detail 作 guidance、恢复 pr-open 进 armed、**不回应**（下一轮 armed 才动手）")
 
-# 第 2 步：下一轮 poll → armed 解冲突，评论作 guidance 喂 resolve，跑完引用原评论贴回结论 + 清 detail。
+# 第 2 步：下一轮 poll → armed 解冲突，评论作 guidance + pr_number 喂 resolve；解冲突 agent 会自己用
+# reply-comment 工具回评论（本演示 fake 掉 resolve、不真起 agent，故框架侧无回复）；跑完清 detail。
 events = msgs2.poll()
 assert events == [{"pr_number": 10, "reason": "resolved"}], events
 assert seen["guidance"] == "先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py", "评论应作 guidance 喂解冲突器"
-reply2 = pr_comments[-1].body
-assert "> 先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py" in reply2, "结论回应应引用原评论"
-assert messages_module._RESOLVE_REPLY_SUCCESS in reply2, "结论回应应含成功文案"
-assert messages_module.identity.parse_agent_id(body=reply2) == AGENT_ID, "结论回应应带签名"
+assert seen["pr_number"] == 10, "pr_number 应透传给 resolve（供 agent `reply-comment --pr 10`）"
+assert _signed_count() == 0, "框架不代发回复（回复由 agent 自己用带签名 reply-comment 工具发）"
 assert record_merge.unblock_detail == "", "armed 跑完应清空 unblock_detail"
-print("  [armed 跑完] resolve(guidance=评论) 成功 → 引用原评论 + 成功结论的签名回应（恰一条）+ 清 unblock_detail")
+print("  [armed 跑完] resolve(guidance=评论, pr_number=10) 成功 → 由 agent 自己用 reply-comment 工具回、框架不代发 + 清 unblock_detail")
 
 print()
 print("✓ 两条轨迹断言全部通过：所有闸解挂都喂内容给 agent + 编排层确定性贴回引用原评论的回应。")

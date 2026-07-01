@@ -140,7 +140,9 @@ def _patch_conflict_precheck(monkeypatch, *, comments):
     monkeypatch.setattr(
         messages_module.conflictdiag,
         "make_diagnoser",
-        lambda *, work_dir, base: lambda *, pr_number: messages_module.rebase.CONFLICT_COMMENT,
+        lambda *, work_dir, base: (
+            lambda *, pr_number: messages_module.conflictdiag.CONFLICT_COMMENT
+        ),
     )
     # Spec-0032/T5：_block 落水位线要读最新评论 createdAt——桩为空。
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])
@@ -186,7 +188,7 @@ def test_coding_conflict_resolve_fails_falls_back_to_block(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 
@@ -201,13 +203,60 @@ def test_coding_conflict_no_backend_keeps_legacy_block(monkeypatch):
     assert events == [{"pr_number": 5, "reason": "unmergeable"}]
     assert len(comments) == 1 and comments[0]["pr_number"] == 5
     # Spec-0032/T5：挂起评论由 _block 经 blocknote 统一出（merge 闸把 CONFLICT_COMMENT 当 blocker）。
-    assert messages_module.rebase.CONFLICT_COMMENT in comments[0]["body"]
+    assert messages_module.conflictdiag.CONFLICT_COMMENT in comments[0]["body"]
     assert {"issue_number": 3, "status": STATUS_BLOCKED} in msgs._state.status_updates
 
 
 def test_blocked_label_constant_imported():
     # 守护：BLOCKED_LABEL 仍是 _block 打的标签（避免常量漂移把上面用例悄悄变绿）。
     assert BLOCKED_LABEL
+
+
+# --------------------------------------------------------------------------- #
+# _process_coding 拉式同步：BEHIND → update_branch（取代旧的 push 扇出）
+# --------------------------------------------------------------------------- #
+
+
+def _set_mergeability(monkeypatch, *, status, mergeable):
+    """让 poll 走到 coding 预检并把 mergeability 固定为给定状态（未合并/未关闭）。"""
+    monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)
+    monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: False)
+    ms = type("MS", (), {"merge_state_status": status, "mergeable": mergeable})()
+    monkeypatch.setattr(messages_module.github, "mergeability", lambda *, pr_number: ms)
+
+
+def test_coding_behind_pulls_main_via_update_branch(monkeypatch):
+    # 拉式同步：PR 落后但无文本冲突 → 服务端 update_branch 把 main 并进来、触发 CI 重跑，
+    # 本轮不评审，返回 synced。无需 agent（干净落后不烧 token）。
+    _set_mergeability(monkeypatch, status="BEHIND", mergeable="MERGEABLE")
+    calls: list[int] = []
+    monkeypatch.setattr(
+        messages_module.github,
+        "update_branch",
+        lambda *, pr_number: calls.append(pr_number) or True,
+    )
+    msgs = _messages(runs=[_run(pr_number=5)], backend=_FakeBackend())
+
+    events = msgs.poll()
+
+    assert events == [{"pr_number": 5, "reason": "synced"}]
+    assert calls == [5]
+
+
+def test_coding_behind_conflict_routes_to_dirty(monkeypatch):
+    # update_branch 撞冲突抛 GithubError → 本轮记 behind-conflict，下一轮 mergeability 即 DIRTY，
+    # 落到 agent 解冲突路径（脏活只此一个解冲突脑子，不在 BEHIND 处重复处理）。
+    _set_mergeability(monkeypatch, status="BEHIND", mergeable="MERGEABLE")
+
+    def _raise(*, pr_number):
+        raise messages_module.github.GithubError("merge conflict")
+
+    monkeypatch.setattr(messages_module.github, "update_branch", _raise)
+    msgs = _messages(runs=[_run(pr_number=5)], backend=_FakeBackend())
+
+    events = msgs.poll()
+
+    assert events == [{"pr_number": 5, "reason": "behind-conflict"}]
 
 
 if __name__ == "__main__":

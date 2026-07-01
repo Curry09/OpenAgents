@@ -25,10 +25,8 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
 | `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |
-| `indexheal.py` | issue #48：索引冲突自愈——同步 base 后自动重渲 OVERVIEW。 |
 | `messages.py` | RFC-0001 T5 + RFC-0005 + RFC-0012: PR 消息机制 + CI 监控，按**阶段**路由 GitHub 事件。 |
 | `orchestrator.py` | RFC-0005: issue → RFC-first → 代码 的原子操作编排（取代单体 solve）。 |
-| `rebase.py` | RFC-0009 T2: 合并后自动同步其余 open PR 的扇出模块。 |
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
@@ -85,10 +83,8 @@ graph LR
     nopenagents_github["openagents.github"]
     nopenagents_hold["openagents.hold"]
     nopenagents_identity["openagents.identity"]
-    nopenagents_indexheal["openagents.indexheal"]
     nopenagents_messages["openagents.messages"]
     nopenagents_orchestrator["openagents.orchestrator"]
-    nopenagents_rebase["openagents.rebase"]
     nopenagents_release["openagents.release"]
     nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
@@ -117,10 +113,8 @@ graph LR
     nopenagents_cli --> nopenagents_github
     nopenagents_cli --> nopenagents_hold
     nopenagents_cli --> nopenagents_identity
-    nopenagents_cli --> nopenagents_indexheal
     nopenagents_cli --> nopenagents_messages
     nopenagents_cli --> nopenagents_orchestrator
-    nopenagents_cli --> nopenagents_rebase
     nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
     nopenagents_cli --> nopenagents_state
@@ -132,7 +126,6 @@ graph LR
     nopenagents_conflict --> nopenagents_github
     nopenagents_conflictdiag --> nopenagents
     nopenagents_conflictdiag --> nopenagents_github
-    nopenagents_conflictdiag --> nopenagents_rebase
     nopenagents_envcheck --> nopenagents_backends_claude_code
     nopenagents_fleet --> nopenagents
     nopenagents_fleet --> nopenagents_cli
@@ -144,10 +137,6 @@ graph LR
     nopenagents_identity --> nopenagents
     nopenagents_identity --> nopenagents_github
     nopenagents_identity --> nopenagents_state
-    nopenagents_indexheal --> nopenagents
-    nopenagents_indexheal --> nopenagents_github
-    nopenagents_indexheal --> nopenagents_spec
-    nopenagents_indexheal --> nopenagents_spec_render
     nopenagents_messages --> nopenagents
     nopenagents_messages --> nopenagents_backends_base
     nopenagents_messages --> nopenagents_blocknote
@@ -156,9 +145,7 @@ graph LR
     nopenagents_messages --> nopenagents_github
     nopenagents_messages --> nopenagents_hold
     nopenagents_messages --> nopenagents_identity
-    nopenagents_messages --> nopenagents_indexheal
     nopenagents_messages --> nopenagents_orchestrator
-    nopenagents_messages --> nopenagents_rebase
     nopenagents_messages --> nopenagents_replynote
     nopenagents_messages --> nopenagents_state
     nopenagents_orchestrator --> nopenagents
@@ -173,9 +160,6 @@ graph LR
     nopenagents_orchestrator --> nopenagents_spec_validate
     nopenagents_orchestrator --> nopenagents_state
     nopenagents_orchestrator --> nopenagents_workspace
-    nopenagents_rebase --> nopenagents
-    nopenagents_rebase --> nopenagents_github
-    nopenagents_rebase --> nopenagents_identity
     nopenagents_release --> nopenagents
     nopenagents_release --> nopenagents_github
     nopenagents_release --> nopenagents_state

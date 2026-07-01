@@ -11,7 +11,7 @@ _first_conflict_block 的截断。
 
 import subprocess
 
-from openagents import conflictdiag, rebase
+from openagents import conflictdiag
 from openagents.conflictdiag import ConflictDiag, collect, format_blocker, make_diagnoser
 
 # 实测 git 2.39 merge-tree --write-tree 冲突 stdout：首行 tree OID + 三个 stage 行 + 信息段。
@@ -125,7 +125,7 @@ def test_collect_file_without_hunk_still_listed():
 
 
 def test_format_blocker_empty_falls_back_to_conflict_comment():
-    assert format_blocker(diag=ConflictDiag(), step="x") == rebase.CONFLICT_COMMENT
+    assert format_blocker(diag=ConflictDiag(), step="x") == conflictdiag.CONFLICT_COMMENT
 
 
 def test_format_blocker_renders_files_and_hunk():
@@ -179,7 +179,7 @@ def test_make_diagnoser_falls_back_when_branch_unavailable(monkeypatch):
 
     diagnose = make_diagnoser(work_dir="/repo", base="main")
 
-    assert diagnose(pr_number=11) == rebase.CONFLICT_COMMENT
+    assert diagnose(pr_number=11) == conflictdiag.CONFLICT_COMMENT
 
 
 # --------------------------------------------------------------------------- #

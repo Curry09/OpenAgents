@@ -80,23 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="跳过建 issue 前的对齐确认，直接创建（供 vigil/CI 等自动化路径）",
     )
 
+    # 给 coding agent（如解冲突 agent）用的「以本 agent 身份回评论」工具：内部盖 OpenAgents 签名 →
+    # 回复不会被下一轮 poll 当成新人类评论（防自触发）。agent 必须走这个命令回评论，不能用裸 gh。
+    p_reply = sub.add_parser("reply-comment", help="以本 agent 身份（带签名）回复某 PR 的评论")
+    p_reply.add_argument("--pr", type=int, required=True, metavar="N", help="要回复的 PR 编号")
+    p_reply.add_argument("--body", required=True, help="回复正文（会自动盖上本 agent 签名）")
+
     sub.add_parser("poll", help="拉取并处理所有 PR 的新评论（一次性）")
 
     p_watch = sub.add_parser("watch", help="按间隔循环 poll（自动化拉取）")
     p_watch.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
 
-    # RFC-0009 决策 6：自动 poll 路径的手动对应物——一次性把 open PR 同步到最新 main。
-    p_sync = sub.add_parser("sync-prs", help="把最新 main 并入其余 open PR（合并后手动同步）")
-    p_sync.add_argument(
-        "--merged",
-        type=int,
-        default=None,
-        metavar="N",
-        help="要排除的已合并 PR 编号（缺省：不排除）",
-    )
-    p_sync.add_argument(
-        "--rebase", action="store_true", help="用 rebase 而非 merge 方式同步（默认 merge）"
-    )
+    # 拉式同步重构后移除了 push 扇出（含手动 sync-prs）：合并后其余 open PR 各自轮到时在守夜人
+    # _process_coding 的 BEHIND 分支由 update_branch 跟上，无需独立的手动扇出入口（理念 1 奥卡姆）。
 
     sub.add_parser("board", help="启动本地成果看板")
 
@@ -159,9 +155,9 @@ def _state_for(*, repo_root: Path):
     return State(path=repo_root / ".openagents" / "state.json")
 
 
-# RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（Orchestrator / Messages /
-# sync-prs 扇出）。resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，
-# 保证 solve / poll / vigil / sync-prs 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
+# RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（Orchestrator / Messages / reply-comment）。
+# resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，保证 solve / poll / vigil
+# 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
 def _agent_id_for(*, ctx: ProjectContext) -> str:
     from openagents import identity
 
@@ -195,12 +191,11 @@ def _messages_for(*, ctx: ProjectContext):
         orchestrator=_orchestrator_for(ctx=ctx),
         state=_state_for(repo_root=ctx.repo_root),
         agent_id=_agent_id_for(ctx=ctx),
-        # issue #48：注入 work_dir + base，使 poll 的合并扇出在冲突时先试索引自愈。
+        # 注入 work_dir + base，使 _process_coding 的 BEHIND 拉式同步能调 update_branch / 解冲突。
         work_dir=str(ctx.repo_root),
         base=DEFAULT_BASE,
-        # Spec-0028/T3：注入 backend（复用既有工厂），使 poll 扇出在 indexheal 不适用的真冲突
-        # 上派 coding agent 语义解冲突（heal → resolve → 人工 分层降级）。手动 sync-prs 不注入
-        # backend，故那里恒不启用 resolve（不在人手动命令里偷烧 token）。
+        # 注入 backend（复用既有工厂），使 merge 闸冲突时派 coding agent 语义解冲突（含 OVERVIEW.md
+        # 经 spec render 重渲）；缺 backend 则解冲突恒不启用，回落 needs-human。
         backend=_backend_for(),
     )
 
@@ -322,6 +317,16 @@ def _confirm_issue_alignment(*, title: str, body: str) -> bool:
     return align.is_confirmed(answer=answer)
 
 
+def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # coding agent 回评论的唯一出口：post_signed_comment 盖本实例签名（agent_id 幂等解析，与
+    # poll/vigil 一致）→ 回复带签名 → 不被下一轮 poll 的 new_human_comments 当成新人类评论（防自循环）。
+    from openagents import identity
+
+    identity.post_signed_comment(pr_number=args.pr, body=args.body, agent_id=_agent_id_for(ctx=ctx))
+    print(f"✓ 已以本 agent 身份回复 PR #{args.pr} 的评论")
+    return 0
+
+
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0001 T5: 一次性扫描所有 open PR 的 CI / 新评论并触发 iterate。
     events = _messages_for(ctx=ctx).poll()
@@ -332,24 +337,6 @@ def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0001 T5（决策 6）：按间隔循环 poll，自动化拉取直到无 open PR。
     _messages_for(ctx=ctx).watch(interval=args.interval)
-    return 0
-
-
-def _cmd_sync_prs(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0009 决策 6：延迟 import rebase 模块，调扇出同步并打印结果摘要（与既有命令风格一致）。
-    from openagents import indexheal, rebase
-    from openagents.orchestrator import DEFAULT_BASE
-
-    # RFC-0011 决策 7：手动 sync-prs 也需透传本实例 agent_id（冲突留言据此盖本实例签名，用于
-    # 溯源/审计；RFC-0019：poll 不读评论，自动流转由 reviewer 闸驱动）。
-    # issue #48：手动入口同样注入索引自愈，冲突先重渲 OVERVIEW 自动消解、不了再留言。
-    events = rebase.rebase_open_prs(
-        merged_pr_number=args.merged,
-        rebase=args.rebase,
-        agent_id=_agent_id_for(ctx=ctx),
-        heal=indexheal.make_healer(work_dir=str(ctx.repo_root), base=DEFAULT_BASE),
-    )
-    print(f"✓ sync-prs 完成，同步 {len(events)} 个 open PR")
     return 0
 
 
@@ -425,9 +412,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         "implement": _cmd_implement,
         "iterate": _cmd_iterate,
         "issue": _cmd_issue,
+        "reply-comment": _cmd_reply_comment,
         "poll": _cmd_poll,
         "watch": _cmd_watch,
-        "sync-prs": _cmd_sync_prs,
         "vigil": _cmd_vigil,
         "release": _cmd_release,
     }

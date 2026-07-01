@@ -27,7 +27,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openagents import github, rebase
+from openagents import github
+
+# 合并冲突的静态兜底文案——诊断为空（或诊断器缺省）时退回它。原属 rebase 模块；拉式同步重构删去
+# 推式扇出后，该常量随冲突诊断一并落在本模块（单一来源，供 messages merge 闸挂起评论复用）。
+CONFLICT_COMMENT = (
+    "🤖 OpenAgents 在 main 更新后尝试自动同步本 PR 分支，但存在无法自动解决的冲突，"
+    "请手动 rebase / 解决冲突后重新 push。"
+)
 
 # Spec-0034/T1：冲突文件信息行——`git merge-tree --write-tree` 冲突输出里每个未消解 stage 一行，
 # 形如 `100644 <40位 sha> 1\t<path>`（mode SP object SP stage TAB path）。stage∈{1,2,3}，同一文件
@@ -108,7 +115,7 @@ def format_blocker(*, diag: ConflictDiag, step: str) -> str:
     （等价今日泛化兜底文案、单一来源，避免串漂移），使调用方无需自己判空。
     """
     if diag.is_empty():
-        return rebase.CONFLICT_COMMENT
+        return CONFLICT_COMMENT
     lines = [
         f"{step}以下文件存在无法自动解决的冲突，需人工裁断——",
         "",

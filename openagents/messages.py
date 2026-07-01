@@ -4,7 +4,8 @@ poll 对每个 open 状态的 run 做一次扫描，先判 merge/close，再按 
 （RFC-0005 决策 5）。RFC-0012 把两处「等人」的判定换成「调 reviewer 闸 + 自动推进」，
 让人的触点收敛到「提 issue」与「release」（Spec-0023：promote 改名 release）：
 
-  1. github.is_merged：已合并 → State 置 done，跳过（决策 8）+ 合并后扇出 rebase（RFC-0009）。
+  1. github.is_merged：已合并 → State 置 done + 关 issue，跳过（决策 8）。拉式同步重构后**不再**
+     push 扇出：其余 open PR 各自轮到时在 _process_coding 的 BEHIND 分支由 update_branch 跟上集成。
   1b. github.is_closed：关闭未合并 → State 置 closed，跳过（RFC-0006，merged 优先）。
   2. 阶段 rfc-review（PR 为 draft、承载 RFC）—— RFC 评审闸（RFC-0012 决策 1/3）：
      a. 已带 rfc-approved 标签（人/agent 谁打都认，向后兼容）→ Orchestrator.implement。
@@ -15,7 +16,8 @@ poll 对每个 open 状态的 run 做一次扫描，先判 merge/close，再按 
      a. CI 失败 → Orchestrator.iterate(reason="ci")（行为保持，CI 回合不计入 rounds）。
      b. CI 进行中 → 等待（本轮不动）。
      c. CI 全绿 → 调 Orchestrator.review_code：
-        - 全票 PASS → github.merge_pr（合入 test）→ DONE → 扇出 rebase 其余 PR。
+        - 全票 PASS → github.merge_pr（合入 test）→ DONE + 关 issue（不再扇出；拉式同步见 1.）。
+        - BEHIND（落后 main 无文本冲突）→ update_branch 拉最新 main 进来触发 CI 重跑（拉式同步）。
         - 非 PASS → rounds++；未超 K → iterate(reason="review")；超 K → BLOCKED+needs-human。
 
 卡住兜底（RFC-0012 决策 5）：rounds（每个闸独立计，implement 时清零）达到 MAX_ROUNDS 时
@@ -39,8 +41,6 @@ from openagents import (
     conflictdiag,
     github,
     identity,
-    indexheal,
-    rebase,
     replynote,
 )
 from openagents.backends.base import AgentBackend
@@ -143,12 +143,6 @@ _TRIED_BY_GATE = {
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
-# Spec-0036/T5：merge 闸 armed 解冲突跑完后回应人类的「结论文案」（response 内容，非展示模板——
-# 展示模板〔引用块 + 回应段布局〕在 replynote.build 里）。conflict.resolve 返回 bool 不带 summary，
-# 故 merge 闸的回应正文由 messages 据 resolve 结果选一句结论；rfc/code 闸的回应正文则取 agent summary。
-_RESOLVE_REPLY_SUCCESS = "已按你的指导解冲突并 push，PR 将重新跑 CI。"
-_RESOLVE_REPLY_UNRESOLVED = "本轮未能自动解决冲突，已重新挂起，等待你进一步处理。"
-
 
 class Messages:
     """RFC-0001 T5 + RFC-0005 + RFC-0012：按阶段轮询 PR 的 merge/CI/评审闸，路由回编排层。"""
@@ -165,16 +159,14 @@ class Messages:
     ) -> None:
         self._orchestrator = orchestrator
         self._state = state
-        # RFC-0011 决策 7：本实例身份，由 CLI 接线处解析后注入；poll 合并分支时透传给
-        # rebase.rebase_open_prs（冲突留言据此盖章、保持 rebase 无状态）。
+        # RFC-0011 决策 7：本实例身份，由 CLI 接线处解析后注入；解冲突 / 挂起留言据此盖章。
         self._agent_id = agent_id
-        # issue #48：work_dir + base 用于构造索引冲突自愈 heal（同步 base 后自动重渲 OVERVIEW）。
-        # 二者缺一则不注入 heal——退回既有「冲突留言等人」行为（向后兼容老调用方/测试夹具）。
+        # work_dir + base 用于 _process_coding 的 BEHIND 拉式同步（update_branch）与冲突诊断器；
+        # 缺一则退回「冲突留言等人」（向后兼容老调用方/测试夹具）。
         self._work_dir = work_dir
         self._base = base
-        # Spec-0028/T3：backend 用于构造 agent 语义解冲突 resolve（与 _make_heal 同款门控：
-        # work_dir + base + backend 齐备才构造，缺一则不注入——退回 heal→人工 的既有降级，
-        # 向后兼容老调用方/测试夹具）。只在自动 poll 扇出启用，手动 sync-prs 不注入（不偷烧 token）。
+        # backend 用于构造 agent 语义解冲突 resolve（work_dir + base + backend 齐备才构造，缺一则
+        # 不注入——merge 闸冲突回落 needs-human；向后兼容老调用方/测试夹具）。
         self._backend = backend
 
     def poll(self, *, hold: Hold = NO_HOLD) -> list[dict]:
@@ -235,21 +227,10 @@ class Messages:
             # 与 STATUS_DONE「工作落进体验分支即完成」语义一致。close_issue 幂等，多轮 poll
             # 重复命中已合并分支重复调用安全（决策 2）。
             github.close_issue(number=record.issue_number)
-            # RFC-0009 决策 1/3：合并即信号——同一 poll 轮内扇出，把最新 base 并入其余
-            # open PR（排除刚合并的这个），触发它们 CI 重跑；冲突的 PR 先试索引自愈（issue #48），
-            # 自愈不了再由 rebase 层留言。
-            # Spec-0028/T3：分层降级 heal → resolve → 人工——resolve 派 coding agent 语义解
-            # indexheal 不适用的真冲突（只在自动 poll 扇出启用，故在此注入；手动 sync-prs 不注入）。
-            # Spec-0034/T3：补传 diagnose 使扇出冲突评论带诊断（冲突文件清单 + 关键 hunk 摘要），
-            # 并触发 T2 的重发收敛（对已 needs-human 的 PR 跳过留言）。
-            synced = rebase.rebase_open_prs(
-                merged_pr_number=pr_number,
-                agent_id=self._agent_id,
-                heal=self._make_heal(),
-                resolve=self._make_resolver(),
-                diagnose=self._make_diagnoser(),
-            )
-            return {"pr_number": pr_number, "reason": "merged", "synced": synced}
+            # 拉式同步取代 push 扇出：人手动合并后只做 reconcile（置 done + 关 issue），不再主动把
+            # 最新 main 扇给其余 open PR——它们各自轮到时在 _process_coding 的 BEHIND 分支由
+            # update_branch 跟上集成（只剩门2一个集成/冲突处理点，理念 1 奥卡姆）。
+            return {"pr_number": pr_number, "reason": "merged"}
 
         # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过。merged 优先于 closed。
         if github.is_closed(pr_number=pr_number):
@@ -420,6 +401,17 @@ class Messages:
             # GitHub 异步尚未算完（刚 push 常见）：本轮不评审也不 block，下个 interval 重查——
             # 避免「未就绪→误 block 正常 PR」与「白跑 reviewer」两头错。
             return None
+        if merge_state.merge_state_status == "BEHIND":
+            # 拉式同步（取代旧的「合并即 push 扇出」）：PR 落后于 main 但无文本冲突——轮到它自己时
+            # 由 update_branch 服务端把最新 main 并进来，触发其 CI 在「集成后代码」上重跑；本轮不
+            # 评审，下一轮以集成态推进（评审永远看的是最终要合的集成态）。已最新 → no-op。
+            # update_branch 撞冲突抛 GithubError → 下一轮 mergeability 即 DIRTY，自然落到上面的
+            # agent 解冲突路径，无需在此重复处理（脏活只此一个解冲突脑子）。
+            try:
+                github.update_branch(pr_number=pr_number)
+            except github.GithubError:
+                return {"pr_number": pr_number, "reason": "behind-conflict"}
+            return {"pr_number": pr_number, "reason": "synced"}
         # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
         status = github.check_status(pr_number=pr_number)
         if status.state == "fail":
@@ -441,13 +433,10 @@ class Messages:
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
             github.close_issue(number=record.issue_number)
-            # Spec-0034/T3：合并扇出补传 diagnose（带诊断 + 触发 T2 重发收敛），与上方已合并分支同款。
-            synced = rebase.rebase_open_prs(
-                merged_pr_number=pr_number,
-                agent_id=self._agent_id,
-                diagnose=self._make_diagnoser(),
-            )
-            return {"pr_number": pr_number, "reason": "merged", "synced": synced}
+            # 拉式同步取代 push 扇出：框架自己 merge 后不再同轮扇出，其余 open PR 各自轮到时在
+            # _process_coding 的 BEHIND 分支由 update_branch 跟上集成（与 is_merged 路径同款，
+            # 只剩门2一个集成/冲突处理点）。
+            return {"pr_number": pr_number, "reason": "merged"}
         # Spec-0021/T2：非 PASS 按 decision.actionable 分流（与 spec 闸同构）。
         # 真 REWORK（actionable）：回合 +1，未超 K 则按 reviewer 反馈迭代代码，超 K 则挂起（决策 5，行为不变）。
         if decision.actionable:
@@ -499,16 +488,15 @@ class Messages:
         issue_number = record.issue_number
         detail = record.unblock_detail
         resolve = self._make_resolver()
-        # 1. 解决了：清 armed 标记 + 重置预算；detail 非空则引用原评论贴回成功结论并清 detail。
-        if resolve is not None and resolve(pr_number=pr_number, guidance=detail):
+        # detail（人解挂时的评论）作 guidance 喂 resolve；解冲突 agent 会**自己**用 reply-comment 工具
+        # 回那条评论（带签名防自循环）——框架不再代发回复（根治「牛头不对马嘴」，见 conflict._REPLY_TOOL_SECTION）。
+        outcome = resolve(pr_number=pr_number, guidance=detail) if resolve is not None else None
+        # 1. 解决了：清 armed 标记 + 重置预算 + 清 unblock_detail（本轮跑完，避免下一轮重喂 guidance）。
+        if outcome is not None and outcome.resolved:
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._state.reset_rounds(issue_number=issue_number)
-            self._reply_resolve_outcome(
-                pr_number=pr_number,
-                issue_number=issue_number,
-                detail=detail,
-                response=_RESOLVE_REPLY_SUCCESS,
-            )
+            if detail:
+                self._state.set_unblock_detail(issue_number=issue_number, detail="")
             return {"pr_number": pr_number, "reason": "resolved"}
         # 2. 无 backend（resolve is None）：重试无意义，直接回落人工兜底，不空转。
         if resolve is None:
@@ -517,41 +505,20 @@ class Messages:
             self._block(
                 record=record, gate="merge", blocker=self._conflict_blocker(pr_number=pr_number)
             )
-            self._reply_resolve_outcome(
-                pr_number=pr_number,
-                issue_number=issue_number,
-                detail=detail,
-                response=_RESOLVE_REPLY_UNRESOLVED,
-            )
+            if detail:
+                self._state.set_unblock_detail(issue_number=issue_number, detail="")
             return {"pr_number": pr_number, "reason": "unmergeable"}
-        # 3. 解不了：计数 +1，未达上限跨轮重试（保持 pr-open、不重挂、不回应、不清 detail）。
+        # 3. 解不了：计数 +1，未达上限跨轮重试（保持 pr-open、不重挂、不清 detail——下一轮仍喂同一 guidance）。
         attempts = self._state.increment_merge_attempts(issue_number=issue_number)
         if attempts < MAX_MERGE_ATTEMPTS:
             return {"pr_number": pr_number, "reason": "merge-retry"}
-        # 达上限：重新挂起（blocker 带诊断），并引用原评论贴回未解结论 + 清 detail。
+        # 达上限：重新挂起（blocker 带诊断）+ 清 detail（本轮跑完）。
         self._block(
             record=record, gate="merge", blocker=self._conflict_blocker(pr_number=pr_number)
         )
-        self._reply_resolve_outcome(
-            pr_number=pr_number,
-            issue_number=issue_number,
-            detail=detail,
-            response=_RESOLVE_REPLY_UNRESOLVED,
-        )
+        if detail:
+            self._state.set_unblock_detail(issue_number=issue_number, detail="")
         return {"pr_number": pr_number, "reason": "unmergeable"}
-
-    def _reply_resolve_outcome(
-        self, *, pr_number: int, issue_number: int, detail: str, response: str
-    ) -> None:
-        """Spec-0036/T5：merge 闸 armed 跑完后，detail 非空才引用原评论贴回结论并清空 unblock_detail。
-
-        detail 空（手动摘标签解挂，无评论触发）→ 不回应、不清（逐字节同 Spec-0031 现状，零回归）。
-        detail 非空 → 恰贴一条引用原评论的结论回应，随后清空 unblock_detail（避免重复回应 / 陈旧 guidance）。
-        """
-        if not detail:
-            return
-        self._post_comment_reply(pr_number=pr_number, original=detail, response=response)
-        self._state.set_unblock_detail(issue_number=issue_number, detail="")
 
     def _block(self, *, record: RunRecord, gate: str, blocker: str) -> dict:
         """RFC-0012 决策 5 + Spec-0032/T5：超 K 轮挂起——留足信息的结构化评论 + 置 BLOCKED + 标签 + 水位线。
@@ -596,18 +563,11 @@ class Messages:
             default="",
         )
 
-    def _make_heal(self):
-        """issue #48：当 work_dir + base 都已注入时构造索引冲突自愈 heal，否则 None（退回留言）。"""
-        if self._work_dir is None or self._base is None:
-            return None
-        return indexheal.make_healer(work_dir=self._work_dir, base=self._base)
-
     def _make_resolver(self):
         """Spec-0028/T3：work_dir + base + backend 三者齐备时构造 agent 语义解冲突 resolve，否则 None。
 
-        与 _make_heal 同款门控（缺一即 None → 回落 heal→人工 的既有降级）；额外要求 backend
-        （解冲突要真起一个 coding 后端）。手动 sync-prs 不注入 backend，故那里 resolve 恒为 None，
-        不在人手动命令里偷烧 token（Spec-0028 Drawbacks：token 成本缓解）。
+        门控：缺 work_dir / base / backend 任一即 None（解冲突要真起一个 coding 后端）。resolve 为
+        None 时 _process_coding 的冲突分支回落「留言 + needs-human」。
         """
         if self._work_dir is None or self._base is None or self._backend is None:
             return None
@@ -621,24 +581,23 @@ class Messages:
     def _make_diagnoser(self):
         """Spec-0034/T3：work_dir + base 齐备时构造 worktree-free 冲突诊断器，否则 None（退回静态文案）。
 
-        镜像 _make_heal 的门控（缺一即 None）；不要求 backend——诊断只读冲突（merge-tree + git show），
-        不起 coding 后端。供合并扇出 rebase_open_prs(diagnose=…) 与 merge 闸 _conflict_blocker 复用。
-        手动 sync-prs 路径下 messages 不参与（CLI 直调 rebase 不传 diagnose），故那里恒退回静态文案。
+        门控：缺 work_dir / base 任一即 None；不要求 backend——诊断只读冲突（merge-tree + git show），
+        不起 coding 后端。供 merge 闸 _conflict_blocker 复用（拉式同步后扇出已撤，诊断器只服务挂起评论）。
         """
         if self._work_dir is None or self._base is None:
             return None
         return conflictdiag.make_diagnoser(work_dir=self._work_dir, base=self._base)
 
     def _conflict_blocker(self, *, pr_number: int) -> str:
-        """Spec-0034/T3：merge 闸三处 _block 统一取 blocker——有诊断器则带诊断，否则退回静态文案。
+        """Spec-0034/T3：merge 闸 _block 统一取 blocker——有诊断器则带诊断，否则退回静态文案。
 
         有诊断器（work_dir+base 齐备）→ diagnose(pr_number) 产出带冲突文件清单 + 关键 hunk 摘要的
-        「卡在哪」段（诊断为空时 conflictdiag.format_blocker 已内部退回 rebase.CONFLICT_COMMENT）；
-        无诊断器（老夹具/缺 work_dir）→ 直接退回 rebase.CONFLICT_COMMENT，逐字节保持既有体验。
+        「卡在哪」段（诊断为空时 conflictdiag.format_blocker 已内部退回 conflictdiag.CONFLICT_COMMENT）；
+        无诊断器（老夹具/缺 work_dir）→ 直接退回 conflictdiag.CONFLICT_COMMENT。
         """
         diagnose = self._make_diagnoser()
         if diagnose is None:
-            return rebase.CONFLICT_COMMENT
+            return conflictdiag.CONFLICT_COMMENT
         return diagnose(pr_number=pr_number)
 
     def _has_open_pr(self) -> bool:
