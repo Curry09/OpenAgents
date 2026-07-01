@@ -44,10 +44,12 @@ _UI_PHASE2_NOTE = (
 _NO_RUNBOOK_NOTE = "runbook 缺失或不可读，无法据其真跑系统 → 判 failed（无证据即未达成）。"
 _NO_FORM_NOTE = "runbook 未声明可识别的执行形态（应为 ui/api/cli/backend 之一）→ 判 failed（形态未知无从选工具）。"
 
-# runbook 里执行形态的声明模式：匹配「执行形态：cli」/「form: cli」/「形态 cli」等，取首个命中。
+# runbook 里执行形态的声明模式：匹配「执行形态：cli」/「form: cli」/「form=cli」/「形态 cli」等，取首个命中。
+# 分隔符 [:：=] 三者皆可（含 `_FINALIZE_RUNBOOK_TASK` 模板引导实现者写的 `form={form}` 形态声明字面量，
+# 见 tests/test_executor.py::test_finalize_runbook_task_form_declaration_parses 锁死 producer/consumer 契约）。
 # form 关键字大小写无关；四种形态词直接来自 E2E_FORM_VALUES（单一真源）。
 _FORM_RE = re.compile(
-    r"(?:形态|form)\s*[:：]?\s*`?\s*(" + "|".join(E2E_FORM_VALUES) + r")\b",
+    r"(?:形态|form)\s*[:：=]?\s*`?\s*(" + "|".join(E2E_FORM_VALUES) + r")\b",
     re.IGNORECASE,
 )
 # 从 agent summary 解析运行结论：显式 `OUTCOME: PASSED|FAILED` 优先，裸 token 回退。

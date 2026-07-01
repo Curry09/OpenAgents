@@ -186,8 +186,26 @@ def test_unrecognized_form_is_failed(tmp_path):
 def test_parse_form_variants():
     assert _parse_form(runbook="执行形态：cli") == "cli"
     assert _parse_form(runbook="form: API") == "api"
+    assert _parse_form(runbook="form=cli") == "cli"  # `=` 分隔符（模板 form={form} 引导的写法）
     assert _parse_form(runbook="声明形态 `backend`") == "backend"
     assert _parse_form(runbook="无形态声明") == ""
+
+
+def test_finalize_runbook_task_form_declaration_parses():
+    """锁死 producer/consumer 契约：orchestrator 模板引导实现者写的形态声明字面量，
+    必须被 executor._parse_form 认得。直接用 _FINALIZE_RUNBOOK_TASK.format(...) 的真实产物喂解析器，
+    覆盖 producer→consumer 这条真实链路（此前测试只手写解析器已接受的格式，掩盖了 form={form} 的盲区）。"""
+    from openagents.orchestrator import _FINALIZE_RUNBOOK_TASK
+    from openagents.spec.schema import E2E_FORM_VALUES
+
+    for form in E2E_FORM_VALUES:
+        rendered = _FINALIZE_RUNBOOK_TASK.format(
+            pr_number=7,
+            runbook_path="docs/e2e-results/7/runbook.md",
+            intent="意图占位",
+            form=form,
+        )
+        assert _parse_form(runbook=rendered) == form, f"模板产出的 form={form} 声明未能被解析"
 
 
 def test_parse_outcome_variants():
