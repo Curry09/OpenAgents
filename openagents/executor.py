@@ -178,12 +178,17 @@ def _parse_outcome(*, summary: str) -> str:
 def _write_evidence(*, evidence_dir: Path, result: ExecutorResult, pr_number: int) -> None:
     """把结构化结果固化到 evidence_dir/result.md（⑤ 证据固化）；目录不存在则创建。
 
-    尽力而为但**不吞写失败之外的语义**：目录创建 / 写入用标准库，失败会抛 OSError——由上层
-    run_executor 的 try 兜住（映射成 failed 前已 return，此处失败极罕见）。这里保持简单直接。
+    在 run_executor 的 try/except **之外**被调用（好让正常路径与异常路径的 result 都尽力固化），
+    因此本函数**自身绝不抛错**（契约「run_executor 绝不抛错」的一部分）：mkdir / write_text 失败
+    （路径某段是文件 / 只读盘 / 磁盘满）一律吞掉。写失败极罕见且非语义信号——outcome 已在返回值里，
+    证据闸读不到文件时按缺证据处理，无需靠异常传播。
     """
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    body = _render_evidence(result=result, pr_number=pr_number)
-    (evidence_dir / RESULT_FILENAME).write_text(body, encoding="utf-8")
+    try:
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        body = _render_evidence(result=result, pr_number=pr_number)
+        (evidence_dir / RESULT_FILENAME).write_text(body, encoding="utf-8")
+    except OSError:  # 尽力而为：写失败不破坏「run_executor 绝不抛错」契约
+        pass
 
 
 def _render_evidence(*, result: ExecutorResult, pr_number: int) -> str:

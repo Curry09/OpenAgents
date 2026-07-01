@@ -109,6 +109,23 @@ def test_backend_raises_maps_to_failed_without_raising(tmp_path):
     assert (evidence / RESULT_FILENAME).is_file()
 
 
+def test_evidence_write_failure_does_not_raise(tmp_path):
+    """Spec-0040/T2 契约：evidence 写失败也绝不抛错（_write_evidence 在 try/except 之外被调用）。
+
+    evidence_dir 的父路径是一个文件 → mkdir 抛 OSError；run_executor 必须吞掉、正常返回 result。
+    """
+    blocker = tmp_path / "blocker"
+    blocker.write_text("我是文件，占了 evidence_dir 的父路径", encoding="utf-8")
+    evidence = blocker / "ev"  # 父路径是文件 → mkdir 必抛 NotADirectoryError(OSError)
+    runbook = _write_runbook(tmp_path, body="执行形态：cli\n")
+    backend = _ScriptedBackend(summary="跑通了。\nOUTCOME: PASSED")
+    result = run_executor(
+        backend=backend, work_dir=tmp_path, runbook_path=runbook, evidence_dir=evidence, pr_number=7
+    )
+    assert result.outcome == OUTCOME_PASSED  # 写失败不改 outcome
+    assert not evidence.exists()  # 确实没写成
+
+
 # --------------------------------------------------------------------------- #
 # ui 形态：skipped + Phase 2 标注，不派 agent
 # --------------------------------------------------------------------------- #
