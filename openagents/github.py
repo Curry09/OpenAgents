@@ -20,6 +20,7 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 # `gh pr checks` 在 CI 仍有 check 进行中时以退出码 8 返回，stdout 仍是合法 JSON。
@@ -64,7 +65,17 @@ _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
 APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
 BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
-PROCESS_LABELS: tuple[str, ...] = (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL)
+# Spec-0039/T1：第 4 个流程标签——跨后端可见的「已派发/认领中」信号。某后端判 fresh 决定派单
+# 时给 issue 打上它，其它后端在发现段读到即跳过，把多后端重复派单的时间窗从「起草时长（分钟
+# 级）」压到「建 worktree（秒级）」。并入 PROCESS_LABELS 同源管理，即被 ensure_prerequisites
+# 的幂等自举一并预建（新增标签零改动 ensure_prerequisites）。
+DISPATCH_LABEL: str = "openagents-dispatching"  # issue 已被某后端认领、派单中
+PROCESS_LABELS: tuple[str, ...] = (
+    DISCOVERY_LABEL,
+    APPROVAL_LABEL,
+    BLOCKED_LABEL,
+    DISPATCH_LABEL,
+)
 
 
 class GithubError(Exception):
@@ -73,11 +84,17 @@ class GithubError(Exception):
 
 @dataclass(frozen=True)
 class Issue:
-    """一个 GitHub issue 的最小投影。"""
+    """一个 GitHub issue 的最小投影。
+
+    Spec-0039/T1：新增 labels（issue 当前所带标签名，带默认值 ()）——既有 `Issue(number,
+    title,body)` 构造零改动。vigil 发现段的认领闸（闸 3）直接读 `issue.labels` 快检是否带
+    DISPATCH_LABEL，不再额外发一次网络请求（labels 随 list_issues/get_issue 一次取回）。
+    """
 
     number: int
     title: str
     body: str
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -196,9 +213,13 @@ def create_repo(*, name: str, private: bool) -> str:
 
 
 def get_issue(*, number: int) -> Issue:
-    """RFC-0001 T3：`gh issue view <n> --json number,title,body`。"""
+    """RFC-0001 T3：`gh issue view <n> --json number,title,body,labels`。
+
+    Spec-0039/T1：--json 增 labels 字段并解析进 Issue.labels（供认领闸快检），既有
+    number/title/body 解析不变。
+    """
     data = _gh_json(
-        ["issue", "view", str(number), "--json", "number,title,body"],
+        ["issue", "view", str(number), "--json", "number,title,body,labels"],
         allow_returncodes=set(),
     )
     if not isinstance(data, dict):
@@ -207,7 +228,17 @@ def get_issue(*, number: int) -> Issue:
         number=int(data["number"]),
         title=data.get("title") or "",
         body=data.get("body") or "",
+        labels=_parse_label_names(raw=data),
     )
+
+
+def _parse_label_names(*, raw: dict[str, Any]) -> tuple[str, ...]:
+    """Spec-0039/T1：从 gh `--json labels` 的 `[{"name": ...}, ...]` 解析出标签名元组。
+
+    gh 的 labels 结构是对象数组（每项含 name/color/description）；这里只取 name，缺失/None
+    容错为空。get_issue / list_issues 共用，保证 Issue.labels 解析单一来源。
+    """
+    return tuple((label or {}).get("name") or "" for label in raw.get("labels") or [])
 
 
 def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
@@ -218,16 +249,18 @@ def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
     并集（OR）语义处理（任一命中即返回）。复用决策 3 的 gh 子进程封装与既有 Issue
     数据模型，不新增数据类型（CLAUDE.md 理念 1）。
     """
-    args = ["issue", "list", "--state", state, "--json", "number,title,body"]
+    args = ["issue", "list", "--state", state, "--json", "number,title,body,labels"]
     for label in labels:
         args += ["--label", label]
     data = _gh_json(args, allow_returncodes=set())
     rows = data if isinstance(data, list) else []
+    # Spec-0039/T1：--json 增 labels 并解析，使发现段闸 3 能直接读 issue.labels 快检认领标签。
     return [
         Issue(
             number=int(raw["number"]),
             title=raw.get("title") or "",
             body=raw.get("body") or "",
+            labels=_parse_label_names(raw=raw),
         )
         for raw in rows
     ]
@@ -406,6 +439,71 @@ def remove_label(*, pr_number: int, name: str) -> None:
         if _is_label_absent(reason=str(exc)):
             return
         raise
+
+
+def issue_add_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：给 issue 打标签（`gh issue edit <n> --add-label <name>`），与 add_label 对称。
+
+    add_label / remove_label / has_label 都作用于 **PR**（`gh pr edit/view`），而发现段的
+    认领对象是 **issue**，故补一组走 `gh issue edit/view` 的 issue 级操作。认领打标经
+    issue_stamp_label（remove-then-add）复用本函数。失败由 _run_gh 抛 GithubError。
+    """
+    _run_gh(["issue", "edit", str(number), "--add-label", name], allow_returncodes=set())
+
+
+def issue_remove_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：摘掉 issue 上的标签（`gh issue edit <n> --remove-label <name>`）。
+
+    与 remove_label（PR 版）对称、复用同一 _is_label_absent 幂等识别：标签本就不在时 gh 以
+    非零退出并报「not found / does not have ... label / does not exist」——吞掉视为成功 no-op
+    （PR 已开出后清理认领标签、或人已手动摘除时不报错）。其它 gh 错误照常抛 GithubError。
+    """
+    try:
+        _run_gh(["issue", "edit", str(number), "--remove-label", name], allow_returncodes=set())
+    except GithubError as exc:
+        if _is_label_absent(reason=str(exc)):
+            return
+        raise
+
+
+def issue_stamp_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：给 issue「盖」认领标签——remove-then-add，保证产生一个全新的 `labeled` 事件。
+
+    为什么不能直接 `--add-label`：对已带该标签的 issue 再 add 是 no-op，**不刷新时间线时戳**；
+    而认领年龄取该标签最近 `labeled` 事件的 created_at，若不刷新，回收僵尸认领（对已带标签的
+    issue 重新认领）后会立刻又被判过期而抖动。故先幂等 remove（吞「本不在」）、再 add，使每次
+    认领都在时间线上落一个新的 `labeled` 事件，让「认领年龄」对首次认领与重新认领都有良定义。
+    """
+    issue_remove_label(number=number, name=name)
+    issue_add_label(number=number, name=name)
+
+
+def issue_label_age_seconds(*, number: int, name: str) -> float | None:
+    """Spec-0039/T1：issue 上某标签最近一次 `labeled` 事件距今的秒数；无该事件返回 None。
+
+    走 `gh api repos/{owner}/{repo}/issues/<n>/timeline`（跨后端共享的时钟），筛出 event==
+    "labeled" 且 label.name==name 的事件，取最近一条 created_at（ISO 8601，字典序即时序），
+    返回 `now - created_at` 秒数。供发现段判「认领是否过期（僵尸认领）」——仅在「带认领标签且
+    远端无分支」这一罕见路径调用，不拖慢常态扫描。timeline 默认取近 100 条事件（认领标签在
+    去重场景下总是新近打上，足够覆盖；不 --paginate 以保持 JSON 单次可解析）。
+    """
+    data = _gh_json(
+        ["api", f"{_REPO_PLACEHOLDER}/issues/{number}/timeline?per_page=100"],
+        allow_returncodes=set(),
+    )
+    rows = data if isinstance(data, list) else []
+    stamps = [
+        str(event.get("created_at") or "")
+        for event in rows
+        if str(event.get("event") or "") == "labeled"
+        and (event.get("label") or {}).get("name") == name
+        and event.get("created_at")
+    ]
+    if not stamps:
+        return None
+    latest = max(stamps)  # ISO 8601 → 字典序即时间序，取最近一次 labeled
+    stamped_at = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+    return (datetime.now(UTC) - stamped_at).total_seconds()
 
 
 def _is_label_absent(*, reason: str) -> bool:

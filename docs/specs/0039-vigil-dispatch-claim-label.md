@@ -7,7 +7,7 @@ summary: 给发现段加一道跨后端可见的 GitHub「已派发」认领标�
 tasks:
   - id: T1
     title: github 认领原语层
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: ensure_prerequisites 自举含 openagents-dispatching；Issue.labels 由 list_issues/get_issue 正确解析；issue_stamp_label 产生新 labeled 事件、issue_label_age_seconds 返回其秒龄（无则 None）；issue_remove_label 幂等吞「标签本不在」；ruff+pytest 全绿。
   - id: T2
     title: 发现段第 3 道闸 + 过期回收
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: 带认领标签且未过期的 issue 判 None（跳过）；带标签但龄>T 且无分支判 fresh（回收）；无标签且无记录无分支仍判 fresh；resume/已开PR 分支不受影响；T 可配；ruff+pytest 全绿。
   - id: T3
     title: start_rfc 认领打标与清理
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: fresh 路径认领在 begin_run 后、backend.run 前发生（顺序可测）；PR 开出后认领标签被摘；打/摘失败不吞噬既有 OrchestratorError 隔离语义；单后端行为与今日一致；ruff+pytest 全绿。
   - id: T4
     title: 端到端去重成果测试（含浏览器看板断言）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
