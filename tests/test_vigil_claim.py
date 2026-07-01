@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from openagents import github, vigil
-from openagents.github import DISPATCH_LABEL, Issue
+from openagents.github import DISPATCH_LABEL, GithubError, Issue
 from openagents.state import STATUS_SOLVING, RunRecord
 from openagents.vigil import CLAIM_EXPIRY_SECONDS, Vigil
 
@@ -79,6 +79,20 @@ def test_claim_age_none_is_treated_as_not_expired(monkeypatch):
     # 取不到时戳（None）→ 保守判未过期 → 跳过，不误回收活后端的认领。
     _patch_no_remote_branch(monkeypatch)
     _patch_age(monkeypatch, age=None)
+    issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
+
+    assert _vigil()._dispatch_kind(issue=issue) is None
+
+
+def test_timeline_error_does_not_raise_and_is_treated_as_not_expired(monkeypatch):
+    # 时间线 API 抛 GithubError（gh < 2.42/限流/权限）→ _dispatch_kind 不上抛（否则掀翻整轮
+    # 发现、饿死其后所有 issue 与本轮 PR 轮询，破坏决策 8）→ 保守判未过期 → 跳过。
+    _patch_no_remote_branch(monkeypatch)
+
+    def _boom(*, number, name):
+        raise GithubError("gh timeline failed")
+
+    monkeypatch.setattr(github, "issue_label_age_seconds", _boom)
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
     assert _vigil()._dispatch_kind(issue=issue) is None

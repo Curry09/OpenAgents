@@ -157,8 +157,18 @@ class Vigil:
         issue 时间线上最近一次 labeled 事件的秒龄（跨后端共享时钟），超过 CLAIM_EXPIRY_SECONDS
         即判过期。取不到时戳（None，标签被人工动过等罕见情形）保守判「未过期」——宁可让占坑多留
         一轮、也不误回收把活后端的认领抢掉（重复派单）。
+
+        时间线 API 失败（GithubError，如 gh < 2.42 不支持 --slurp、权限/限流）同样保守判「未过期」
+        而**不上抛**：本方法经 _dispatch_kind 在 discover_and_dispatch 的 per-issue try/except
+        **之外**被调用（vigil.py:115），若在此抛错会掀翻整轮发现——毒丸 issue 会永久饿死其后所有
+        issue 派单与本轮 PR 轮询（破坏决策 8「单 issue 失败不拖垮整轮」）。与 None 分支同源语义：
+        取不到年龄证据 → 宁可占坑多留一轮，也不误回收、更不阵亡整轮。
         """
-        age = github.issue_label_age_seconds(number=issue.number, name=github.DISPATCH_LABEL)
+        try:
+            age = github.issue_label_age_seconds(number=issue.number, name=github.DISPATCH_LABEL)
+        except GithubError as exc:
+            self._log(message=f"… issue #{issue.number} 认领时间线查询失败，保守判未过期：{exc}")
+            return False
         if age is None:
             return False
         return age > CLAIM_EXPIRY_SECONDS
