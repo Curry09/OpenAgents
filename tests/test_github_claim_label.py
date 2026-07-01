@@ -276,5 +276,30 @@ def test_issue_label_age_seconds_none_on_empty_timeline(monkeypatch):
     assert issue_label_age_seconds(number=9, name=DISPATCH_LABEL) is None
 
 
+def test_issue_label_age_seconds_paginates_and_finds_labeled_in_tail(monkeypatch):
+    # Spec-0039/T1 边界：timeline 端点按时间升序返回，认领 labeled 事件落在尾部（>100 条之后）。
+    # 必须 `--paginate --slurp` 拉全部页才能取到——否则老 issue 的僵尸认领永远回收不掉（永久卡死）。
+    # --slurp 输出为「数组的数组」：第一页全是旧的 commented 事件，labeled 在末页尾部。
+    page1 = [{"event": "commented", "created_at": "2000-01-01T00:00:00Z"} for _ in range(100)]
+    page2 = [
+        {"event": "commented", "created_at": "2001-01-01T00:00:00Z"},
+        {
+            "event": "labeled",
+            "label": {"name": DISPATCH_LABEL},
+            "created_at": "2001-06-01T00:00:00Z",
+        },
+    ]
+    runner = _fake_run(stdout=json.dumps([page1, page2]))
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    age = issue_label_age_seconds(number=9, name=DISPATCH_LABEL)
+
+    # 取到了尾部那条 labeled（2001）→ 非 None、正秒龄；僵尸认领得以被回收（不产生永久卡死）。
+    assert age is not None and age > 0
+    # 请求确实带上了 --paginate --slurp（跨全部页取，不被单页 100 条截断）。
+    cmd = runner.calls[-1]
+    assert "--paginate" in cmd and "--slurp" in cmd
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

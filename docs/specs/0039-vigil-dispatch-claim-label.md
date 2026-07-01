@@ -143,7 +143,7 @@ return None
 1. **第 4 个流程标签**：`DISPATCH_LABEL = "openagents-dispatching"`，并入 `PROCESS_LABELS`；`ensure_prerequisites()` 遍历自举，无需改动（新增标签自动被 `ensure_label` 预建）。
 2. **issue 级标签操作**（与既有 PR 版对称，走 `gh issue edit/view`）：`issue_add_label` / `issue_remove_label`（幂等吞「标签本不在」，复用既有 `_is_label_absent`）/ `issue_stamp_label`（remove-then-add）。
 3. **Issue 携带 labels**：`Issue` dataclass 增 `labels: tuple[str, ...] = ()`（带默认值，既有 `Issue(number,title,body)` 构造零改动）；`list_issues` / `get_issue` 的 `--json` 增 `labels` 字段并解析 `[l["name"] for l in raw.get("labels") or []]`。发现段的闸 3 快检直接读 `issue.labels`，**不额外发一次网络请求**。
-4. **认领年龄**：`issue_label_age_seconds(number, name)` —— 走 `gh api repos/{owner}/{repo}/issues/N/timeline`，取该 label 最近 `labeled` 事件 `created_at`，返回距今秒数（无该事件返回 `None`）。仅在「带标签且无分支」时调用（罕见路径），不拖慢常态扫描。
+4. **认领年龄**：`issue_label_age_seconds(number, name)` —— 走 `gh api repos/{owner}/{repo}/issues/N/timeline --paginate --slurp`，跨全部页取该 label 最近 `labeled` 事件 `created_at`，返回距今秒数（无该事件返回 `None`）。**必须翻页**：timeline 端点固定按时间升序返回、不支持排序，单页只取最旧 100 条，而认领 `labeled` 事件总在时间线尾部；对「打标前已积累 >100 条事件」的老 issue（vigil 恰会派单这类）若不翻页会错判 `None` → 僵尸认领永久卡死。仅在「带标签且无分支」时调用（罕见路径），不拖慢常态扫描。
 
 ### 过期阈值 T
 

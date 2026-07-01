@@ -484,18 +484,32 @@ def issue_label_age_seconds(*, number: int, name: str) -> float | None:
     走 `gh api repos/{owner}/{repo}/issues/<n>/timeline`（跨后端共享的时钟），筛出 event==
     "labeled" 且 label.name==name 的事件，取最近一条 created_at（ISO 8601，字典序即时序），
     返回 `now - created_at` 秒数。供发现段判「认领是否过期（僵尸认领）」——仅在「带认领标签且
-    远端无分支」这一罕见路径调用，不拖慢常态扫描。timeline 默认取近 100 条事件（认领标签在
-    去重场景下总是新近打上，足够覆盖；不 --paginate 以保持 JSON 单次可解析）。
+    远端无分支」这一罕见路径调用，不拖慢常态扫描。
+
+    必须 `--paginate`：timeline 端点固定按**时间升序**（最旧在前）返回、且不支持排序/倒序参数，
+    单页 `per_page=100` 只取**最旧的 100 条**事件；而认领 `labeled` 事件总在时间线**尾部**（新近
+    打上）。对「打认领标签前已积累 >100 条事件」的老 issue（vigil 恰会派单这类），不翻页就取不到
+    那条 labeled → 错判 None → 僵尸认领永远回收不掉、认领永久卡死。故 `--paginate --slurp` 拉全部
+    页（`--slurp` 把各页数组包成「数组的数组」，保持单次 JSON 可解析），跨全页取 max(created_at)。
     """
     data = _gh_json(
-        ["api", f"{_REPO_PLACEHOLDER}/issues/{number}/timeline?per_page=100"],
+        [
+            "api",
+            f"{_REPO_PLACEHOLDER}/issues/{number}/timeline?per_page=100",
+            "--paginate",
+            "--slurp",
+        ],
         allow_returncodes=set(),
     )
-    rows = data if isinstance(data, list) else []
+    # --slurp 输出为「数组的数组」（每页一个数组）；无分页/单页时也可能是「事件数组」。逐层摊平。
+    rows: list[Any] = []
+    for item in data if isinstance(data, list) else []:
+        rows.extend(item) if isinstance(item, list) else rows.append(item)
     stamps = [
         str(event.get("created_at") or "")
         for event in rows
-        if str(event.get("event") or "") == "labeled"
+        if isinstance(event, dict)
+        and str(event.get("event") or "") == "labeled"
         and (event.get("label") or {}).get("name") == name
         and event.get("created_at")
     ]
