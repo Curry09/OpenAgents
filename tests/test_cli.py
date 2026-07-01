@@ -73,6 +73,9 @@ def _patch_ensure(monkeypatch):
         return fake
 
     monkeypatch.setattr("openagents.cli.ensure_project", fake_ensure)
+    # Spec-0039/T3：rfc/vigil 入口现会自举 ensure_prerequisites（预建流程标签）——默认打成 no-op
+    # 保持 CLI 单测不触达真实 gh；需要观测调用的用例（如 rfc/vigil preflight）再各自 re-patch 记录。
+    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
     return calls
 
 
@@ -99,6 +102,28 @@ def test_rfc_runs_preflight_then_opens_draft_pr(monkeypatch):
     code = main(["rfc", "1"])
     assert code == 0
     assert calls == [True]
+
+
+def test_rfc_bootstraps_prerequisites_before_start_rfc(monkeypatch):
+    # Spec-0039/T3：start_rfc 现走 _claim_issue 给 issue 打 DISPATCH_LABEL 认领标签，而
+    # `gh issue edit --add-label` 对仓库中不存在的标签报 not found。故 `oa rfc` 必须像 vigil 一样
+    # 在入口先幂等预建流程标签——否则未 `oa init` 的仓库上 rfc 首派单必抛 GithubError（回归）。
+    _patch_ensure(monkeypatch)
+    order = []
+    monkeypatch.setattr(
+        "openagents.github.ensure_prerequisites", lambda: order.append("prerequisites")
+    )
+
+    class _FakeOrch:
+        def start_rfc(self, *, issue_number, base):
+            order.append("start_rfc")
+            return _FakePR()
+
+    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    code = main(["rfc", "1"])
+    assert code == 0
+    # 预建流程标签必须发生在起草（→ 认领打标）之前，恰一次。
+    assert order == ["prerequisites", "start_rfc"]
 
 
 def test_rfc_passes_base_override(monkeypatch):
