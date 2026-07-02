@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+from openagents import blocknote
 from openagents import messages as messages_module
 from openagents.github import CheckStatus, GithubError, Mergeability
 from openagents.hold import Hold
@@ -717,8 +718,9 @@ def test_spec_gate_hold_with_human_label_still_implements(monkeypatch):
     assert any(e["reason"] == "approved" for e in events)
 
 
-def test_merge_gate_hold_does_not_merge_and_keeps_open(monkeypatch):
-    # merge 闸 hold：CI 绿 + reviewer PASS → 不调 merge_pr、状态不变（停在待人 merge）。
+def test_merge_gate_hold_does_not_merge_and_freezes(monkeypatch):
+    # Spec-0041/T1：merge 闸 hold + reviewer PASS → 不调 merge_pr，但**夯住**（取代旧的「状态不变、
+    # 停在 pr-open 空转」）：置 blocked + 打 needs-human + 贴成功文案 + gate=merge-hold。
     msgs, orch, state = _make(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)], code_decision=_PASS
     )
@@ -726,12 +728,18 @@ def test_merge_gate_hold_does_not_merge_and_keeps_open(monkeypatch):
 
     events = msgs.poll(hold=_HOLD_MERGE)
 
-    # reviewer 评审照跑，但不自动合并、不动状态。
+    # reviewer 评审照跑，但不自动合并、不关 issue。
     assert orch.review_code_calls == [5]
     assert rec["merged"] == []
     assert rec["closed_issues"] == []
-    assert state.status_updates == []
-    assert any(e["reason"] == "hold-merge" for e in events)
+    # 夯住：blocked + needs-human + 成功文案（非失败模板）。
+    assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
+    assert (5, BLOCKED_LABEL) in rec["labels"]
+    assert state.all_runs()[0].block_gate == "merge-hold"
+    assert len(rec["comments"]) == 1
+    assert rec["comments"][0]["body"] == blocknote.build_hold_merge_pass()
+    assert "卡住了" not in rec["comments"][0]["body"]
+    assert events == [{"pr_number": 5, "reason": "hold-merge", "gate": "merge-hold"}]
 
 
 def test_merge_gate_hold_human_merge_reconciles_done_next_round(monkeypatch):
@@ -747,7 +755,8 @@ def test_merge_gate_hold_human_merge_reconciles_done_next_round(monkeypatch):
 
 
 def test_both_gates_hold_stop_at_each(monkeypatch):
-    # spec,merge 组合：rfc-review 停在 spec 闸、pr-open 停在 merge 闸。
+    # spec,merge 组合：rfc-review 停在 spec 闸（不动状态）；pr-open PASS 后停在 merge 闸——
+    # Spec-0041/T1：merge 闸从「不动状态」改为「夯住」，故 issue 4 转 blocked。
     msgs, orch, state = _make(
         runs=[
             _run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW),
@@ -761,7 +770,9 @@ def test_both_gates_hold_stop_at_each(monkeypatch):
     assert orch.review_rfc_calls == []
     assert orch.implement_calls == []
     assert rec["merged"] == []
-    assert state.status_updates == []
+    # spec 闸不动 issue 3；merge 闸夯住 issue 4。
+    assert state.status_updates == [{"issue_number": 4, "status": STATUS_BLOCKED}]
+    assert state.all_runs()[1].block_gate == "merge-hold"
     reasons = {e["reason"] for e in events}
     assert reasons == {"hold-spec", "hold-merge"}
 

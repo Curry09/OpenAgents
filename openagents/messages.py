@@ -271,8 +271,9 @@ class Messages:
         - rfc/rfc-unparseable → refine_rfc(detail, announce=False)（内部置 rfc-review）+ 清残留
           block_gate + **引用原评论贴回 agent 回应**（Spec-0036/T5：announce=False 抑制泛化广播，
           换成一条针对性回应）。
-        - code/code-unparseable → iterate(reason="human", detail)（内部置 iterating）+ 清残留
-          block_gate + **引用原评论贴回 agent 回应**。
+        - code/code-unparseable/merge-hold → iterate(reason="human", detail)（内部置 iterating）+ 清残留
+          block_gate + **引用原评论贴回 agent 回应**。Spec-0041/T1：merge-hold（hold-merge 夯住）与
+          code* 同款——人在已通过 PR 上回评论 = 想据评论继续改。
         - merge → 不直接喂解冲突器，按 armed 语义恢复 pr-open、**保留** block_gate="merge" 作标记
           （reset_rounds 已清 merge_attempts 给满预算），并 set_unblock_detail 把评论正文存进 state
           供下一轮 armed 解冲突当 guidance + 回应时引用（Spec-0036/T5）。**本轮不回应**（动作尚未发生，
@@ -291,7 +292,9 @@ class Messages:
             )
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)
-        elif gate in ("code", "code-unparseable"):
+        elif gate in ("code", "code-unparseable", "merge-hold"):
+            # Spec-0041/T1（决策 B）：merge-hold（hold-merge 夯住）与 code* 同款——人在这个已通过、
+            # 健康的 PR 上回评论 = 想让写码 agent 据评论继续改，故 iterate(reason="human", detail)。
             summary = self._orchestrator.iterate(pr_number=pr_number, reason="human", detail=detail)
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)
@@ -424,11 +427,13 @@ class Messages:
         # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
         decision = self._orchestrator.review_code(pr_number=pr_number)
         if decision.passed:
-            # Spec-0020/T3：merge 闸 hold——CI / reviewer 评审照跑，但 reviewer PASS 后不自动
-            # merge_pr，停在「待人 merge」（PR 保持 open、本轮不动状态），把最后一下留给人。
-            # 人手动 merge 后，下一轮 poll 的 is_merged 分支照常 reconcile 成 done（既有逻辑）。
+            # Spec-0041/T1：merge 闸 hold——CI / reviewer 评审照跑，但 reviewer PASS 后不自动
+            # merge_pr，改为**夯住**：置 blocked + needs-human + 贴成功文案（决策 A）。blocked 不在
+            # _OPEN_STATUSES → 下一轮 poll 自动跳过、不再重审，从根上消除同码复审震荡（取代
+            # Spec-0020/T3 的「停在 pr-open 空转、下轮重审」旧行为）。人点合并/回评论/撕标签三出口
+            # 全复用既有机制（is_merged reconcile / merge-hold→iterate / _unblock_by_label）。
             if hold.at_merge:
-                return {"pr_number": pr_number, "reason": "hold-merge"}
+                return self._hold_merge_freeze(record=record)
             github.merge_pr(pr_number=pr_number)
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
@@ -552,6 +557,35 @@ class Messages:
             issue_number=record.issue_number, watermark=self._latest_created_at(pr_number=pr_number)
         )
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
+
+    def _hold_merge_freeze(self, *, record: RunRecord) -> dict:
+        """Spec-0041/T1（决策 A）：hold-merge PASS 后夯住待合并——成功文案 + 置 BLOCKED + 标签 + 水位线。
+
+        复用 _block 的冻结骨架（同次序：先贴评论 → add_label → update_status(BLOCKED) →
+        set_block_gate → set_block_watermark），但两处不同：
+        1. 贴 blocknote.build_hold_merge_pass() 的「✅ 已通过评审，待你合并」成功文案（**非** _block 的
+           「🤖 卡住了」失败模板），经 identity.post_signed_comment 盖签名（→ 解挂读侧 new_human_comments
+           按签名滤掉它、不自触发）。
+        2. gate 设自描述的 "merge-hold"（非复用 "code"——见 spec 决策 B/备选 4）：运维看 block_gate
+           即知「这条 blocked 不是评审失败、而是通过后待合并」，且 _unblock_with_comment 据此走
+           iterate(reason="human")。set_block_watermark 落挂起时刻最新评论 createdAt（含刚贴的成功
+           评论），供解挂环只认水位线之后的新人类评论。
+
+        STATUS_BLOCKED 不在 _OPEN_STATUSES → 下一轮 poll 自动跳过、不再重审（反震荡的根）。
+        """
+        pr_number = record.pr_number
+        # 贴成功文案（沿用 _block 的「先评论、后置状态」次序）。盖本实例签名 → 解挂读侧滤掉、不自触发。
+        body = blocknote.build_hold_merge_pass()
+        identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
+        # 副作用先行、state 落盘后行（与 _block 同理，issue #47）：add_label 失败则 state 未变 blocked，
+        # 下一轮仍当 open 自然重试，避免「state=blocked 但 PR 无标签」的双源发散。
+        github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        self._state.set_block_gate(issue_number=record.issue_number, gate="merge-hold")
+        self._state.set_block_watermark(
+            issue_number=record.issue_number, watermark=self._latest_created_at(pr_number=pr_number)
+        )
+        return {"pr_number": pr_number, "reason": "hold-merge", "gate": "merge-hold"}
 
     def _latest_created_at(self, *, pr_number: int) -> str:
         """Spec-0032/T5：取 PR 当前最新评论的 createdAt（无评论返回 ""）——供 _block 落水位线。
