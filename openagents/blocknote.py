@@ -50,3 +50,26 @@ def build(*, gate: str, tried: str, blocker: str) -> str:
 def _as_quote(*, text: str) -> str:
     """把多行文本逐行包成 markdown 引用块（每行前缀 "> "）。私有纯函数，调用方显式传参。"""
     return "\n".join(f"> {line}" for line in text.splitlines())
+
+
+# Spec-0041/T2：hold-merge PASS 后「夯住待合并」的成功文案固定串。语气为成功待合并——
+# 与 build 的「🤖 卡住了」失败模板并列但语义相反：这条不是求救，是「已通过、只差你点合并」。
+# 两条指引对齐 merge-hold 的两个人触发出口（messages 决策 A/B）：点合并 → is_merged reconcile
+# 成 done；回评论 → merge-hold gate 走 iterate(reason="human") 据评论继续。
+_HOLD_MERGE_HEADER = "✅ 已通过评审，待你合并"
+_HOLD_MERGE_BODY = (
+    "本 PR 已通过代码评审闸，且当前以 `--hold merge` 运行——最后一下的合并留给你。\n\n"
+    "**你可以怎么做**：\n"
+    "- **点合并即完成**：在本 PR 上手动合并，我下一轮就会把 issue 收口为完成。\n"
+    "- **回评论即据此继续**：若还想改，直接回一条评论，我会据此让写码 agent 继续迭代。"
+)
+
+
+def build_hold_merge_pass() -> str:
+    """Spec-0041/T2：产出「✅ 已通过评审，待你合并」的签名前正文（纯函数，不含签名、无 IO）。
+
+    与 build 的四段失败模板并列的成功文案：hold-merge PASS 冻结时由 messages 贴出（经
+    identity.post_signed_comment 盖签名）。明确「点合并即完成 / 回评论即据此继续」两条指引，
+    不含任何失败/求救措辞。既有 build / _GATE_REASONS 不改（零回归）。
+    """
+    return f"{_HOLD_MERGE_HEADER}\n\n{_HOLD_MERGE_BODY}"
