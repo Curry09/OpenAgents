@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from openagents import backfill, e2e, github, identity, reviewer
+from openagents import backfill, e2e, github, identity, issuecheck, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
 from openagents.spec import signpost, validate
@@ -229,6 +229,39 @@ class Orchestrator:
         # 去重信号（vigil 闸 2 接管），摘标签保持 issue 干净。清理尽力而为、不阻断已开出的 PR。
         self._release_claim(issue_number=issue.number)
         return pr
+
+    # --- 原子操作 0：进 RFC 前的自洽性自检（Spec-0043/T3）---------------- #
+    def precheck_issue(self, *, issue_number: int) -> bool:
+        """Spec-0043/T3：判读 issue 是否有会直接影响修法的内在冲突；命中则冻结并返回 True。
+
+        命中冲突 → 打 needs-human 标签 + 贴一条署名对齐评论（请人取舍），返回 True（表示已拦下、
+        调用方 vigil 发现段勿再派单）；自洽 → 返回 False（放行照常起草）。判读**在建 worktree /
+        begin_run / 认领之前**——被拦的 issue 全程不落任何本地/远端起草痕迹（无 worktree、无 run
+        记录、无 spec、无 draft PR），干净可回溯（spec 决策 C）。
+
+        orchestrator 是唯一同时持有 backend / agent_id 的位置，判读 + 打标签 + 贴署名评论落在这里；
+        「拦下→跳过派单」的控制流决策留在 vigil 发现段（spec 决策 E / 备选 5）。冻结全程复用既有
+        原语：backend 判读、issuecheck 渲染、issue_comment + identity.sign 贴署名评论、
+        issue_add_label 打 BLOCKED_LABEL（值即 needs-human）——不新增 state 字段、不改起草 prompt。
+        """
+        self._progress(message=f"▶ 自检 issue #{issue_number} 修法方向是否自洽 …")
+        issue = github.get_issue(number=issue_number)
+        verdict = issuecheck.check(
+            draft=issuecheck.IssueDraft(title=issue.title, body=issue.body),
+            backend=self._backend,
+        )
+        if not verdict.has_conflict:
+            return False
+        self._progress(
+            message=f"⏸ issue #{issue_number}：检出修法方向冲突，打 {github.BLOCKED_LABEL} 待对齐 …"
+        )
+        body = issuecheck.build_alignment_comment(verdict=verdict)
+        github.issue_comment(
+            number=issue_number,
+            body=identity.sign(body=body, agent_id=self._agent_id),
+        )
+        github.issue_add_label(number=issue_number, name=github.BLOCKED_LABEL)
+        return True
 
     def _claim_issue(self, *, issue_number: int) -> None:
         """Spec-0039/T3：给 issue 盖认领标签（remove-then-add，刷新时间线时戳）。

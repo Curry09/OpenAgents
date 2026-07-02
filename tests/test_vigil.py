@@ -28,6 +28,10 @@ class _StubOrchestrator:
         self.started = []
         self._fail_on = set(fail_on)
 
+    def precheck_issue(self, *, issue_number):
+        # Spec-0043/T3：这些既有用例的 issue 均自洽 → 放行；precheck 专项断言见 test_vigil_precheck_gate。
+        return False
+
     def start_rfc(self, *, issue_number, base, resume=False):
         self.started.append((issue_number, base, resume))
         if issue_number in self._fail_on:
