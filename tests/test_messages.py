@@ -129,6 +129,12 @@ class _FakeState:
             if record.issue_number == issue_number:
                 record.block_watermark = watermark
 
+    def set_closed_at(self, *, issue_number, when):
+        # Spec-0042/T3：is_closed 分支置 closed 同时打 closed_at 时间戳（复活窗口起点）。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.closed_at = when
+
     def increment_merge_attempts(self, *, issue_number):
         # Spec-0031/T2：镜像 increment_rounds，但计 armed 模式 agent 解冲突重试次数。
         for record in self._runs:
