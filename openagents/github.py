@@ -752,7 +752,7 @@ def list_open_prs() -> list[PR]:
     """RFC-0009 T1：列出仓库当前所有 open PR（`gh pr list --state open --json number,url`）。
 
     以 GitHub 为真源，覆盖面比本地 State（只含 openagents 自建的 run）更全，对人工建的
-    PR 也成立——供合并后自动同步扇出（rebase_open_prs）枚举待更新的 PR。无则返回 []。
+    PR 也成立——供拉式同步下 poll 循环枚举当前待处理的 open PR。无则返回 []。
     复用既有 PR 数据类与 _gh_json 封装，不新增数据类型（CLAUDE.md 理念 1）。
     """
     data = _gh_json(
@@ -778,7 +778,7 @@ def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
     返回 True 表示分支已被更新；返回 False 表示「已是最新」no-op——gh 在分支已与 base
     同步时以非零退出并报 "already up to date" 之类信息，这里吞掉视为成功（与 ensure_label
     吞 "already exists"、check_status 吞 "no checks reported" 同一容错风格，决策 5）。
-    冲突或其它失败照常抛 GithubError，供 rebase_open_prs 捕获后留言（决策 4）。
+    冲突或其它失败照常抛 GithubError，供拉式同步调用方（messages 可合并性预检）捕获后留言（决策 4）。
     """
     args = ["pr", "update-branch", str(pr_number)]
     if rebase:

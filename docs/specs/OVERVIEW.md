@@ -112,7 +112,7 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0043 issue 进入 RFC 前自检标题/正文是否影响修法：命中冲突先打 needs-human 对齐、不直接生成 spec
 在 vigil 发现段派单 start_rfc 之前插一道 issuecheck 轻量自检：用注入 backend 判读 issue 标题/正文是否存在「会直接影响修法」的内在冲突（标题修法≠正文修法、根因≠修法、互斥修法未取舍、修 A 报 B、已知取舍未声明）；命中则不起草 spec，改为打 needs-human + 贴一条列出冲突点与候选修法的对齐评论，等人对齐；未命中照常派单。以 needs-human 标签为持久冻结信号（_dispatch_kind 跳过），使同一 issue 的非确定判读只跑一次、不复审震荡。
 
-### 0044 Spec-0037 后清理旧 rebase/indexheal 口径
+### 0045 Spec-0037 后清理旧 rebase/indexheal 口径
 扫掉 rebase.py/indexheal.py/sync-prs 删除后残留在 openagents/tests 注释里的 rebase_open_prs、rebase.CONFLICT_COMMENT、indexheal→conflict→人工 等活文档口径，让注释与拉式同步现状对齐
 
 ## 全局看板
@@ -267,11 +267,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0043 | 0043/T2 | issuecheck 判读模块（裁决 + 对齐评论渲染） | done | — | openagents/issuecheck.py<br>tests/test_issuecheck.py |
 | 0043 | 0043/T3 | precheck 接线（orchestrator 前置 + vigil 发现段闸） | done | T1, T2 | openagents/orchestrator.py<br>openagents/vigil.py<br>tests/test_orchestrator_precheck.py<br>tests/test_vigil_precheck_gate.py |
 | 0043 | 0043/T4 | 端到端成果测试（#106 回归 + 浏览器对齐评论断言） | done | T3 | scripts/e2e-spec-0043-issue-conflict-precheck.sh<br>tests/test_issue_precheck_integration.py |
-| 0044 | 0044/T1 | conflictdiag 诊断模块去 rebase 口径 | pending | — | openagents/conflictdiag.py |
-| 0044 | 0044/T2 | conflict 模块去 indexheal 降级链口径 | pending | — | openagents/conflict.py |
-| 0044 | 0044/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | pending | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
-| 0044 | 0044/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | pending | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
-| 0044 | 0044/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | pending | T1, T2, T3, T4 | scripts/e2e-spec-0044-cleanup-stale-idioms.sh |
+| 0045 | 0045/T1 | conflictdiag 诊断模块去 rebase 口径 | done | — | openagents/conflictdiag.py |
+| 0045 | 0045/T2 | conflict 模块去 indexheal 降级链口径 | done | — | openagents/conflict.py |
+| 0045 | 0045/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | done | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
+| 0045 | 0045/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | done | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
+| 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
 
 ## 跨 feature 关系图
 
@@ -497,12 +497,12 @@ graph LR
         n0043_T3["T3 precheck 接线（orchestrator 前置 + vigil 发现段闸）"]
         n0043_T4["T4 端到端成果测试（#106 回归 + 浏览器对齐评论断言）"]
     end
-    subgraph G0044[0044 cleanup-rebase-indexheal-stale-idioms]
-        n0044_T1["T1 conflictdiag 诊断模块去 rebase 口径"]
-        n0044_T2["T2 conflict 模块去 indexheal 降级链口径"]
-        n0044_T3["T3 邻接 runtime 注释扫尾（github/messages/orchestrator）"]
-        n0044_T4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
-        n0044_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
+    subgraph G0045[0045 cleanup-rebase-indexheal-stale-idioms]
+        n0045_T1["T1 conflictdiag 诊断模块去 rebase 口径"]
+        n0045_T2["T2 conflict 模块去 indexheal 降级链口径"]
+        n0045_T3["T3 邻接 runtime 注释扫尾（github/messages/orchestrator）"]
+        n0045_T4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
+        n0045_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -633,10 +633,10 @@ graph LR
     n0043_T3 --> n0043_T1
     n0043_T3 --> n0043_T2
     n0043_T4 --> n0043_T3
-    n0044_T5 --> n0044_T1
-    n0044_T5 --> n0044_T2
-    n0044_T5 --> n0044_T3
-    n0044_T5 --> n0044_T4
+    n0045_T5 --> n0045_T1
+    n0045_T5 --> n0045_T2
+    n0045_T5 --> n0045_T3
+    n0045_T5 --> n0045_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -660,14 +660,14 @@ graph LR
 | openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038 |
 | openagents/config.py | 0001, 0029, 0033 |
-| openagents/conflict.py | 0028, 0036, 0038, 0044 |
-| openagents/conflictdiag.py | 0034, 0038, 0044 |
+| openagents/conflict.py | 0028, 0036, 0038, 0045 |
+| openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0044 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0041, 0042, 0044 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0043, 0044 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0041, 0042, 0045 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0043, 0045 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -694,19 +694,19 @@ graph LR
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038 |
-| tests/test_conflict_guidance.py | 0036, 0038, 0044 |
+| tests/test_conflict_guidance.py | 0036, 0038, 0045 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0044 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0045 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
 | tests/test_messages_conflict_diag.py | 0034, 0038 |
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
-| tests/test_messages_resolve.py | 0028, 0029, 0038, 0044 |
+| tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
@@ -1767,7 +1767,7 @@ graph LR
     class v_T4_1 st_done;
 ```
 
-### 0044 Spec-0037 后清理旧 rebase/indexheal 口径（issue #110）
+### 0045 Spec-0037 后清理旧 rebase/indexheal 口径（issue #110）
 
 ```mermaid
 graph LR
@@ -1791,10 +1791,10 @@ graph LR
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
-    class v_T5_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```

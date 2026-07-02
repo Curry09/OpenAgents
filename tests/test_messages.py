@@ -225,7 +225,7 @@ def _patch_github(
         "close_issue",
         lambda *, number: rec["closed_issues"].append(number),
     )
-    # 拉式同步重构后合并分支不再扇出（push 扇出已撤），无需再桩 rebase_open_prs。
+    # 拉式同步重构后合并分支不再主动扇出（push 扇出已撤），无需再桩合并后同步入口。
     return rec
 
 
@@ -1000,7 +1000,7 @@ def _patch_github_labels(monkeypatch, *, merged=False, closed=False, labels=()):
         "add_label",
         lambda *, pr_number, name: rec["labels"].append((pr_number, name)),
     )
-    # 拉式同步重构后合并分支不再扇出，无需再桩 rebase_open_prs。
+    # 拉式同步重构后合并分支不再主动扇出，无需再桩合并后同步入口。
     return rec
 
 
