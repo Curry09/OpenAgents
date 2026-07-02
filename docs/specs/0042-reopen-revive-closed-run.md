@@ -7,7 +7,7 @@ summary: poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（
 tasks:
   - id: T1
     title: state：closed_at 字段 + set_closed_at setter
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: closed_at 缺省值使 RunRecord(**旧记录) 不报错；set_closed_at 落盘 closed_at、when='' 清空、与 block_gate/block_watermark/merge_attempts 互不干扰；由 tests/test_state_closed_at.py hermetic 覆盖（含旧记录兜底）；ruff check + format --check + pytest 全绿。
   - id: T2
     title: github：is_open / is_draft 只读薄封装
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: is_open 对 OPEN 返 True、CLOSED/MERGED 返 False；is_draft 对 draft PR 返 True、转正 PR 返 False；返回非预期结构抛 GithubError（与 has_label 同风格）；由 tests/test_github_is_open_draft.py（monkeypatch _run_gh/_gh_json）覆盖；既有 is_closed/is_merged/has_label 逐字节不变；ruff check + format --check + pytest 全绿。
   - id: T3
     title: messages：复活窗口守卫 + reopen 复活 reconcile
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: close→置 closed 并打 closed_at 戳(仅转移时)；下一轮仍 closed 被扫描但 is_open=False→return None 且不重打戳、不复活；reopen(is_open=True) draft→复活 rfc-review、转正/rfc-approved→复活 pr-open，清 closed_at、返回 reopened 事件、下轮正常处理；超窗口/无 closed_at 的 closed run 不进 _process_run(不发 gh)、不复活；is_merged 恒 done 不复活；非 closed 路径逐字节不变(零回归)；由 tests/test_messages_reopen_revive.py 覆盖；ruff+format+pytest 全绿。
   - id: T4
     title: 端到端成果测试（含浏览器看板『close→reopen 复活』断言）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

@@ -253,10 +253,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0041 | 0041/T3 | 净化 reviewer scratchpad | done | — | openagents/reviewer.py<br>tests/test_reviewer_feedback_distill.py |
 | 0041 | 0041/T1 | hold-merge 夯住 + merge-hold 解挂路由 | done | T2 | openagents/messages.py<br>tests/test_messages_hold_merge_freeze.py |
 | 0041 | 0041/T4 | 端到端成果测试（含浏览器看板「冻结后稳定」断言） | done | T1, T2, T3 | scripts/e2e-spec-0041-hold-merge-freeze.sh<br>tests/test_hold_merge_freeze_integration.py |
-| 0042 | 0042/T1 | state：closed_at 字段 + set_closed_at setter | pending | — | openagents/state.py<br>tests/test_state_closed_at.py |
-| 0042 | 0042/T2 | github：is_open / is_draft 只读薄封装 | pending | — | openagents/github.py<br>tests/test_github_is_open_draft.py |
-| 0042 | 0042/T3 | messages：复活窗口守卫 + reopen 复活 reconcile | pending | T1, T2 | openagents/messages.py<br>tests/test_messages_reopen_revive.py |
-| 0042 | 0042/T4 | 端到端成果测试（含浏览器看板『close→reopen 复活』断言） | pending | T1, T2, T3 | scripts/e2e-spec-0042-reopen-revive-closed-run.sh<br>tests/test_reopen_revive_integration.py |
+| 0042 | 0042/T1 | state：closed_at 字段 + set_closed_at setter | done | — | openagents/state.py<br>tests/test_state_closed_at.py |
+| 0042 | 0042/T2 | github：is_open / is_draft 只读薄封装 | done | — | openagents/github.py<br>tests/test_github_is_open_draft.py |
+| 0042 | 0042/T3 | messages：复活窗口守卫 + reopen 复活 reconcile | done | T1, T2 | openagents/messages.py<br>tests/test_messages_reopen_revive.py |
+| 0042 | 0042/T4 | 端到端成果测试（含浏览器看板『close→reopen 复活』断言） | done | T1, T2, T3 | scripts/e2e-spec-0042-reopen-revive-closed-run.sh<br>tests/test_reopen_revive_integration.py |
 
 ## 跨 feature 关系图
 
@@ -1697,9 +1697,9 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

@@ -701,6 +701,38 @@ def is_closed(*, pr_number: int) -> bool:
     return str(data.get("state") or "").upper() == "CLOSED"
 
 
+def is_open(*, pr_number: int) -> bool:
+    """Spec-0042/T2：PR 当前是否为 OPEN（`gh pr view <n> --json state` == "OPEN"）。
+
+    与 is_merged / is_closed 对称——GitHub PR 的 state 有 OPEN / CLOSED / MERGED 三态且互斥。
+    供消息层识别「reopen」：本地已置 closed 的 run，其 PR 若在 GitHub 上又变回 OPEN 即为被重开，
+    据此复活该 run（close 可逆，与不可逆的 merged 相反）。不改既有函数（零回归）。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "state"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return str(data.get("state") or "").upper() == "OPEN"
+
+
+def is_draft(*, pr_number: int) -> bool:
+    """Spec-0042/T2：PR 当前是否为 draft（`gh pr view <n> --json isDraft`）。
+
+    供消息层在 reopen 复活时推断阶段：draft PR（RFC 未批、代码未写完）→ 复活到 rfc-review；
+    已转正 PR → 复活到 pr-open。与 has_label(rfc-approved) 互为旁证。isDraft 缺失/非布尔视为
+    非预期结构（比照 is_closed 抛 GithubError）。不改既有函数（零回归）。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "isDraft"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict) or not isinstance(data.get("isDraft"), bool):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return data["isDraft"]
+
+
 def list_open_prs() -> list[PR]:
     """RFC-0009 T1：列出仓库当前所有 open PR（`gh pr list --state open --json number,url`）。
 
