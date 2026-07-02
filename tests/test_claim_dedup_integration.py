@@ -72,6 +72,10 @@ class RaceOrchestrator:
         self._on_draft = on_draft
         self.claimed_snapshots = []  # 记录「认领窗口内 issue 的标签」供断言
 
+    def precheck_issue(self, *, issue_number):
+        # Spec-0043/T3：认领去重用例的 issue 均自洽 → 放行（不干扰竞态窗口断言）。
+        return False
+
     def start_rfc(self, *, issue_number, base, resume=False):
         branch = f"{_BRANCH_PREFIX}{issue_number}"
         self._state.begin_run(issue_number=issue_number, branch=branch)
@@ -97,6 +101,10 @@ class RecordingOrchestrator:
 
     def __init__(self):
         self.started = []
+
+    def precheck_issue(self, *, issue_number):
+        # Spec-0043/T3：过期回收子用例只关心 fresh/None 判定，issue 自洽 → 放行。
+        return False
 
     def start_rfc(self, *, issue_number, base, resume=False):
         self.started.append(issue_number)

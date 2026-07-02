@@ -7,7 +7,7 @@ summary: 在 vigil 发现段派单 start_rfc 之前插一道 issuecheck 轻量�
 tasks:
   - id: T1
     title: issue 级评论出口 github.issue_comment
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: issue_comment(number=N, body=B) 调 `gh issue comment N --body B`（monkeypatch _run_gh 断言参数）；gh 失败照抛 GithubError；既有 post_comment 及其它 github 函数逐字节不变（零回归）；ruff+pytest 全绿。
   - id: T2
     title: issuecheck 判读模块（裁决 + 对齐评论渲染）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: '喂 #106 标题/正文样本 + 返回『冲突：是』+两条冲突点/候选修法的 backend 桩 → check 返回 has_conflict=True 且 conflicts/candidate_fixes 含两个修法方向；返回『冲突：否』或空/格式跑偏的桩 → has_conflict=False（fail-open 放行）；build_alignment_comment 产出含冲突点列表+候选修法取舍+『已打 needs-human 请对齐后摘标签』指引、不含 PR 失败文案；模块不做任何 IO（不 import github/argparse）；ruff+pytest 全绿。'
   - id: T3
     title: precheck 接线（orchestrator 前置 + vigil 发现段闸）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -50,7 +50,7 @@ tasks:
     acceptance: precheck_issue 对冲突 issue：调 issue_comment 恰一次(署名)+issue_add_label(needs-human)、返回 True、全程未建 worktree/begin_run；对自洽 issue：返回 False、无评论无标签。vigil：冲突 issue 一轮后 start_rfc 未被调、带 needs-human；带 needs-human 的 issue 经 _dispatch_kind 返回 None 且 precheck 不被调（判读只跑一次）；自洽 issue 正常 start_rfc(零回归)；摘掉 needs-human 后重判为 fresh。ruff+pytest 全绿。
   - id: T4
     title: 端到端成果测试（#106 回归 + 浏览器对齐评论断言）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

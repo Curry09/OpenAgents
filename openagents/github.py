@@ -384,6 +384,21 @@ def post_comment(*, pr_number: int, body: str) -> None:
     )
 
 
+def issue_comment(*, number: int, body: str) -> None:
+    """Spec-0043/T1：给 issue 贴评论（`gh issue comment <number> --body <body>`）。
+
+    post_comment 走 `gh pr comment`（PR 专用）——但 issuecheck 拦下一个 issue 冻结时它**还没有
+    PR**，无从贴评论。补一个对称的 issue 级出口，与 issue_add_label / issue_remove_label /
+    issue_stamp_label 走 `gh issue edit/view` 的 issue 级操作族并列。签名由调用方（orchestrator
+    经 identity.sign）盖——本函数保持「对 gh 的薄封装、不含业务逻辑」（理念 10）。失败由 _run_gh
+    抛 GithubError（自带 RFC-0010 瞬时错误重试）。不改 post_comment 及任何既有函数（零回归）。
+    """
+    _run_gh(
+        ["issue", "comment", str(number), "--body", body],
+        allow_returncodes=set(),
+    )
+
+
 def mark_ready(*, pr_number: int) -> None:
     """RFC-0005 T3（决策 2）：把 draft PR 转正（`gh pr ready <n>`）。
 

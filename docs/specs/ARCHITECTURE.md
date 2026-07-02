@@ -25,6 +25,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
 | `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |
+| `issuecheck.py` | Spec-0043/T2: issue 进 RFC 前的自洽性自检——判读标题/正文是否有「会直接影响修法」的冲突。 |
 | `messages.py` | RFC-0001 T5 + RFC-0005 + RFC-0012: PR 消息机制 + CI 监控，按**阶段**路由 GitHub 事件。 |
 | `orchestrator.py` | RFC-0005: issue → RFC-first → 代码 的原子操作编排（取代单体 solve）。 |
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
@@ -83,6 +84,7 @@ graph LR
     nopenagents_github["openagents.github"]
     nopenagents_hold["openagents.hold"]
     nopenagents_identity["openagents.identity"]
+    nopenagents_issuecheck["openagents.issuecheck"]
     nopenagents_messages["openagents.messages"]
     nopenagents_orchestrator["openagents.orchestrator"]
     nopenagents_release["openagents.release"]
@@ -137,6 +139,7 @@ graph LR
     nopenagents_identity --> nopenagents
     nopenagents_identity --> nopenagents_github
     nopenagents_identity --> nopenagents_state
+    nopenagents_issuecheck --> nopenagents_backends_base
     nopenagents_messages --> nopenagents
     nopenagents_messages --> nopenagents_backends_base
     nopenagents_messages --> nopenagents_blocknote
@@ -154,6 +157,7 @@ graph LR
     nopenagents_orchestrator --> nopenagents_e2e
     nopenagents_orchestrator --> nopenagents_github
     nopenagents_orchestrator --> nopenagents_identity
+    nopenagents_orchestrator --> nopenagents_issuecheck
     nopenagents_orchestrator --> nopenagents_reviewer
     nopenagents_orchestrator --> nopenagents_spec
     nopenagents_orchestrator --> nopenagents_spec_signpost

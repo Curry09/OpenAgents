@@ -118,6 +118,16 @@ class Vigil:
             resume = kind == "resume"
             verb = "恢复孤儿 run" if resume else "派单起草 RFC"
             try:
+                # Spec-0043/T3：fresh issue 派单起草前先自检修法方向是否自洽；命中冲突则冻结
+                # （precheck_issue 已打 needs-human + 贴对齐评论），本轮跳过、不派单。只对 fresh
+                # 判读——resume 是已 precheck 过的孤儿 run，续跑即可、不重判。precheck 的异常纳入
+                # 本 per-issue except 隔离（判读/贴评论失败只跳过该 issue、下轮重试，不拖垮整轮）。
+                if not resume and self._orchestrator.precheck_issue(issue_number=issue.number):
+                    self._log(
+                        message=f"⏸ issue #{issue.number}：检出修法方向冲突，"
+                        "已打 needs-human 待对齐，跳过起草"
+                    )
+                    continue
                 self._log(message=f"▶ issue #{issue.number}：{issue.title} → {verb}")
                 self._orchestrator.start_rfc(issue_number=issue.number, base=base, resume=resume)
                 dispatched.append(issue.number)
@@ -141,6 +151,12 @@ class Vigil:
         record = self._state.find_by_issue(issue_number=issue.number)
         if record is None:
             if self._remote_branch_exists(branch=f"{_BRANCH_PREFIX}{issue.number}"):
+                return None
+            if github.BLOCKED_LABEL in issue.labels:
+                # Spec-0043/T3：已因修法冲突冻结、待人对齐——不再重跑非确定判读（防 issue 级复审
+                # 震荡）。needs-human 是持久冻结信号，人摘掉标签后该 issue 才重新成 fresh 触发重判。
+                # 放在 record is None 分支内是安全的：有 run 记录（已开 PR）的 issue 的 needs-human
+                # 由 messages.poll 处理，_dispatch_kind 对它们本就返回 None。
                 return None
             if github.DISPATCH_LABEL in issue.labels and not self._claim_expired(issue=issue):
                 # 已被别的后端认领且未过期 → 跳过；已过期则落下去视同 fresh 回收。
