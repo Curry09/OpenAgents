@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!--
+  Spec-0044/T4：自包含最小参考页，供本 skill 的浏览器自演示段取证用。
+  刻意零依赖、零网络请求、file:// 直接打开即可——不碰任何生产端口/数据。
+  行为：点击「应用配置」按钮 → 出现一段可见的「已生效」文案（可截图的状态变化）。
+  这是「合格证据长什么样」的活样例：真操作 → 真可见结果 → 截图。
+-->
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>reference-app · e2e 截图取证样例</title>
+    <style>
+      body {
+        font-family: -apple-system, "Segoe UI", sans-serif;
+        max-width: 640px;
+        margin: 48px auto;
+        padding: 0 16px;
+        color: #1a1a1a;
+      }
+      button {
+        font-size: 16px;
+        padding: 10px 20px;
+        border: 1px solid #2563eb;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      #status {
+        margin-top: 24px;
+        font-size: 20px;
+        font-weight: 600;
+        color: #15803d;
+        min-height: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>配置生效演示</h1>
+    <p>点击下面的按钮，模拟一次「配置真生效」的产品对外行为。</p>
+    <button id="apply" type="button">应用配置</button>
+    <!-- data-testid 供浏览器自动化定位；初始为空，点击后填入「已生效」文案。 -->
+    <div id="status" data-testid="status" role="status" aria-live="polite"></div>
+
+    <script>
+      // 纯本地状态变化，无任何 fetch / 网络请求，保证 list_network_requests 断言零失败请求。
+      document.getElementById("apply").addEventListener("click", function () {
+        document.getElementById("status").textContent = "已生效";
+      });
+    </script>
+  </body>
+</html>

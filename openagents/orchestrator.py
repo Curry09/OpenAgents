@@ -59,6 +59,22 @@ _BROWSER_E2E_GUIDANCE = (
     "就优先设计基于浏览器的前端 e2e（导航 / 交互 / 截图 / 断言 / console·network 检查），"
     "而不是仅声明 shell 脚本或跳过；是否具备由你自检自己的工具列表决定。"
 )
+# Spec-0044/T3：把 Spec-0030 的条件式 browser-e2e 引导加强为完整「取证判断纪律」，注入实现/派单
+# prompt。三分类判断（UI 可见→截图 / UI 不可见但改产品行为→运行日志文本 / 纯内部→相称测试）
+# + 反测试顶替 + 反「慢/flaky/投入产出比」借口 + 真跑不起来诚实报阻塞，并指路仓库内 skill 原文。
+# 措辞条件式、由 agent 自检（不宣告「OpenAgents 检测到你有浏览器」）；落 in-code 方法论面，不写
+# .claude/、不耦合具体 MCP 生态（理念 10 解耦；全局硬约束禁写 .claude/）。
+_E2E_EVIDENCE_DISCIPLINE = (
+    "取证判断纪律：你改的行为若是**产品对外行为**，验证就要真 app 跑出来的证据，自检分三类——"
+    "① UI 直接看得到（工具集 / 报错 / 状态 / 页面渲染…）→ 把真 app 跑起来、真操作到那个点、"
+    "**截下那个可视化结果**存进 tracked 证据目录（如 docs/evidence/）；"
+    "② UI 看不到但确实改变产品对外行为（如某配置真生效）→ 真 app 触发它、提交**真实运行日志文本 + "
+    "触发它的真 app 上下文**为证；③ 纯内部实现细节（重构等，不改对外行为）→ 用相称的自动化测试即可。"
+    "纪律：自动化测试 / 后端日志**替代不了**真 app 证据；不许拿「LLM 慢 / flaky / 投入产出比差」当"
+    "跳过借口；**真跑不起来就诚实报「因 X 未验证」的阻塞项，绝不假称已验证**。"
+    "细则（反惰性 rationalization 表 / 通用流程 / 合格证据判据）见仓库内 "
+    "docs/skills/end-to-end-ui-screenshots/。是否适用由你自检自己改的是哪一类行为。"
+)
 _DRAFT_RFC_TASK = (
     "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2"
     "（rust-RFC 形态，总览先行）：\n"
@@ -82,9 +98,11 @@ _REFINE_RFC_TASK = (
 )
 _IMPLEMENT_TASK = (
     "issue #{number} 的 spec 已获批准（rfc-approved）。请阅读 docs/specs/ 下对应 spec 组，"
-    "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。"
+    "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。\n"
+    # Spec-0044/T3：实现阶段注入取证判断纪律（三分类 + 反测试顶替 + 诚实报阻塞 + skill 指路）。
+    + _E2E_EVIDENCE_DISCIPLINE
     # 收尾前先对齐最新 main，把机械冲突就地解掉，别留给 merge 闸机械式报错（issue #48 indexheal 同源）。
-    "\n收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决"
+    + "\n收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决"
     "——`docs/specs/OVERVIEW.md` 这类生成式索引直接 `spec render` 重渲消解、其余语义解决——"
     "确保 PR 处于可干净合并状态，不要把机械冲突留给 merge 闸。"
 )
