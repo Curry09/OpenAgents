@@ -57,6 +57,22 @@ tasks:
       - tests/test_conflict_guidance.py
     scope: test_messages_resolve.py:91 去掉「手动 sync-prs」当活构造路径的说法；test_messages.py:228/1003 的「无需再桩 rebase_open_prs」软化为不提死符号；test_conflict_guidance.py:1-8 顶部说明改 Spec-0037 后口径（guidance 非空拼指导段，guidance+pr_number 拼 reply-comment 工具段，不强调「逐字节同今天」）。不改任何测试断言与逻辑。
     acceptance: tests/ 内 grep 不到 sync-prs 与 rebase_open_prs；三处测试注释改成拉式同步/Spec-0037 后口径；pytest 保持全绿。
+  - id: T5
+    title: 端到端成果测试脚本（组级死口径 grep 归零收口）
+    status: pending
+    priority: P1
+    tags: []
+    depends-on:
+      - T1
+      - T2
+      - T3
+      - T4
+    relates-to: []
+    parallel: false
+    files:
+      - scripts/e2e-spec-0044-cleanup-stale-idioms.sh
+    scope: 新建本 spec 交付的成果测试脚本 scripts/e2e-spec-0044-cleanup-stale-idioms.sh（脚本名对齐既有 e2e-spec-NNNN-slug 约定，理念 8）。内容为 Reference-level「e2e 脚本路径」那段 bash：先跑 ruff check + ruff format --check + pytest -q，再做组级死口径 grep 归零校验——`! grep -rn "rebase_open_prs\|rebase\.CONFLICT_COMMENT" openagents tests`、`! grep -rn "indexheal" openagents`、`! grep -rn "sync-prs" tests`，全过则打印 ALL GREEN。作为 T1–T4 之上的汇合校验，单一 owner 对组级成果负责；只写脚本，不改任何 openagents/tests 源。
+    acceptance: T1–T4 落地后跑 `bash scripts/e2e-spec-0044-cleanup-stale-idioms.sh` 全绿——ruff/pytest 通过且三条死口径 grep 全部归零（无残留），脚本 `set -euo pipefail` 任一段失败即非零退出；脚本被 PR 指路牌拾取。
 ---
 
 # 0044 · Spec-0037 后清理旧 rebase/indexheal 口径
@@ -151,8 +167,9 @@ agent 解决、提 PR，PR 合并进 main 后其余还开着的 PR 需要跟上�
 
 ### DAG + 文件分配
 
-四个 Task 全部是互不重叠的纯注释改写，彼此无代码依赖 → **全并行，无 `depends-on`**。`files` 组内互斥
-（单一 writer 所有权，理念 6）：
+T1–T4 全部是互不重叠的纯注释改写，彼此无代码依赖 → **四者全并行，无 `depends-on`**；T5 是组级成果测试的
+汇合校验，`depends-on: [T1,T2,T3,T4]`——「死口径 grep 归零」逻辑上要等四处清理都完成才成立，故由 T5 单一
+owner 承载、四清理完成后收口。`files` 组内互斥（单一 writer 所有权，理念 6）：
 
 | Task | 标题 | files（互斥） | scope |
 |---|---|---|---|
@@ -160,6 +177,7 @@ agent 解决、提 PR，PR 合并进 main 后其余还开着的 PR 需要跟上�
 | T2 | conflict 模块去 indexheal 降级链 | `openagents/conflict.py` | 问题 2：改写 `indexheal → conflict → 人工` 为语义解冲突叙事 |
 | T3 | 邻接 runtime 注释扫尾 | `openagents/github.py`, `openagents/messages.py`, `openagents/orchestrator.py` | 全仓扫尾：github/messages/orchestrator 里残留的 `rebase_open_prs`/`indexheal` 血缘 |
 | T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | `tests/test_messages_resolve.py`, `tests/test_messages.py`, `tests/test_conflict_guidance.py` | 问题 3 + 扫尾：测试说明改 Spec-0037 后口径 |
+| T5 | 端到端成果测试脚本（组级收口） | `scripts/e2e-spec-0044-cleanup-stale-idioms.sh` | 收口：ruff/pytest 全绿 + 三条死口径 grep 归零，跨 T1–T4 的汇合校验 |
 
 ```mermaid
 graph TD
@@ -167,18 +185,24 @@ graph TD
     T2["T2 conflict.py"]
     T3["T3 github/messages/orchestrator"]
     T4["T4 tests 注释"]
+    T5["T5 e2e 成果测试脚本"]
+    T1 --> T5
+    T2 --> T5
+    T3 --> T5
+    T4 --> T5
 ```
 
-（四点无连边——完全并行。协同模式下可四个 session 各认领一个 Task，因 `files` 不相交而零冲突。）
+（T1–T4 四点无连边——完全并行，协同模式下可四个 session 各认领一个，因 `files` 不相交而零冲突；四者
+落地后由 T5 汇合，产出并跑通组级成果测试脚本。）
 
 ### e2e 脚本路径
 
-`scripts/e2e-issue-110.sh`（本 spec 交付的成果测试脚本，理念 8；PR 路标会自动收录）。内容：
+`scripts/e2e-spec-0044-cleanup-stale-idioms.sh`（本 spec 交付的成果测试脚本，**由本组 T5 产出并持有**，`depends-on: [T1,T2,T3,T4]`——组级「死口径 grep 归零」是跨四个清理 Task 的汇合校验，由 T5 单一 owner 负责；脚本名对齐既有 `e2e-spec-NNNN-slug` 约定，理念 8；PR 路标会自动收录）。内容：
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-# Spec-0044：文档口径清理的成果测试——lint/格式/测试全绿 + 死口径 grep 归零。
+# Spec-0044/T5：文档口径清理的成果测试——lint/格式/测试全绿 + 死口径 grep 归零。
 uv run --extra dev ruff check openagents tests
 uv run --extra dev ruff format --check openagents tests
 uv run --extra dev pytest -q

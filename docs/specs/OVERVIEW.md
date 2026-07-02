@@ -271,6 +271,7 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0044 | 0044/T2 | conflict 模块去 indexheal 降级链口径 | pending | — | openagents/conflict.py |
 | 0044 | 0044/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | pending | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
 | 0044 | 0044/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | pending | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
+| 0044 | 0044/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | pending | T1, T2, T3, T4 | scripts/e2e-spec-0044-cleanup-stale-idioms.sh |
 
 ## 跨 feature 关系图
 
@@ -501,6 +502,7 @@ graph LR
         n0044_T2["T2 conflict 模块去 indexheal 降级链口径"]
         n0044_T3["T3 邻接 runtime 注释扫尾（github/messages/orchestrator）"]
         n0044_T4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
+        n0044_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -631,6 +633,10 @@ graph LR
     n0043_T3 --> n0043_T1
     n0043_T3 --> n0043_T2
     n0043_T4 --> n0043_T3
+    n0044_T5 --> n0044_T1
+    n0044_T5 --> n0044_T2
+    n0044_T5 --> n0044_T3
+    n0044_T5 --> n0044_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1769,6 +1775,11 @@ graph LR
     nT2["T2 conflict 模块去 indexheal 降级链口径"]
     nT3["T3 邻接 runtime 注释扫尾（github/messages/orchestrator）"]
     nT4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
+    nT5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
+    nT1 --> nT5
+    nT2 --> nT5
+    nT3 --> nT5
+    nT4 --> nT5
 ```
 
 演化图：
@@ -1779,9 +1790,11 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
     classDef st_pending fill:#eeeeee;
     class v_T1_1 st_pending;
     class v_T2_1 st_pending;
     class v_T3_1 st_pending;
     class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
