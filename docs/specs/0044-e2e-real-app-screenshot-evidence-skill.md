@@ -7,7 +7,7 @@ summary: 移植反惰性的『端到端跑真 app 并截图』判断/纪律 skil
 tasks:
   - id: T1
     title: 移植 skill 原文 + runbook 模板
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -21,7 +21,7 @@ tasks:
     acceptance: SKILL.md 与 north-coder.md 内容与源逐字一致（含 rationalization 表全部行、case2 vs case3 判据、诚实报阻塞纪律、完成判据清单），非空壳；_runbook-template.md 含「通用方法/项目专属命令」两分区占位；grep 锚点字符串（反惰性 / rationalization / 诚实报阻塞 / 完成判据）全部命中；未新增或改动 .claude/ 下任何文件。
   - id: T2
     title: reviewer rubric 硬化：宣称验证过但无证据 = REWORK
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -34,7 +34,7 @@ tasks:
     acceptance: reviewer rubric 文本含「宣称验证过但无证据 → REWORK」检查项字样，且限定仅在出现端到端/e2e/截图/已验证 UI 类措辞时触发（不误伤纯内部重构 PR）；单测断言 rubric 含该检查项字样；ruff + pytest 全绿。
   - id: T3
     title: 派单 prompt 判断纪律：三分类取证 + 反测试顶替
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -47,7 +47,7 @@ tasks:
     acceptance: orchestrator 派单/实现 prompt 模板含三分类判断字样 + 反测试顶替 + 诚实报阻塞 + docs/skills/end-to-end-ui-screenshots/ 指路；措辞为条件式自检（不含「OpenAgents 检测到你有浏览器」式宣告）；claude_code.py 未被改动；单测断言模板含上述字样；ruff + pytest 全绿。
   - id: T4
     title: e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

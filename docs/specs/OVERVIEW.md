@@ -267,10 +267,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0043 | 0043/T2 | issuecheck 判读模块（裁决 + 对齐评论渲染） | done | — | openagents/issuecheck.py<br>tests/test_issuecheck.py |
 | 0043 | 0043/T3 | precheck 接线（orchestrator 前置 + vigil 发现段闸） | done | T1, T2 | openagents/orchestrator.py<br>openagents/vigil.py<br>tests/test_orchestrator_precheck.py<br>tests/test_vigil_precheck_gate.py |
 | 0043 | 0043/T4 | 端到端成果测试（#106 回归 + 浏览器对齐评论断言） | done | T3 | scripts/e2e-spec-0043-issue-conflict-precheck.sh<br>tests/test_issue_precheck_integration.py |
-| 0044 | 0044/T1 | 移植 skill 原文 + runbook 模板 | pending | — | docs/skills/end-to-end-ui-screenshots/SKILL.md<br>docs/skills/end-to-end-ui-screenshots/references/north-coder.md<br>docs/skills/end-to-end-ui-screenshots/references/_runbook-template.md |
-| 0044 | 0044/T2 | reviewer rubric 硬化：宣称验证过但无证据 = REWORK | pending | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0044 | 0044/T3 | 派单 prompt 判断纪律：三分类取证 + 反测试顶替 | pending | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
-| 0044 | 0044/T4 | e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引 | pending | T1, T2, T3 | scripts/e2e-spec-0044-e2e-screenshot-skill.sh<br>docs/skills/end-to-end-ui-screenshots/README.md<br>docs/skills/end-to-end-ui-screenshots/examples/reference-app.html |
+| 0044 | 0044/T1 | 移植 skill 原文 + runbook 模板 | done | — | docs/skills/end-to-end-ui-screenshots/SKILL.md<br>docs/skills/end-to-end-ui-screenshots/references/north-coder.md<br>docs/skills/end-to-end-ui-screenshots/references/_runbook-template.md |
+| 0044 | 0044/T2 | reviewer rubric 硬化：宣称验证过但无证据 = REWORK | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0044 | 0044/T3 | 派单 prompt 判断纪律：三分类取证 + 反测试顶替 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0044 | 0044/T4 | e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引 | done | T1, T2, T3 | scripts/e2e-spec-0044-e2e-screenshot-skill.sh<br>docs/skills/end-to-end-ui-screenshots/README.md<br>docs/skills/end-to-end-ui-screenshots/examples/reference-app.html |
 
 ## 跨 feature 关系图
 
@@ -1785,9 +1785,9 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

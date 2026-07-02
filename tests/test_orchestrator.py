@@ -46,6 +46,24 @@ def test_draft_and_backfill_templates_have_conditional_browser_e2e_guidance():
         assert "检测到你有浏览器" not in template
 
 
+def test_implement_task_has_e2e_evidence_discipline():
+    # Spec-0044/T3：实现 prompt 含完整取证判断纪律——三分类 + 反测试顶替 + 诚实报阻塞 +
+    # docs/skills/end-to-end-ui-screenshots/ 指路；措辞为条件式自检，不含「检测到你有浏览器」式宣告。
+    template = orch_module._IMPLEMENT_TASK
+    # 三分类判断字样。
+    assert "三类" in template or "分三类" in template
+    assert "UI 直接看得到" in template and "UI 看不到但确实改变产品对外行为" in template
+    assert "纯内部实现细节" in template
+    # 反测试顶替 + 反借口。
+    assert "替代不了" in template and "跳过借口" in template
+    # 诚实报阻塞。
+    assert "诚实报" in template and "绝不假称已验证" in template
+    # skill 指路 + 条件式自检、不宣告。
+    assert "docs/skills/end-to-end-ui-screenshots/" in template
+    assert "由你自检" in template
+    assert "检测到你有浏览器" not in template
+
+
 class _GitRecorder:
     """subprocess.run 替身，记录所有 git 命令并返回成功。"""
 
