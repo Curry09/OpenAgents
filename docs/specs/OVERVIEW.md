@@ -106,6 +106,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
 reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
 
+### 0042 PR close→reopen 后复活被冻死的 run：closed 不是真终态
+poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）时按 draft→rfc-review / 转正→pr-open 复活它、清 closed 续跑既有流程；用 closed_at 复活窗口把「每轮对所有历史 closed run 发 gh 查 reopen」的成本上界住，超窗口即真终态；is_merged 仍是不可逆终态不参与复活。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -250,6 +253,10 @@ reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」
 | 0041 | 0041/T3 | 净化 reviewer scratchpad | done | — | openagents/reviewer.py<br>tests/test_reviewer_feedback_distill.py |
 | 0041 | 0041/T1 | hold-merge 夯住 + merge-hold 解挂路由 | done | T2 | openagents/messages.py<br>tests/test_messages_hold_merge_freeze.py |
 | 0041 | 0041/T4 | 端到端成果测试（含浏览器看板「冻结后稳定」断言） | done | T1, T2, T3 | scripts/e2e-spec-0041-hold-merge-freeze.sh<br>tests/test_hold_merge_freeze_integration.py |
+| 0042 | 0042/T1 | state：closed_at 字段 + set_closed_at setter | pending | — | openagents/state.py<br>tests/test_state_closed_at.py |
+| 0042 | 0042/T2 | github：is_open / is_draft 只读薄封装 | pending | — | openagents/github.py<br>tests/test_github_is_open_draft.py |
+| 0042 | 0042/T3 | messages：复活窗口守卫 + reopen 复活 reconcile | pending | T1, T2 | openagents/messages.py<br>tests/test_messages_reopen_revive.py |
+| 0042 | 0042/T4 | 端到端成果测试（含浏览器看板『close→reopen 复活』断言） | pending | T1, T2, T3 | scripts/e2e-spec-0042-reopen-revive-closed-run.sh<br>tests/test_reopen_revive_integration.py |
 
 ## 跨 feature 关系图
 
@@ -463,6 +470,12 @@ graph LR
         n0041_T1["T1 hold-merge 夯住 + merge-hold 解挂路由"]
         n0041_T4["T4 端到端成果测试（含浏览器看板「冻结后稳定」断言）"]
     end
+    subgraph G0042[0042 reopen-revive-closed-run]
+        n0042_T1["T1 state：closed_at 字段 + set_closed_at setter"]
+        n0042_T2["T2 github：is_open / is_draft 只读薄封装"]
+        n0042_T3["T3 messages：复活窗口守卫 + reopen 复活 reconcile"]
+        n0042_T4["T4 端到端成果测试（含浏览器看板『close→reopen 复活』断言）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -584,6 +597,11 @@ graph LR
     n0041_T4 --> n0041_T1
     n0041_T4 --> n0041_T2
     n0041_T4 --> n0041_T3
+    n0042_T3 --> n0042_T1
+    n0042_T3 --> n0042_T2
+    n0042_T4 --> n0042_T1
+    n0042_T4 --> n0042_T2
+    n0042_T4 --> n0042_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -611,9 +629,9 @@ graph LR
 | openagents/conflictdiag.py | 0034, 0038 |
 | openagents/e2e.py | 0013, 0029 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0041 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0041, 0042 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
@@ -628,7 +646,7 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039 |
 | openagents/workspace.py | 0005, 0008, 0029 |
@@ -1654,4 +1672,34 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0042 PR close→reopen 后复活被冻死的 run：closed 不是真终态（issue #108）
+
+```mermaid
+graph LR
+    nT1["T1 state：closed_at 字段 + set_closed_at setter"]
+    nT2["T2 github：is_open / is_draft 只读薄封装"]
+    nT3["T3 messages：复活窗口守卫 + reopen 复活 reconcile"]
+    nT4["T4 端到端成果测试（含浏览器看板『close→reopen 复活』断言）"]
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
 ```
