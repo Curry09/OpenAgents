@@ -103,6 +103,9 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0039 vigil 多后端并发派单去重：引入「已派发」认领标签（第 3 道闸 + 过期回收）
 给发现段加一道跨后端可见的 GitHub「已派发」认领标签闸，把同一 issue 被多后端重复派单的概率压到可接受，并用标签事件时戳做过期回收兜底僵尸认领。
 
+### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
+reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -243,6 +246,10 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0039 | 0039/T2 | 发现段第 3 道闸 + 过期回收 | done | T1 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0039 | 0039/T3 | start_rfc 认领打标与清理 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator_claim.py |
 | 0039 | 0039/T4 | 端到端去重成果测试（含浏览器看板断言） | done | T2, T3 | scripts/e2e-spec-0039-vigil-claim-dedup.sh<br>tests/test_claim_dedup_integration.py |
+| 0041 | 0041/T2 | 「✅ 已通过评审，待你合并」成功文案 | done | — | openagents/blocknote.py<br>tests/test_blocknote_hold_merge.py |
+| 0041 | 0041/T3 | 净化 reviewer scratchpad | done | — | openagents/reviewer.py<br>tests/test_reviewer_feedback_distill.py |
+| 0041 | 0041/T1 | hold-merge 夯住 + merge-hold 解挂路由 | done | T2 | openagents/messages.py<br>tests/test_messages_hold_merge_freeze.py |
+| 0041 | 0041/T4 | 端到端成果测试（含浏览器看板「冻结后稳定」断言） | done | T1, T2, T3 | scripts/e2e-spec-0041-hold-merge-freeze.sh<br>tests/test_hold_merge_freeze_integration.py |
 
 ## 跨 feature 关系图
 
@@ -450,6 +457,12 @@ graph LR
         n0039_T3["T3 start_rfc 认领打标与清理"]
         n0039_T4["T4 端到端去重成果测试（含浏览器看板断言）"]
     end
+    subgraph G0041[0041 hold-merge-freeze]
+        n0041_T2["T2 「✅ 已通过评审，待你合并」成功文案"]
+        n0041_T3["T3 净化 reviewer scratchpad"]
+        n0041_T1["T1 hold-merge 夯住 + merge-hold 解挂路由"]
+        n0041_T4["T4 端到端成果测试（含浏览器看板「冻结后稳定」断言）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -567,6 +580,10 @@ graph LR
     n0039_T3 --> n0039_T1
     n0039_T4 --> n0039_T2
     n0039_T4 --> n0039_T3
+    n0041_T1 --> n0041_T2
+    n0041_T4 --> n0041_T1
+    n0041_T4 --> n0041_T2
+    n0041_T4 --> n0041_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -587,6 +604,7 @@ graph LR
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
+| openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038 |
@@ -595,13 +613,13 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0041 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0041 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024 |
@@ -1590,6 +1608,35 @@ graph LR
     nT4["T4 端到端去重成果测试（含浏览器看板断言）"]
     nT1 --> nT2
     nT1 --> nT3
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡（issue #106）
+
+```mermaid
+graph LR
+    nT2["T2 「✅ 已通过评审，待你合并」成功文案"]
+    nT3["T3 净化 reviewer scratchpad"]
+    nT1["T1 hold-merge 夯住 + merge-hold 解挂路由"]
+    nT4["T4 端到端成果测试（含浏览器看板「冻结后稳定」断言）"]
+    nT2 --> nT1
+    nT1 --> nT4
     nT2 --> nT4
     nT3 --> nT4
 ```
