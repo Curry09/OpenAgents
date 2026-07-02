@@ -173,11 +173,17 @@ class Orchestrator:
             # RFC-0007 决策 2：复用崩溃残留 worktree，接着断点继续，不重写 begin_run。
             self._progress(message=f"▶ 恢复孤儿 run：复用 issue #{issue_number} 既有 worktree …")
             worktree = self._workspace.ensure(issue_number=issue_number, branch=branch)
+            # Spec-0039/T3：resume 路径 ensure 认领标签在位——孤儿 run 仍在推进，重打标签既刷新
+            # 认领年龄（避免被跨后端过期回收误抢），又对首次崩前尚未打标的情形补上认领。
+            self._claim_issue(issue_number=issue_number)
         else:
             self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
             worktree = self._workspace.prepare(issue_number=issue_number, branch=branch, base=base)
             # 进入即记 run（PR 尚未开），崩溃后可据此恢复定位。
             self._state.begin_run(issue_number=issue_number, branch=branch)
+            # Spec-0039/T3：认领打标——贴近本地 checkpoint（begin_run 后可 resume）、又在耗时起草
+            # 之前（把跨后端 check-then-claim 窗口从「起草时长」压到「建 worktree」）。
+            self._claim_issue(issue_number=issue_number)
 
         self._progress(message="▶ 调起后端起草 RFC（可能需要几分钟）…")
         self._backend.run(
@@ -219,7 +225,34 @@ class Orchestrator:
         self._state.record_run(
             issue_number=issue.number, branch=branch, pr=pr, status=STATUS_RFC_REVIEW
         )
+        # Spec-0039/T3（决策 E）：draft PR 开出后摘认领标签——此时远端分支 + draft PR 本身已是
+        # 去重信号（vigil 闸 2 接管），摘标签保持 issue 干净。清理尽力而为、不阻断已开出的 PR。
+        self._release_claim(issue_number=issue.number)
         return pr
+
+    def _claim_issue(self, *, issue_number: int) -> None:
+        """Spec-0039/T3：给 issue 盖认领标签（remove-then-add，刷新时间线时戳）。
+
+        写点在 begin_run 之后、backend.run 之前（见 start_rfc）。**不吞任何异常**：认领是派单的
+        前置去重信号，stamp 失败（gh 穿透 RFC-0010 重试后仍败）即抛 GithubError 上抛，由 vigil
+        发现段的既有 per-issue 隔离（except OrchestratorError/GithubError）兜住——本轮跳过该 issue、
+        下一轮重试，绝不带着「没打上认领标签」继续起草（那正是重复派单的根）。不吞噬既有隔离语义。
+        """
+        self._progress(message=f"▶ 认领 issue #{issue_number}（贴 {github.DISPATCH_LABEL} 标签）…")
+        github.issue_stamp_label(number=issue_number, name=github.DISPATCH_LABEL)
+
+    def _release_claim(self, *, issue_number: int) -> None:
+        """Spec-0039/T3（决策 E）：draft PR 开出后摘认领标签——尽力而为，绝不阻断已开出的 PR。
+
+        此刻远端分支 + draft PR 已是去重信号（vigil 闸 2 接管），认领标签使命完成。清理是 PR 开出
+        之后的收尾：任何 gh 故障只记进度并吞掉（残留标签无害，闸 2 已覆盖去重、过期回收兜底），
+        与 _post_e2e_result / _post_review_decision 同一「主交付已完成、旁路尽力而为」风格。只吞
+        GithubError（issue_remove_label 自带「标签本不在」幂等），不触碰上层 OrchestratorError 隔离。
+        """
+        try:
+            github.issue_remove_label(number=issue_number, name=github.DISPATCH_LABEL)
+        except github.GithubError as error:
+            self._progress(message=f"⚠ 摘认领标签失败（已忽略，残留标签无害）：{error}")
 
     # --- 原子操作 1bis：brownfield 反向补全 RFC（Spec-0025/T2）----------- #
     def backfill_rfc(self, *, path: str, base: str = DEFAULT_BASE) -> github.PR:

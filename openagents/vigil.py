@@ -33,6 +33,12 @@ from openagents.state import STATUS_SOLVING
 # 与 orchestrator 一致的分支命名：单 issue → 单分支。
 _BRANCH_PREFIX = "openagents/issue-"
 
+# Spec-0039/T2：认领过期阈值（秒）——带认领标签但远端仍无分支、且标签龄超过它 → 判「僵尸认领」
+# 允许回收（视同 fresh 重新认领）。默认 1 小时：同后端崩溃已由本地 begin_run + resume 兜住，
+# 过期回收只针对跨后端的死后端，误回收（把仍在慢速起草的活后端判过期）代价只是重复派单一次，
+# 故取「足够大于最坏起草时长」的保守值。模块级常量、单处可配（理念 1，见 spec Unresolved）。
+CLAIM_EXPIRY_SECONDS = 3600
+
 
 class Vigil:
     """RFC-0004：守夜人——主动发现新 issue 并派单，同时守候已开 PR。"""
@@ -121,22 +127,51 @@ class Vigil:
         return dispatched
 
     def _dispatch_kind(self, *, issue: github.Issue) -> str | None:
-        """RFC-0007 决策 1/3/6：据本地 State + 远端分支把 issue 归类为 fresh / resume / 跳过。
+        """RFC-0007 决策 1/3/6 + Spec-0039/T2：据本地 State + 远端分支 + 认领标签归类 fresh / resume / 跳过。
 
-        返回 "fresh" | "resume" | None：
-          - 无 run 记录 → 远端无分支才 "fresh"（去重闸 c：远端已有分支但无 run 视为在途，跳过）。
-          - solving 且 pr_number==0 → "resume"（崩在起草/push/建 PR 段的孤儿 run）。
-          - 其它（已带 PR：rfc-review/pr-open/iterating/done/closed）→ None，交 poll。
-        resume 路径刻意不查远端分支去重闸——复用同名分支正是目的（决策 6(c)）。
+        返回 "fresh" | "resume" | None，无 run 记录时按三道去重闸依次判定：
+          - 闸 2——远端已有分支 → None（在途，交 poll；resume 路径不受此闸约束）。
+          - 闸 3（Spec-0039 新增）——issue 带 DISPATCH_LABEL 认领标签：未过期 → None（别的后端
+            正在起草，跳过）；已过期（僵尸认领，标签龄 > CLAIM_EXPIRY_SECONDS，且远端无分支上一闸
+            已确认）→ 落到 "fresh" 回收重新认领。
+          - 三闸都不命中 → "fresh"。
+        solving 且 pr_number==0 → "resume"（崩在起草/push/建 PR 段的孤儿 run）；该分支先于
+        record is None 判定，故 resume 语义完全不受认领闸影响（决策 6(c)）。
         """
         record = self._state.find_by_issue(issue_number=issue.number)
         if record is None:
             if self._remote_branch_exists(branch=f"{_BRANCH_PREFIX}{issue.number}"):
                 return None
+            if github.DISPATCH_LABEL in issue.labels and not self._claim_expired(issue=issue):
+                # 已被别的后端认领且未过期 → 跳过；已过期则落下去视同 fresh 回收。
+                return None
             return "fresh"
         if record.status == STATUS_SOLVING and record.pr_number == 0:
             return "resume"
         return None
+
+    def _claim_expired(self, *, issue: github.Issue) -> bool:
+        """Spec-0039/T2：认领标签是否已过期（僵尸认领）——用于回收「领了没人干」的死后端占坑。
+
+        仅在「带认领标签且远端无分支」（_dispatch_kind 上一闸已确认）时调用：取该认领标签在
+        issue 时间线上最近一次 labeled 事件的秒龄（跨后端共享时钟），超过 CLAIM_EXPIRY_SECONDS
+        即判过期。取不到时戳（None，标签被人工动过等罕见情形）保守判「未过期」——宁可让占坑多留
+        一轮、也不误回收把活后端的认领抢掉（重复派单）。
+
+        时间线 API 失败（GithubError，如 gh < 2.42 不支持 --slurp、权限/限流）同样保守判「未过期」
+        而**不上抛**：本方法经 _dispatch_kind 在 discover_and_dispatch 的 per-issue try/except
+        **之外**被调用（vigil.py:115），若在此抛错会掀翻整轮发现——毒丸 issue 会永久饿死其后所有
+        issue 派单与本轮 PR 轮询（破坏决策 8「单 issue 失败不拖垮整轮」）。与 None 分支同源语义：
+        取不到年龄证据 → 宁可占坑多留一轮，也不误回收、更不阵亡整轮。
+        """
+        try:
+            age = github.issue_label_age_seconds(number=issue.number, name=github.DISPATCH_LABEL)
+        except GithubError as exc:
+            self._log(message=f"… issue #{issue.number} 认领时间线查询失败，保守判未过期：{exc}")
+            return False
+        if age is None:
+            return False
+        return age > CLAIM_EXPIRY_SECONDS
 
     def _remote_branch_exists(self, *, branch: str) -> bool:
         """决策 3(c)：远端是否已存在该 issue 分支（State 丢失时的兜底）。"""

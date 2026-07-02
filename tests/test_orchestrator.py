@@ -220,6 +220,9 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
+    # Spec-0039/T3：start_rfc 现会打/摘认领标签，mock 掉避免真实 gh 调用（本用例只验 worktree 路径）。
+    monkeypatch.setattr(orch_module.github, "issue_stamp_label", lambda *, number, name: None)
+    monkeypatch.setattr(orch_module.github, "issue_remove_label", lambda *, number, name: None)
     begin_calls = []
     monkeypatch.setattr(
         state, "begin_run", lambda *, issue_number, branch: begin_calls.append(issue_number)
@@ -246,6 +249,9 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
+    # Spec-0039/T3：resume 路径也 ensure 认领标签在位，mock 掉避免真实 gh 调用。
+    monkeypatch.setattr(orch_module.github, "issue_stamp_label", lambda *, number, name: None)
+    monkeypatch.setattr(orch_module.github, "issue_remove_label", lambda *, number, name: None)
     begin_calls = []
     monkeypatch.setattr(
         state, "begin_run", lambda *, issue_number, branch: begin_calls.append(issue_number)
