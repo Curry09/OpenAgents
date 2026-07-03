@@ -136,6 +136,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 
 ### 0050 Review 不通过理由增强可读性：强制 reviewer 反馈输出为一段简短中文
 在 reviewer 的 _RUBRIC_TAIL 输出格式规约里加一条硬要求——REASON/ISSUES/NEXT 等所有面向人类的裁决理由必须用一段简短的中文书写（直击要害、避免长篇英文堆砌），让人能在 GitHub 评审评论里直接读懂并处理；配套单测锚定该文本 + 浏览器成果 e2e（把真实评审评论渲染出来、截图并断言反馈摘要为简短中文）。
+- e2e 粗规划（ui）：reviewer 的裁决理由（反馈摘要）落在 GitHub PR 评论这个浏览器可见界面上，必须是盯 PR 的人能一眼读懂并据此处理的一段简短中文，而非长篇英文堆砌。
+  - 验收行为：用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown → GitHub 风格 HTML 页 → playwright 导航打开 → 截图存 tracked docs/evidence/spec-0050/。
+  - 验收行为：browser_evaluate 抽「反馈摘要」块文本，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值（「简短中文」的机器可验证操作化判据），并核 console 无报错。
+  - 验收行为：RED 反证：同一断言喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照截图一并存证，证明绿非恒真。
 
 ## 全局看板
 
