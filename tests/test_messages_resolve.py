@@ -88,7 +88,7 @@ def _messages(*, runs, work_dir="/repo", base="main", backend=None):
 
 
 def test_make_resolver_none_without_backend():
-    # work_dir + base 齐但无 backend（如手动 sync-prs / 老夹具）→ None（不偷烧 token）。
+    # work_dir + base 齐但无 backend（如缺后端配置 / 老夹具）→ None（不偷烧 token）。
     msgs = _messages(runs=[_run()], backend=None)
     assert msgs._make_resolver() is None
 

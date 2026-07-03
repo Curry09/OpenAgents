@@ -1,7 +1,7 @@
 """Spec-0036/T3：conflict.resolve_branch / resolve 的 guidance 入参单元测试。
 
 git 与 backend 全部注入桩，保持 hermetic（不触达真实 git / 真实 LLM）。覆盖：
-- guidance=""（缺省）时喂给 backend 的 task 逐字节同今天（零回归，不含指导段）；
+- guidance=""（缺省）时喂给 backend 的 task 不拼「人类对本次解冲突的指导」段（拉式同步语义解冲突的默认口径）；
 - guidance 非空时该文本出现在喂给 backend 的 task 里（拼进「人类对本次解冲突的指导」段）；
 - resolve_branch / make_resolver 的 resolve 返回 ResolveOutcome（resolved + reply，__bool__ 兼容）；
 - make_resolver 的 resolve 把 guidance 透传给 resolve_branch。

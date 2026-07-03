@@ -1,17 +1,17 @@
 """Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。
 
-issue #92 的根：所有「合并冲突」通知今天都拿 `rebase.CONFLICT_COMMENT` 一句永不带诊断的静态串
+issue #92 的根：所有「合并冲突」通知今天都拿 `conflictdiag.CONFLICT_COMMENT` 一句永不带诊断的静态串
 当正文——结构上答不出「具体什么 conflict」。本模块用 **`git merge-tree --write-tree
 origin/<base> origin/<head>`**（git 2.38+，不 checkout、不动工作区、不建 worktree）在对象库里算出
 某 PR 分支并入目标分支会撞哪些文件、每个冲突文件的关键 hunk 摘要，产出一段结构化 markdown
-（冲突文件清单 + 关键 hunk 摘要 + 卡在哪一步），供 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段。
+（冲突文件清单 + 关键 hunk 摘要 + 卡在哪一步），供 merge 闸挂起评论的「卡在哪」段复用。
 
 三件事，全部**安全降级**（任何异常吞成「空诊断」，绝不上抛——诊断只是优化，绝不因「想给诊断」让
-挂起/扇出本身失败，见 Reference-level「防自循环 / 安全不变式」）：
+挂起评论本身失败，见 Reference-level「防自循环 / 安全不变式」）：
 - collect：跑 merge-tree + 解析为 ConflictDiag（注入 run，hermetic 可测）。
 - format_blocker：纯函数把 ConflictDiag 渲成「卡在哪」段；空诊断退回等价 CONFLICT_COMMENT 的兜底文案。
 - make_diagnoser：IO 工厂（与 conflict.make_resolver 同构），返回 diagnose(*, pr_number)->str 闭包，
-  供 rebase_open_prs / messages 注入。
+  供 messages._make_diagnoser / merge 闸复用。
 
 证据（CLAUDE.md 理念 7/8）：实测 git 2.39 `git merge-tree --write-tree HEAD <branch>` 冲突时 stdout 为
 首行 tree OID + 若干 `<mode> <object> <stage>\t<path>` 行 + 信息段，冲突标记落在写入的 tree blob 里
@@ -111,7 +111,7 @@ def format_blocker(*, diag: ConflictDiag, step: str) -> str:
     """Spec-0034/T1：把 ConflictDiag 渲成「卡在哪」段 markdown（纯函数，无 IO）。
 
     非空诊断 → 「卡在哪一步 + 冲突文件清单 + 关键 hunk 摘要」；下游（blocknote.build）会把整段当
-    blocker 逐行包成引用块，故此处只产纯文本、不自带签名/引用前缀。空诊断 → 退回 rebase.CONFLICT_COMMENT
+    blocker 逐行包成引用块，故此处只产纯文本、不自带签名/引用前缀。空诊断 → 退回 conflictdiag.CONFLICT_COMMENT
     （等价今日泛化兜底文案、单一来源，避免串漂移），使调用方无需自己判空。
     """
     if diag.is_empty():
@@ -130,11 +130,11 @@ def format_blocker(*, diag: ConflictDiag, step: str) -> str:
 
 
 def make_diagnoser(*, work_dir: str, base: str) -> Callable[..., str]:
-    """Spec-0034/T1：构造 rebase_open_prs / messages 用的 diagnose 回调 `(*, pr_number) -> str`。
+    """Spec-0034/T1：构造 messages._make_diagnoser / merge 闸用的 diagnose 回调 `(*, pr_number) -> str`。
 
     与 conflict.make_resolver 同构（IO 工厂）：闭包内取 PR head 分支 → `git fetch` base/head →
     collect + format_blocker，整体 best-effort。任何环节失败（取分支失败 / fetch 失败 / 异常）→ 退回
-    format_blocker 对空诊断的兜底文案（即 rebase.CONFLICT_COMMENT），绝不上抛。work_dir 缺省/失败由
+    format_blocker 对空诊断的兜底文案（即 conflictdiag.CONFLICT_COMMENT），绝不上抛。work_dir 缺省/失败由
     调用方（messages._make_diagnoser 仅在 work_dir 齐备时构造、否则传 None）兜底退回静态文案。
     """
     root = Path(work_dir)
