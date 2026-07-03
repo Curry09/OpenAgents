@@ -18,8 +18,12 @@ T1 把「面向人类的裁决理由（REASON/ISSUES/NEXT）必须用一段简�
 
 | 页面 | 截图 | 反馈摘要 innerText | CJK 占比（≥0.5） | 长度（≤300） | 判据 |
 | --- | --- | --- | --- | --- | --- |
-| GREEN 简短中文（reviewer 遵守新 prompt 后应产出） | [comment-green-short-chinese.png](comment-green-short-chinese.png) | 简短中文，含少量文件路径/英文 label | **0.52** | **106** | ✅ 通过 |
+| GREEN 简短中文（reviewer 遵守新 prompt 后应产出） | [comment-green-short-chinese.png](comment-green-short-chinese.png) | 简短中文，含少量文件路径/英文 label | **0.515** | **106** | ✅ 通过 |
 | RED 旧式长篇英文（无视语言约束时的坏输出） | [comment-red-long-english.png](comment-red-long-english.png) | 长篇英文论证 | 0.00 | 580 | ❌ 不通过 |
+
+> 上表 CJK 占比取自**浏览器自身计算的 `#feedback-summary` innerText**（GREEN 0.515）；离线脚本自检
+> 因换行/抽取方式差异打印 0.52，二者均满足 ≥0.5，结论一致。executor 真跑固化的完整实测值表与判定见
+> [`docs/e2e-results/128/result.md`](../../e2e-results/128/result.md)（证据闸读取的门控文件，结论 PASS）。
 
 - **GREEN 截图**肉眼可见「反馈摘要」块是一段能一眼读懂的简短中文（`ISSUES/NEXT/REASON` 三行简短中文）。
 - **RED 反证截图**同一渲染路径喂旧式长英文，「反馈摘要」块又长又是英文，同一判据判**不通过**——证明绿非恒真、
