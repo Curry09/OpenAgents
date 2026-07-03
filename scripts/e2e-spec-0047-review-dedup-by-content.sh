@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0046 端到端测试启动脚本：评审裁决按「实质内容」去重（同结论·理由不同照发）。
+# Spec-0047 端到端测试启动脚本：评审裁决按「实质内容」去重（同结论·理由不同照发）。
 #
 # 本组把 orchestrator._decision_already_posted 的去重身份从「抬头+类型+裁决」三行，升级为
 # reviewer.extract_decision_content(body=rendered) 得到的 DecisionContent（结论 + 规范化反馈）：
@@ -22,8 +22,8 @@
 #      REWORK、理由各异的 PR，跑 vigil 观察 PR 评论区出现**两条**不同 REWORK 裁决评论（改前只有 1 条）。
 #
 # 用法：
-#   bash scripts/e2e-spec-0046-review-dedup-by-content.sh
-#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0046-review-dedup-by-content.sh   # 追加真实冒烟提示
+#   bash scripts/e2e-spec-0047-review-dedup-by-content.sh
+#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0047-review-dedup-by-content.sh   # 追加真实冒烟提示
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -36,9 +36,9 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/2] 离线成果演练：真实 render_decision + _decision_already_posted 驱动内存评论区 → HTML"
 
-OUT_HTML="docs/evidence/spec-0046/pr-conversation.html"
+OUT_HTML="docs/evidence/spec-0047/pr-conversation.html"
 uv run python - "$OUT_HTML" <<'PY'
-# Spec-0046 成果演练：用**真实**产品代码——reviewer.render_decision（渲染裁决评论正文）+
+# Spec-0047 成果演练：用**真实**产品代码——reviewer.render_decision（渲染裁决评论正文）+
 # orchestrator._decision_already_posted（本组升级的按内容去重）——模拟一个 PR 上多轮评审的
 # 内存评论区，捕获「去重后实际会被发出来的裁决评论」，再包成静态 HTML 供浏览器/文本断言。
 # 脚本只提供内存评论区与 HTML 包裹（测试侧夹具），去重判定与评论正文全部来自产品代码。
@@ -77,7 +77,7 @@ identity.post_signed_comment = _post_signed
 # _decision_already_posted / _post_review_decision 只用到 github/identity/reviewer/_progress，
 # 不触碰其它 self 属性；用未初始化实例挂一个 _progress 记账即可真实跑通产品去重逻辑。
 orch = object.__new__(Orchestrator)
-orch._agent_id = "agent-0046"
+orch._agent_id = "agent-0047"
 orch._progress = lambda *, message: print(f"    [orchestrator] {message}")
 
 # --- 四轮评审：R1 code REWORK(理由A) → R2 code REWORK(理由B≠A) → R3/R4 相同 PASS ---
@@ -114,7 +114,7 @@ for c in _comments:
     )
 page = (
     "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
-    "<title>Spec-0046 PR 评论区成果</title>"
+    "<title>Spec-0047 PR 评论区成果</title>"
     "<style>body{font-family:sans-serif;max-width:820px;margin:24px auto}"
     ".comment{border:1px solid #d0d7de;border-radius:8px;padding:12px;margin:12px 0;list-style:none}"
     ".meta{color:#57606a;font-size:12px;margin-bottom:6px}"
@@ -156,4 +156,4 @@ REAL
 fi
 
 echo
-echo "✓ Spec-0046 端到端演示完成（默认离线、可重复、不触网、不调真实 LLM/gh）。"
+echo "✓ Spec-0047 端到端演示完成（默认离线、可重复、不触网、不调真实 LLM/gh）。"

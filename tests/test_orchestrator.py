@@ -830,7 +830,7 @@ def test_review_comment_failure_does_not_block_decision(tmp_path, monkeypatch):
 def _decision_comment(*, kind, passed, feedback, created_at):
     """构造一条「裁决评论」：用 reviewer.render_decision 生成正文，确保与生产抬头/字段一致。
 
-    Spec-0046/T2：显式传 feedback（不再由 passed 隐式决定），以便造「同结论不同反馈」场景。
+    Spec-0047/T2：显式传 feedback（不再由 passed 隐式决定），以便造「同结论不同反馈」场景。
     """
     verdicts = ("PASS",) if passed else ("REWORK",)
     decision = ReviewDecision(
@@ -936,7 +936,7 @@ def test_decision_dedup_query_failure_falls_open_to_post(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0046/T2：去重按「结论 + 反馈内容」——同结论理由不同照发（issue #116）
+# Spec-0047/T2：去重按「结论 + 反馈内容」——同结论理由不同照发（issue #116）
 # --------------------------------------------------------------------------- #
 
 

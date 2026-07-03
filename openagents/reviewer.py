@@ -223,7 +223,7 @@ def render_decision(*, decision: ReviewDecision, kind: str) -> str:
     return "\n".join(lines)
 
 
-# Spec-0046/T1：裁决抬头（render_decision 渲染的稳定锚点）——提取与去重都以它定位裁决块。
+# Spec-0047/T1：裁决抬头（render_decision 渲染的稳定锚点）——提取与去重都以它定位裁决块。
 _DECISION_HEADER = "## 评审闸裁决"
 _KIND_PREFIX = "- 类型："
 _VERDICT_PREFIX = "- 裁决："
@@ -233,7 +233,7 @@ _FENCE = "```"
 
 @dataclass(frozen=True)
 class DecisionContent:
-    """Spec-0046/T1：一条裁决评论的「去重身份」——结论 + 规范化反馈。
+    """Spec-0047/T1：一条裁决评论的「去重身份」——结论 + 规范化反馈。
 
     与 render_decision 互为正逆：render 把 ReviewDecision 渲染成评论 markdown，本类是从
     那段 markdown（可能含 identity 追加的署名尾巴）反解出的匹配特征。orchestrator 只消费
@@ -251,7 +251,7 @@ class DecisionContent:
 
 
 def extract_decision_content(*, body: str) -> DecisionContent | None:
-    """Spec-0046/T1：从一段评论 markdown 里解析出裁决的去重身份，非裁决评论 → None。
+    """Spec-0047/T1：从一段评论 markdown 里解析出裁决的去重身份，非裁决评论 → None。
 
     与 render_decision 互为正逆（纯函数、无副作用、不依赖 github/identity）。以稳定抬头
     `## 评审闸裁决` 为锚：抬头缺失 → 非裁决评论 → None。抬头之后取首个 `- 类型：` / `- 裁决：`

@@ -381,7 +381,7 @@ def test_render_decision_invalid_distinct_from_rework():
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0046/T1：extract_decision_content——render_decision 的逆向去重身份解析器
+# Spec-0047/T1：extract_decision_content——render_decision 的逆向去重身份解析器
 # --------------------------------------------------------------------------- #
 
 

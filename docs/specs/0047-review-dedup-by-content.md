@@ -1,5 +1,5 @@
 ---
-number: "0046"
+number: "0047"
 title: 评审裁决按「实质内容」去重（同结论·理由不同照发）
 issue: 116
 slug: review-dedup-by-content
@@ -34,7 +34,7 @@ tasks:
     acceptance: '单测（test_orchestrator，monkeypatch github.list_comments/identity/reviewer，hermetic）断言：既有 code REWORK(理由A)后本轮 code REWORK(理由B≠A) 照发 post_signed_comment（issue #116 修复）；既有 PASS 且反馈相同→本轮同 PASS 跳过（PR #61 防刷屏保留）；同结论同反馈的 REWORK 跳过；PASS↔REWORK 翻转照发；rfc 与 code 互不抑制；list_comments 抛错时不抛出、降级照发且 ReviewDecision 不受影响。'
 ---
 
-# 0046 · 评审裁决按「实质内容」去重（同结论·理由不同照发）
+# 0047 · 评审裁决按「实质内容」去重（同结论·理由不同照发）
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -133,7 +133,7 @@ graph LR
   T1["T1 reviewer.extract_decision_content<br/>(格式归属方·纯解析器)"] --> T2["T2 orchestrator._decision_already_posted<br/>(按内容去重)"]
 ```
 
-**端到端验证（理念 8·成果=评论区能看清每轮不同 REWORK）：** e2e 脚本 `scripts/e2e-spec-0046-review-dedup-by-content.sh`，三段、默认全程 hermetic（不触网 / 不调真实 LLM / 不碰真实 gh）：
+**端到端验证（理念 8·成果=评论区能看清每轮不同 REWORK）：** e2e 脚本 `scripts/e2e-spec-0047-review-dedup-by-content.sh`，三段、默认全程 hermetic（不触网 / 不调真实 LLM / 不碰真实 gh）：
 
 1. **离线确定性验证（默认）** — `ruff check` + `ruff format --check` + `uv run --extra dev pytest -q`，覆盖 T1（解析器：rendered / 含签名 comment.body / PASS 空反馈 / 非裁决评论→None / 规范化对齐）与 T2（issue #116 两轮理由不同 REWORK 照发；PR #61 同 PASS 去重；同理由 REWORK 去重；PASS↔REWORK 翻转照发；kind 隔离；list_comments 抛错 fail-open 照发）。
 2. **离线成果演练（默认，浏览器优先）** — 用**真实**的 `reviewer.render_decision` + `_decision_already_posted` 跑一段脚本内内存评论区场景：round1 code REWORK（理由 A）→ round2 code REWORK（理由 B ≠ A）→ round3/4 相同 PASS，捕获「哪几条真被发出来」，把发出的裁决评论按时间线拼成一份**模拟 PR 会话** 静态 HTML。**若具备浏览器 MCP（Playwright / chrome-devtools，由 agent 在脚本外驱动）**：`navigate` 打开该 HTML → `snapshot` + `take_screenshot` → 断言「理由 A」与「理由 B」两条 REWORK 裁决**都可见**、PASS 只出现 1 条、console/network 无报错（正是人盯 PR 该看到的成果）。**无浏览器 MCP 时降级**为对该 HTML 做文本断言（grep 理由 A ∧ 理由 B 各 1 次、PASS 仅 1 次），**不跳过成果验证**。

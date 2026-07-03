@@ -537,7 +537,7 @@ class Orchestrator:
         负责（票数语义属 reviewer 领域知识），盖章复用 identity.post_signed_comment（RFC-0011
         唯一出口）；任何 gh 故障都不得阻断评审闸与下游 refine/iterate/merge（决策 2）。
 
-        Spec-0022/T3 → Spec-0046/T2：发评论前按「同 kind 同结论**且同反馈**」去重——最近一条
+        Spec-0022/T3 → Spec-0047/T2：发评论前按「同 kind 同结论**且同反馈**」去重——最近一条
         同类裁决评论的结论与反馈都与本轮相同才跳过重发，止住「PR 长期 open、裁决不变」刷屏
         （实例 PR #61 的 33 条相同 PASS），同时让理由各异的连续 REWORK 照发（issue #116）。去重
         是尽力而为旁路：查询/比对的任何异常都 fail-open 降级为照常发送（决策 2：宁可多发一条，
@@ -560,7 +560,7 @@ class Orchestrator:
             self._progress(message=f"⚠ 裁决评论发送失败（已忽略）：{error}")
 
     def _decision_already_posted(self, *, pr_number: int, rendered: str) -> bool:
-        """Spec-0046/T2：本轮裁决是否与 PR 上最近一条同 kind 裁决评论**结论且反馈都**相同。
+        """Spec-0047/T2：本轮裁决是否与 PR 上最近一条同 kind 裁决评论**结论且反馈都**相同。
 
         去重身份由 reviewer.extract_decision_content 从 rendered / 评论正文反解出（理念 10：格式
         知识归 reviewer，orchestrator 只消费 DecisionContent）。粒度从 Spec-0022/T3 的「结论」升级为
