@@ -217,6 +217,9 @@ def _vigil_for(*, ctx: ProjectContext):
         messages=_messages_for(ctx=ctx),
         state=_state_for(repo_root=ctx.repo_root),
         work_dir=ctx.repo_root,
+        # Spec-0049/T3：注入本实例身份，使发现段认领闸能判「最近认领便签是不是别人的」（归属感知）。
+        # 与 orchestrator/messages 复用同一 _agent_id_for（幂等 env>state>生成），跨进程一致。
+        agent_id=_agent_id_for(ctx=ctx),
     )
 
 

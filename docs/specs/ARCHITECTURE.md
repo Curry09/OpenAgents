@@ -197,6 +197,7 @@ graph LR
     nopenagents_vigil --> nopenagents
     nopenagents_vigil --> nopenagents_github
     nopenagents_vigil --> nopenagents_hold
+    nopenagents_vigil --> nopenagents_identity
     nopenagents_vigil --> nopenagents_messages
     nopenagents_vigil --> nopenagents_orchestrator
     nopenagents_vigil --> nopenagents_state

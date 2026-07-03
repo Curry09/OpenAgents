@@ -27,9 +27,11 @@ class _FakeBackend:
 
 class _GitRecorder:
     def __call__(self, args, **kwargs):
+        # Spec-0049/T4：start_rfc fresh 认领会 read-after-write 调 `gh issue view --json comments`；
+        # 回一个空评论 JSON，使 latest_claim 返回 None（无他方认领）→ 不抛 ClaimLost（本用例验 PR 正文）。
         class _Proc:
             returncode = 0
-            stdout = ""
+            stdout = '{"comments": []}' if "comments" in args else ""
             stderr = ""
 
         return _Proc()

@@ -160,6 +160,19 @@ class State:
         data["runs"] = runs
         self._save(data=data)
 
+    def clear_run(self, *, issue_number: int) -> None:
+        """Spec-0049/T4：抹掉某 issue 的 run 记录（认领二次确认退让时清本轮 begin_run 的 solving/pr=0）。
+
+        与 begin_run/record_run 的「按 issue 去重覆盖」同构，但只删不写：读侧竞态里本后端 fresh
+        认领后被他方更晚认领（ClaimLost），start_rfc 退让时调本原语抹掉刚落的 solving/pr=0 记录，
+        使**下一轮** _dispatch_kind 回到「record is None → 看见他方有效认领 → 跳过」，而不是命中
+        solving/pr=0 走 resume 续跑（那会与赢家双开）。幂等：无匹配记录即 no-op（重复退让不报错）。
+        cursors/agent_id 等顶层键原样保留（_load 幂等填充，只重写 runs）。
+        """
+        data = self._load()
+        data["runs"] = [r for r in data["runs"] if r["issue_number"] != issue_number]
+        self._save(data=data)
+
     def update_status(self, *, issue_number: int, status: str) -> None:
         """RFC-0001 T4：更新某 issue 对应 run 的状态（状态机流转）。"""
         data = self._load()

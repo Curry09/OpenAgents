@@ -1,18 +1,21 @@
-"""Spec-0039/T2：vigil 发现段第 3 道认领闸 + 过期回收的单元测试。
+"""Spec-0049/T3：vigil 发现段认领闸的归属感知分流单元测试。
 
-只测 `_dispatch_kind` 的认领闸分流；github.issue_label_age_seconds 与远端分支探测
-（git ls-remote 子进程）一律 mock，不真实联网。既有两道闸（本地 State / 远端分支）与
-resume 语义的回归由 test_vigil.py 覆盖，这里聚焦第 3 道闸引入后的新行为。
+只测 `_dispatch_kind` / `_claim_reclaimable` 的认领闸；github.list_issue_comments 与远端分支探测
+（git ls-remote 子进程）一律 mock，不真实联网。既有两道闸（本地 State / 远端分支）与 resume
+语义的回归由 test_vigil.py 覆盖，这里聚焦「读署名认领便签判归属 + 过期回收」的新行为。
 """
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from openagents import github, vigil
-from openagents.github import DISPATCH_LABEL, GithubError, Issue
+from openagents import github, identity, vigil
+from openagents.github import DISPATCH_LABEL, Comment, GithubError, Issue
 from openagents.state import STATUS_SOLVING, RunRecord
 from openagents.vigil import CLAIM_EXPIRY_SECONDS, Vigil
+
+SELF_ID = "agent-self"
 
 
 class _StubState:
@@ -34,82 +37,126 @@ def _run_record(*, issue_number, status, pr_number):
     )
 
 
-def _vigil(*, state=None):
+def _vigil(*, state=None, agent_id=SELF_ID):
     return Vigil(
         orchestrator=object(),
         messages=object(),
         state=state or _StubState(),
         work_dir=Path("/repo"),
+        agent_id=agent_id,
+    )
+
+
+def _iso(*, ago_seconds):
+    return (datetime.now(UTC) - timedelta(seconds=ago_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _claim_comment(*, owner, ago_seconds):
+    """一条 owner 在 ago_seconds 秒前贴的署名认领便签评论。"""
+    return Comment(
+        id="IC",
+        author=owner,
+        body=identity.build_claim_note(agent_id=owner),
+        created_at=_iso(ago_seconds=ago_seconds),
     )
 
 
 def _patch_no_remote_branch(monkeypatch):
-    """远端无该 issue 分支（闸 2 不命中）。"""
     monkeypatch.setattr(Vigil, "_remote_branch_exists", lambda self, *, branch: False)
 
 
-def _patch_age(monkeypatch, *, age):
-    """认领标签秒龄固定为 age（None 表示取不到时戳）。"""
-    monkeypatch.setattr(github, "issue_label_age_seconds", lambda *, number, name: age)
+def _patch_comments(monkeypatch, comments):
+    monkeypatch.setattr(github, "list_issue_comments", lambda *, number: list(comments))
 
 
 # --------------------------------------------------------------------------- #
-# 闸 3：带认领标签且未过期 → 跳过
+# 归属闸：他人未过期 → 跳过；他人过期 / 无便签 / 自己残留 → fresh
 # --------------------------------------------------------------------------- #
 
 
-def test_claimed_and_not_expired_is_skipped(monkeypatch):
+def test_other_backend_fresh_claim_is_skipped(monkeypatch):
     _patch_no_remote_branch(monkeypatch)
-    _patch_age(monkeypatch, age=CLAIM_EXPIRY_SECONDS - 1)  # 未过期
+    _patch_comments(monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=5)])
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
     assert _vigil()._dispatch_kind(issue=issue) is None
 
 
-def test_claimed_but_expired_is_recovered_as_fresh(monkeypatch):
-    # 带认领标签、无分支、标签龄 > T → 僵尸认领，回收（视同 fresh 重新认领）。
+def test_other_backend_expired_claim_is_recovered_as_fresh(monkeypatch):
     _patch_no_remote_branch(monkeypatch)
-    _patch_age(monkeypatch, age=CLAIM_EXPIRY_SECONDS + 1)
+    _patch_comments(
+        monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=CLAIM_EXPIRY_SECONDS + 60)]
+    )
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
     assert _vigil()._dispatch_kind(issue=issue) == "fresh"
 
 
-def test_claim_age_none_is_treated_as_not_expired(monkeypatch):
-    # 取不到时戳（None）→ 保守判未过期 → 跳过，不误回收活后端的认领。
+def test_no_valid_claim_note_is_fresh(monkeypatch):
+    # 带认领标签但 issue 上没有有效认领便签（只有粗标签、无归属凭证）→ 可认领。
     _patch_no_remote_branch(monkeypatch)
-    _patch_age(monkeypatch, age=None)
+    _patch_comments(
+        monkeypatch, [Comment(id="IC", author="human", body="+1", created_at=_iso(ago_seconds=1))]
+    )
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
-    assert _vigil()._dispatch_kind(issue=issue) is None
+    assert _vigil()._dispatch_kind(issue=issue) == "fresh"
 
 
-def test_timeline_error_does_not_raise_and_is_treated_as_not_expired(monkeypatch):
-    # 时间线 API 抛 GithubError（gh < 2.42/限流/权限）→ _dispatch_kind 不上抛（否则掀翻整轮
-    # 发现、饿死其后所有 issue 与本轮 PR 轮询，破坏决策 8）→ 保守判未过期 → 跳过。
+def test_own_fresh_residue_is_reclaimed_as_fresh(monkeypatch):
+    # 最近便签是**自己**的（record 却为 None，如上轮退让/begin_run 失败的残留）→ 重认领，不跳过。
     _patch_no_remote_branch(monkeypatch)
+    _patch_comments(monkeypatch, [_claim_comment(owner=SELF_ID, ago_seconds=5)])
+    issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
-    def _boom(*, number, name):
-        raise GithubError("gh timeline failed")
+    assert _vigil()._dispatch_kind(issue=issue) == "fresh"
 
-    monkeypatch.setattr(github, "issue_label_age_seconds", _boom)
+
+def test_latest_note_wins_other_newer_over_own_older(monkeypatch):
+    # 自己贴过一条旧便签、他人贴了更晚一条 → 最近便签是他人且未过期 → 跳过（末位 created_at 定胜负）。
+    _patch_no_remote_branch(monkeypatch)
+    _patch_comments(
+        monkeypatch,
+        [
+            _claim_comment(owner=SELF_ID, ago_seconds=100),
+            _claim_comment(owner="agent-other", ago_seconds=5),
+        ],
+    )
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
     assert _vigil()._dispatch_kind(issue=issue) is None
 
 
 # --------------------------------------------------------------------------- #
-# 无认领标签：既有 fresh 语义不变；且不查时间线（认领闸罕见路径不拖慢常态）
+# 读评论失败：保守跳过、不上抛（决策 8：不拖垮整轮）
 # --------------------------------------------------------------------------- #
 
 
-def test_unclaimed_no_record_no_branch_is_fresh(monkeypatch):
+def test_comments_query_error_is_conservative_skip_and_no_raise(monkeypatch):
     _patch_no_remote_branch(monkeypatch)
 
-    def _boom(*, number, name):
-        raise AssertionError("无认领标签时不应查时间线")
+    def _boom(*, number):
+        raise GithubError("gh issue view failed")
 
-    monkeypatch.setattr(github, "issue_label_age_seconds", _boom)
+    monkeypatch.setattr(github, "list_issue_comments", _boom)
+    issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
+
+    # 不上抛、保守判「他人活认领」→ 跳过。
+    assert _vigil()._dispatch_kind(issue=issue) is None
+
+
+# --------------------------------------------------------------------------- #
+# 无认领标签：既有 fresh 语义不变；且**不读评论**（认领闸罕见路径不拖慢常态）
+# --------------------------------------------------------------------------- #
+
+
+def test_unclaimed_no_record_no_branch_is_fresh_without_reading_comments(monkeypatch):
+    _patch_no_remote_branch(monkeypatch)
+
+    def _boom(*, number):
+        raise AssertionError("无认领标签时不应读评论")
+
+    monkeypatch.setattr(github, "list_issue_comments", _boom)
     issue = Issue(number=9, title="t", body="b", labels=("openagents",))
 
     assert _vigil()._dispatch_kind(issue=issue) == "fresh"
@@ -120,14 +167,13 @@ def test_unclaimed_no_record_no_branch_is_fresh(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_resume_orphan_run_unaffected_by_claim_label(monkeypatch):
-    # solving/pr=0 的孤儿 run 即使 issue 带认领标签，仍判 resume（record 分支先于认领闸）。
+def test_resume_orphan_run_unaffected_by_claim_gate(monkeypatch):
     _patch_no_remote_branch(monkeypatch)
 
-    def _boom(*, number, name):
+    def _boom(*, number):
         raise AssertionError("resume 路径不应触及认领闸")
 
-    monkeypatch.setattr(github, "issue_label_age_seconds", _boom)
+    monkeypatch.setattr(github, "list_issue_comments", _boom)
     state = _StubState(records={9: _run_record(issue_number=9, status=STATUS_SOLVING, pr_number=0)})
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
@@ -135,13 +181,12 @@ def test_resume_orphan_run_unaffected_by_claim_label(monkeypatch):
 
 
 def test_existing_remote_branch_skips_before_claim_gate(monkeypatch):
-    # 远端已有分支（闸 2 命中）→ None，且不进认领闸（不查时间线）。
     monkeypatch.setattr(Vigil, "_remote_branch_exists", lambda self, *, branch: True)
 
-    def _boom(*, number, name):
+    def _boom(*, number):
         raise AssertionError("闸 2 命中后不应进认领闸")
 
-    monkeypatch.setattr(github, "issue_label_age_seconds", _boom)
+    monkeypatch.setattr(github, "list_issue_comments", _boom)
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
     assert _vigil()._dispatch_kind(issue=issue) is None
@@ -153,9 +198,11 @@ def test_existing_remote_branch_skips_before_claim_gate(monkeypatch):
 
 
 def test_expiry_threshold_is_configurable(monkeypatch):
-    # 把 T 调大后，原本超时的龄变为未超时 → 从 fresh 回收翻转为跳过（证明阈值可配、参与判定）。
+    # 把 T 调大后，原本超时的他人认领龄变为未超时 → 从 fresh 回收翻转为跳过（阈值参与判定）。
     _patch_no_remote_branch(monkeypatch)
-    _patch_age(monkeypatch, age=CLAIM_EXPIRY_SECONDS + 100)
+    _patch_comments(
+        monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=CLAIM_EXPIRY_SECONDS + 100)]
+    )
     monkeypatch.setattr(vigil, "CLAIM_EXPIRY_SECONDS", CLAIM_EXPIRY_SECONDS + 1000)
     issue = Issue(number=9, title="t", body="b", labels=(DISPATCH_LABEL,))
 
