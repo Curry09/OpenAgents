@@ -223,6 +223,94 @@ def render_decision(*, decision: ReviewDecision, kind: str) -> str:
     return "\n".join(lines)
 
 
+# Spec-0047/T1：裁决抬头（render_decision 渲染的稳定锚点）——提取与去重都以它定位裁决块。
+_DECISION_HEADER = "## 评审闸裁决"
+_KIND_PREFIX = "- 类型："
+_VERDICT_PREFIX = "- 裁决："
+_FEEDBACK_PREFIX = "- 反馈摘要："
+_FENCE = "```"
+
+
+@dataclass(frozen=True)
+class DecisionContent:
+    """Spec-0047/T1：一条裁决评论的「去重身份」——结论 + 规范化反馈。
+
+    与 render_decision 互为正逆：render 把 ReviewDecision 渲染成评论 markdown，本类是从
+    那段 markdown（可能含 identity 追加的署名尾巴）反解出的匹配特征。orchestrator 只消费
+    本 dataclass 做去重，不再自己 splitlines 抠 reviewer 文案（理念 10 解耦）。
+
+    kind_line: `- 类型：代码` / `- 类型：Spec 文档`——区分 rfc / code 两道闸。
+    verdict_line: `- 裁决：❌ REWORK` / `✅ PASS` / `⚠️ 评审无效…`——裁决结论。
+    feedback_norm: 「反馈摘要」块的规范化正文（逐行 strip、丢空行、\\n 连接）；
+        PASS / 无反馈（render 不产「反馈摘要」块）时为 ""。
+    """
+
+    kind_line: str
+    verdict_line: str
+    feedback_norm: str
+
+
+def extract_decision_content(*, body: str) -> DecisionContent | None:
+    """Spec-0047/T1：从一段评论 markdown 里解析出裁决的去重身份，非裁决评论 → None。
+
+    与 render_decision 互为正逆（纯函数、无副作用、不依赖 github/identity）。以稳定抬头
+    `## 评审闸裁决` 为锚：抬头缺失 → 非裁决评论 → None。抬头之后取首个 `- 类型：` / `- 裁决：`
+    两行；「反馈摘要」= `- 反馈摘要：` 之后 render 外层围栏（首个 ``` 到**最后一个** ```）之间的
+    正文，逐行 strip、丢空行、`\\n` 连接归一化（whitespace/换行不敏感，避免仅缩进/空行漂移就误判
+    「不同」）。取到最后一个 fence 为止，故 feedback 正文内部的代码围栏被完整纳入（不再被误当闭合
+    而截断，见 `_extract_feedback_norm` issue #116 修正），而 identity 追加的无围栏 HTML 注释署名
+    天然落在末个 fence 之外被排除；PASS（render 不产「反馈摘要」块）→ feedback_norm == ""。
+    缺类型/裁决行 → None。
+    """
+    lines = body.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if line.strip() == _DECISION_HEADER),
+        None,
+    )
+    if header_idx is None:
+        return None
+    after = lines[header_idx + 1 :]
+    kind_line = next((line for line in after if line.startswith(_KIND_PREFIX)), None)
+    verdict_line = next((line for line in after if line.startswith(_VERDICT_PREFIX)), None)
+    if kind_line is None or verdict_line is None:
+        return None
+    return DecisionContent(
+        kind_line=kind_line,
+        verdict_line=verdict_line,
+        feedback_norm=_extract_feedback_norm(lines=after),
+    )
+
+
+def _extract_feedback_norm(*, lines: list[str]) -> str:
+    """取「反馈摘要」块（`- 反馈摘要：` 后 render 的**外层**围栏之间）的规范化正文；无块 → ""。
+
+    逐行 strip、丢空行、`\\n` 连接——使措辞未变、仅缩进/空行漂移的两段反馈归一化后相等。
+
+    issue #116 / PR #117 修正：render_decision（reviewer.py:220-222）把 `decision.feedback`
+    原样塞进一对围栏，而 feedback 正文本身可能含代码围栏行（`_distill_feedback` 不剥离 ``` 行，
+    reviewer 输出的裸 ``` 会原样保留）。旧实现「首个 ``` 到**第一个**闭合 ``` 为止」会把 feedback
+    内部的围栏误当成外层闭合围栏，截断甚至清空反馈——两条理由不同但都以 fenced code 开头的 REWORK
+    会被误判 feedback_norm 相等而静默抑制，正是 issue #116 要修的失败模式。改为「首个 ``` 到**最后
+    一个** ``` 之间」为块体：render 恒把反馈裹在外层围栏里，其后 identity 署名是无围栏的 HTML 注释
+    （identity.sign），故末个 ``` 必是 render 的外层闭合围栏，内部围栏被完整纳入正文、不再截断。
+    （注：不能改用「剥掉署名尾巴」——多 reviewer 反馈内部以 `\\n\\n---\\n\\n` 连接，按 `---` 截尾
+    反会误伤多段反馈；围栏定位法对 `---` 与 HTML 注释署名都免疫。）
+    """
+    feedback_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith(_FEEDBACK_PREFIX)),
+        None,
+    )
+    if feedback_idx is None:
+        return ""
+    rest = lines[feedback_idx + 1 :]
+    fences = [i for i, line in enumerate(rest) if line.strip() == _FENCE]
+    if len(fences) < 2:
+        return ""
+    block = rest[fences[0] + 1 : fences[-1]]
+    normalized = [stripped for line in block if (stripped := line.strip())]
+    return "\n".join(normalized)
+
+
 def _task_for(*, kind: str, pr_number: int) -> str:
     """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。"""
     if kind == "rfc":

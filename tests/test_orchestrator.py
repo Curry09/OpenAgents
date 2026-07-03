@@ -827,10 +827,15 @@ def test_review_comment_failure_does_not_block_decision(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def _decision_comment(*, kind, passed, created_at):
-    """构造一条「裁决评论」：用 reviewer.render_decision 生成正文，确保与生产抬头/字段一致。"""
+def _decision_comment(*, kind, passed, feedback, created_at):
+    """构造一条「裁决评论」：用 reviewer.render_decision 生成正文，确保与生产抬头/字段一致。
+
+    Spec-0047/T2：显式传 feedback（不再由 passed 隐式决定），以便造「同结论不同反馈」场景。
+    """
     verdicts = ("PASS",) if passed else ("REWORK",)
-    decision = ReviewDecision(passed=passed, feedback="" if passed else "补单测", verdicts=verdicts)
+    decision = ReviewDecision(
+        passed=passed, feedback=feedback, verdicts=verdicts, actionable=not passed
+    )
     body = orch_module.reviewer.render_decision(decision=decision, kind=kind)
     return Comment(id="c", author="bot", body=body, created_at=created_at)
 
@@ -840,9 +845,11 @@ def _patch_list_comments(monkeypatch, comments):
 
 
 def test_decision_same_conclusion_skips_repost(tmp_path, monkeypatch):
-    # 既有一条同 kind PASS 裁决 → 本轮 PASS 不再调 post_signed_comment（票数不同也按结论去重）。
+    # 既有一条同 kind PASS 裁决 → 本轮 PASS（反馈同为空）不再调 post_signed_comment（PR #61 防刷屏）。
     orch, _, _ = _make(tmp_path)
-    prior = _decision_comment(kind="code", passed=True, created_at="2026-06-18T00:00:00Z")
+    prior = _decision_comment(
+        kind="code", passed=True, feedback="", created_at="2026-06-18T00:00:00Z"
+    )
     _patch_list_comments(monkeypatch, [prior])
     posted = _spy_post_comment(monkeypatch)
 
@@ -858,14 +865,18 @@ def test_decision_same_conclusion_skips_repost(tmp_path, monkeypatch):
 def test_decision_conclusion_flip_reposts(tmp_path, monkeypatch):
     # 既有为 PASS、本轮非 PASS（结论翻转）→ 正常发新评论。
     orch, _, _ = _make(tmp_path)
-    prior = _decision_comment(kind="code", passed=True, created_at="2026-06-18T00:00:00Z")
+    prior = _decision_comment(
+        kind="code", passed=True, feedback="", created_at="2026-06-18T00:00:00Z"
+    )
     _patch_list_comments(monkeypatch, [prior])
     posted = _spy_post_comment(monkeypatch)
 
     orch._post_review_decision(
         pr_number=5,
         kind="code",
-        decision=ReviewDecision(passed=False, feedback="补单测", verdicts=("REWORK",)),
+        decision=ReviewDecision(
+            passed=False, feedback="补单测", verdicts=("REWORK",), actionable=True
+        ),
     )
 
     assert posted["pr_number"] == 5
@@ -890,7 +901,9 @@ def test_decision_first_time_posts(tmp_path, monkeypatch):
 def test_decision_kind_isolation_does_not_suppress(tmp_path, monkeypatch):
     # 既有 rfc 裁决不抑制 code 裁决（两道闸按类型行区分）。
     orch, _, _ = _make(tmp_path)
-    prior_rfc = _decision_comment(kind="rfc", passed=True, created_at="2026-06-18T00:00:00Z")
+    prior_rfc = _decision_comment(
+        kind="rfc", passed=True, feedback="", created_at="2026-06-18T00:00:00Z"
+    )
     _patch_list_comments(monkeypatch, [prior_rfc])
     posted = _spy_post_comment(monkeypatch)
 
@@ -920,6 +933,113 @@ def test_decision_dedup_query_failure_falls_open_to_post(tmp_path, monkeypatch):
     )
 
     assert posted["pr_number"] == 5
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0047/T2：去重按「结论 + 反馈内容」——同结论理由不同照发（issue #116）
+# --------------------------------------------------------------------------- #
+
+
+def test_decision_same_conclusion_different_feedback_reposts(tmp_path, monkeypatch):
+    # issue #116 修复：既有 code REWORK（理由 A）后本轮 code REWORK（理由 B ≠ A）→ 照发。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(
+        kind="code",
+        passed=False,
+        feedback="EntityWithContent 继承不符 / 章-场 pattern 缺失",
+        created_at="2026-06-18T13:18:00Z",
+    )
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(
+            passed=False,
+            feedback="_validate_specs:65 崩溃 bug + 8 个 task 零实现",
+            verdicts=("REWORK",),
+            actionable=True,
+        ),
+    )
+
+    assert posted["pr_number"] == 5
+    assert "REWORK" in posted["body"]
+    assert "8 个 task 零实现" in posted["body"]
+
+
+def test_decision_same_conclusion_same_feedback_skips(tmp_path, monkeypatch):
+    # 同结论且同反馈的 REWORK（真·相同，无新信息）→ 跳过重发。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(
+        kind="code",
+        passed=False,
+        feedback="foo.py:1 缺测试",
+        created_at="2026-06-18T13:18:00Z",
+    )
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(
+            passed=False, feedback="foo.py:1 缺测试", verdicts=("REWORK",), actionable=True
+        ),
+    )
+
+    assert posted == {}
+
+
+def test_decision_dedup_compares_latest_by_created_at(tmp_path, monkeypatch):
+    # 取最近一条同 kind 比对：最近一条是理由 B，本轮理由 B → 跳过（即便更早有理由 A）。
+    orch, _, _ = _make(tmp_path)
+    older = _decision_comment(
+        kind="code", passed=False, feedback="理由 A", created_at="2026-06-18T13:18:00Z"
+    )
+    newer = _decision_comment(
+        kind="code", passed=False, feedback="理由 B", created_at="2026-06-18T13:34:00Z"
+    )
+    _patch_list_comments(monkeypatch, [older, newer])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(
+            passed=False, feedback="理由 B", verdicts=("REWORK",), actionable=True
+        ),
+    )
+
+    assert posted == {}
+
+
+def test_decision_fenced_feedback_different_reasons_reposts(tmp_path, monkeypatch):
+    # issue #116 / PR #117 回归：两条**理由不同**但都以 fenced code 示例开头的 REWORK，
+    # 必须照发第二条——旧实现把 feedback 内部围栏误当外层闭合、把两者归一化为 "" 而误判重复静默抑制。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(
+        kind="code",
+        passed=False,
+        feedback="```\nfoo()\n```\n第一轮卡点：缺边界处理",
+        created_at="2026-06-18T13:18:00Z",
+    )
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(
+            passed=False,
+            feedback="```\nbar()\n```\n第二轮卡点：越权访问",
+            verdicts=("REWORK",),
+            actionable=True,
+        ),
+    )
+
+    assert posted["pr_number"] == 5
+    assert "越权访问" in posted["body"]
 
 
 if __name__ == "__main__":
