@@ -55,13 +55,25 @@ _RFC_E2E_RUBRIC = (
     "acceptance，承载「要不要验、验什么」）；未声明 → 判 REWORK，把「缺 e2e 粗规划」写进 ISSUES。"
     "纯文档/重构/内部非交互改动可不声明。\n"
 )
+# Spec-0048/T1：自动化 spec 防过度承诺——若 spec 承诺新增自动化执行链路（executor/agent、e2e/
+# evidence gate/runbook、自动 merge·hold gate、GitHub issue·PR 自动化等），其 Reference-level 必须
+# 把闭环讲清（触发时机/调用方/artifact 落点/失败路径/正·反例验收），否则只算设计草案。这把「防骨架
+# 冒充完整实现」前移到设计闸：设计阶段就逼作者讲清闭环，实现阶段 reviewer 才有对照物。**只挂 rfc 闸、
+# 不挂 code 闸**（与 _EVIDENCE_RUBRIC/_AUTOMATION_INTEGRITY_RUBRIC 只挂 code 闸镜像互补，闸别隔离）。
+_RFC_AUTOMATION_RUBRIC = (
+    "【自动化 spec 防过度承诺】若本 spec 承诺新增自动化执行链路（executor / agent / runtime "
+    "validation、e2e / evidence gate / runbook、自动 merge · hold gate、GitHub issue · PR 自动化，"
+    "或任何『自动跑 · 自动提交 · 自动门控』的能力），其 Reference-level 必须声明 触发时机 / 调用方 / "
+    "artifact 落点 / 失败路径 / 正·反例验收；否则这份 spec 只算设计草案，不应让对应实现 PR 仅凭这份 "
+    "spec 过代码闸——判 REWORK，把「缺自动化闭环声明」写进 ISSUES。纯静态 / 重构 / 内部非自动化 spec 不查。\n"
+)
 _RFC_REVIEW_TASK = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
     "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
     "（单文件 NNNN-slug.md：frontmatter 结构化源数据 + 正文各 Task 设计 prose）→ 其引用的来源。"
     "判定：设计是否对齐需求、关键决策是否"
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
-    "实现代码）。\n" + _RFC_E2E_RUBRIC + _RUBRIC_TAIL
+    "实现代码）。\n" + _RFC_E2E_RUBRIC + _RFC_AUTOMATION_RUBRIC + _RUBRIC_TAIL
 )
 # Spec-0040/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
 # （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0040 Reference-level）。删掉了
@@ -71,12 +83,38 @@ _RFC_REVIEW_TASK = (
 # 条件式触发（仅当 PR 出现端到端/e2e/截图/已验证 UI 类措辞才查），避免误伤纯内部重构 PR。
 # 与 Spec-0040 的职责收口不冲突：证据闸判「系统真跑起来是否达成意图」（运行时正确性），本 rubric
 # 判「作者宣称验证过却拿不出证据」（声明诚信），两者分属不同层，故并存。
+# Spec-0048/T1：把无证据检查从「宣称验证过」延伸到「宣称实现了自动化执行/门控能力却只交付骨架」。
+# 姊妹条（就地复述定位）：0044 管「宣称**验证过**产品对外行为却无 tracked 证据」（验证诚信），本
+# 延伸管「宣称**实现了**某条自动化执行链路却拿不出真实产物或集成证据」（实现完整性）——两者同为
+# 「软约定硬化进 rubric」。仍**只挂 code 闸**、保持条件式触发骨架，仅追加措辞，不改定位。
 _EVIDENCE_RUBRIC = (
     "宣称验证过但无证据 → REWORK：仅当本 PR 正文/评论出现「端到端 / e2e / 截图 / 已验证 UI」"
     "类措辞（声称验证过某个产品对外行为）时才触发本检查——纯内部重构 PR（无此类措辞）不查、"
     "不误伤。触发时核对仓库里有没有对应的 tracked 证据（截图文件如 docs/evidence/** 下的图、"
     "或真实运行日志文本），且 PR 评论里有没有实跑留痕；若既无 tracked 证据、评论也无实跑留痕 → "
     "判 REWORK，理由写明「宣称验证过但无证据」。自动化测试绿 / 后端日志替代不了真 app 证据。\n"
+    "延伸——宣称实现了自动化执行/门控能力（executor 真跑 / 自动提交证据 / evidence gate 门控 / "
+    "UI 截图）却无真实产物或集成证据 → REWORK：把本检查从「宣称验证过某产品对外行为」延伸到"
+    "「宣称实现了某条自动化执行链路却只交付骨架」，例如声称 executor 真跑系统却无 result.md、"
+    "声称自动提交证据却无 commit 证据或 artifact、声称 evidence gate 门控却无 PASS/FAIL fixture、"
+    "声称支持 UI 截图却无截图也无诚实说明——同样判 REWORK。\n"
+)
+# Spec-0048/T1：自动化完整性硬规则——专治「架构骨架/模块存在/门控位置对/单测绿」冒充完整实现。仅当
+# PR 声称新增/改造自动化执行链路时触发（条件式，与 _EVIDENCE_RUBRIC 同构，纯静态/重构不查、不误伤）；
+# 触发时逐条追问闭环（触发点/被调用/artifact 自动产出/正·反例/集成而非局部），任一缺失即 REWORK。
+_AUTOMATION_INTEGRITY_RUBRIC = (
+    "【自动化完整性硬规则】仅当本 PR 声称新增/改造了自动化执行链路（executor / agent / runtime "
+    "validation、e2e / evidence gate / runbook、自动 merge · hold gate、GitHub issue · PR 自动化，"
+    "或任何『自动跑 · 自动提交 · 自动门控』的能力）时才触发本检查——纯静态改动 / 库函数 / 重构 / "
+    "文档不查、不误伤。触发时逐条核对闭环，任一缺失即判 REWORK：\n"
+    "1. 主流程触发点：既有链路从哪个现有函数/状态分支真的会走到这个新能力？"
+    "（『有个新模块』≠『主流程会走到它』）\n"
+    "2. 被调用证据：新 executor/agent 是否真的被调用，还是只定义了模块却没接线（dead / unwired）？\n"
+    "3. artifact 自动产生并 commit：声称生成的产物（result.md / log / screenshot / PR comment）"
+    "是否会自动产生并 commit/发送，而不是『假设它存在』？\n"
+    "4. 正例·反例：有没有正例证明 PASS 放行、反例证明 FAIL 阻断？\n"
+    "5. 集成路径而非局部函数：测试是否覆盖真实集成路径，而不是只测 parser/render/decision 等局部函数？\n"
+    "缺完整链路证据 → REWORK，理由：只实现骨架，未证明完整链路。\n"
 )
 _CODE_REVIEW_TASK = (
     "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"
@@ -87,6 +125,7 @@ _CODE_REVIEW_TASK = (
     "【职责边界】你只判**静态**代码质量/安全/结构；**运行时行为（系统真跑起来是否达成意图）"
     "由证据闸负责，你不判**——不必也不应据「有没有真跑过」下裁决。\n"
     + _EVIDENCE_RUBRIC
+    + _AUTOMATION_INTEGRITY_RUBRIC
     + _RUBRIC_TAIL
 )
 

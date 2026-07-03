@@ -105,6 +105,10 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 
 ### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
+- e2e 粗规划（cli）：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
+  - 验收行为：造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
+  - 验收行为：喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。
+  - 验收行为：喂「达成」证据 → 判 PASS 且照常放行 merge。
 
 ### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
 reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
@@ -295,8 +299,8 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
 | 0047 | 0047/T1 | reviewer.extract_decision_content：裁决内容纯解析器 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0047 | 0047/T2 | orchestrator._decision_already_posted：按结论+反馈内容去重 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
-| 0048 | 0048/T1 | reviewer rubric 三处硬化（防 design-as-implementation）+ 单测 | pending | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0048 | 0048/T2 | e2e 骨架冒充演练脚本（离线确定性 + 真实 rubric 文本对照 PR #105 复刻场景） | pending | T1 | scripts/e2e-spec-0048-anti-design-as-implementation-review.sh |
+| 0048 | 0048/T1 | reviewer rubric 三处硬化（防 design-as-implementation）+ 单测 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0048 | 0048/T2 | e2e 骨架冒充演练脚本（离线确定性 + 真实 rubric 文本对照 PR #105 复刻场景） | done | T1 | scripts/e2e-spec-0048-anti-design-as-implementation-review.sh |
 
 ## 跨 feature 关系图
 
@@ -1951,7 +1955,7 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```

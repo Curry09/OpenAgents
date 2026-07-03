@@ -7,7 +7,7 @@ summary: 在 reviewer 的 code/rfc rubric 与「无证据=REWORK」规则里加�
 tasks:
   - id: T1
     title: reviewer rubric 三处硬化（防 design-as-implementation）+ 单测
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: _CODE_REVIEW_TASK 文本含『自动化完整性』或等价字样，且明列 主流程触发点 / artifact 自动产生并 commit / 正例·反例 / 集成路径而非局部函数 五问，并含『缺完整链路证据 → REWORK，理由：只实现骨架，未证明完整链路』；_RFC_REVIEW_TASK 含『自动化 spec 必须声明 触发时机/调用方/artifact 落点/失败路径/正·反例验收』或等价字样且该规则不出现在 _CODE_REVIEW_TASK；_EVIDENCE_RUBRIC 含『宣称实现了自动化执行/门控能力…无真实产物或集成证据 → REWORK』字样且仍不挂 rfc 闸；新增单测断言以上全部文本 + fixture 风格测试通过；既有裁决前置/职责边界/条件式不误伤三不变量对应单测仍绿；ruff check + ruff format --check + pytest 全绿；spec 注释锚点 Spec-0048/T1 就位。
   - id: T2
     title: 'e2e 骨架冒充演练脚本（离线确定性 + 真实 rubric 文本对照 PR #105 复刻场景）'
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
