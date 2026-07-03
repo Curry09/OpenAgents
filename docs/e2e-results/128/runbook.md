@@ -103,7 +103,7 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
     };
   }
   ```
-- 期望：返回 `cjkRatio ≥ 0.5` **且** `length ≤ 300`。**基线实测**（本 runbook 用真实 `render_decision` 路径核过）GREEN 反馈摘要 `cjkRatio = 0.52`、`length = 106`——DOM `innerText` 与离线抽取可能有个位数换行差异，实测值应落在此量级且仍满足阈值。
+- 期望：返回 `cjkRatio ≥ 0.5` **且** `length ≤ 300`。**基线实测**（本 runbook 用真实 `render_decision` 路径核过）GREEN 反馈摘要 `length = 106`；CJK 占比在**浏览器 DOM `innerText`** 上实测 `≈ 0.515`（离线 python `cjk_ratio` 因换行/抽取差异打印 `0.52`）——两者均 `≥ 0.5`，你用上面这段 `browser_evaluate` 脚本从真实 DOM 取到的值应落在此量级且仍满足阈值；以你实测的浏览器值为准记录。
 - 判定点 B3：`cjkRatio ≥ 0.5 && length ≤ 300`。不满足 → **FAIL**，把实测 `text / length / cjkRatio` 记进证据。
 
 **B4. console 无报错**
@@ -122,7 +122,7 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
 **C2. 截图**：`browser_take_screenshot`，`filename` 传 `comment-red-long-english.png`，同 B2 落点纪律**核实 / 复制到** `docs/evidence/spec-0050/comment-red-long-english.png`。肉眼可见「反馈摘要」块又长又是英文。
 
 **C3. 同判据断言，应判不通过**：用 B3 **完全相同**的 `browser_evaluate` 脚本抽 `#feedback-summary` 文本。
-- 期望：`cjkRatio ≥ 0.5 && length ≤ 300` 为 **false**。**基线实测**（真实 `render_decision` 路径核过）RED 反馈摘要 `cjkRatio = 0.00`（全英文）、`length = 580`（超长）——两条判据同时不满足。
+- 期望：`cjkRatio ≥ 0.5 && length ≤ 300` 为 **false**。**基线实测**（真实 `render_decision` 路径核过，浏览器 DOM `innerText`）RED 反馈摘要 `cjkRatio = 0.00`（全英文）、`length = 580`（超长）——两条判据同时不满足。
 - **判定点 C3（RED 反证，关键）**：同一判据对 RED 页**必须判不通过**。若 RED 也「通过」，说明判据不能区分「简短中文」与「长篇英文」、绿是恒真的假绿 → **整体 FAIL**（这正是本步骤要防的：证明步骤 B 的绿有意义）。
 
 **C4. console**：RED 页也不应有 console error（页面本身正常，只是内容是坏样本）。
