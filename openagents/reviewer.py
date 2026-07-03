@@ -223,6 +223,85 @@ def render_decision(*, decision: ReviewDecision, kind: str) -> str:
     return "\n".join(lines)
 
 
+# Spec-0046/T1：裁决抬头（render_decision 渲染的稳定锚点）——提取与去重都以它定位裁决块。
+_DECISION_HEADER = "## 评审闸裁决"
+_KIND_PREFIX = "- 类型："
+_VERDICT_PREFIX = "- 裁决："
+_FEEDBACK_PREFIX = "- 反馈摘要："
+_FENCE = "```"
+
+
+@dataclass(frozen=True)
+class DecisionContent:
+    """Spec-0046/T1：一条裁决评论的「去重身份」——结论 + 规范化反馈。
+
+    与 render_decision 互为正逆：render 把 ReviewDecision 渲染成评论 markdown，本类是从
+    那段 markdown（可能含 identity 追加的署名尾巴）反解出的匹配特征。orchestrator 只消费
+    本 dataclass 做去重，不再自己 splitlines 抠 reviewer 文案（理念 10 解耦）。
+
+    kind_line: `- 类型：代码` / `- 类型：Spec 文档`——区分 rfc / code 两道闸。
+    verdict_line: `- 裁决：❌ REWORK` / `✅ PASS` / `⚠️ 评审无效…`——裁决结论。
+    feedback_norm: 「反馈摘要」块的规范化正文（逐行 strip、丢空行、\\n 连接）；
+        PASS / 无反馈（render 不产「反馈摘要」块）时为 ""。
+    """
+
+    kind_line: str
+    verdict_line: str
+    feedback_norm: str
+
+
+def extract_decision_content(*, body: str) -> DecisionContent | None:
+    """Spec-0046/T1：从一段评论 markdown 里解析出裁决的去重身份，非裁决评论 → None。
+
+    与 render_decision 互为正逆（纯函数、无副作用、不依赖 github/identity）。以稳定抬头
+    `## 评审闸裁决` 为锚：抬头缺失 → 非裁决评论 → None。抬头之后取首个 `- 类型：` / `- 裁决：`
+    两行；「反馈摘要」= `- 反馈摘要：` 之后**第一对**三反引号之间的正文，逐行 strip、丢空行、
+    `\\n` 连接归一化（whitespace/换行不敏感，避免仅缩进/空行漂移就误判「不同」）。因只取到
+    首个闭合 fence 为止，identity.post_signed_comment 追加在正文后的署名尾巴天然被排除；
+    PASS（render 不产「反馈摘要」块）→ feedback_norm == ""。缺类型/裁决行 → None。
+    """
+    lines = body.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if line.strip() == _DECISION_HEADER),
+        None,
+    )
+    if header_idx is None:
+        return None
+    after = lines[header_idx + 1 :]
+    kind_line = next((line for line in after if line.startswith(_KIND_PREFIX)), None)
+    verdict_line = next((line for line in after if line.startswith(_VERDICT_PREFIX)), None)
+    if kind_line is None or verdict_line is None:
+        return None
+    return DecisionContent(
+        kind_line=kind_line,
+        verdict_line=verdict_line,
+        feedback_norm=_extract_feedback_norm(lines=after),
+    )
+
+
+def _extract_feedback_norm(*, lines: list[str]) -> str:
+    """取「反馈摘要」块（`- 反馈摘要：` 后第一对 ``` 之间）的规范化正文；无块 → ""。
+
+    逐行 strip、丢空行、`\\n` 连接——使措辞未变、仅缩进/空行漂移的两段反馈归一化后相等。
+    """
+    feedback_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith(_FEEDBACK_PREFIX)),
+        None,
+    )
+    if feedback_idx is None:
+        return ""
+    rest = lines[feedback_idx + 1 :]
+    open_idx = next((i for i, line in enumerate(rest) if line.strip() == _FENCE), None)
+    if open_idx is None:
+        return ""
+    block = rest[open_idx + 1 :]
+    close_idx = next((i for i, line in enumerate(block) if line.strip() == _FENCE), None)
+    if close_idx is not None:
+        block = block[:close_idx]
+    normalized = [stripped for line in block if (stripped := line.strip())]
+    return "\n".join(normalized)
+
+
 def _task_for(*, kind: str, pr_number: int) -> str:
     """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。"""
     if kind == "rfc":

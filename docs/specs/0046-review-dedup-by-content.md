@@ -7,7 +7,7 @@ summary: '把 _post_review_decision 的去重从「同结论=重复」改成「�
 tasks:
   - id: T1
     title: reviewer.extract_decision_content：裁决内容纯解析器
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 单测（test_reviewer，hermetic）断言：render_decision→extract 往返一致；含 identity 签名尾巴的 comment.body 仍正确抽出三段且 feedback_norm 排除签名；PASS 裁决 feedback_norm=='' ；两段仅缩进/空行不同的反馈规范化后相等；非裁决 markdown（无抬头）→None。
   - id: T2
     title: orchestrator._decision_already_posted：按结论+反馈内容去重
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

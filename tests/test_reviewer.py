@@ -18,10 +18,12 @@ from openagents.reviewer import (
     DEFAULT_REVIEWERS,
     REVIEWERS_ENV,
     UNPARSED_VERDICT,
+    DecisionContent,
     ReviewDecision,
     _parse_verdict,
     _task_for,
     configured_reviewers,
+    extract_decision_content,
     render_decision,
     review,
 )
@@ -376,3 +378,85 @@ def test_render_decision_invalid_distinct_from_rework():
     assert "评审无效" in invalid
     assert "评审无效" not in rework
     assert "❌ REWORK" in rework
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0046/T1：extract_decision_content——render_decision 的逆向去重身份解析器
+# --------------------------------------------------------------------------- #
+
+
+def test_extract_roundtrips_with_render_rework():
+    # render → extract 往返一致：抽出的类型/裁决行与 render 一致，反馈规范化后含原文关键句。
+    decision = ReviewDecision(
+        passed=False,
+        feedback="foo.py:10 缺边界处理\nbar.py:3 未处理 None",
+        verdicts=("REWORK",),
+        actionable=True,
+    )
+    body = render_decision(decision=decision, kind="code")
+    content = extract_decision_content(body=body)
+    assert content is not None
+    assert content.kind_line == "- 类型：代码"
+    assert content.verdict_line == "- 裁决：❌ REWORK"
+    assert content.feedback_norm == "foo.py:10 缺边界处理\nbar.py:3 未处理 None"
+
+
+def test_extract_excludes_identity_signature_tail():
+    # 含 identity 署名尾巴的 comment.body 仍正确抽出三段，且 feedback_norm 不含签名。
+    decision = ReviewDecision(
+        passed=False, feedback="缺单测", verdicts=("REWORK",), actionable=True
+    )
+    rendered = render_decision(decision=decision, kind="code")
+    signed = rendered + "\n\n---\n🤖 由 agent-x 自动发布\n"
+    content = extract_decision_content(body=signed)
+    assert content is not None
+    assert content.verdict_line == "- 裁决：❌ REWORK"
+    assert content.feedback_norm == "缺单测"
+    assert "agent-x" not in content.feedback_norm
+    assert "🤖" not in content.feedback_norm
+
+
+def test_extract_pass_has_empty_feedback_norm():
+    # PASS 裁决 render 不产「反馈摘要」块 → feedback_norm == ""。
+    decision = ReviewDecision(passed=True, feedback="", verdicts=("PASS", "PASS"))
+    body = render_decision(decision=decision, kind="rfc")
+    content = extract_decision_content(body=body)
+    assert content is not None
+    assert content.verdict_line == "- 裁决：✅ PASS"
+    assert content.feedback_norm == ""
+
+
+def test_extract_feedback_norm_whitespace_insensitive():
+    # 两段仅缩进/空行不同的反馈，规范化后相等。
+    base = render_decision(
+        decision=ReviewDecision(
+            passed=False, feedback="a\nb", verdicts=("REWORK",), actionable=True
+        ),
+        kind="code",
+    )
+    # 手工在反馈块里塞入前导空格与多余空行，模拟措辞未变仅排版漂移。
+    drifted = base.replace("a\nb", "  a  \n\n   b\n")
+    left = extract_decision_content(body=base)
+    right = extract_decision_content(body=drifted)
+    assert left is not None and right is not None
+    assert left.feedback_norm == right.feedback_norm == "a\nb"
+
+
+def test_extract_non_decision_markdown_is_none():
+    # 无稳定抬头的普通评论 → None。
+    assert extract_decision_content(body="随便一条 PR 评论\n看看代码") is None
+    assert extract_decision_content(body="") is None
+
+
+def test_extract_missing_kind_or_verdict_is_none():
+    # 有抬头但缺类型/裁决行（残缺评论）→ None，不误判为裁决。
+    assert extract_decision_content(body="## 评审闸裁决\n- 票数：1 票中 1 票 PASS") is None
+
+
+def test_decision_content_is_frozen():
+    # frozen dataclass：去重身份不可变。
+    content = DecisionContent(
+        kind_line="- 类型：代码", verdict_line="- 裁决：✅ PASS", feedback_norm=""
+    )
+    with pytest.raises(AttributeError):
+        content.feedback_norm = "x"

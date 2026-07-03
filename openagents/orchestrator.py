@@ -537,15 +537,16 @@ class Orchestrator:
         负责（票数语义属 reviewer 领域知识），盖章复用 identity.post_signed_comment（RFC-0011
         唯一出口）；任何 gh 故障都不得阻断评审闸与下游 refine/iterate/merge（决策 2）。
 
-        Spec-0022/T3：发评论前按「同 kind 同结论」去重——最近一条同类裁决评论结论与本轮相同
-        则跳过重发，止住「PR 长期 open、裁决不变」刷屏（实例 PR #61 的 33 条相同 PASS）。去重
+        Spec-0022/T3 → Spec-0046/T2：发评论前按「同 kind 同结论**且同反馈**」去重——最近一条
+        同类裁决评论的结论与反馈都与本轮相同才跳过重发，止住「PR 长期 open、裁决不变」刷屏
+        （实例 PR #61 的 33 条相同 PASS），同时让理由各异的连续 REWORK 照发（issue #116）。去重
         是尽力而为旁路：查询/比对的任何异常都 fail-open 降级为照常发送（决策 2：宁可多发一条，
         也不因查询抖动漏发裁决、损害可观测性）。
         """
         body = reviewer.render_decision(decision=decision, kind=kind)
         try:
             if self._decision_already_posted(pr_number=pr_number, rendered=body):
-                self._progress(message=f"↩ PR #{pr_number} 同结论裁决评论已存在，跳过重发")
+                self._progress(message=f"↩ PR #{pr_number} 同结论同反馈裁决评论已存在，跳过重发")
                 return
         except Exception as error:  # noqa: BLE001 — 去重尽力而为，查询抖动不得漏发裁决
             self._progress(message=f"⚠ 裁决去重查询失败（降级为照发）：{error}")
@@ -559,28 +560,29 @@ class Orchestrator:
             self._progress(message=f"⚠ 裁决评论发送失败（已忽略）：{error}")
 
     def _decision_already_posted(self, *, pr_number: int, rendered: str) -> bool:
-        """Spec-0022/T3：本轮裁决是否与 PR 上最近一条同 kind 裁决评论结论相同。
+        """Spec-0046/T2：本轮裁决是否与 PR 上最近一条同 kind 裁决评论**结论且反馈都**相同。
 
-        从 rendered（reviewer.render_decision 输出）自身抽取「抬头 / 类型 / 裁决」三行作为匹配
-        特征——不重复 reviewer 文案、随其措辞自动同步（理念 10）。去重粒度 = 裁决结论（PASS /
-        非 PASS）：只比对类型行 + 裁决行，**不逐字节比对**票数/反馈措辞（它们每轮可能微变，逐字节
-        会判「不同」而继续刷屏）。只读 github.list_comments，不改任何状态。
+        去重身份由 reviewer.extract_decision_content 从 rendered / 评论正文反解出（理念 10：格式
+        知识归 reviewer，orchestrator 只消费 DecisionContent）。粒度从 Spec-0022/T3 的「结论」升级为
+        「结论 + 规范化反馈」：仅当最近一条同 kind 裁决的 verdict_line 与 feedback_norm 均与本轮相同
+        才判重复。这样既保留 PR #61 的防刷屏去重（同 PASS 不重发），又让理由各异的连续 REWORK 照发
+        （issue #116：结论同但反馈不同 → 照发）。只读 github.list_comments，不改任何状态。
         """
-        lines = rendered.splitlines()
-        header_line = lines[0]  # "## 评审闸裁决"——reviewer 渲染的稳定抬头
-        kind_line = next(line for line in lines if line.startswith("- 类型："))
-        verdict_line = next(line for line in lines if line.startswith("- 裁决："))
-        # 同 kind 裁决评论：评论正文含抬头行 + 同类型行（区分 rfc / code 两道闸，互不抑制）。
+        cur = reviewer.extract_decision_content(body=rendered)
+        if cur is None:
+            return False  # 本轮无法解析（不应发生）→ fail-open 照发
+        # 同 kind 裁决评论：解析成功且类型行相同（区分 rfc / code 两道闸，互不抑制）。
         same_kind = [
-            comment
+            (comment, content)
             for comment in github.list_comments(pr_number=pr_number)
-            if header_line in comment.body.splitlines() and kind_line in comment.body.splitlines()
+            if (content := reviewer.extract_decision_content(body=comment.body)) is not None
+            and content.kind_line == cur.kind_line
         ]
         if not same_kind:
             return False
-        # 取最近一条（created_at 为 ISO 8601，可按字典序比较）比对结论：含同一裁决行即重复。
-        latest = max(same_kind, key=lambda comment: comment.created_at)
-        return verdict_line in latest.body.splitlines()
+        # 取最近一条（created_at 为 ISO 8601，可按字典序比较）：结论**与**反馈都相同才算重复。
+        _, prev = max(same_kind, key=lambda pair: pair[0].created_at)
+        return prev.verdict_line == cur.verdict_line and prev.feedback_norm == cur.feedback_norm
 
     # --- 证据闸：定稿 runbook + 固化证据（Spec-0040/T5）------------------ #
     def finalize_runbook(self, *, pr_number: int) -> RunbookHandle | None:
