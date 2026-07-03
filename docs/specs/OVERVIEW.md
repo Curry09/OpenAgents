@@ -316,8 +316,8 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0049 | 0049/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | done | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0049 | 0049/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | done | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
 | 0049 | 0049/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | done | T3, T4 | scripts/e2e-spec-0049-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
-| 0050 | 0050/T1 | _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测 | pending | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0050 | 0050/T2 | 浏览器成果 e2e：渲染真实评审评论·截图·断言反馈摘要为简短中文 | pending | T1 | scripts/e2e-spec-0050-review-reason-chinese-readability.sh |
+| 0050 | 0050/T1 | _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0050 | 0050/T2 | 浏览器成果 e2e：渲染真实评审评论·截图·断言反馈摘要为简短中文 | done | T1 | scripts/e2e-spec-0050-review-reason-chinese-readability.sh |
 
 ## 跨 feature 关系图
 
@@ -2050,7 +2050,7 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```

@@ -15,6 +15,7 @@ import pytest
 
 from openagents.backends.base import AgentResult
 from openagents.reviewer import (
+    _RUBRIC_TAIL,
     DEFAULT_REVIEWERS,
     REVIEWERS_ENV,
     UNPARSED_VERDICT,
@@ -181,6 +182,39 @@ def test_evidence_rubric_only_on_code_not_rfc():
     # Spec-0044/T2：无证据检查项只挂代码 review（评实现/取证），不挂 spec 文档 review。
     rfc_task = _task_for(kind="rfc", pr_number=7)
     assert "宣称验证过但无证据 → REWORK" not in rfc_task
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0050/T1：裁决理由语言/长度硬化——理由必须一段简短中文
+# --------------------------------------------------------------------------- #
+
+
+def test_rubric_tail_requires_short_chinese_reason():
+    # Spec-0050/T1：_RUBRIC_TAIL 含「面向人类的裁决理由…必须用一段简短的中文」硬规约，
+    # 且明确覆盖 REASON/ISSUES/NEXT——把「用中文简短说」从示例偏置升级为硬性输出要求。
+    assert "简短" in _RUBRIC_TAIL
+    assert "中文" in _RUBRIC_TAIL
+    assert "REASON" in _RUBRIC_TAIL
+    assert "ISSUES" in _RUBRIC_TAIL
+    assert "NEXT" in _RUBRIC_TAIL
+    # 语义锚点：并列于裁决前置的一句明确语言/长度硬规约。
+    assert "必须用一段简短的中文" in _RUBRIC_TAIL
+
+
+def test_rubric_tail_examples_are_short_chinese_samples():
+    # Spec-0050/T1：REASON/ISSUES/NEXT 示例文案显式绑定「一句话中文」，作为简短中文正样板。
+    assert "一句话中文说明核对的关键验证标准" in _RUBRIC_TAIL
+    assert "一句话中文点出问题" in _RUBRIC_TAIL
+    assert "一句话中文说明修复方向" in _RUBRIC_TAIL
+
+
+def test_short_chinese_constraint_on_both_code_and_rfc_gates():
+    # Spec-0050/T1：共享 tail 使两道闸同时生效——code 与 rfc 生成的完整任务文本都含该语言/长度约束。
+    code_task = _task_for(kind="code", pr_number=9)
+    rfc_task = _task_for(kind="rfc", pr_number=9)
+    for task in (code_task, rfc_task):
+        assert "必须用一段简短的中文" in task
+        assert "REASON / ISSUES / NEXT" in task
 
 
 # --------------------------------------------------------------------------- #

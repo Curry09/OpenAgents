@@ -14,7 +14,7 @@ e2e:
 tasks:
   - id: T1
     title: _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -27,7 +27,7 @@ tasks:
     acceptance: _RUBRIC_TAIL 文本含『面向人类的裁决理由…必须用一段简短的中文』或等价字样，且明确覆盖 REASON/ISSUES/NEXT；_task_for(kind=code) 与 _task_for(kind=rfc) 生成的完整任务文本均含该语言/长度约束（证明共享 tail 两闸生效）；REASON/ISSUES/NEXT 示例为简短中文样板；新增单测断言以上文本全部通过；既有裁决前置(首行 VERDICT)/首行优先解析/render 三态/distill 对应单测仍绿；ruff check + ruff format --check + pytest -q 全绿；spec 注释锚点 Spec-0050/T1 就位。
   - id: T2
     title: 浏览器成果 e2e：渲染真实评审评论·截图·断言反馈摘要为简短中文
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
