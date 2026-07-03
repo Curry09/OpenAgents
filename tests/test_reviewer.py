@@ -442,6 +442,42 @@ def test_extract_feedback_norm_whitespace_insensitive():
     assert left.feedback_norm == right.feedback_norm == "a\nb"
 
 
+def test_extract_feedback_with_code_fence_not_truncated():
+    # issue #116 / PR #117 回归：反馈正文本身含代码围栏（```）时不被截断——
+    # render 把 feedback 裹在外层围栏里，内部围栏须被完整纳入 feedback_norm。
+    feedback = "```\ndef f():\n    ...\n```\n卡点：f 未处理 None"
+    body = render_decision(
+        decision=ReviewDecision(
+            passed=False, feedback=feedback, verdicts=("REWORK",), actionable=True
+        ),
+        kind="code",
+    )
+    content = extract_decision_content(body=body)
+    assert content is not None
+    # 内部围栏行与其后正文都在，未被首个闭合围栏截断。
+    assert content.feedback_norm == "```\ndef f():\n...\n```\n卡点：f 未处理 None"
+
+
+def test_extract_two_fenced_reworks_differ_not_deduped():
+    # issue #116 核心验收：两条**理由不同**但都以 fenced code 示例开头的 REWORK，
+    # feedback_norm 必须不同——否则会被 _decision_already_posted 误判重复而静默抑制。
+    def norm(feedback):
+        body = render_decision(
+            decision=ReviewDecision(
+                passed=False, feedback=feedback, verdicts=("REWORK",), actionable=True
+            ),
+            kind="code",
+        )
+        content = extract_decision_content(body=body)
+        assert content is not None
+        return content.feedback_norm
+
+    first = norm("```\nx = 1\n```\n第一轮卡点：缺边界处理")
+    second = norm("```\nx = 1\n```\n第二轮卡点：越权访问")
+    assert first != second
+    assert first != "" and second != ""
+
+
 def test_extract_non_decision_markdown_is_none():
     # 无稳定抬头的普通评论 → None。
     assert extract_decision_content(body="随便一条 PR 评论\n看看代码") is None

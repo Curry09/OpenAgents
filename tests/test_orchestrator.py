@@ -1014,5 +1014,33 @@ def test_decision_dedup_compares_latest_by_created_at(tmp_path, monkeypatch):
     assert posted == {}
 
 
+def test_decision_fenced_feedback_different_reasons_reposts(tmp_path, monkeypatch):
+    # issue #116 / PR #117 回归：两条**理由不同**但都以 fenced code 示例开头的 REWORK，
+    # 必须照发第二条——旧实现把 feedback 内部围栏误当外层闭合、把两者归一化为 "" 而误判重复静默抑制。
+    orch, _, _ = _make(tmp_path)
+    prior = _decision_comment(
+        kind="code",
+        passed=False,
+        feedback="```\nfoo()\n```\n第一轮卡点：缺边界处理",
+        created_at="2026-06-18T13:18:00Z",
+    )
+    _patch_list_comments(monkeypatch, [prior])
+    posted = _spy_post_comment(monkeypatch)
+
+    orch._post_review_decision(
+        pr_number=5,
+        kind="code",
+        decision=ReviewDecision(
+            passed=False,
+            feedback="```\nbar()\n```\n第二轮卡点：越权访问",
+            verdicts=("REWORK",),
+            actionable=True,
+        ),
+    )
+
+    assert posted["pr_number"] == 5
+    assert "越权访问" in posted["body"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

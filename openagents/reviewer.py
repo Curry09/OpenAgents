@@ -255,10 +255,12 @@ def extract_decision_content(*, body: str) -> DecisionContent | None:
 
     与 render_decision 互为正逆（纯函数、无副作用、不依赖 github/identity）。以稳定抬头
     `## 评审闸裁决` 为锚：抬头缺失 → 非裁决评论 → None。抬头之后取首个 `- 类型：` / `- 裁决：`
-    两行；「反馈摘要」= `- 反馈摘要：` 之后**第一对**三反引号之间的正文，逐行 strip、丢空行、
-    `\\n` 连接归一化（whitespace/换行不敏感，避免仅缩进/空行漂移就误判「不同」）。因只取到
-    首个闭合 fence 为止，identity.post_signed_comment 追加在正文后的署名尾巴天然被排除；
-    PASS（render 不产「反馈摘要」块）→ feedback_norm == ""。缺类型/裁决行 → None。
+    两行；「反馈摘要」= `- 反馈摘要：` 之后 render 外层围栏（首个 ``` 到**最后一个** ```）之间的
+    正文，逐行 strip、丢空行、`\\n` 连接归一化（whitespace/换行不敏感，避免仅缩进/空行漂移就误判
+    「不同」）。取到最后一个 fence 为止，故 feedback 正文内部的代码围栏被完整纳入（不再被误当闭合
+    而截断，见 `_extract_feedback_norm` issue #116 修正），而 identity 追加的无围栏 HTML 注释署名
+    天然落在末个 fence 之外被排除；PASS（render 不产「反馈摘要」块）→ feedback_norm == ""。
+    缺类型/裁决行 → None。
     """
     lines = body.splitlines()
     header_idx = next(
@@ -280,9 +282,19 @@ def extract_decision_content(*, body: str) -> DecisionContent | None:
 
 
 def _extract_feedback_norm(*, lines: list[str]) -> str:
-    """取「反馈摘要」块（`- 反馈摘要：` 后第一对 ``` 之间）的规范化正文；无块 → ""。
+    """取「反馈摘要」块（`- 反馈摘要：` 后 render 的**外层**围栏之间）的规范化正文；无块 → ""。
 
     逐行 strip、丢空行、`\\n` 连接——使措辞未变、仅缩进/空行漂移的两段反馈归一化后相等。
+
+    issue #116 / PR #117 修正：render_decision（reviewer.py:220-222）把 `decision.feedback`
+    原样塞进一对围栏，而 feedback 正文本身可能含代码围栏行（`_distill_feedback` 不剥离 ``` 行，
+    reviewer 输出的裸 ``` 会原样保留）。旧实现「首个 ``` 到**第一个**闭合 ``` 为止」会把 feedback
+    内部的围栏误当成外层闭合围栏，截断甚至清空反馈——两条理由不同但都以 fenced code 开头的 REWORK
+    会被误判 feedback_norm 相等而静默抑制，正是 issue #116 要修的失败模式。改为「首个 ``` 到**最后
+    一个** ``` 之间」为块体：render 恒把反馈裹在外层围栏里，其后 identity 署名是无围栏的 HTML 注释
+    （identity.sign），故末个 ``` 必是 render 的外层闭合围栏，内部围栏被完整纳入正文、不再截断。
+    （注：不能改用「剥掉署名尾巴」——多 reviewer 反馈内部以 `\\n\\n---\\n\\n` 连接，按 `---` 截尾
+    反会误伤多段反馈；围栏定位法对 `---` 与 HTML 注释署名都免疫。）
     """
     feedback_idx = next(
         (i for i, line in enumerate(lines) if line.startswith(_FEEDBACK_PREFIX)),
@@ -291,13 +303,10 @@ def _extract_feedback_norm(*, lines: list[str]) -> str:
     if feedback_idx is None:
         return ""
     rest = lines[feedback_idx + 1 :]
-    open_idx = next((i for i, line in enumerate(rest) if line.strip() == _FENCE), None)
-    if open_idx is None:
+    fences = [i for i, line in enumerate(rest) if line.strip() == _FENCE]
+    if len(fences) < 2:
         return ""
-    block = rest[open_idx + 1 :]
-    close_idx = next((i for i, line in enumerate(block) if line.strip() == _FENCE), None)
-    if close_idx is not None:
-        block = block[:close_idx]
+    block = rest[fences[0] + 1 : fences[-1]]
     normalized = [stripped for line in block if (stripped := line.strip())]
     return "\n".join(normalized)
 

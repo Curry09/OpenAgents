@@ -17,7 +17,7 @@ tasks:
       - openagents/reviewer.py
       - tests/test_reviewer.py
     scope: "在 reviewer.py 新增纯函数 extract_decision_content(*, body) -> DecisionContent|None 及 frozen dataclass DecisionContent{kind_line, verdict_line, feedback_norm}，与 render_decision 互为正逆：以稳定抬头 ## 评审闸裁决 为锚，取 - 类型：/ - 裁决：两行 + 「反馈摘要」三反引号块的规范化正文（逐行 strip、丢空行、\\n 连接；PASS 空反馈→''），对含署名尾巴的 comment.body 与纯 rendered 均稳；非裁决评论→None。无副作用、不依赖 github/identity、全关键字参数。"
-    acceptance: 单测（test_reviewer，hermetic）断言：render_decision→extract 往返一致；含 identity 签名尾巴的 comment.body 仍正确抽出三段且 feedback_norm 排除签名；PASS 裁决 feedback_norm=='' ；两段仅缩进/空行不同的反馈规范化后相等；非裁决 markdown（无抬头）→None。
+    acceptance: 单测（test_reviewer，hermetic）断言：render_decision→extract 往返一致；含 identity 签名尾巴的 comment.body 仍正确抽出三段且 feedback_norm 排除签名；PASS 裁决 feedback_norm=='' ；两段仅缩进/空行不同的反馈规范化后相等；反馈正文内含代码围栏（```）时不被截断、且两条理由不同但都以 fenced code 开头的 REWORK 的 feedback_norm 不相等（issue #116 回归）；非裁决 markdown（无抬头）→None。
   - id: T2
     title: orchestrator._decision_already_posted：按结论+反馈内容去重
     status: done
@@ -102,7 +102,8 @@ def extract_decision_content(*, body: str) -> DecisionContent | None:
 ```
 
 - **为什么放 reviewer**：`render_decision` 的输出格式（抬头 / `- 类型：` / `- 裁决：` / 三反引号包裹的「反馈摘要」块）是 reviewer 的领域知识；它的**逆向提取**也应由 reviewer 拥有，orchestrator 只消费 `DecisionContent`、不再自己 splitlines 抠 reviewer 文案（现状是 orchestrator 内联解析，反而隐式耦合了 reviewer 格式）。
-- **能吃 rendered 也能吃评论正文**：`extract_decision_content` 对**纯 rendered**（本轮）和**含署名尾巴的 comment.body**（PR 上既有评论，`identity.post_signed_comment` 会在正文后追加签名）都要稳。实现上以稳定抬头 `## 评审闸裁决` 为锚，取「反馈摘要」块 = 「`- 反馈摘要：` 之后第一对 ``` 三反引号之间」的文本，故尾部签名天然被排除。
+- **能吃 rendered 也能吃评论正文**：`extract_decision_content` 对**纯 rendered**（本轮）和**含署名尾巴的 comment.body**（PR 上既有评论，`identity.post_signed_comment` 会在正文后追加签名）都要稳。实现上以稳定抬头 `## 评审闸裁决` 为锚，取「反馈摘要」块 = 「`- 反馈摘要：` 之后**首个 ``` 到最后一个 ```**之间」的文本，故尾部签名天然被排除。
+- **反馈正文内含代码围栏的兜底（issue #116 / PR #117 修正）**：`render_decision` 把 `decision.feedback` 原样裹进一对外层围栏，而 feedback 正文本身可能含代码围栏行（`_distill_feedback` 不剥离裸 ``` 行）。若按「首对围栏」提取，feedback 内部的 ``` 会被误当外层闭合围栏、把反馈截断甚至归一化为 ""——两条**理由不同**但都以 fenced code 开头的 REWORK 会被误判 `feedback_norm` 相等而**静默抑制**，正是本 spec 要修的失败模式（fail-closed，与 fail-open 理念相悖）。故取「首个 ``` 到**最后一个** ```」为块体：render 恒把反馈裹在最外层围栏、其后 identity 署名是无围栏的 HTML 注释，末个 ``` 必是外层闭合围栏，内部围栏被完整纳入正文。**不采用「按 `---` 剥署名尾巴」**——多 reviewer 反馈内部以 `\n\n---\n\n` 连接，按 `---` 截尾反会误伤多段反馈；围栏定位法对 `---` 与 HTML 注释署名都免疫。
 - **feedback_norm 规范化**：逐行 strip、丢空行、`\n` 连接（whitespace/换行不敏感的比较，避免措辞未变仅缩进/空行漂移就误判「不同」）；PASS（`decision.feedback == ""`，render 不产「反馈摘要」块）→ `feedback_norm == ""`。
 - 全关键字参数（CLAUDE.md 禁位置参数）。
 
