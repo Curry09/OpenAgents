@@ -281,6 +281,10 @@ graph TD
 
 见 frontmatter `e2e` 块：形态 `cli`（本组交付物是后端 Python + shell 脚本，无前端可导航/截图，同
 Spec-0040 的判断——形态跟着交付物走，而非跟着工具走）；意图与验收行为对应 T1/T2 的三条断言。
+**自检工具后的取舍**：本会话已自检工具列表，**不具备** Playwright / Chrome DevTools 等浏览器 MCP
+工具（`ToolSearch` 无匹配）；但即便具备，本组交付物（`evidence_gate.py` 正则解析 + shell fixture
+脚本 + README/docstring 文档）本身也无前端可导航/截图/断言 console·network——`ui` 形态无处施展，
+`cli` 是唯一适配交付物的选择，与工具是否可用无关。
 
 ## Drawbacks
 
