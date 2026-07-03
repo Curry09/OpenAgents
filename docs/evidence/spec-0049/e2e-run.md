@@ -10,7 +10,7 @@ All checks passed!
 
 ==> [2/4] 定向单元/集成测试（Spec-0049 T1–T5）
 ...........................................                              [100%]
-43 passed in 0.09s
+43 passed in 0.08s
 
 ==> [3/4] 成果证据：用**真实** Orchestrator + State 驱动两后端对同一 issue 竞态，打印三条断言证据
 ▶ 拉取 issue #42 …
