@@ -1,4 +1,4 @@
-"""Spec-0048/T4：orchestrator 认领（署名便签 + read-after-write 退让）与 state 清 run 原语单测。
+"""Spec-0049/T4：orchestrator 认领（署名便签 + read-after-write 退让）与 state 清 run 原语单测。
 
 github.* 与 git 子进程（Workspace）一律 mock/注入；聚焦：
 - fresh 认领 = 幂等 add 标签 + 贴署名认领便签 + read-after-write 二次确认；PR 开出后摘标签；

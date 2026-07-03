@@ -1,5 +1,5 @@
 ---
-number: "0048"
+number: "0049"
 title: vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
 issue: 120
 slug: vigil-claim-ownership-anti-thrash
@@ -74,13 +74,13 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0048-vigil-claim-ownership.sh
+      - scripts/e2e-spec-0049-vigil-claim-ownership.sh
       - tests/test_claim_dedup_integration.py
     scope: 内存假 GitHub(标签集合+评论账本+事件记录)驱动两个 Orchestrator+State 实例对同一 issue 竞态；断言恰好一个开 draft PR、另一个 ClaimLost 退让清本地、全程零 unlabeled 互撕事件、双 solving 下多轮 resume 零新认领事件、僵尸认领可回收。e2e 脚本跑 ruff+定向 pytest+spec validate 并打印三条断言证据（浏览器 e2e 不适用：无产品前端界面）
-    acceptance: bash scripts/e2e-spec-0048-vigil-claim-ownership.sh 退出码 0；集成测试断言唯一赢家 + 零 unlabeled 事件 + resume 零新认领事件 + 僵尸可回收全部通过；脚本输出可作 PR 指路牌收录的可复现证据
+    acceptance: bash scripts/e2e-spec-0049-vigil-claim-ownership.sh 退出码 0；集成测试断言唯一赢家 + 零 unlabeled 事件 + resume 零新认领事件 + 僵尸可回收全部通过；脚本输出可作 PR 指路牌收录的可复现证据
 ---
 
-# 0048 · vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
+# 0049 · vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -231,7 +231,7 @@ graph TD
 | T2 | `openagents/identity.py`, `tests/test_identity_claim.py` | 认领便签 `claim` 标记常量 + `latest_claim(comments)->（owner_agent_id, age_seconds）\|None` 纯解析 |
 | T3 | `openagents/vigil.py`, `tests/test_vigil_claim.py` | `_dispatch_kind`/`_claim_expired` 归属感知（尊重他人认领、只回收过期/无主） |
 | T4 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator_claim.py` | resume 免认领；`_claim_issue` 贴署名便签 + read-after-write `ClaimLost` 退让；state 新增清 run 原语 |
-| T5 | `scripts/e2e-spec-0048-vigil-claim-ownership.sh`, `tests/test_claim_dedup_integration.py` | 成果测试：两后端同 issue 竞态复现 → 断言无互撕 + 唯一赢家 + resume 零新认领事件 |
+| T5 | `scripts/e2e-spec-0049-vigil-claim-ownership.sh`, `tests/test_claim_dedup_integration.py` | 成果测试：两后端同 issue 竞态复现 → 断言无互撕 + 唯一赢家 + resume 零新认领事件 |
 
 文件跨 Task 互斥（理念 6 单一 writer）：`github.py`(T1) / `identity.py`(T2) / `vigil.py`(T3) /
 `orchestrator.py`+`state.py`(T4) / 脚本+集成测试(T5) 无重叠。
@@ -249,7 +249,7 @@ graph TD
   2. 全程**零 unlabeled 事件**（不再无差别撕标签）；便签评论只增不删；
   3. 两者都进入 `solving/pr=0` 的场景下多轮 `_dispatch_kind` 走 resume → **不产生任何新的 labeled/comment 认领事件**；
   4. 僵尸认领（便签年龄 > `CLAIM_EXPIRY_SECONDS`）能被他方回收重认领。
-- **e2e 脚本** `scripts/e2e-spec-0048-vigil-claim-ownership.sh`：`ruff` + 定向 `pytest`
+- **e2e 脚本** `scripts/e2e-spec-0049-vigil-claim-ownership.sh`：`ruff` + 定向 `pytest`
   上述集成测试 + `spec validate`，把「无 unlabeled 互撕事件 / 唯一赢家 / resume 零新事件」三条断言的
   通过输出作为可复现证据（被 PR 指路牌自动收录）。
 

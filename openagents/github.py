@@ -399,7 +399,7 @@ def issue_comment(*, number: int, body: str) -> None:
 
 
 def list_issue_comments(*, number: int) -> list[Comment]:
-    """Spec-0048/T1：读 issue 全部评论（`gh issue view <n> --json comments`）。
+    """Spec-0049/T1：读 issue 全部评论（`gh issue view <n> --json comments`）。
 
     与 list_comments（PR 版，走 `gh pr view`）对称，是 issue 级读原语——认领去重需要读
     issue 上的「署名认领便签」评论判归属/年龄（identity.latest_claim 消费）。gh 的 comments
@@ -489,7 +489,7 @@ def issue_add_label(*, number: int, name: str) -> None:
     add_label / remove_label / has_label 都作用于 **PR**（`gh pr edit/view`），而发现段的
     认领对象是 **issue**，故补一组走 `gh issue edit/view` 的 issue 级操作。
 
-    Spec-0048/T1：认领打标改由本函数**幂等 add**（不再经已退役的 remove-then-add stamp）——
+    Spec-0049/T1：认领打标改由本函数**幂等 add**（不再经已退役的 remove-then-add stamp）——
     对已带该标签的 issue 再 add 是 gh 侧 no-op、**不产生 labeled/unlabeled 事件**，从根上消除
     「两后端每轮互相撕掉对方标签」的物理来源；认领新鲜度改由「署名认领便签」评论年龄承载
     （identity.latest_claim）。失败由 _run_gh 抛 GithubError。

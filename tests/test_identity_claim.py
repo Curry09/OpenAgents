@@ -1,4 +1,4 @@
-"""Spec-0048/T2：identity 认领便签标记 + 归属/年龄解析（latest_claim / build_claim_note）单测。
+"""Spec-0049/T2：identity 认领便签标记 + 归属/年龄解析（latest_claim / build_claim_note）单测。
 
 纯函数（唯一的「现在」来自 datetime.now，用于算年龄）：不触网、不调 gh。覆盖：
 - build_claim_note → latest_claim 往返保真（owner 还原）；

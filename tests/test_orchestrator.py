@@ -73,7 +73,7 @@ class _GitRecorder:
     def __call__(self, args, **kwargs):
         self.commands.append(list(args))
 
-        # Spec-0048/T4：start_rfc fresh 认领会 read-after-write 调 `gh issue view --json comments`
+        # Spec-0049/T4：start_rfc fresh 认领会 read-after-write 调 `gh issue view --json comments`
         # （list_issue_comments）；给它回一个空评论 JSON，使 latest_claim 返回 None（无他方认领）→
         # 不抛 ClaimLost，本用例聚焦 worktree/PR/状态路径，不验认领竞态（那由 test_orchestrator_claim）。
         class _Proc:
@@ -241,7 +241,7 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
-    # Spec-0048/T4：fresh 认领 = 幂等 add 标签 + 贴署名认领便签 + read-after-write 重读评论；PR 开出后
+    # Spec-0049/T4：fresh 认领 = 幂等 add 标签 + 贴署名认领便签 + read-after-write 重读评论；PR 开出后
     # 摘标签。全 mock 掉避免真实 gh（本用例只验 worktree 路径）；list_issue_comments 回 [] → 无他方认领。
     monkeypatch.setattr(orch_module.github, "issue_add_label", lambda *, number, name: None)
     monkeypatch.setattr(orch_module.github, "issue_comment", lambda *, number, body: None)
@@ -273,7 +273,7 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
-    # Spec-0048/T4：resume **不再认领**（止血）——只在 PR 开出后 _release_claim 摘标签，mock issue_remove_label
+    # Spec-0049/T4：resume **不再认领**（止血）——只在 PR 开出后 _release_claim 摘标签，mock issue_remove_label
     # 即可；不会调 issue_add_label / issue_comment / list_issue_comments（下面断言认领便签零调用）。
     claim_calls: list[str] = []
     monkeypatch.setattr(

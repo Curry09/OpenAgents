@@ -1,6 +1,6 @@
-# Spec-0048 端到端成果证据（issue #120）
+# Spec-0049 端到端成果证据（issue #120）
 
-由 `bash scripts/e2e-spec-0048-vigil-claim-ownership.sh` 真跑产出（真实 Orchestrator + State 产品代码驱动两后端对同一 issue 竞态）。
+由 `bash scripts/e2e-spec-0049-vigil-claim-ownership.sh` 真跑产出（真实 Orchestrator + State 产品代码驱动两后端对同一 issue 竞态）。
 本 feature 为后端 GitHub 标签/评论并发时序问题、无产品前端界面，故取证形态为确定性并发复现 + 真实运行日志（非浏览器截图）。
 
 ```
@@ -8,7 +8,7 @@
 All checks passed!
 107 files already formatted
 
-==> [2/4] 定向单元/集成测试（Spec-0048 T1–T5）
+==> [2/4] 定向单元/集成测试（Spec-0049 T1–T5）
 ...........................................                              [100%]
 43 passed in 0.09s
 
@@ -34,11 +34,11 @@ All checks passed!
   证据③【resume 零新认领事件】：solving/pr=0 孤儿 run 走 start_rfc(resume=True) 续跑，零 labeled、零 comment 认领事件（实测 0 条）： True
   ✓ 三条断言全部通过
 
-==> [4/4] spec 校验（Spec-0048 组结构 + OVERVIEW/ARCHITECTURE 无漂移）
+==> [4/4] spec 校验（Spec-0049 组结构 + OVERVIEW/ARCHITECTURE 无漂移）
 ✓ spec 校验通过
 ✓ 已生成 docs/specs/OVERVIEW.md
 ✓ 已生成 docs/specs/ARCHITECTURE.md
 ✓ graph 校验通过（docstring 齐全、无漂移）
 
-✅ Spec-0048 端到端验证通过：唯一赢家 + 零 unlabeled 互撕 + resume 零新认领事件（可复现证据见上）。
+✅ Spec-0049 端到端验证通过：唯一赢家 + 零 unlabeled 互撕 + resume 零新认领事件（可复现证据见上）。
 ```

@@ -1,4 +1,4 @@
-"""Spec-0048/T3：vigil 发现段认领闸的归属感知分流单元测试。
+"""Spec-0049/T3：vigil 发现段认领闸的归属感知分流单元测试。
 
 只测 `_dispatch_kind` / `_claim_reclaimable` 的认领闸；github.list_issue_comments 与远端分支探测
 （git ls-remote 子进程）一律 mock，不真实联网。既有两道闸（本地 State / 远端分支）与 resume

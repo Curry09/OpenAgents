@@ -183,6 +183,79 @@ def test_evidence_rubric_only_on_code_not_rfc():
     assert "宣称验证过但无证据 → REWORK" not in rfc_task
 
 
+# --------------------------------------------------------------------------- #
+# Spec-0048/T1：防 design-as-implementation——三处 rubric 硬化
+# --------------------------------------------------------------------------- #
+
+
+def test_code_review_task_has_automation_integrity_rubric():
+    # Spec-0048/T1：code rubric 含「自动化完整性硬规则」，明列主流程触发点 / artifact 自动产生并
+    # commit / 正例·反例 / 集成路径而非局部函数 五问，并写明判罚话术。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "自动化完整性" in code_task
+    assert "主流程触发点" in code_task
+    assert "artifact 自动产生并 commit" in code_task
+    assert "正例·反例" in code_task
+    assert "集成路径而非局部函数" in code_task
+    assert "缺完整链路证据 → REWORK，理由：只实现骨架，未证明完整链路" in code_task
+
+
+def test_automation_integrity_rubric_is_conditional_not_on_pure_refactor():
+    # Spec-0048/T1：条件式触发——明说纯静态/重构/文档不查，避免误伤纯内部改动（与 _EVIDENCE_RUBRIC 同构）。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "自动化执行链路" in code_task
+    assert "纯静态" in code_task and "重构" in code_task
+
+
+def test_rfc_review_task_has_automation_overpromise_rubric():
+    # Spec-0048/T1：rfc 闸多一条「自动化 spec 防过度承诺」——承诺自动化链路则 Reference-level 必须声明
+    # 触发时机/调用方/artifact 落点/失败路径/正·反例验收。
+    rfc_task = _task_for(kind="rfc", pr_number=5)
+    assert "自动化 spec 防过度承诺" in rfc_task
+    for anchor in ("触发时机", "调用方", "artifact 落点", "失败路径", "正·反例验收"):
+        assert anchor in rfc_task
+
+
+def test_rfc_automation_rubric_only_on_rfc_not_code():
+    # Spec-0048/T1：闸别隔离——「自动化 spec 防过度承诺」只挂 rfc 闸，不出现在 code 闸（与无证据检查镜像）。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "自动化 spec 防过度承诺" not in code_task
+    assert "artifact 落点" not in code_task
+
+
+def test_evidence_rubric_extended_to_automation_capability_claims():
+    # Spec-0048/T1：无证据检查延伸到「宣称实现了自动化执行/门控能力…无真实产物或集成证据 → REWORK」，
+    # 且仍只挂 code 闸、不挂 rfc 闸。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "宣称实现了自动化执行/门控能力" in code_task
+    assert "无真实产物或集成证据 → REWORK" in code_task
+    rfc_task = _task_for(kind="rfc", pr_number=7)
+    assert "宣称实现了自动化执行/门控能力" not in rfc_task
+
+
+def test_code_rubric_guides_skeleton_pr_toward_rework():
+    # Spec-0048/T1 fixture 风格：构造真实 _task_for(kind="code")，对「只加 executor/evidence_gate
+    # 模块、门控位置对、只有模块级单测、无主流程接线」的骨架冒充 PR（PR #105 复刻场景），断言 review 任务
+    # 文本齐备五问要素，足以把 reviewer 导向 REWORK（受限于 reviewer 依赖真 backend 推理不可 hermetic，
+    # 这里断言的是「引导文本齐备」而非真跑一个 agent，见 spec Drawbacks）。
+    code_task = _task_for(kind="code", pr_number=105)
+    # 场景：PR 声称新增 executor/evidence_gate 自动化链路——触发条件命中。
+    assert "executor" in code_task and "evidence gate" in code_task
+    # 五问要素齐备，逐条对应该场景的每个缺口：
+    # ① 触发点缺失（无主流程接线）
+    assert "主流程触发点" in code_task
+    # ② 未接线（只定义模块）
+    assert "被调用证据" in code_task or "没接线" in code_task
+    # ③ artifact 未自动产出/commit
+    assert "artifact 自动产生并 commit" in code_task
+    # ④ 无正反例
+    assert "正例" in code_task and "反例" in code_task
+    # ⑤ 只测局部而非集成路径
+    assert "集成路径而非局部函数" in code_task
+    # 判罚话术齐备：缺任一 → REWORK，理由「只实现骨架，未证明完整链路」。
+    assert "只实现骨架，未证明完整链路" in code_task
+
+
 def test_review_uses_kind_template_in_backend_call(tmp_path):
     backend = _backend("VERDICT: PASS")
     review(backend=backend, work_dir=tmp_path, kind="code", pr_number=42, n=1)

@@ -1,12 +1,12 @@
-"""Spec-0039/T1 + Spec-0048/T1：github 认领原语层单元测试。
+"""Spec-0039/T1 + Spec-0049/T1：github 认领原语层单元测试。
 
 所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。覆盖：
 - DISPATCH_LABEL 并入 PROCESS_LABELS，被 ensure_prerequisites 幂等自举；
 - Issue.labels 由 list_issues / get_issue 正确解析；
 - issue_add_label / issue_remove_label（幂等吞「标签本不在」/ 其它错误照抛）；
-- Spec-0048/T1：认领打标改为**幂等 add**——不再有 remove-then-add stamp；对已带标签的 issue
+- Spec-0049/T1：认领打标改为**幂等 add**——不再有 remove-then-add stamp；对已带标签的 issue
   再 add 只发一次 `gh issue edit --add-label`、不删（无 unlabeled 事件）。
-- Spec-0048/T1：list_issue_comments 取回 issue 全部评论（含 author/body/createdAt）。
+- Spec-0049/T1：list_issue_comments 取回 issue 全部评论（含 author/body/createdAt）。
 """
 
 import json
@@ -122,7 +122,7 @@ def test_list_issues_parses_labels(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# issue_add_label（Spec-0048：认领打标的幂等 add 原语）/ issue_remove_label
+# issue_add_label（Spec-0049：认领打标的幂等 add 原语）/ issue_remove_label
 # --------------------------------------------------------------------------- #
 
 
@@ -137,7 +137,7 @@ def test_issue_add_label_invokes_gh_issue_edit(monkeypatch):
 
 
 def test_issue_add_label_is_single_idempotent_add_no_remove(monkeypatch):
-    # Spec-0048/T1 核心：认领打标只发一次 `--add-label`，**绝不** remove（无 unlabeled 事件、
+    # Spec-0049/T1 核心：认领打标只发一次 `--add-label`，**绝不** remove（无 unlabeled 事件、
     # 不撕别人标签）——即便对「已带该标签」的 issue 再认领也一样（gh 侧 add 幂等 no-op）。
     runner = _fake_run()
     monkeypatch.setattr(subprocess, "run", runner)
@@ -150,7 +150,7 @@ def test_issue_add_label_is_single_idempotent_add_no_remove(monkeypatch):
 
 
 def test_no_stamp_label_primitive_remains(monkeypatch):
-    # Spec-0048/T1：退役的 remove-then-add stamp 原语不复存在（互撕的物理来源被移除）。
+    # Spec-0049/T1：退役的 remove-then-add stamp 原语不复存在（互撕的物理来源被移除）。
     assert not hasattr(github, "issue_stamp_label")
     assert not hasattr(github, "issue_label_age_seconds")
 
@@ -186,7 +186,7 @@ def test_issue_remove_label_reraises_other_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# list_issue_comments（Spec-0048/T1：issue 级读评论原语）
+# list_issue_comments（Spec-0049/T1：issue 级读评论原语）
 # --------------------------------------------------------------------------- #
 
 

@@ -161,7 +161,7 @@ class State:
         self._save(data=data)
 
     def clear_run(self, *, issue_number: int) -> None:
-        """Spec-0048/T4：抹掉某 issue 的 run 记录（认领二次确认退让时清本轮 begin_run 的 solving/pr=0）。
+        """Spec-0049/T4：抹掉某 issue 的 run 记录（认领二次确认退让时清本轮 begin_run 的 solving/pr=0）。
 
         与 begin_run/record_run 的「按 issue 去重覆盖」同构，但只删不写：读侧竞态里本后端 fresh
         认领后被他方更晚认领（ClaimLost），start_rfc 退让时调本原语抹掉刚落的 solving/pr=0 记录，

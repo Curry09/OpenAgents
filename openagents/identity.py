@@ -32,7 +32,7 @@ from openagents.state import State
 # RFC-0011 决策 2：显式命名实例的环境变量；多 agent 协同时给运维一个可读的命名入口。
 AGENT_ID_ENV = "OPENAGENTS_AGENT_ID"
 
-# Spec-0048/T2：认领便签标记——与既有 agent 签名**并存**的第二段隐藏标记，把「认领便签」从
+# Spec-0049/T2：认领便签标记——与既有 agent 签名**并存**的第二段隐藏标记，把「认领便签」从
 # 其它署名机器评论（precheck 对齐评论、reviewer 裁决回贴等同样带 <!-- openagents:agent=… -->
 # 签名）里区分出来。GitHub 不渲染 HTML 注释，对人类零干扰；gh raw body 里可被 `in` 子串命中。
 # 只需「在不在」判定（不带可变字段），故用常量 + 子串匹配，不引入正则（奥卡姆，理念 1）。
@@ -109,7 +109,7 @@ def new_human_comments(*, pr_number: int, since: str) -> list[github.Comment]:
 
 
 def build_claim_note(*, agent_id: str) -> str:
-    """Spec-0048/T2：构造一条**署名认领便签**正文——claim 标记 + agent 签名，供贴到 issue。
+    """Spec-0049/T2：构造一条**署名认领便签**正文——claim 标记 + agent 签名，供贴到 issue。
 
     认领 = 幂等 add 固定标签 + 追加这条便签（归属凭证 + 刷新新鲜度的新 created_at）。便签同时带
     两段隐藏标记：`_CLAIM_MARKER`（区分「这是认领便签」）与 `sign` 追加的 agent 签名（记「是谁
@@ -121,7 +121,7 @@ def build_claim_note(*, agent_id: str) -> str:
 
 
 def latest_claim(*, comments: list[github.Comment]) -> tuple[str, float] | None:
-    """Spec-0048/T2：从 issue 评论列表解析**最近一条认领便签**的 (owner_agent_id, age_seconds)。
+    """Spec-0049/T2：从 issue 评论列表解析**最近一条认领便签**的 (owner_agent_id, age_seconds)。
 
     纯函数（唯一的「现在」来自 datetime.now，用于算年龄）：
     - 只认同时满足两条的评论：含 `_CLAIM_MARKER`（是认领便签，滤掉 precheck 对齐评论 / reviewer
@@ -146,7 +146,7 @@ def latest_claim(*, comments: list[github.Comment]) -> tuple[str, float] | None:
 
 
 def _claim_age_seconds(*, created_at: str) -> float:
-    """Spec-0048/T2：认领便签 created_at（ISO 8601）距今秒数；空/不可解析保守判 0.0（未过期）。"""
+    """Spec-0049/T2：认领便签 created_at（ISO 8601）距今秒数；空/不可解析保守判 0.0（未过期）。"""
     if not created_at:
         return 0.0
     try:

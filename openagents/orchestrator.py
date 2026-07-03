@@ -196,7 +196,7 @@ class OrchestratorError(Exception):
 
 
 class ClaimLost(OrchestratorError):
-    """Spec-0048/T4：认领二次确认（read-after-write）发现 issue 已被别的 agent 更晚认领。
+    """Spec-0049/T4：认领二次确认（read-after-write）发现 issue 已被别的 agent 更晚认领。
 
     本后端**主动退让**本轮起草：start_rfc 捕获后清掉本轮 begin_run 的本地 solving 记录、再把本
     异常上抛，由 vigil 发现段既有的 per-issue `except (OrchestratorError, GithubError)` 兜住
@@ -240,7 +240,7 @@ class Orchestrator:
             # RFC-0007 决策 2：复用崩溃残留 worktree，接着断点继续，不重写 begin_run。
             self._progress(message=f"▶ 恢复孤儿 run：复用 issue #{issue_number} 既有 worktree …")
             worktree = self._workspace.ensure(issue_number=issue_number, branch=branch)
-            # Spec-0048/T4（止血，对应缺陷 2）：resume **不再认领**——认领只在 fresh 首次派单打一次。
+            # Spec-0049/T4（止血，对应缺陷 2）：resume **不再认领**——认领只在 fresh 首次派单打一次。
             # 一旦本地已在推进（solving），说明认领早已在 fresh 打过，resume 是「断点续跑」、无需也
             # 不应重新认领；删掉这里的 _claim_issue 从根上止住「两个都在 solving 的后端每轮互撕」。
         else:
@@ -248,7 +248,7 @@ class Orchestrator:
             worktree = self._workspace.prepare(issue_number=issue_number, branch=branch, base=base)
             # 进入即记 run（PR 尚未开），崩溃后可据此恢复定位。
             self._state.begin_run(issue_number=issue_number, branch=branch)
-            # Spec-0039/T3 + Spec-0048/T4：认领打标 + 署名认领便签——贴近本地 checkpoint（begin_run
+            # Spec-0039/T3 + Spec-0049/T4：认领打标 + 署名认领便签——贴近本地 checkpoint（begin_run
             # 后可 resume）、又在耗时起草之前（把跨后端 check-then-claim 窗口从「起草时长」压到「建
             # worktree」）。_claim_issue 做 read-after-write 二次确认，若被他方更晚认领即抛 ClaimLost；
             # 本后端**主动退让**：清掉刚落的 solving 记录（使下一轮回到「看见他方认领→跳过」，而非
@@ -341,7 +341,7 @@ class Orchestrator:
         return True
 
     def _claim_issue(self, *, issue_number: int) -> None:
-        """Spec-0048/T4：认领 issue = 幂等 add 固定标签 + 追加署名认领便签 + read-after-write 二次确认。
+        """Spec-0049/T4：认领 issue = 幂等 add 固定标签 + 追加署名认领便签 + read-after-write 二次确认。
 
         写点在 fresh 分支 begin_run 之后、backend.run 之前（见 start_rfc；resume 不再认领）。三步：
           1. **幂等 add** DISPATCH_LABEL（便宜的粗信号，随 issue 一起被拉下）——对已带标签的 issue

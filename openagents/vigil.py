@@ -33,10 +33,10 @@ from openagents.state import STATUS_SOLVING
 # 与 orchestrator 一致的分支命名：单 issue → 单分支。
 _BRANCH_PREFIX = "openagents/issue-"
 
-# Spec-0039/T2 + Spec-0048/T3：认领过期阈值（秒）——带认领标签但远端仍无分支、且**最近认领便签**
+# Spec-0039/T2 + Spec-0049/T3：认领过期阈值（秒）——带认领标签但远端仍无分支、且**最近认领便签**
 # 年龄超过它 → 判「僵尸认领」允许回收（视同 fresh 重新认领）。默认 1 小时：同后端崩溃已由本地
 # begin_run + resume 兜住，过期回收只针对跨后端的死后端，误回收（把仍在慢速起草的活后端判过期）
-# 代价只是重复派单一次，故取「足够大于最坏起草时长」的保守值。Spec-0048 把数据源从「标签时间线
+# 代价只是重复派单一次，故取「足够大于最坏起草时长」的保守值。Spec-0049 把数据源从「标签时间线
 # labeled 事件年龄」迁到「署名认领便签的 created_at 年龄」（同 now-created_at 语义、跨后端共享时钟）。
 # 模块级常量、单处可配（理念 1，见 spec Unresolved）。
 CLAIM_EXPIRY_SECONDS = 3600
@@ -58,7 +58,7 @@ class Vigil:
         self._messages = messages
         self._state = state
         self._work_dir = Path(work_dir)
-        # Spec-0048/T3：本实例身份——发现段认领闸据此判「最近认领便签是不是别人的」。默认 ""
+        # Spec-0049/T3：本实例身份——发现段认领闸据此判「最近认领便签是不是别人的」。默认 ""
         # 使既有 Vigil(...) 构造（未传 agent_id 的测试夹具）零改动：空 id 永不等于任一真实 owner，
         # 故任何他人活认领都被当「别人的」保守跳过（安全侧），生产由 cli 注入真实 id 精确判归属。
         self._agent_id = agent_id
@@ -149,11 +149,11 @@ class Vigil:
         return dispatched
 
     def _dispatch_kind(self, *, issue: github.Issue) -> str | None:
-        """RFC-0007 决策 1/3/6 + Spec-0039/T2 + Spec-0048/T3：据本地 State + 远端分支 + 认领便签归属归类。
+        """RFC-0007 决策 1/3/6 + Spec-0039/T2 + Spec-0049/T3：据本地 State + 远端分支 + 认领便签归属归类。
 
         返回 "fresh" | "resume" | None，无 run 记录时按三道去重闸依次判定：
           - 闸 2——远端已有分支 → None（在途，交 poll；resume 路径不受此闸约束）。
-          - 闸 3（Spec-0039 引入，Spec-0048 归属化）——issue 带 DISPATCH_LABEL 认领标签（便宜的
+          - 闸 3（Spec-0039 引入，Spec-0049 归属化）——issue 带 DISPATCH_LABEL 认领标签（便宜的
             粗信号，已随 issue 拉下）才读**署名认领便签**判归属：最近便签是**他人**且未过期 → None
             （别的后端在起草，跳过）；已过期（僵尸认领，便签龄 > CLAIM_EXPIRY_SECONDS）/ 无有效便签
             / 是**自己**的残留 → 落到 "fresh" 回收重新认领。
@@ -181,7 +181,7 @@ class Vigil:
         return None
 
     def _claim_reclaimable(self, *, issue: github.Issue) -> bool:
-        """Spec-0048/T3：带认领标签的 issue 是否**可被本后端回收重认领**（读署名认领便签判归属+年龄）。
+        """Spec-0049/T3：带认领标签的 issue 是否**可被本后端回收重认领**（读署名认领便签判归属+年龄）。
 
         仅在「带认领标签且远端无分支」（_dispatch_kind 上一闸已确认）这一罕见路径调用（与今日
         过期回收同频，不拖慢常态扫描）。语义：
@@ -209,10 +209,10 @@ class Vigil:
         return self._claim_expired(age_seconds=age_seconds)  # 他人：仅当已过期才回收
 
     def _claim_expired(self, *, age_seconds: float) -> bool:
-        """Spec-0048/T3：认领便签年龄是否超过过期阈值（僵尸认领判定，数据源 = 便签 created_at 龄）。
+        """Spec-0049/T3：认领便签年龄是否超过过期阈值（僵尸认领判定，数据源 = 便签 created_at 龄）。
 
         纯判定（阈值比较），数据源由 _claim_reclaimable 从 identity.latest_claim 取好后传入——
-        由「标签时间线 labeled 事件龄」（Spec-0039）迁到「署名认领便签 created_at 龄」（Spec-0048）。
+        由「标签时间线 labeled 事件龄」（Spec-0039）迁到「署名认领便签 created_at 龄」（Spec-0049）。
         """
         return age_seconds > CLAIM_EXPIRY_SECONDS
 

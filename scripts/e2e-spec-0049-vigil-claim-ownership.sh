@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0048 端到端测试启动脚本：vigil 多后端派单认领去互撕（resume 免认领 + 认领带归属 + 二次确认退让）。
+# Spec-0049 端到端测试启动脚本：vigil 多后端派单认领去互撕（resume 免认领 + 认领带归属 + 二次确认退让）。
 #
 # 本组分两层根治「两后端对同一 issue 反复加/去认领标签互撕数分钟」：
 #   ① 止血——resume 路径不再认领（认领只在 fresh 首次派单打一次）；
@@ -13,7 +13,7 @@
 # 本 shell 跑它并打印证据），而非浏览器 e2e。全程**不触网、不调真实 gh/LLM/git 远端**。
 #
 # 用法：
-#   bash scripts/e2e-spec-0048-vigil-claim-ownership.sh
+#   bash scripts/e2e-spec-0049-vigil-claim-ownership.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -23,7 +23,7 @@ uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] 定向单元/集成测试（Spec-0048 T1–T5）"
+echo "==> [2/4] 定向单元/集成测试（Spec-0049 T1–T5）"
 uv run --extra dev pytest -q \
   tests/test_github_claim_label.py \
   tests/test_identity_claim.py \
@@ -34,7 +34,7 @@ uv run --extra dev pytest -q \
 echo
 echo "==> [3/4] 成果证据：用**真实** Orchestrator + State 驱动两后端对同一 issue 竞态，打印三条断言证据"
 uv run python - <<'PY'
-# Spec-0048 成果演练：用**真实**产品代码——Orchestrator.start_rfc（含 _claim_issue 的幂等 add +
+# Spec-0049 成果演练：用**真实**产品代码——Orchestrator.start_rfc（含 _claim_issue 的幂等 add +
 # 署名认领便签 + read-after-write 退让）+ State——把两个 agent 对同一 issue 的竞态跑出来，打印证据。
 # 脚本只提供内存版 GitHub 世界（标签集合 + 评论账本 + 事件记录）与无 git 的 Workspace 替身（测试侧
 # 夹具），认领时序 / 归属判定 / 退让全部来自产品代码。
@@ -125,7 +125,7 @@ for name in ("get_issue", "create_pr", "issue_add_label", "issue_remove_label", 
     setattr(orch_module.github, name, getattr(world, name))
 setattr(github, "list_issue_comments", world.list_issue_comments)
 
-tmp = Path("/tmp/oa-spec-0048-e2e")
+tmp = Path("/tmp/oa-spec-0049-e2e")
 state_a, state_b = State(path=tmp / "a.json"), State(path=tmp / "b.json")
 for st in (state_a, state_b):
     store = {"runs": [], "cursors": {}}
@@ -187,17 +187,17 @@ print("  ✓ 三条断言全部通过")
 PY
 
 echo
-echo "==> [4/4] spec 校验（Spec-0048 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
+echo "==> [4/4] spec 校验（Spec-0049 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
 uv run spec validate --specs-root docs/specs
 # 幂等（无漂移）自检：render/graph 前先存副本，重渲后 diff 应逐字节一致——不依赖 git 提交状态，
 # 使脚本可在任意工作树上独立跑出退出码 0（CI 另有 git diff --exit-code 版本的等价漂移闸）。
-cp docs/specs/OVERVIEW.md /tmp/oa-0048-overview.bak
-cp docs/specs/ARCHITECTURE.md /tmp/oa-0048-arch.bak
+cp docs/specs/OVERVIEW.md /tmp/oa-0049-overview.bak
+cp docs/specs/ARCHITECTURE.md /tmp/oa-0049-arch.bak
 uv run spec render --specs-root docs/specs
 uv run spec graph --specs-root docs/specs
-diff /tmp/oa-0048-overview.bak docs/specs/OVERVIEW.md
-diff /tmp/oa-0048-arch.bak docs/specs/ARCHITECTURE.md
+diff /tmp/oa-0049-overview.bak docs/specs/OVERVIEW.md
+diff /tmp/oa-0049-arch.bak docs/specs/ARCHITECTURE.md
 uv run spec graph --specs-root docs/specs --check
 
 echo
-echo "✅ Spec-0048 端到端验证通过：唯一赢家 + 零 unlabeled 互撕 + resume 零新认领事件（可复现证据见上）。"
+echo "✅ Spec-0049 端到端验证通过：唯一赢家 + 零 unlabeled 互撕 + resume 零新认领事件（可复现证据见上）。"
