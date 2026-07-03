@@ -24,12 +24,19 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from datetime import UTC, datetime
 
 from openagents import github
 from openagents.state import State
 
 # RFC-0011 决策 2：显式命名实例的环境变量；多 agent 协同时给运维一个可读的命名入口。
 AGENT_ID_ENV = "OPENAGENTS_AGENT_ID"
+
+# Spec-0048/T2：认领便签标记——与既有 agent 签名**并存**的第二段隐藏标记，把「认领便签」从
+# 其它署名机器评论（precheck 对齐评论、reviewer 裁决回贴等同样带 <!-- openagents:agent=… -->
+# 签名）里区分出来。GitHub 不渲染 HTML 注释，对人类零干扰；gh raw body 里可被 `in` 子串命中。
+# 只需「在不在」判定（不带可变字段），故用常量 + 子串匹配，不引入正则（奥卡姆，理念 1）。
+_CLAIM_MARKER = "<!-- openagents:claim -->"
 
 # RFC-0011 决策 3：agent_id 字符集限制为 [A-Za-z0-9_-]，使签名正则稳健、不被正文意外撞匹配。
 _AGENT_ID_CHARS = "A-Za-z0-9_-"
@@ -99,6 +106,54 @@ def new_human_comments(*, pr_number: int, since: str) -> list[github.Comment]:
         if comment.created_at > since and parse_agent_id(body=comment.body) is None
     ]
     return sorted(fresh, key=lambda comment: comment.created_at)
+
+
+def build_claim_note(*, agent_id: str) -> str:
+    """Spec-0048/T2：构造一条**署名认领便签**正文——claim 标记 + agent 签名，供贴到 issue。
+
+    认领 = 幂等 add 固定标签 + 追加这条便签（归属凭证 + 刷新新鲜度的新 created_at）。便签同时带
+    两段隐藏标记：`_CLAIM_MARKER`（区分「这是认领便签」）与 `sign` 追加的 agent 签名（记「是谁
+    认领」）。正文给人一行可读说明，隐藏标记只在 gh raw body 可见。与 latest_claim 互为逆：
+    latest_claim(build_claim_note(agent_id=x)) 还原出 owner==x（测试断言往返保真）。
+    """
+    body = f"🤖 openagents 认领本 issue、起草中（派单去重便签）。\n\n{_CLAIM_MARKER}"
+    return sign(body=body, agent_id=agent_id)
+
+
+def latest_claim(*, comments: list[github.Comment]) -> tuple[str, float] | None:
+    """Spec-0048/T2：从 issue 评论列表解析**最近一条认领便签**的 (owner_agent_id, age_seconds)。
+
+    纯函数（唯一的「现在」来自 datetime.now，用于算年龄）：
+    - 只认同时满足两条的评论：含 `_CLAIM_MARKER`（是认领便签，滤掉 precheck 对齐评论 / reviewer
+      裁决回贴 / 无签名人类评论）**且** parse_agent_id 能取出 owner（有归属）。
+    - 在这些认领便签里按 created_at（ISO 8601，字典序即时序）取**最新一条**，返回其 owner 与
+      「now - created_at」秒龄。无任何有效认领便签 → None。
+
+    归属 + 新鲜度一次读出：调用方（vigil 发现段判归属闸 / orchestrator 二次确认退让）据此判
+    「是不是我的」「过没过期」。created_at 空/不可解析时保守判 age=0.0（未过期，宁可占坑多留一轮
+    也不误判过期回收活后端）——与发现段「取不到证据保守判未过期」同源。
+    """
+    notes = [
+        (comment, owner)
+        for comment in comments
+        if _CLAIM_MARKER in comment.body
+        and (owner := parse_agent_id(body=comment.body)) is not None
+    ]
+    if not notes:
+        return None
+    comment, owner = max(notes, key=lambda pair: pair[0].created_at)
+    return owner, _claim_age_seconds(created_at=comment.created_at)
+
+
+def _claim_age_seconds(*, created_at: str) -> float:
+    """Spec-0048/T2：认领便签 created_at（ISO 8601）距今秒数；空/不可解析保守判 0.0（未过期）。"""
+    if not created_at:
+        return 0.0
+    try:
+        stamped = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - stamped).total_seconds()
 
 
 def post_signed_comment(*, pr_number: int, body: str, agent_id: str) -> None:

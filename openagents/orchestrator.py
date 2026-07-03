@@ -195,6 +195,15 @@ class OrchestratorError(Exception):
     """编排过程中无法继续时抛出（如 refine/implement/iterate 找不到对应 PR 的 run）。"""
 
 
+class ClaimLost(OrchestratorError):
+    """Spec-0048/T4：认领二次确认（read-after-write）发现 issue 已被别的 agent 更晚认领。
+
+    本后端**主动退让**本轮起草：start_rfc 捕获后清掉本轮 begin_run 的本地 solving 记录、再把本
+    异常上抛，由 vigil 发现段既有的 per-issue `except (OrchestratorError, GithubError)` 兜住
+    （只跳过该 issue、下轮重试，不拖垮整轮）。是 OrchestratorError 子类，故无需改动 vigil 的兜底。
+    """
+
+
 class Orchestrator:
     """RFC-0005：四个原子操作的编排器，组合 workspace + backend + github + state。"""
 
@@ -231,17 +240,27 @@ class Orchestrator:
             # RFC-0007 决策 2：复用崩溃残留 worktree，接着断点继续，不重写 begin_run。
             self._progress(message=f"▶ 恢复孤儿 run：复用 issue #{issue_number} 既有 worktree …")
             worktree = self._workspace.ensure(issue_number=issue_number, branch=branch)
-            # Spec-0039/T3：resume 路径 ensure 认领标签在位——孤儿 run 仍在推进，重打标签既刷新
-            # 认领年龄（避免被跨后端过期回收误抢），又对首次崩前尚未打标的情形补上认领。
-            self._claim_issue(issue_number=issue_number)
+            # Spec-0048/T4（止血，对应缺陷 2）：resume **不再认领**——认领只在 fresh 首次派单打一次。
+            # 一旦本地已在推进（solving），说明认领早已在 fresh 打过，resume 是「断点续跑」、无需也
+            # 不应重新认领；删掉这里的 _claim_issue 从根上止住「两个都在 solving 的后端每轮互撕」。
         else:
             self._progress(message=f"▶ 准备隔离 worktree（基线 origin/{base}）…")
             worktree = self._workspace.prepare(issue_number=issue_number, branch=branch, base=base)
             # 进入即记 run（PR 尚未开），崩溃后可据此恢复定位。
             self._state.begin_run(issue_number=issue_number, branch=branch)
-            # Spec-0039/T3：认领打标——贴近本地 checkpoint（begin_run 后可 resume）、又在耗时起草
-            # 之前（把跨后端 check-then-claim 窗口从「起草时长」压到「建 worktree」）。
-            self._claim_issue(issue_number=issue_number)
+            # Spec-0039/T3 + Spec-0048/T4：认领打标 + 署名认领便签——贴近本地 checkpoint（begin_run
+            # 后可 resume）、又在耗时起草之前（把跨后端 check-then-claim 窗口从「起草时长」压到「建
+            # worktree」）。_claim_issue 做 read-after-write 二次确认，若被他方更晚认领即抛 ClaimLost；
+            # 本后端**主动退让**：清掉刚落的 solving 记录（使下一轮回到「看见他方认领→跳过」，而非
+            # resume 续跑与赢家双开），再把 ClaimLost 上抛交 vigil per-issue 隔离兜住。
+            try:
+                self._claim_issue(issue_number=issue_number)
+            except ClaimLost:
+                self._progress(
+                    message=f"↩ issue #{issue_number}：检出他方更晚认领，主动退让、清本地 solving 记录"
+                )
+                self._state.clear_run(issue_number=issue_number)
+                raise
 
         self._progress(message="▶ 调起后端起草 RFC（可能需要几分钟）…")
         self._backend.run(
@@ -322,15 +341,32 @@ class Orchestrator:
         return True
 
     def _claim_issue(self, *, issue_number: int) -> None:
-        """Spec-0039/T3：给 issue 盖认领标签（remove-then-add，刷新时间线时戳）。
+        """Spec-0048/T4：认领 issue = 幂等 add 固定标签 + 追加署名认领便签 + read-after-write 二次确认。
 
-        写点在 begin_run 之后、backend.run 之前（见 start_rfc）。**不吞任何异常**：认领是派单的
-        前置去重信号，stamp 失败（gh 穿透 RFC-0010 重试后仍败）即抛 GithubError 上抛，由 vigil
-        发现段的既有 per-issue 隔离（except OrchestratorError/GithubError）兜住——本轮跳过该 issue、
-        下一轮重试，绝不带着「没打上认领标签」继续起草（那正是重复派单的根）。不吞噬既有隔离语义。
+        写点在 fresh 分支 begin_run 之后、backend.run 之前（见 start_rfc；resume 不再认领）。三步：
+          1. **幂等 add** DISPATCH_LABEL（便宜的粗信号，随 issue 一起被拉下）——对已带标签的 issue
+             再 add 是 no-op、**不产生 labeled/unlabeled 事件**，根除「无差别 remove 撕别人标签」。
+          2. 追加一条**署名认领便签**评论（identity.build_claim_note：claim 标记 + 本实例签名）作
+             归属凭证 + 刷新新鲜度的新 created_at。**只贴自己的、绝不删别人的**（互撕物理来源移除）。
+          3. **read-after-write 二次确认**：重读 issue 评论，若最近认领便签 owner 是**别的 agent**
+             （对方更晚贴 / 存在他方认领覆盖）→ 抛 ClaimLost，由 start_rfc 捕获退让（末位 created_at
+             定胜负、恰一个赢家）。owner 是自己 / 无有效便签（刚贴的那条至少是自己）→ 认领成立。
+
+        **不吞任何异常**（除 ClaimLost 交调用方处理）：gh 穿透 RFC-0010 重试后仍败即抛 GithubError
+        上抛，由 vigil per-issue 隔离兜住——本轮跳过、下轮重试，绝不带着「没认领成功」继续起草。
         """
-        self._progress(message=f"▶ 认领 issue #{issue_number}（贴 {github.DISPATCH_LABEL} 标签）…")
-        github.issue_stamp_label(number=issue_number, name=github.DISPATCH_LABEL)
+        self._progress(message=f"▶ 认领 issue #{issue_number}（幂等标签 + 署名认领便签）…")
+        github.issue_add_label(number=issue_number, name=github.DISPATCH_LABEL)
+        github.issue_comment(
+            number=issue_number,
+            body=identity.build_claim_note(agent_id=self._agent_id),
+        )
+        # read-after-write：重读最近认领便签，owner 是他人 → 抢慢了，退让。
+        claim = identity.latest_claim(comments=github.list_issue_comments(number=issue_number))
+        if claim is not None and claim[0] != self._agent_id:
+            raise ClaimLost(
+                f"issue #{issue_number} 已被 agent {claim[0]!r} 更晚认领，本后端（{self._agent_id!r}）退让"
+            )
 
     def _release_claim(self, *, issue_number: int) -> None:
         """Spec-0039/T3（决策 E）：draft PR 开出后摘认领标签——尽力而为，绝不阻断已开出的 PR。

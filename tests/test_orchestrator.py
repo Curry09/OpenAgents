@@ -73,9 +73,12 @@ class _GitRecorder:
     def __call__(self, args, **kwargs):
         self.commands.append(list(args))
 
+        # Spec-0048/T4：start_rfc fresh 认领会 read-after-write 调 `gh issue view --json comments`
+        # （list_issue_comments）；给它回一个空评论 JSON，使 latest_claim 返回 None（无他方认领）→
+        # 不抛 ClaimLost，本用例聚焦 worktree/PR/状态路径，不验认领竞态（那由 test_orchestrator_claim）。
         class _Proc:
             returncode = 0
-            stdout = ""
+            stdout = '{"comments": []}' if "comments" in args else ""
             stderr = ""
 
         return _Proc()
@@ -238,8 +241,11 @@ def test_start_rfc_fresh_uses_prepare_and_begin_run(tmp_path, monkeypatch):
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
-    # Spec-0039/T3：start_rfc 现会打/摘认领标签，mock 掉避免真实 gh 调用（本用例只验 worktree 路径）。
-    monkeypatch.setattr(orch_module.github, "issue_stamp_label", lambda *, number, name: None)
+    # Spec-0048/T4：fresh 认领 = 幂等 add 标签 + 贴署名认领便签 + read-after-write 重读评论；PR 开出后
+    # 摘标签。全 mock 掉避免真实 gh（本用例只验 worktree 路径）；list_issue_comments 回 [] → 无他方认领。
+    monkeypatch.setattr(orch_module.github, "issue_add_label", lambda *, number, name: None)
+    monkeypatch.setattr(orch_module.github, "issue_comment", lambda *, number, body: None)
+    monkeypatch.setattr(orch_module.github, "list_issue_comments", lambda *, number: [])
     monkeypatch.setattr(orch_module.github, "issue_remove_label", lambda *, number, name: None)
     begin_calls = []
     monkeypatch.setattr(
@@ -267,8 +273,20 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
         "create_pr",
         lambda *, branch, title, body, base, draft: PR(number=5, url="u/pull/5"),
     )
-    # Spec-0039/T3：resume 路径也 ensure 认领标签在位，mock 掉避免真实 gh 调用。
-    monkeypatch.setattr(orch_module.github, "issue_stamp_label", lambda *, number, name: None)
+    # Spec-0048/T4：resume **不再认领**（止血）——只在 PR 开出后 _release_claim 摘标签，mock issue_remove_label
+    # 即可；不会调 issue_add_label / issue_comment / list_issue_comments（下面断言认领便签零调用）。
+    claim_calls: list[str] = []
+    monkeypatch.setattr(
+        orch_module.github, "issue_add_label", lambda *, number, name: claim_calls.append("add")
+    )
+    monkeypatch.setattr(
+        orch_module.github, "issue_comment", lambda *, number, body: claim_calls.append("note")
+    )
+    monkeypatch.setattr(
+        orch_module.github,
+        "list_issue_comments",
+        lambda *, number: claim_calls.append("read") or [],
+    )
     monkeypatch.setattr(orch_module.github, "issue_remove_label", lambda *, number, name: None)
     begin_calls = []
     monkeypatch.setattr(
@@ -276,6 +294,9 @@ def test_start_rfc_resume_uses_ensure_and_skips_prepare_and_begin_run(tmp_path, 
     )
 
     pr = orch.start_rfc(issue_number=3, resume=True)
+
+    # resume 路径零认领事件（既不打标、也不贴便签、也不 read-after-write）。
+    assert claim_calls == []
 
     assert fake_ws.ensure_calls == [{"issue_number": 3, "branch": "openagents/issue-3"}]
     assert fake_ws.prepare_calls == []

@@ -20,7 +20,6 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 # `gh pr checks` 在 CI 仍有 check 进行中时以退出码 8 返回，stdout 仍是合法 JSON。
@@ -388,15 +387,43 @@ def issue_comment(*, number: int, body: str) -> None:
     """Spec-0043/T1：给 issue 贴评论（`gh issue comment <number> --body <body>`）。
 
     post_comment 走 `gh pr comment`（PR 专用）——但 issuecheck 拦下一个 issue 冻结时它**还没有
-    PR**，无从贴评论。补一个对称的 issue 级出口，与 issue_add_label / issue_remove_label /
-    issue_stamp_label 走 `gh issue edit/view` 的 issue 级操作族并列。签名由调用方（orchestrator
-    经 identity.sign）盖——本函数保持「对 gh 的薄封装、不含业务逻辑」（理念 10）。失败由 _run_gh
-    抛 GithubError（自带 RFC-0010 瞬时错误重试）。不改 post_comment 及任何既有函数（零回归）。
+    PR**，无从贴评论。补一个对称的 issue 级出口，与 issue_add_label / issue_remove_label 走
+    `gh issue edit/view` 的 issue 级操作族并列。签名由调用方（orchestrator 经 identity.sign）盖
+    ——本函数保持「对 gh 的薄封装、不含业务逻辑」（理念 10）。失败由 _run_gh 抛 GithubError
+    （自带 RFC-0010 瞬时错误重试）。不改 post_comment 及任何既有函数（零回归）。
     """
     _run_gh(
         ["issue", "comment", str(number), "--body", body],
         allow_returncodes=set(),
     )
+
+
+def list_issue_comments(*, number: int) -> list[Comment]:
+    """Spec-0048/T1：读 issue 全部评论（`gh issue view <n> --json comments`）。
+
+    与 list_comments（PR 版，走 `gh pr view`）对称，是 issue 级读原语——认领去重需要读
+    issue 上的「署名认领便签」评论判归属/年龄（identity.latest_claim 消费）。gh 的 comments
+    结构含 author.login / body / createdAt，逐条投影成既有 Comment（id 为 node id 字符串；
+    先后顺序用 created_at 判，不能用 id 排序）。失败由 _gh_json 抛 GithubError。
+    """
+    data = _gh_json(
+        ["issue", "view", str(number), "--json", "comments"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh issue view 返回了非预期的结构")
+    comments: list[Comment] = []
+    for raw in data.get("comments") or []:
+        author = (raw.get("author") or {}).get("login") or ""
+        comments.append(
+            Comment(
+                id=str(raw.get("id") or ""),
+                author=author,
+                body=raw.get("body") or "",
+                created_at=raw.get("createdAt") or "",
+            )
+        )
+    return comments
 
 
 def mark_ready(*, pr_number: int) -> None:
@@ -460,8 +487,12 @@ def issue_add_label(*, number: int, name: str) -> None:
     """Spec-0039/T1：给 issue 打标签（`gh issue edit <n> --add-label <name>`），与 add_label 对称。
 
     add_label / remove_label / has_label 都作用于 **PR**（`gh pr edit/view`），而发现段的
-    认领对象是 **issue**，故补一组走 `gh issue edit/view` 的 issue 级操作。认领打标经
-    issue_stamp_label（remove-then-add）复用本函数。失败由 _run_gh 抛 GithubError。
+    认领对象是 **issue**，故补一组走 `gh issue edit/view` 的 issue 级操作。
+
+    Spec-0048/T1：认领打标改由本函数**幂等 add**（不再经已退役的 remove-then-add stamp）——
+    对已带该标签的 issue 再 add 是 gh 侧 no-op、**不产生 labeled/unlabeled 事件**，从根上消除
+    「两后端每轮互相撕掉对方标签」的物理来源；认领新鲜度改由「署名认领便签」评论年龄承载
+    （identity.latest_claim）。失败由 _run_gh 抛 GithubError。
     """
     _run_gh(["issue", "edit", str(number), "--add-label", name], allow_returncodes=set())
 
@@ -479,60 +510,6 @@ def issue_remove_label(*, number: int, name: str) -> None:
         if _is_label_absent(reason=str(exc)):
             return
         raise
-
-
-def issue_stamp_label(*, number: int, name: str) -> None:
-    """Spec-0039/T1：给 issue「盖」认领标签——remove-then-add，保证产生一个全新的 `labeled` 事件。
-
-    为什么不能直接 `--add-label`：对已带该标签的 issue 再 add 是 no-op，**不刷新时间线时戳**；
-    而认领年龄取该标签最近 `labeled` 事件的 created_at，若不刷新，回收僵尸认领（对已带标签的
-    issue 重新认领）后会立刻又被判过期而抖动。故先幂等 remove（吞「本不在」）、再 add，使每次
-    认领都在时间线上落一个新的 `labeled` 事件，让「认领年龄」对首次认领与重新认领都有良定义。
-    """
-    issue_remove_label(number=number, name=name)
-    issue_add_label(number=number, name=name)
-
-
-def issue_label_age_seconds(*, number: int, name: str) -> float | None:
-    """Spec-0039/T1：issue 上某标签最近一次 `labeled` 事件距今的秒数；无该事件返回 None。
-
-    走 `gh api repos/{owner}/{repo}/issues/<n>/timeline`（跨后端共享的时钟），筛出 event==
-    "labeled" 且 label.name==name 的事件，取最近一条 created_at（ISO 8601，字典序即时序），
-    返回 `now - created_at` 秒数。供发现段判「认领是否过期（僵尸认领）」——仅在「带认领标签且
-    远端无分支」这一罕见路径调用，不拖慢常态扫描。
-
-    必须 `--paginate`：timeline 端点固定按**时间升序**（最旧在前）返回、且不支持排序/倒序参数，
-    单页 `per_page=100` 只取**最旧的 100 条**事件；而认领 `labeled` 事件总在时间线**尾部**（新近
-    打上）。对「打认领标签前已积累 >100 条事件」的老 issue（vigil 恰会派单这类），不翻页就取不到
-    那条 labeled → 错判 None → 僵尸认领永远回收不掉、认领永久卡死。故 `--paginate --slurp` 拉全部
-    页（`--slurp` 把各页数组包成「数组的数组」，保持单次 JSON 可解析），跨全页取 max(created_at)。
-    """
-    data = _gh_json(
-        [
-            "api",
-            f"{_REPO_PLACEHOLDER}/issues/{number}/timeline?per_page=100",
-            "--paginate",
-            "--slurp",
-        ],
-        allow_returncodes=set(),
-    )
-    # --slurp 输出为「数组的数组」（每页一个数组）；无分页/单页时也可能是「事件数组」。逐层摊平。
-    rows: list[Any] = []
-    for item in data if isinstance(data, list) else []:
-        rows.extend(item) if isinstance(item, list) else rows.append(item)
-    stamps = [
-        str(event.get("created_at") or "")
-        for event in rows
-        if isinstance(event, dict)
-        and str(event.get("event") or "") == "labeled"
-        and (event.get("label") or {}).get("name") == name
-        and event.get("created_at")
-    ]
-    if not stamps:
-        return None
-    latest = max(stamps)  # ISO 8601 → 字典序即时间序，取最近一次 labeled
-    stamped_at = datetime.fromisoformat(latest.replace("Z", "+00:00"))
-    return (datetime.now(UTC) - stamped_at).total_seconds()
 
 
 def _is_label_absent(*, reason: str) -> bool:

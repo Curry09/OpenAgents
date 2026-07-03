@@ -7,7 +7,7 @@ summary: 消除 vigil 多后端认领标签反复互撕：resume 不再重复认
 tasks:
   - id: T1
     title: github：认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: list_issue_comments 能取回 issue 全部评论（含 body/created_at）；认领打标签不再产生 unlabeled 事件（对已带标签的 issue 再认领是 no-op，不删）；标签本不在时 add 幂等；ruff + pytest tests/test_github_claim_label.py 通过
   - id: T2
     title: identity：认领便签标记 + 归属/年龄解析
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: latest_claim 在混入 precheck 署名评论/无签名人类评论时只认 claim 便签、取最新一条的 owner 与年龄；无 claim 便签返回 None；往返（build→parse）保真；ruff + pytest tests/test_identity_claim.py 通过
   - id: T3
     title: vigil：_dispatch_kind/_claim_expired 归属感知闸
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -49,7 +49,7 @@ tasks:
     acceptance: 他人未过期认领→_dispatch_kind 返回 None；他人认领已过期或无便签→fresh；resume(solving/pr=0)仍先于 record is None 判定、不读认领闸；便签年龄查询异常/None 时保守判未过期不上抛（不拖垮整轮）；ruff + pytest tests/test_vigil_claim.py 通过
   - id: T4
     title: orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -65,7 +65,7 @@ tasks:
     acceptance: resume 路径不再调用 _claim_issue（无新 labeled/comment 认领事件）；fresh 认领后被他方更晚认领→抛 ClaimLost 且本地 solving 记录被清空（下轮回到跳过而非 resume）；单赢家场景正常开 draft PR 并 _release_claim；state 清 run 原语幂等；ruff + pytest tests/test_orchestrator_claim.py 通过
   - id: T5
     title: 成果测试：多后端竞态复现集成测试 + e2e 脚本
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
