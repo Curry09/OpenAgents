@@ -1,16 +1,16 @@
-"""Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。
+"""Spec-0028/T2：merge 冲突派 coding agent 语义解冲突。
 
-`indexheal`（issue #48）只能**确定性**消解生成式索引 `docs/specs/OVERVIEW.md` 的冲突
-（按合并后的 spec 源整表重渲即得并集）。其余**任何真冲突**目前一律甩给人工 rebase。本模块
-补上中间一层：在 PR 分支的临时 worktree 里把 base 并入，撞冲突时把冲突文件清单喂给注入的
-coding 后端 agent，让它读 `<<<<<<<` 标记、语义解决、跑 ruff+pytest 自测、续 commit、push；
-解不了（仍有残留冲突标记 / 任何异常）才 `merge --abort` 回落人工。形成分层降级：
-**indexheal（确定性，仅 OVERVIEW）→ conflict（通用，啃真冲突）→ 人工兜底**。
+本模块负责在 PR 分支合入最新 base 撞冲突时做**语义解冲突**：在 PR 分支的临时 worktree 里把
+base 并入，撞冲突时把冲突文件清单喂给注入的 coding 后端 agent，让它读 `<<<<<<<` 标记、语义
+解决、跑 ruff+pytest 自测、续 commit、push。其中对生成式索引 `docs/specs/OVERVIEW.md`
+（由 `spec render` 整表生成）走**确定性重渲**（issue #48 的确定性路径）——按合并后的 spec 源
+整表重渲即得并集；其余真实代码/文档冲突逐个语义解决。解不了（仍有残留冲突标记 / 任何异常）才
+`merge --abort` 回落人工。
 
-照搬 indexheal 已验证的骨架（理念 10 解耦）：纯决策 `resolve_branch` 与 IO 解耦——git 走注入
-的 `run`、语义解决走注入的 `backend`，便于 hermetic 单测；IO 工厂 `make_resolver` 负责临时
-detached worktree 的建/清理与 push。安全降级（关键）：任何异常都吞成 False——解冲突只是优化，
-失败即退回「留言等人」的现状，绝不解错后静默 push、也绝不拖垮合并扇出。
+纯决策 `resolve_branch` 与 IO 解耦（理念 10）——git 走注入的 `run`、语义解决走注入的
+`backend`，便于 hermetic 单测；IO 工厂 `make_resolver` 负责临时 detached worktree 的建/清理与
+push。安全降级（关键）：任何异常都吞成 False——解冲突只是优化，失败即退回「留言等人」的现状，
+绝不解错后静默 push、也绝不拖垮拉式同步流程。
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ _CONFLICT_MARKER = "<<<<<<<"
 # 留残标——自测门控是「宁可不解、不可解错」的根（Spec-0028 Drawbacks：正确性风险缓解）。
 # 关键：先判断冲突文件的性质再动手——生成式索引（docs/specs/OVERVIEW.md，由 `spec render` 整表
 # 生成）是纯机械冲突，必须用 `spec render` 按合并后的 spec 源重渲确定性消解，禁止逐行手工合并
-# 一张生成表（手工合并正是「机械式报错」与残留标记的来源，对齐 issue #48 indexheal 的确定性路径）。
+# 一张生成表（手工合并正是「机械式报错」与残留标记的来源，对齐 issue #48 的确定性重渲路径）。
 _RESOLVE_TASK = (
     "本分支正在 `git merge` base，出现合并冲突。**先逐个判断冲突文件的性质，再决定怎么解**：\n"
     "1) 生成式索引 `docs/specs/OVERVIEW.md`（由 `spec render` 整表生成）——**不要逐行手工合并**，"

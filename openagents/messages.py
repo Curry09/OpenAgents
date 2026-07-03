@@ -209,7 +209,7 @@ class Messages:
                 and not self._revive_eligible(record=record)
             ):
                 continue
-            # Spec-0022/T2：单 record 错误隔离（沿用 RFC-0004 决策 8 / rebase_open_prs 风格）——
+            # Spec-0022/T2：单 record 错误隔离（沿用 RFC-0004 决策 8 的单 record 隔离风格）——
             # 单个 PR 处理失败（含 merge_pr 抛 GithubError）只追加一条 error 事件并 continue，绝不让
             # 异常冒泡掀翻整轮 poll。不改 state：失败可能是瞬时 gh 错误，记录可观测、下一轮自然重试。
             try:

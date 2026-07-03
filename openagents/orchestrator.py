@@ -102,7 +102,7 @@ _IMPLEMENT_TASK = (
     "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。\n"
     # Spec-0044/T3：实现阶段注入取证判断纪律（三分类 + 反测试顶替 + 诚实报阻塞 + skill 指路）。
     + _E2E_EVIDENCE_DISCIPLINE
-    # 收尾前先对齐最新 main，把机械冲突就地解掉，别留给 merge 闸机械式报错（issue #48 indexheal 同源）。
+    # 收尾前先对齐最新 main，把机械冲突就地解掉，别留给 merge 闸机械式报错（issue #48 确定性重渲同源）。
     + "\n收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决"
     "——`docs/specs/OVERVIEW.md` 这类生成式索引直接 `spec render` 重渲消解、其余语义解决——"
     "确保 PR 处于可干净合并状态，不要把机械冲突留给 merge 闸。"
@@ -120,7 +120,7 @@ _HUMAN_UNBLOCK_TASK = (
     "回答其追问 / 说明你做了什么 / 若仍解不了就讲清原因（你的这段回应会被引用原评论后贴回 PR）。"
 )
 # 普通 comment / ci 反馈的迭代任务模板（沿用原内联文案，抽常量与 _HUMAN_UNBLOCK_TASK 并列）。
-# 收尾前同 _IMPLEMENT_TASK：先对齐最新 main、就地解机械冲突，别留给 merge 闸（issue #48 indexheal 同源）。
+# 收尾前同 _IMPLEMENT_TASK：先对齐最新 main、就地解机械冲突，别留给 merge 闸（issue #48 确定性重渲同源）。
 _ITERATE_TASK = (
     "针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}\n"
     "改完收尾前先确认本分支能与最新 `origin/main` 干净合并：若有冲突就地解决"

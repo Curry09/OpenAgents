@@ -16,7 +16,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `blocknote.py` | Spec-0032/T3: 结构化阻塞评论构造（纯函数模块，解耦理念 10）。 |
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
-| `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突——indexheal 的语义化兄弟。 |
+| `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突。 |
 | `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
 | `evidence_gate.py` | Spec-0040/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。 |
