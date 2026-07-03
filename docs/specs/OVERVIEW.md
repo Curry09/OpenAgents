@@ -125,6 +125,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0045 Spec-0037 后清理旧 rebase/indexheal 口径
 扫掉 rebase.py/indexheal.py/sync-prs 删除后残留在 openagents/tests 注释里的 rebase_open_prs、rebase.CONFLICT_COMMENT、indexheal→conflict→人工 等活文档口径，让注释与拉式同步现状对齐
 
+### 0046 vigil 认领治本：归属认领标签 + 认领后二次确认退让
+把认领标签升级为带 agent_id 归属的动态标签（openagents-dispatching:<agent_id>），stamp 只动自己的标签、发现段只尊重他方未过期认领；并在认领写入后重读归属做确定性裁决（最早 labeled 赢、agent_id 平局决胜），输方主动退让清理——把秒级 check-then-claim 窗口内的双重认领收敛到恰一个赢家、互撕结构性消失，不引入锁服务/DB。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -291,6 +294,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0045 | 0045/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | done | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
 | 0045 | 0045/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | done | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
 | 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
+| 0046 | 0046/T1 | github 归属认领原语层 | pending | — | openagents/github.py<br>tests/test_github_owned_claim.py |
+| 0046 | 0046/T2 | vigil 认领闸归属化 | pending | T1 | openagents/vigil.py<br>tests/test_vigil_owned_claim.py |
+| 0046 | 0046/T3 | orchestrator 二次确认退让 + State.drop_run | pending | T1 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_yield.py |
+| 0046 | 0046/T4 | 端到端「恰一个赢家」成果测试 | pending | T2, T3 | scripts/e2e-spec-0046-claim-ownership-yield.sh<br>tests/test_claim_yield_integration.py |
 
 ## 跨 feature 关系图
 
@@ -536,6 +543,12 @@ graph LR
         n0045_T4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
         n0045_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
     end
+    subgraph G0046[0046 claim-ownership-and-yield]
+        n0046_T1["T1 github 归属认领原语层"]
+        n0046_T2["T2 vigil 认领闸归属化"]
+        n0046_T3["T3 orchestrator 二次确认退让 + State.drop_run"]
+        n0046_T4["T4 端到端「恰一个赢家」成果测试"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -677,6 +690,10 @@ graph LR
     n0045_T5 --> n0045_T2
     n0045_T5 --> n0045_T3
     n0045_T5 --> n0045_T4
+    n0046_T2 --> n0046_T1
+    n0046_T3 --> n0046_T1
+    n0046_T4 --> n0046_T2
+    n0046_T4 --> n0046_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -704,10 +721,10 @@ graph LR
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0046 |
 | openagents/identity.py | 0011, 0029, 0032 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0046 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -721,9 +738,9 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024, 0040 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0046 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0046 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -1898,4 +1915,33 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0046 vigil 认领治本：归属认领标签 + 认领后二次确认退让（issue #119）
+
+```mermaid
+graph LR
+    nT1["T1 github 归属认领原语层"]
+    nT2["T2 vigil 认领闸归属化"]
+    nT3["T3 orchestrator 二次确认退让 + State.drop_run"]
+    nT4["T4 端到端「恰一个赢家」成果测试"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
 ```
