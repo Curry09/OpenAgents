@@ -569,114 +569,97 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# RFC-0013: implement 转正前实跑 e2e + 签名结果评论
+# Spec-0040/T5: 退役旧 smoke + 证据闸 finalize_runbook / commit_evidence
 # --------------------------------------------------------------------------- #
 
 
-def _arm_implement(orch, state, monkeypatch, *, e2e_outcome="passed", spec_group="/tmp/0013"):
-    """给 implement 接好 RFC-0013 旁路所需的全部替身，返回事件记录器。
+def _write_spec_group(*, path, e2e):
+    """写一个 spec 组文件（带/不带 e2e 粗规划），供 finalize_runbook 读组级 e2e 计划。"""
+    from openagents.spec import model as spec_model
+    from openagents.spec.model import Group, Metadata, Overview, Task
 
-    monkeypatch：changed_spec_group / signpost.script_path_for_group / e2e.run_e2e_script /
-    e2e.render_result / identity.post_signed_comment / github.mark_ready，并记录调用顺序。
-    """
-    from openagents.e2e import E2EResult
+    group = Group(
+        number="0040",
+        metadata=Metadata(title="e2e", issue=104, slug="e2e-gate", summary="s", e2e=e2e),
+        tasks=[Task(id="T1", title="t", status="done", priority="P1")],
+        overview=Overview(reference_level="方案。"),
+    )
+    spec_model.dump_group(group=group, path=path)
+    return path
 
+
+def test_implement_no_longer_posts_e2e_smoke(tmp_path, monkeypatch):
+    # Spec-0040/T5：退役 _post_e2e_result——implement 只 mark_ready，不再实跑 smoke / 发端到端评论。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
-    events = {"order": [], "comment": None, "run_e2e": [], "mark_ready": None}
-
-    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: spec_group)
+    posted = []
     monkeypatch.setattr(
-        orch_module.signpost, "script_path_for_group", lambda *, group_path: "scripts/x.sh"
+        orch_module.identity,
+        "post_signed_comment",
+        lambda *, pr_number, body, agent_id: posted.append(body),
     )
+    monkeypatch.setattr(orch_module.github, "mark_ready", lambda *, pr_number: None)
 
-    def _run_e2e(*, worktree, script_path, timeout_seconds, tail_lines):
-        events["order"].append("run_e2e")
-        events["run_e2e"].append({"script_path": script_path})
-        return E2EResult(
-            outcome=e2e_outcome,
-            exit_code=0 if e2e_outcome == "passed" else 1,
-            script_path=script_path,
-            log_tail="log",
-            timed_out=False,
-        )
+    orch.implement(pr_number=5)
 
-    monkeypatch.setattr(orch_module.e2e, "run_e2e_script", _run_e2e)
-    monkeypatch.setattr(
-        orch_module.e2e, "render_result", lambda *, result, tail_lines: "## 端到端测试结果\nbody"
+    # implement 只调一次 backend（写代码），不再有 e2e 实跑评论，且 _post_e2e_result 已删除。
+    assert len(backend.calls) == 1
+    assert posted == []
+    assert not hasattr(orch, "_post_e2e_result")
+
+
+def test_finalize_runbook_no_e2e_plan_returns_none(tmp_path, monkeypatch):
+    # 无 e2e 粗规划的 spec 组 → finalize_runbook 返回 None（证据闸空过），不派 backend 定稿。
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=None)
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
+
+    assert orch.finalize_runbook(pr_number=5) is None
+    assert backend.calls == []
+
+
+def test_finalize_runbook_with_e2e_plan_drafts_and_returns_handle(tmp_path, monkeypatch):
+    # 有 e2e 粗规划 → 派实现者定稿 runbook、返回 handle（worktree/runbook_path/evidence_dir/intent）。
+    from openagents.spec.model import E2EPlan
+
+    orch, backend, state = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    plan = E2EPlan(
+        form="cli", intent="init 无 origin 必须报错", acceptance=["非零退出", "补 origin 成功"]
     )
+    group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=plan)
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
 
-    def _post(*, pr_number, body, agent_id):
-        events["order"].append("post_comment")
-        events["comment"] = {"pr_number": pr_number, "body": body, "agent_id": agent_id}
+    handle = orch.finalize_runbook(pr_number=5)
 
-    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _post)
-
-    def _mark_ready(*, pr_number):
-        events["order"].append("mark_ready")
-        events["mark_ready"] = pr_number
-
-    monkeypatch.setattr(orch_module.github, "mark_ready", _mark_ready)
-    return events
-
-
-def test_implement_runs_e2e_and_posts_signed_comment_before_mark_ready(tmp_path, monkeypatch):
-    orch, backend, state = _make(tmp_path, agent_id="agent-007")
-    monkeypatch.setattr(subprocess, "run", _GitRecorder())
-    events = _arm_implement(orch, state, monkeypatch)
-
-    orch.implement(pr_number=5)
-
-    # 实跑 → 发结果评论 → 转正，严格按此序（评论在 mark_ready 前）。
-    assert events["order"] == ["run_e2e", "post_comment", "mark_ready"]
-    assert events["run_e2e"][0]["script_path"] == "scripts/x.sh"
-    assert events["comment"]["pr_number"] == 5
-    assert events["comment"]["agent_id"] == "agent-007"
-    assert "端到端测试结果" in events["comment"]["body"]
-    assert events["mark_ready"] == 5
+    assert handle is not None
+    assert handle.runbook_path.name == "runbook.md"
+    assert handle.evidence_dir.name == "5"
+    assert "e2e-results" in str(handle.evidence_dir)
+    assert "init 无 origin 必须报错" in handle.intent
+    assert "非零退出" in handle.intent and "补 origin 成功" in handle.intent
+    # 派了实现者定稿，任务模板含形态与 runbook 路径。
+    assert len(backend.calls) == 1
+    assert "cli" in backend.calls[0]["task"]
+    assert "runbook.md" in backend.calls[0]["task"]
 
 
-def test_implement_e2e_failed_still_marks_ready(tmp_path, monkeypatch):
+def test_commit_evidence_commits_and_pushes(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
-    monkeypatch.setattr(subprocess, "run", _GitRecorder())
-    events = _arm_implement(orch, state, monkeypatch, e2e_outcome="failed")
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
 
-    orch.implement(pr_number=5)
+    orch.commit_evidence(pr_number=5)
 
-    # e2e 失败仅发评论、不阻断转正（决策 6）。
-    assert events["mark_ready"] == 5
-    assert events["comment"] is not None
-    assert state.all_runs()[0].status == "pr-open"
-
-
-def test_implement_no_spec_runs_skipped_still_posts_and_marks_ready(tmp_path, monkeypatch):
-    orch, backend, state = _make(tmp_path)
-    monkeypatch.setattr(subprocess, "run", _GitRecorder())
-    events = _arm_implement(orch, state, monkeypatch, spec_group=None)
-
-    orch.implement(pr_number=5)
-
-    # changed_spec_group 为 None → script_path=None 传入 run_e2e_script，仍发评论且转正。
-    assert events["run_e2e"][0]["script_path"] is None
-    assert events["comment"] is not None
-    assert events["mark_ready"] == 5
-
-
-def test_implement_comment_failure_does_not_block_mark_ready(tmp_path, monkeypatch):
-    orch, backend, state = _make(tmp_path)
-    monkeypatch.setattr(subprocess, "run", _GitRecorder())
-    events = _arm_implement(orch, state, monkeypatch)
-
-    def _boom(*, pr_number, body, agent_id):
-        events["order"].append("post_comment")
-        raise RuntimeError("gh 故障")
-
-    monkeypatch.setattr(orch_module.identity, "post_signed_comment", _boom)
-
-    orch.implement(pr_number=5)
-
-    # 发评论抛错被吞掉，mark_ready 仍执行、流程不崩（决策 6）。
-    assert events["mark_ready"] == 5
-    assert state.all_runs()[0].status == "pr-open"
+    commit_cmds = [c for c in recorder.commands if "commit" in c]
+    push_cmds = [c for c in recorder.commands if "push" in c]
+    assert commit_cmds and "evidence" in " ".join(commit_cmds[0])
+    assert push_cmds
 
 
 # --------------------------------------------------------------------------- #

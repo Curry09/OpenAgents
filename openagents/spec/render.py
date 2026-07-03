@@ -78,7 +78,24 @@ def _render_tldr(*, groups: list[Group]) -> str:
         lines.append("")
         lines.append(f"### {group.number} {_cell(title)}")
         lines.append(_cell(group.metadata.summary))
+        # Spec-0040/T1：声明了 e2e 粗规划的组，把「意图 + 验收行为」渲进 TL;DR（人一眼看清这个
+        # feature 该怎么被成果验证，理念 8）。None 即整块不出现，既有 spec 逐字节不变（零回归）。
+        lines.extend(_render_e2e(group=group))
     return "\n".join(lines)
+
+
+def _render_e2e(*, group: Group) -> list[str]:
+    """Spec-0040/T1：把组级 e2e 粗规划渲成 TL;DR 里的「e2e 意图（form）+ 验收行为」若干行。
+
+    e2e 未声明返回空列表（零回归）；声明则输出一行意图 + 逐条验收行为。纯函数、_cell 归一保证幂等。
+    """
+    e2e = group.metadata.e2e
+    if e2e is None:
+        return []
+    lines = [f"- e2e 粗规划（{_cell(e2e.form)}）：{_cell(e2e.intent)}"]
+    for behavior in e2e.acceptance:
+        lines.append(f"  - 验收行为：{_cell(behavior)}")
+    return lines
 
 
 def _render_board(*, groups: list[Group]) -> str:

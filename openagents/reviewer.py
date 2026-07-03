@@ -45,25 +45,32 @@ _RUBRIC_TAIL = (
     "PASS 示例：\n  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
     "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
 )
+# Spec-0040/T4：「要不要有 e2e」从代码 reviewer 上移到 RFC 闸——加一条更硬的规则：前端/交互类
+# 改动的 spec 若没声明 e2e 粗规划（组级 frontmatter 的 e2e{form,intent,acceptance}，见 Spec-0040/
+# T1）→ 直接 REWORK。这取代 Spec-0030/T4 挂在代码 reviewer 上的条件式 browser-e2e rubric：把「验不
+# 验、验什么」的把关前移到设计闸，代码 reviewer 只管静态质量（职责收口，Spec-0040 Reference-level）。
+_RFC_E2E_RUBRIC = (
+    "【e2e 粗规划硬规则】若本 PR 属前端/交互类改动（新增/改动用户可见行为、CLI 交互、HTTP 接口、"
+    "前端页面等），其 spec 组必须在组级 frontmatter 声明 e2e 粗规划（e2e 块含 form/intent/"
+    "acceptance，承载「要不要验、验什么」）；未声明 → 判 REWORK，把「缺 e2e 粗规划」写进 ISSUES。"
+    "纯文档/重构/内部非交互改动可不声明。\n"
+)
 _RFC_REVIEW_TASK = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
     "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
     "（单文件 NNNN-slug.md：frontmatter 结构化源数据 + 正文各 Task 设计 prose）→ 其引用的来源。"
     "判定：设计是否对齐需求、关键决策是否"
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
-    "实现代码）。\n" + _RUBRIC_TAIL
+    "实现代码）。\n" + _RFC_E2E_RUBRIC + _RUBRIC_TAIL
 )
-# Spec-0030/T4：条件式 browser-e2e 方法论 rubric——若被评为前端改动且作者具备浏览器工具，
-# 检查是否优先设计了浏览器 e2e 而非仅声明脚本。措辞为条件式（由 reviewer 自检自己的工具），
-# 不做「OpenAgents 检测到你有浏览器」式宣告；落 in-code rubric（reviewer.py）而非后端适配器。
-_BROWSER_E2E_RUBRIC = (
-    "若被评 PR 是前端改动且作者具备浏览器工具（如 Playwright / Chrome DevTools MCP），"
-    "检查是否优先设计了基于浏览器的前端 e2e（导航 / 交互 / 截图 / 断言）而非仅声明 shell "
-    "脚本或跳过；是否具备由你自检自己的工具列表决定。\n"
-)
+# Spec-0040/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
+# （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0040 Reference-level）。删掉了
+# Spec-0030/T4 的条件式 browser-e2e rubric（那道「要不要有 e2e」的把关已上移到 _RFC_REVIEW_TASK）。
 # Spec-0044/T2：无证据=REWORK 结构化检查项——把 wind-palace PR #14 里 reviewer 手动做过的
 # 「宣称验证过某产品对外行为却拿不出 tracked 证据 → 打回」固化为常驻 rubric（软约定硬化）。
 # 条件式触发（仅当 PR 出现端到端/e2e/截图/已验证 UI 类措辞才查），避免误伤纯内部重构 PR。
+# 与 Spec-0040 的职责收口不冲突：证据闸判「系统真跑起来是否达成意图」（运行时正确性），本 rubric
+# 判「作者宣称验证过却拿不出证据」（声明诚信），两者分属不同层，故并存。
 _EVIDENCE_RUBRIC = (
     "宣称验证过但无证据 → REWORK：仅当本 PR 正文/评论出现「端到端 / e2e / 截图 / 已验证 UI」"
     "类措辞（声称验证过某个产品对外行为）时才触发本检查——纯内部重构 PR（无此类措辞）不查、"
@@ -77,7 +84,8 @@ _CODE_REVIEW_TASK = (
     "真的实现了对应 spec 的 Task 与验收标准、有无 tautological test / 绕过真实路径、"
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
     "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n"
-    + _BROWSER_E2E_RUBRIC
+    "【职责边界】你只判**静态**代码质量/安全/结构；**运行时行为（系统真跑起来是否达成意图）"
+    "由证据闸负责，你不判**——不必也不应据「有没有真跑过」下裁决。\n"
     + _EVIDENCE_RUBRIC
     + _RUBRIC_TAIL
 )

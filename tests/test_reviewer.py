@@ -148,14 +148,21 @@ def test_task_for_rfc_and_code_differ():
     assert "#5" in rfc_task and "#5" in code_task
 
 
-def test_code_review_task_has_conditional_browser_e2e_rubric():
-    # Spec-0030/T4：code rubric 含条件式「具备浏览器工具 → 优先浏览器前端 e2e」字样，
-    # 且措辞为条件式（由 reviewer 自检），不含「检测到你有浏览器」式宣告。
+def test_code_review_task_defers_runtime_behavior_to_evidence_gate():
+    # Spec-0040/T4：职责收口——code rubric 不再含 browser-e2e 措辞，改为明写「运行时行为由证据闸
+    # 负责、你不判」，只留静态代码质量/安全/结构。
     code_task = _task_for(kind="code", pr_number=7)
-    assert "浏览器工具" in code_task
-    assert "浏览器" in code_task and "e2e" in code_task
-    assert "由你自检" in code_task
-    assert "检测到你有浏览器" not in code_task
+    assert "浏览器工具" not in code_task
+    assert "运行时行为" in code_task and "证据闸" in code_task
+    assert "你不判" in code_task
+
+
+def test_rfc_review_task_has_hard_e2e_rubric():
+    # Spec-0040/T4：「要不要有 e2e」上移到 RFC 闸——前端/交互类改动未声明 e2e 粗规划 → REWORK。
+    rfc_task = _task_for(kind="rfc", pr_number=5)
+    assert "e2e 粗规划" in rfc_task
+    assert "REWORK" in rfc_task
+    assert "前端/交互类" in rfc_task
 
 
 def test_code_review_task_has_evidence_rubric():

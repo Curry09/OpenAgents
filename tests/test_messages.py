@@ -50,7 +50,7 @@ _INVALID = ReviewDecision(
 class _FakeOrchestrator:
     """记录原子操作调用、并按预设裁决回应 review_rfc / review_code 的伪编排器。"""
 
-    def __init__(self, *, rfc_decision=_PASS, code_decision=_PASS):
+    def __init__(self, *, rfc_decision=_PASS, code_decision=_PASS, runbook_handle=None):
         self.implement_calls = []
         self.refine_calls = []
         self.iterate_calls = []
@@ -58,6 +58,10 @@ class _FakeOrchestrator:
         self.review_code_calls = []
         self._rfc_decision = rfc_decision
         self._code_decision = code_decision
+        # Spec-0040/T5：证据闸接线——finalize_runbook 返回预设 handle（None = 无 e2e 粗规划，空过）。
+        self._runbook_handle = runbook_handle
+        self.finalize_calls = []
+        self.commit_evidence_calls = []
 
     def implement(self, *, pr_number):
         self.implement_calls.append(pr_number)
@@ -75,6 +79,13 @@ class _FakeOrchestrator:
     def review_code(self, *, pr_number):
         self.review_code_calls.append(pr_number)
         return self._code_decision
+
+    def finalize_runbook(self, *, pr_number):
+        self.finalize_calls.append(pr_number)
+        return self._runbook_handle
+
+    def commit_evidence(self, *, pr_number):
+        self.commit_evidence_calls.append(pr_number)
 
 
 class _FakeState:
@@ -157,10 +168,21 @@ def _run(*, issue_number, pr_number, status, rounds=0, review_invalid=0):
     )
 
 
-def _make(*, runs, rfc_decision=_PASS, code_decision=_PASS, agent_id=_AGENT_ID):
-    orch = _FakeOrchestrator(rfc_decision=rfc_decision, code_decision=code_decision)
+def _make(
+    *,
+    runs,
+    rfc_decision=_PASS,
+    code_decision=_PASS,
+    agent_id=_AGENT_ID,
+    runbook_handle=None,
+    backend=None,
+):
+    orch = _FakeOrchestrator(
+        rfc_decision=rfc_decision, code_decision=code_decision, runbook_handle=runbook_handle
+    )
     state = _FakeState(runs=runs)
-    msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id)
+    # Spec-0040/T5：注入 backend 才激活证据闸（无 backend → 闸空过，既有用例零回归）。
+    msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id, backend=backend)
     return msgs, orch, state
 
 
@@ -432,6 +454,152 @@ def test_coding_reviewer_fail_over_k_blocks(monkeypatch):
     assert (5, BLOCKED_LABEL) in rec["labels"]
     blocked = next(e for e in events if e["reason"] == "blocked")
     assert blocked["gate"] == "code"
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0040/T5: 证据闸——reviewer PASS 后、merge 前门控合并
+# --------------------------------------------------------------------------- #
+
+
+class _StubGateBackend:
+    """证据闸/executor 被 monkeypatch，故 backend 只需存在（非 None 才激活证据闸）。"""
+
+    name = "stub-gate"
+
+    def run(self, *, work_dir, task, context):
+        from openagents.backends.base import AgentResult
+
+        return AgentResult(changed=False, summary="x")
+
+
+def _handle():
+    from pathlib import Path
+
+    from openagents.orchestrator import RunbookHandle
+
+    return RunbookHandle(
+        worktree=Path("/wt"),
+        runbook_path=Path("/wt/docs/e2e-results/5/runbook.md"),
+        evidence_dir=Path("/wt/docs/e2e-results/5"),
+        intent="意图：x\n验收行为：\n- a",
+    )
+
+
+def _patch_gate(monkeypatch, *, evidence_passed, feedback=""):
+    """monkeypatch executor.run_executor（记 pr）+ evidence_gate.review_evidence（返回预设裁决）。"""
+    from openagents.evidence_gate import EvidenceDecision
+    from openagents.executor import ExecutorResult
+
+    ran = []
+    monkeypatch.setattr(
+        messages_module.executor,
+        "run_executor",
+        lambda *, backend, work_dir, runbook_path, evidence_dir, pr_number: (
+            ran.append(pr_number) or ExecutorResult(outcome="passed", form="cli", notes="n")
+        ),
+    )
+    monkeypatch.setattr(
+        messages_module.evidence_gate,
+        "review_evidence",
+        lambda *, backend, work_dir, intent, evidence_dir, pr_number: EvidenceDecision(
+            passed=evidence_passed, feedback=feedback
+        ),
+    )
+    return ran
+
+
+def test_evidence_gate_pass_merges(monkeypatch):
+    # reviewer PASS + 证据闸 PASS → finalize→executor→commit→证据闸→merge_pr 照常合。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
+        code_decision=_PASS,
+        runbook_handle=_handle(),
+        backend=_StubGateBackend(),
+    )
+    rec = _patch_github(monkeypatch)
+    ran = _patch_gate(monkeypatch, evidence_passed=True)
+
+    events = msgs.poll()
+
+    assert orch.finalize_calls == [5]
+    assert ran == [5]  # executor 真跑过
+    assert orch.commit_evidence_calls == [5]
+    assert rec["merged"] == [5]
+    assert any(e["reason"] == "merged" for e in events)
+
+
+def test_evidence_gate_fail_iterates_e2e_no_merge(monkeypatch):
+    # reviewer PASS 但证据闸 FAIL → iterate(reason="e2e")、不 merge、rounds++。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
+        code_decision=_PASS,
+        runbook_handle=_handle(),
+        backend=_StubGateBackend(),
+    )
+    rec = _patch_github(monkeypatch)
+    _patch_gate(monkeypatch, evidence_passed=False, feedback="验收行为①未达成")
+
+    events = msgs.poll()
+
+    assert orch.iterate_calls == [{"pr_number": 5, "reason": "e2e", "detail": "验收行为①未达成"}]
+    assert rec["merged"] == []
+    assert state.all_runs()[0].rounds == 1
+    assert any(e["reason"] == "e2e" for e in events)
+
+
+def test_evidence_gate_fail_over_k_blocks_e2e(monkeypatch):
+    # 证据闸连 FAIL 攒满 K → _block(gate="e2e") + needs-human、不 merge。
+    monkeypatch.setattr(messages_module, "MAX_ROUNDS", 2)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN, rounds=1)],
+        code_decision=_PASS,
+        runbook_handle=_handle(),
+        backend=_StubGateBackend(),
+    )
+    rec = _patch_github(monkeypatch)
+    _patch_gate(monkeypatch, evidence_passed=False, feedback="仍未达成")
+
+    events = msgs.poll()
+
+    assert orch.iterate_calls == []
+    assert rec["merged"] == []
+    assert state.status_updates[-1] == {"issue_number": 3, "status": STATUS_BLOCKED}
+    assert (5, BLOCKED_LABEL) in rec["labels"]
+    blocked = next(e for e in events if e["reason"] == "blocked")
+    assert blocked["gate"] == "e2e"
+
+
+def test_evidence_gate_empty_pass_when_no_plan(monkeypatch):
+    # 无 e2e 粗规划（finalize 返 None）→ 证据闸空过、照常 merge，不派 executor。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
+        code_decision=_PASS,
+        runbook_handle=None,
+        backend=_StubGateBackend(),
+    )
+    rec = _patch_github(monkeypatch)
+    ran = _patch_gate(monkeypatch, evidence_passed=False)  # 即便配 FAIL，空过也不触发
+
+    msgs.poll()
+
+    assert orch.finalize_calls == [5]
+    assert ran == []  # 无 plan → 不派 executor
+    assert rec["merged"] == [5]
+
+
+def test_evidence_gate_skipped_without_backend(monkeypatch):
+    # 无 backend（老夹具）→ 证据闸完全跳过、不调 finalize_runbook，照常 merge（零回归）。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
+        code_decision=_PASS,
+        runbook_handle=_handle(),
+    )
+    rec = _patch_github(monkeypatch)
+
+    msgs.poll()
+
+    assert orch.finalize_calls == []
+    assert rec["merged"] == [5]
 
 
 # --------------------------------------------------------------------------- #

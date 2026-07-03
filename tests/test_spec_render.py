@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import Group, Metadata, RelatesTo, Task
+from openagents.spec.model import E2EPlan, Group, Metadata, RelatesTo, Task
 from openagents.spec.render import render, write_overview
 
 
@@ -122,6 +122,41 @@ def test_empty_root_does_not_error(tmp_path: Path) -> None:
     text = render(specs_root=tmp_path)
     assert "## 全局看板" in text
     assert "无跨组文件冲突" in text
+
+
+def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
+    """Spec-0040/T1：声明 e2e 粗规划的组，OVERVIEW 的 TL;DR 显示意图 + 验收行为。"""
+    group = Group(
+        number="0001",
+        metadata=Metadata(
+            title="alpha feature",
+            issue=1,
+            slug="alpha",
+            summary="alpha 人话",
+            e2e=E2EPlan(
+                form="cli",
+                intent="init 无 origin 必须显式失败",
+                acceptance=["非零退出 + 提示", "补 origin 再跑成功"],
+            ),
+        ),
+        tasks=[_task(id="T1", files=["a.py"])],
+    )
+    path = model.group_path(specs_root=tmp_path, number="0001", slug="alpha")
+    model.dump_group(group=group, path=path)
+    text = render(specs_root=tmp_path)
+    assert "e2e 粗规划（cli）" in text
+    assert "init 无 origin 必须显式失败" in text
+    assert "非零退出 + 提示" in text
+    assert "补 origin 再跑成功" in text
+
+
+def test_no_e2e_plan_omits_block(tmp_path: Path) -> None:
+    """未声明 e2e 的组：OVERVIEW 不出现 e2e 粗规划行（零回归）。"""
+    _group(
+        root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1", files=["a.py"])]
+    )
+    text = render(specs_root=tmp_path)
+    assert "e2e 粗规划" not in text
 
 
 def test_write_overview_writes_file(tmp_path: Path) -> None:

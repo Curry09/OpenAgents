@@ -135,6 +135,20 @@ class Overview:
 
 
 @dataclass(frozen=True)
+class E2EPlan:
+    """Spec-0040/T1：组级 e2e 粗规划——RFC 阶段声明的成果验证意图，代码之后据此定稿 runbook。
+
+    承载「要不要验、验什么」：`form` 声明执行形态（ui/api/cli/backend，见 schema.E2E_FORM_VALUES），
+    `intent` 是一句话意图（RFC 闸批准后冻结，tautology guard 防线①的支点），`acceptance` 是若干条
+    可验证的验收行为。整块可选（Metadata.e2e 默认 None）——非交互 PR 不声明即零回归。
+    """
+
+    form: str
+    intent: str = ""
+    acceptance: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Metadata:
     """组级元数据（一个 spec 组 = 一个 issue/feature）。"""
 
@@ -144,6 +158,9 @@ class Metadata:
     # Spec-0015：组级人话 TL;DR（整个 feature 的「是啥/为什么/产出什么」）。
     # 默认空串兼容旧调用点；非空由 validate 的 _summary_checks 强制。
     summary: str = ""
+    # Spec-0040/T1：组级 e2e 粗规划（可选）。None = 未声明（既有 spec 零回归）；非 None 时由
+    # validate._e2e_checks 强制 form 合法 / intent 非空 / acceptance≥1。
+    e2e: E2EPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +202,7 @@ def load_group(*, path: Path) -> Group:
         issue=int(meta.get("issue", 0)),
         slug=str(meta.get("slug", "")),
         summary=str(meta.get("summary", "")),
+        e2e=e2e_from_mapping(data=meta.get("e2e")),  # Spec-0040/T1：无 e2e 块 → None。
     )
 
     overview = _parse_body(body=body)
@@ -222,6 +240,10 @@ def render_group(*, group: Group) -> str:
     fm["issue"] = group.metadata.issue
     fm["slug"] = group.metadata.slug
     fm["summary"] = group.metadata.summary
+    # Spec-0040/T1：e2e 粗规划仅在声明时写入 frontmatter（None 即整块不出现，保持既有 spec 逐字节
+    # 不变、零回归）。夹在 summary 之后、tasks 之前，与其组级元数据身份一致。
+    if group.metadata.e2e is not None:
+        fm["e2e"] = _e2e_frontmatter(e2e=group.metadata.e2e)
     fm["tasks"] = [_task_frontmatter(task=task) for task in group.tasks]
 
     buf = StringIO()
@@ -270,6 +292,31 @@ def task_from_mapping(*, data: object) -> Task:
         scope=str(raw.get("scope", "")),
         acceptance=str(raw.get("acceptance", "")),
     )
+
+
+def e2e_from_mapping(*, data: object) -> E2EPlan | None:
+    """Spec-0040/T1：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
+
+    宽松归一化（与 task_from_mapping 同风格）：form/intent 转 str、acceptance 转 list[str]；
+    合法性（form 枚举 / intent 非空 / acceptance≥1）交给 validate._e2e_checks，本函数不判空。
+    """
+    if data is None:
+        return None
+    raw = data or {}
+    return E2EPlan(
+        form=str(raw.get("form", "")),
+        intent=str(raw.get("intent", "")),
+        acceptance=_str_list(value=raw.get("acceptance")),
+    )
+
+
+def _e2e_frontmatter(*, e2e: E2EPlan) -> CommentedMap:
+    """E2EPlan → frontmatter CommentedMap（固定键序 form/intent/acceptance）。"""
+    out = CommentedMap()
+    out["form"] = e2e.form
+    out["intent"] = e2e.intent
+    out["acceptance"] = list(e2e.acceptance)
+    return out
 
 
 def _task_frontmatter(*, task: Task) -> CommentedMap:
