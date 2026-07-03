@@ -21,7 +21,7 @@ form = ui
 ## 1. 前置与环境
 
 1. **工作目录**：`cd` 到仓库根（本 worktree 根 = `.openagents/worktrees/issue-124`，即含 `openagents/`、`scripts/`、`docs/` 的目录）。以下所有命令都从仓库根执行。
-2. **工具集自检（诚实纪律，遵循 end-to-end-ui-screenshots skill）**：确认是否具备浏览器自动化能力——本会话挂载了 `playwright` MCP（`browser_navigate` / `browser_take_screenshot` / `browser_evaluate` / `browser_console_messages`）与 `chrome-devtools` MCP，二者任一即可驱动真实浏览器。
+2. **工具集自检（诚实纪律，遵循 end-to-end-ui-screenshots skill）**：确认是否具备浏览器自动化能力——本会话挂载了 `playwright` MCP（工具真名 `mcp__playwright__browser_navigate` / `mcp__playwright__browser_take_screenshot` / `mcp__playwright__browser_evaluate` / `mcp__playwright__browser_console_messages`）与 `chrome-devtools` MCP（`mcp__chrome-devtools__navigate_page` / `take_screenshot` / `evaluate_script` / `list_console_messages`），二者任一即可驱动真实浏览器。
    - 若两者都**客观不可用**（未授权 / 无显示 / MCP 未连接），**不得**用离线段冒充浏览器成果；应按 skill 纪律在证据里明写「因无浏览器自动化，浏览器成果段未执行」这一**阻塞项**，并回退到「系统真实 Google Chrome headless（`--screenshot` 截图 + `--dump-dom` 取渲染后 DOM）」等价真浏览器路径。二者皆不可得才算阻塞，**不得**跳过或以单测顶替。
 3. **证据落点（两处都要）**：
    - Spec-0050 成果证据（截图 + 页面）→ tracked 目录 `docs/evidence/spec-0050/`（意图明确要求）。
@@ -83,9 +83,10 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
 - 期望：页面成功加载，标题「评审评论（简短中文·应通过）」，可见「## 评审闸裁决」抬头、`❌ REWORK`、以及「反馈摘要」块。
 
 **B2. 截图存证**
-- 请求：`browser_take_screenshot`，保存到 `docs/evidence/spec-0050/comment-green-short-chinese.png`（覆盖 / 更新既有截图）。
+- 请求：`browser_take_screenshot`，`filename` 传 `comment-green-short-chinese.png`。
+- **落点纪律（executor 必做）**：playwright/chrome-devtools 的截图默认写到各自 MCP 的 output 目录，未必落在仓库里。执行后**核实** `docs/evidence/spec-0050/comment-green-short-chinese.png` 确实存在且已更新——若 MCP 把文件写到别处，用 shell 把它**复制到** `docs/evidence/spec-0050/`（tracked 证据目录，意图明确要求）并覆盖既有同名截图。截图不落到该 tracked 目录 = 证据未固化 = 该步不算过。
 - 期望：截图肉眼可见「反馈摘要」块是一段能一眼读懂的简短中文（`ISSUES` / `NEXT` / `REASON` 三行简短中文，含少量文件路径 / 英文 label）。
-- 判定点 B2：截图文件生成且内容是中文反馈摘要，非空白 / 非报错页。
+- 判定点 B2：`docs/evidence/spec-0050/comment-green-short-chinese.png` 生成 / 更新，内容是中文反馈摘要，非空白 / 非报错页。
 
 **B3. 抽「反馈摘要」块文本 + 判据断言**
 - 请求：`browser_evaluate` 在页面上下文执行，取渲染后 DOM 的反馈摘要文本并算判据。示例脚本（JS）：
@@ -102,11 +103,11 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
     };
   }
   ```
-- 期望：返回 `cjkRatio ≥ 0.5` **且** `length ≤ 300`（对照步骤 A 自检值 ~0.52 / ~106，量级应一致；DOM `innerText` 与离线抽取可能有个位数换行差异，只要仍满足阈值即可）。
+- 期望：返回 `cjkRatio ≥ 0.5` **且** `length ≤ 300`。**基线实测**（本 runbook 用真实 `render_decision` 路径核过）GREEN 反馈摘要 `cjkRatio = 0.52`、`length = 106`——DOM `innerText` 与离线抽取可能有个位数换行差异，实测值应落在此量级且仍满足阈值。
 - 判定点 B3：`cjkRatio ≥ 0.5 && length ≤ 300`。不满足 → **FAIL**，把实测 `text / length / cjkRatio` 记进证据。
 
 **B4. console 无报错**
-- 请求：`browser_console_messages`（或 chrome-devtools `list_console_messages`）。
+- 请求：`browser_console_messages`（传 `level: "error"` 只看 error 级；或 chrome-devtools `list_console_messages`）。
 - 期望：无 `error` 级别消息。
 - 判定点 B4：0 条 console error。有 error → **FAIL**，记录报错原文。
 
@@ -118,10 +119,10 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
 
 **C1. 导航**：`browser_navigate` 打开 RED 页；标题「评审评论（长篇英文·应不通过）」。
 
-**C2. 截图**：`browser_take_screenshot` → `docs/evidence/spec-0050/comment-red-long-english.png`。肉眼可见「反馈摘要」块又长又是英文。
+**C2. 截图**：`browser_take_screenshot`，`filename` 传 `comment-red-long-english.png`，同 B2 落点纪律**核实 / 复制到** `docs/evidence/spec-0050/comment-red-long-english.png`。肉眼可见「反馈摘要」块又长又是英文。
 
 **C3. 同判据断言，应判不通过**：用 B3 **完全相同**的 `browser_evaluate` 脚本抽 `#feedback-summary` 文本。
-- 期望：`cjkRatio` 极低（≈0，全英文）**或** `length > 300`（超长）——即 `cjkRatio ≥ 0.5 && length ≤ 300` 为 **false**。
+- 期望：`cjkRatio ≥ 0.5 && length ≤ 300` 为 **false**。**基线实测**（真实 `render_decision` 路径核过）RED 反馈摘要 `cjkRatio = 0.00`（全英文）、`length = 580`（超长）——两条判据同时不满足。
 - **判定点 C3（RED 反证，关键）**：同一判据对 RED 页**必须判不通过**。若 RED 也「通过」，说明判据不能区分「简短中文」与「长篇英文」、绿是恒真的假绿 → **整体 FAIL**（这正是本步骤要防的：证明步骤 B 的绿有意义）。
 
 **C4. console**：RED 页也不应有 console error（页面本身正常，只是内容是坏样本）。
