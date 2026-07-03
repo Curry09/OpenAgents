@@ -105,10 +105,6 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 
 ### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
-- e2e 粗规划（cli）：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
-  - 验收行为：造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
-  - 验收行为：喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。
-  - 验收行为：喂「达成」证据 → 判 PASS 且照常放行 merge。
 
 ### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
 reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
@@ -127,6 +123,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 
 ### 0047 评审裁决按「实质内容」去重（同结论·理由不同照发）
 把 _post_review_decision 的去重从「同结论=重复」改成「同结论且同反馈才算重复」——多轮 REWORK 理由各异时中间轮裁决评论不再被吞、人盯 PR 能看清每轮卡点演变，同时保留 PR #61「33 条相同 PASS」的防刷屏去重。
+
+### 0048 vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
+消除 vigil 多后端认领标签反复互撕：resume 不再重复认领(止血) + 认领编码 agent 归属(署名认领评论) + 认领后 read-after-write 退让，使同一 issue 任一时刻只被一个后端有效认领、他方识别并退让。
 
 ## 全局看板
 
@@ -296,6 +295,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
 | 0047 | 0047/T1 | reviewer.extract_decision_content：裁决内容纯解析器 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0047 | 0047/T2 | orchestrator._decision_already_posted：按结论+反馈内容去重 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0048 | 0048/T1 | github：认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕） | pending | — | openagents/github.py<br>tests/test_github_claim_label.py |
+| 0048 | 0048/T2 | identity：认领便签标记 + 归属/年龄解析 | pending | T1 | openagents/identity.py<br>tests/test_identity_claim.py |
+| 0048 | 0048/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | pending | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
+| 0048 | 0048/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | pending | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
+| 0048 | 0048/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | pending | T3, T4 | scripts/e2e-spec-0048-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
 
 ## 跨 feature 关系图
 
@@ -545,6 +549,13 @@ graph LR
         n0047_T1["T1 reviewer.extract_decision_content：裁决内容纯解析器"]
         n0047_T2["T2 orchestrator._decision_already_posted：按结论+反馈内容去重"]
     end
+    subgraph G0048[0048 vigil-claim-ownership-anti-thrash]
+        n0048_T1["T1 github：认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕）"]
+        n0048_T2["T2 identity：认领便签标记 + 归属/年龄解析"]
+        n0048_T3["T3 vigil：_dispatch_kind/_claim_expired 归属感知闸"]
+        n0048_T4["T4 orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让"]
+        n0048_T5["T5 成果测试：多后端竞态复现集成测试 + e2e 脚本"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -687,6 +698,13 @@ graph LR
     n0045_T5 --> n0045_T3
     n0045_T5 --> n0045_T4
     n0047_T2 --> n0047_T1
+    n0048_T2 --> n0048_T1
+    n0048_T3 --> n0048_T1
+    n0048_T3 --> n0048_T2
+    n0048_T4 --> n0048_T1
+    n0048_T4 --> n0048_T2
+    n0048_T5 --> n0048_T3
+    n0048_T5 --> n0048_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -714,10 +732,10 @@ graph LR
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045 |
-| openagents/identity.py | 0011, 0029, 0032 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0048 |
+| openagents/identity.py | 0011, 0029, 0032, 0048 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0048 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -731,9 +749,9 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024, 0040 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0048 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0048 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -741,6 +759,7 @@ graph LR
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
+| tests/test_claim_dedup_integration.py | 0039, 0048 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038 |
@@ -750,6 +769,7 @@ graph LR
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
+| tests/test_github_claim_label.py | 0039, 0048 |
 | tests/test_identity.py | 0011, 0029 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
@@ -758,6 +778,7 @@ graph LR
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047 |
+| tests/test_orchestrator_claim.py | 0039, 0048 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
@@ -772,6 +793,7 @@ graph LR
 | tests/test_spec_validate.py | 0014, 0015, 0024, 0040 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
+| tests/test_vigil_claim.py | 0039, 0048 |
 | tests/test_workspace.py | 0005, 0008, 0029 |
 
 ## 各 feature 详情
@@ -1928,4 +1950,39 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0048 vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让（issue #120）
+
+```mermaid
+graph LR
+    nT1["T1 github：认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕）"]
+    nT2["T2 identity：认领便签标记 + 归属/年龄解析"]
+    nT3["T3 vigil：_dispatch_kind/_claim_expired 归属感知闸"]
+    nT4["T4 orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让"]
+    nT5["T5 成果测试：多后端竞态复现集成测试 + e2e 脚本"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
