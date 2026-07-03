@@ -100,12 +100,27 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0038 合并冲突改拉式同步 + 解冲突 agent 用带签名工具自回评论
 守夜人合并/冲突处理从「推式扇出+确定性 heal」改为「门2 拉式同步+agent 能动性」；解冲突 agent 用带签名 reply-comment 工具亲自回人类评论（根治牛头不对马嘴）
 
+### 0039 vigil 多后端并发派单去重：引入「已派发」认领标签（第 3 道闸 + 过期回收）
+给发现段加一道跨后端可见的 GitHub「已派发」认领标签闸，把同一 issue 被多后端重复派单的概率压到可接受，并用标签事件时戳做过期回收兜底僵尸认领。
+
 ### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
 - e2e 粗规划（cli）：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
   - 验收行为：造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
   - 验收行为：喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。
   - 验收行为：喂「达成」证据 → 判 PASS 且照常放行 merge。
+
+### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
+reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
+
+### 0042 PR close→reopen 后复活被冻死的 run：closed 不是真终态
+poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）时按 draft→rfc-review / 转正→pr-open 复活它、清 closed 续跑既有流程；用 closed_at 复活窗口把「每轮对所有历史 closed run 发 gh 查 reopen」的成本上界住，超窗口即真终态；is_merged 仍是不可逆终态不参与复活。
+
+### 0043 issue 进入 RFC 前自检标题/正文是否影响修法：命中冲突先打 needs-human 对齐、不直接生成 spec
+在 vigil 发现段派单 start_rfc 之前插一道 issuecheck 轻量自检：用注入 backend 判读 issue 标题/正文是否存在「会直接影响修法」的内在冲突（标题修法≠正文修法、根因≠修法、互斥修法未取舍、修 A 报 B、已知取舍未声明）；命中则不起草 spec，改为打 needs-human + 贴一条列出冲突点与候选修法的对齐评论，等人对齐；未命中照常派单。以 needs-human 标签为持久冻结信号（_dispatch_kind 跳过），使同一 issue 的非确定判读只跑一次、不复审震荡。
+
+### 0044 「端到端跑真 app 并截图」验证 skill：UI/产品行为改动须有真实运行证据
+移植反惰性的『端到端跑真 app 并截图』判断/纪律 skill 进仓库，并把『产品对外行为改动必须有 tracked 真运行证据、宣称测过但无证据=REWORK』硬化进 OpenAgents 的派单 prompt 与 reviewer rubric，杜绝『宣称测过但没测』。
 
 ## 全局看板
 
@@ -243,11 +258,31 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 | 0038 | 0038/T1 | 门2 拉式同步 + 删 push 扇出 | done | — | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_resolve.py<br>tests/test_messages_conflict_diag.py<br>tests/test_messages_merge_unblock.py<br>tests/test_messages_comment_reply.py |
 | 0038 | 0038/T2 | 删死代码 + CONFLICT_COMMENT 迁移 | done | — | openagents/conflictdiag.py<br>tests/test_conflictdiag.py<br>scripts/e2e-spec-0034-conflict-diagnostics.sh |
 | 0038 | 0038/T3 | 解冲突 agent 用带签名工具自回评论 | done | — | openagents/conflict.py<br>openagents/cli.py<br>openagents/orchestrator.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py<br>tests/test_cli.py<br>scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh |
+| 0039 | 0039/T1 | github 认领原语层 | done | — | openagents/github.py<br>tests/test_github_claim_label.py |
+| 0039 | 0039/T2 | 发现段第 3 道闸 + 过期回收 | done | T1 | openagents/vigil.py<br>tests/test_vigil_claim.py |
+| 0039 | 0039/T3 | start_rfc 认领打标与清理 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator_claim.py |
+| 0039 | 0039/T4 | 端到端去重成果测试（含浏览器看板断言） | done | T2, T3 | scripts/e2e-spec-0039-vigil-claim-dedup.sh<br>tests/test_claim_dedup_integration.py |
 | 0040 | 0040/T1 | spec 增 e2e 粗规划字段 + validate 硬化 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/validate.py<br>openagents/spec/render.py<br>tests/test_spec_model.py<br>tests/test_spec_validate.py<br>tests/test_spec_render.py |
 | 0040 | 0040/T2 | executor 角色：独立运行时验证 agent（cli/api/backend 形态） | done | — | openagents/executor.py<br>tests/test_executor.py |
 | 0040 | 0040/T3 | 证据固化 + 证据闸 reviewer | done | T1 | openagents/evidence_gate.py<br>tests/test_evidence_gate.py |
 | 0040 | 0040/T4 | reviewer 职责收口 + RFC rubric 硬规则 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0040 | 0040/T5 | 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke | done | T1, T2, T3, T4 | openagents/orchestrator.py<br>openagents/messages.py<br>openagents/e2e.py<br>tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_e2e.py |
+| 0041 | 0041/T2 | 「✅ 已通过评审，待你合并」成功文案 | done | — | openagents/blocknote.py<br>tests/test_blocknote_hold_merge.py |
+| 0041 | 0041/T3 | 净化 reviewer scratchpad | done | — | openagents/reviewer.py<br>tests/test_reviewer_feedback_distill.py |
+| 0041 | 0041/T1 | hold-merge 夯住 + merge-hold 解挂路由 | done | T2 | openagents/messages.py<br>tests/test_messages_hold_merge_freeze.py |
+| 0041 | 0041/T4 | 端到端成果测试（含浏览器看板「冻结后稳定」断言） | done | T1, T2, T3 | scripts/e2e-spec-0041-hold-merge-freeze.sh<br>tests/test_hold_merge_freeze_integration.py |
+| 0042 | 0042/T1 | state：closed_at 字段 + set_closed_at setter | done | — | openagents/state.py<br>tests/test_state_closed_at.py |
+| 0042 | 0042/T2 | github：is_open / is_draft 只读薄封装 | done | — | openagents/github.py<br>tests/test_github_is_open_draft.py |
+| 0042 | 0042/T3 | messages：复活窗口守卫 + reopen 复活 reconcile | done | T1, T2 | openagents/messages.py<br>tests/test_messages_reopen_revive.py |
+| 0042 | 0042/T4 | 端到端成果测试（含浏览器看板『close→reopen 复活』断言） | done | T1, T2, T3 | scripts/e2e-spec-0042-reopen-revive-closed-run.sh<br>tests/test_reopen_revive_integration.py |
+| 0043 | 0043/T1 | issue 级评论出口 github.issue_comment | done | — | openagents/github.py<br>tests/test_github_issue_comment.py |
+| 0043 | 0043/T2 | issuecheck 判读模块（裁决 + 对齐评论渲染） | done | — | openagents/issuecheck.py<br>tests/test_issuecheck.py |
+| 0043 | 0043/T3 | precheck 接线（orchestrator 前置 + vigil 发现段闸） | done | T1, T2 | openagents/orchestrator.py<br>openagents/vigil.py<br>tests/test_orchestrator_precheck.py<br>tests/test_vigil_precheck_gate.py |
+| 0043 | 0043/T4 | 端到端成果测试（#106 回归 + 浏览器对齐评论断言） | done | T3 | scripts/e2e-spec-0043-issue-conflict-precheck.sh<br>tests/test_issue_precheck_integration.py |
+| 0044 | 0044/T1 | 移植 skill 原文 + runbook 模板 | done | — | docs/skills/end-to-end-ui-screenshots/SKILL.md<br>docs/skills/end-to-end-ui-screenshots/references/north-coder.md<br>docs/skills/end-to-end-ui-screenshots/references/_runbook-template.md |
+| 0044 | 0044/T2 | reviewer rubric 硬化：宣称验证过但无证据 = REWORK | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0044 | 0044/T3 | 派单 prompt 判断纪律：三分类取证 + 反测试顶替 | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0044 | 0044/T4 | e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引 | done | T1, T2, T3 | scripts/e2e-spec-0044-e2e-screenshot-skill.sh<br>docs/skills/end-to-end-ui-screenshots/README.md<br>docs/skills/end-to-end-ui-screenshots/examples/reference-app.html |
 
 ## 跨 feature 关系图
 
@@ -449,12 +484,42 @@ graph LR
         n0038_T2["T2 删死代码 + CONFLICT_COMMENT 迁移"]
         n0038_T3["T3 解冲突 agent 用带签名工具自回评论"]
     end
+    subgraph G0039[0039 vigil-dispatch-claim-label]
+        n0039_T1["T1 github 认领原语层"]
+        n0039_T2["T2 发现段第 3 道闸 + 过期回收"]
+        n0039_T3["T3 start_rfc 认领打标与清理"]
+        n0039_T4["T4 端到端去重成果测试（含浏览器看板断言）"]
+    end
     subgraph G0040[0040 e2e-runbook-driven-evidence-gate]
         n0040_T1["T1 spec 增 e2e 粗规划字段 + validate 硬化"]
         n0040_T2["T2 executor 角色：独立运行时验证 agent（cli/api/backend 形态）"]
         n0040_T3["T3 证据固化 + 证据闸 reviewer"]
         n0040_T4["T4 reviewer 职责收口 + RFC rubric 硬规则"]
         n0040_T5["T5 编排接线：定稿→执行→证据闸门控合并 + 退役旧 smoke"]
+    end
+    subgraph G0041[0041 hold-merge-freeze]
+        n0041_T2["T2 「✅ 已通过评审，待你合并」成功文案"]
+        n0041_T3["T3 净化 reviewer scratchpad"]
+        n0041_T1["T1 hold-merge 夯住 + merge-hold 解挂路由"]
+        n0041_T4["T4 端到端成果测试（含浏览器看板「冻结后稳定」断言）"]
+    end
+    subgraph G0042[0042 reopen-revive-closed-run]
+        n0042_T1["T1 state：closed_at 字段 + set_closed_at setter"]
+        n0042_T2["T2 github：is_open / is_draft 只读薄封装"]
+        n0042_T3["T3 messages：复活窗口守卫 + reopen 复活 reconcile"]
+        n0042_T4["T4 端到端成果测试（含浏览器看板『close→reopen 复活』断言）"]
+    end
+    subgraph G0043[0043 issue-conflict-precheck]
+        n0043_T1["T1 issue 级评论出口 github.issue_comment"]
+        n0043_T2["T2 issuecheck 判读模块（裁决 + 对齐评论渲染）"]
+        n0043_T3["T3 precheck 接线（orchestrator 前置 + vigil 发现段闸）"]
+        n0043_T4["T4 端到端成果测试（#106 回归 + 浏览器对齐评论断言）"]
+    end
+    subgraph G0044[0044 e2e-real-app-screenshot-evidence-skill]
+        n0044_T1["T1 移植 skill 原文 + runbook 模板"]
+        n0044_T2["T2 reviewer rubric 硬化：宣称验证过但无证据 = REWORK"]
+        n0044_T3["T3 派单 prompt 判断纪律：三分类取证 + 反测试顶替"]
+        n0044_T4["T4 e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -569,11 +634,30 @@ graph LR
     n0036_T5 --> n0036_T3
     n0036_T5 --> n0036_T4
     n0036_T6 --> n0036_T5
+    n0039_T2 --> n0039_T1
+    n0039_T3 --> n0039_T1
+    n0039_T4 --> n0039_T2
+    n0039_T4 --> n0039_T3
     n0040_T3 --> n0040_T1
     n0040_T5 --> n0040_T1
     n0040_T5 --> n0040_T2
     n0040_T5 --> n0040_T3
     n0040_T5 --> n0040_T4
+    n0041_T1 --> n0041_T2
+    n0041_T4 --> n0041_T1
+    n0041_T4 --> n0041_T2
+    n0041_T4 --> n0041_T3
+    n0042_T3 --> n0042_T1
+    n0042_T3 --> n0042_T2
+    n0042_T4 --> n0042_T1
+    n0042_T4 --> n0042_T2
+    n0042_T4 --> n0042_T3
+    n0043_T3 --> n0043_T1
+    n0043_T3 --> n0043_T2
+    n0043_T4 --> n0043_T3
+    n0044_T4 --> n0044_T1
+    n0044_T4 --> n0044_T2
+    n0044_T4 --> n0044_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -594,21 +678,22 @@ graph LR
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
+| openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038 |
 | openagents/conflictdiag.py | 0034, 0038 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043 |
 | openagents/identity.py | 0011, 0029, 0032 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0040 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040 |
@@ -617,9 +702,9 @@ graph LR
 | openagents/spec/schema.py | 0014, 0015, 0024, 0040 |
 | openagents/spec/signpost.py | 0024, 0028 |
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -643,13 +728,13 @@ graph LR
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
-| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040 |
+| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040 |
@@ -1587,6 +1672,35 @@ graph LR
     class v_T3_1 st_done;
 ```
 
+### 0039 vigil 多后端并发派单去重：引入「已派发」认领标签（第 3 道闸 + 过期回收）（issue #102）
+
+```mermaid
+graph LR
+    nT1["T1 github 认领原语层"]
+    nT2["T2 发现段第 3 道闸 + 过期回收"]
+    nT3["T3 start_rfc 认领打标与清理"]
+    nT4["T4 端到端去重成果测试（含浏览器看板断言）"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
 ### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）（issue #104）
 
 ```mermaid
@@ -1618,4 +1732,119 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡（issue #106）
+
+```mermaid
+graph LR
+    nT2["T2 「✅ 已通过评审，待你合并」成功文案"]
+    nT3["T3 净化 reviewer scratchpad"]
+    nT1["T1 hold-merge 夯住 + merge-hold 解挂路由"]
+    nT4["T4 端到端成果测试（含浏览器看板「冻结后稳定」断言）"]
+    nT2 --> nT1
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0042 PR close→reopen 后复活被冻死的 run：closed 不是真终态（issue #108）
+
+```mermaid
+graph LR
+    nT1["T1 state：closed_at 字段 + set_closed_at setter"]
+    nT2["T2 github：is_open / is_draft 只读薄封装"]
+    nT3["T3 messages：复活窗口守卫 + reopen 复活 reconcile"]
+    nT4["T4 端到端成果测试（含浏览器看板『close→reopen 复活』断言）"]
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0043 issue 进入 RFC 前自检标题/正文是否影响修法：命中冲突先打 needs-human 对齐、不直接生成 spec（issue #111）
+
+```mermaid
+graph LR
+    nT1["T1 issue 级评论出口 github.issue_comment"]
+    nT2["T2 issuecheck 判读模块（裁决 + 对齐评论渲染）"]
+    nT3["T3 precheck 接线（orchestrator 前置 + vigil 发现段闸）"]
+    nT4["T4 端到端成果测试（#106 回归 + 浏览器对齐评论断言）"]
+    nT1 --> nT3
+    nT2 --> nT3
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0044 「端到端跑真 app 并截图」验证 skill：UI/产品行为改动须有真实运行证据（issue #113）
+
+```mermaid
+graph LR
+    nT1["T1 移植 skill 原文 + runbook 模板"]
+    nT2["T2 reviewer rubric 硬化：宣称验证过但无证据 = REWORK"]
+    nT3["T3 派单 prompt 判断纪律：三分类取证 + 反测试顶替"]
+    nT4["T4 e2e 脚本（离线断言 + 浏览器自演示）+ 参考页 + README/索引"]
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

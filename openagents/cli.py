@@ -237,6 +237,11 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0005：起草 RFC 并开 draft PR（状态 rfc-review），等人评审。
+    # Spec-0039/T3：起草前自举一次结构性 prerequisite（流程标签，与 _cmd_vigil/_cmd_init/release
+    # 同源）——start_rfc 现走 _claim_issue 给 issue 打 DISPATCH_LABEL 认领标签，而
+    # `gh issue edit --add-label` 对仓库中不存在的标签报 not found 抛 GithubError。故 `oa rfc`
+    # 与 vigil 一样在入口幂等预建流程标签，恢复未 `oa init` 的仓库上单后端「今日一致」的可跑通。
+    github.ensure_prerequisites()
     pr = _orchestrator_for(ctx=ctx).start_rfc(issue_number=args.issue, base=args.base)
     print(f"✓ 已为 issue #{args.issue} 起草 RFC 并开 draft PR：{pr.url}")
     return 0

@@ -165,6 +165,22 @@ def test_rfc_review_task_has_hard_e2e_rubric():
     assert "前端/交互类" in rfc_task
 
 
+def test_code_review_task_has_evidence_rubric():
+    # Spec-0044/T2：code rubric 含「宣称验证过但无证据 → REWORK」结构化检查项，
+    # 且条件式触发（仅出现端到端/e2e/截图/已验证 UI 类措辞时才查，不误伤纯内部重构 PR）。
+    code_task = _task_for(kind="code", pr_number=7)
+    assert "宣称验证过但无证据 → REWORK" in code_task
+    # 条件式：措辞触发词齐全 + 明说纯内部重构不误伤。
+    assert "端到端" in code_task and "e2e" in code_task and "截图" in code_task
+    assert "纯内部重构" in code_task
+
+
+def test_evidence_rubric_only_on_code_not_rfc():
+    # Spec-0044/T2：无证据检查项只挂代码 review（评实现/取证），不挂 spec 文档 review。
+    rfc_task = _task_for(kind="rfc", pr_number=7)
+    assert "宣称验证过但无证据 → REWORK" not in rfc_task
+
+
 def test_review_uses_kind_template_in_backend_call(tmp_path):
     backend = _backend("VERDICT: PASS")
     review(backend=backend, work_dir=tmp_path, kind="code", pr_number=42, n=1)

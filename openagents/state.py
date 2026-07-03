@@ -91,6 +91,14 @@ class RunRecord:
     # state.json）。_process_armed_conflict 取它当解冲突 guidance 透传给解冲突器，并在回应时
     # 引用原评论；消费后 / 重新挂起时经 set_unblock_detail("") 清除，避免陈旧 guidance 渗进后续轮次。
     unblock_detail: str = ""
+    # Spec-0042/T1：PR 被 close（未合并）reconcile 到 STATUS_CLOSED 的那一刻打的时间戳（ISO 8601
+    # UTC 字符串）——「复活窗口」的起点。默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的
+    # 旧 state.json，镜像 block_watermark 的加法）。GitHub 的 PR close 可逆（可 reopen 回 OPEN），
+    # 故 closed 不是真终态：messages 只对 closed_at 在 REOPEN_REVIVE_WINDOW_SECONDS 内的 closed run
+    # 每轮花一次 gh 查 reopen，超窗口即硬化成真终态（成本有界）。仅 open→closed 这一次转移打戳、
+    # 复查仍 closed 绝不重打戳（否则窗口永远刷新→退化成无界）；复活时经 set_closed_at(when="") 清除。
+    # 由 messages 的 is_closed 分支 / 复活分支经 set_closed_at 显式管理；与 block_* / merge_attempts 互不干扰。
+    closed_at: str = ""
 
 
 class State:
@@ -229,6 +237,21 @@ class State:
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["unblock_detail"] = detail
+        self._save(data=data)
+
+    def set_closed_at(self, *, issue_number: int, when: str) -> None:
+        """Spec-0042/T1：落盘某 issue 对应 run 的 closed_at（复活窗口起点时间戳），when="" 即清除。
+
+        镜像 set_block_gate / set_block_watermark / set_unblock_detail 的写法（按 issue 定位 run、
+        只改单字段、整体落盘）。messages 的 is_closed 分支在 open→closed 转移时写入当前 UTC 时间戳
+        （仅这一次转移打戳、复查仍 closed 不重打戳，否则窗口永远刷新→退化成无界成本）；复活分支
+        在 reopen 后经 when="" 清除。与 block_gate / block_watermark / unblock_detail / merge_attempts
+        互不干扰（同住一条记录、各管各的）。
+        """
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["closed_at"] = when
         self._save(data=data)
 
     def increment_merge_attempts(self, *, issue_number: int) -> int:

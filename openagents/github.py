@@ -20,6 +20,7 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 # `gh pr checks` 在 CI 仍有 check 进行中时以退出码 8 返回，stdout 仍是合法 JSON。
@@ -64,7 +65,17 @@ _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
 APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
 BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
-PROCESS_LABELS: tuple[str, ...] = (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL)
+# Spec-0039/T1：第 4 个流程标签——跨后端可见的「已派发/认领中」信号。某后端判 fresh 决定派单
+# 时给 issue 打上它，其它后端在发现段读到即跳过，把多后端重复派单的时间窗从「起草时长（分钟
+# 级）」压到「建 worktree（秒级）」。并入 PROCESS_LABELS 同源管理，即被 ensure_prerequisites
+# 的幂等自举一并预建（新增标签零改动 ensure_prerequisites）。
+DISPATCH_LABEL: str = "openagents-dispatching"  # issue 已被某后端认领、派单中
+PROCESS_LABELS: tuple[str, ...] = (
+    DISCOVERY_LABEL,
+    APPROVAL_LABEL,
+    BLOCKED_LABEL,
+    DISPATCH_LABEL,
+)
 
 
 class GithubError(Exception):
@@ -73,11 +84,17 @@ class GithubError(Exception):
 
 @dataclass(frozen=True)
 class Issue:
-    """一个 GitHub issue 的最小投影。"""
+    """一个 GitHub issue 的最小投影。
+
+    Spec-0039/T1：新增 labels（issue 当前所带标签名，带默认值 ()）——既有 `Issue(number,
+    title,body)` 构造零改动。vigil 发现段的认领闸（闸 3）直接读 `issue.labels` 快检是否带
+    DISPATCH_LABEL，不再额外发一次网络请求（labels 随 list_issues/get_issue 一次取回）。
+    """
 
     number: int
     title: str
     body: str
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -196,9 +213,13 @@ def create_repo(*, name: str, private: bool) -> str:
 
 
 def get_issue(*, number: int) -> Issue:
-    """RFC-0001 T3：`gh issue view <n> --json number,title,body`。"""
+    """RFC-0001 T3：`gh issue view <n> --json number,title,body,labels`。
+
+    Spec-0039/T1：--json 增 labels 字段并解析进 Issue.labels（供认领闸快检），既有
+    number/title/body 解析不变。
+    """
     data = _gh_json(
-        ["issue", "view", str(number), "--json", "number,title,body"],
+        ["issue", "view", str(number), "--json", "number,title,body,labels"],
         allow_returncodes=set(),
     )
     if not isinstance(data, dict):
@@ -207,7 +228,17 @@ def get_issue(*, number: int) -> Issue:
         number=int(data["number"]),
         title=data.get("title") or "",
         body=data.get("body") or "",
+        labels=_parse_label_names(raw=data),
     )
+
+
+def _parse_label_names(*, raw: dict[str, Any]) -> tuple[str, ...]:
+    """Spec-0039/T1：从 gh `--json labels` 的 `[{"name": ...}, ...]` 解析出标签名元组。
+
+    gh 的 labels 结构是对象数组（每项含 name/color/description）；这里只取 name，缺失/None
+    容错为空。get_issue / list_issues 共用，保证 Issue.labels 解析单一来源。
+    """
+    return tuple((label or {}).get("name") or "" for label in raw.get("labels") or [])
 
 
 def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
@@ -218,16 +249,18 @@ def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
     并集（OR）语义处理（任一命中即返回）。复用决策 3 的 gh 子进程封装与既有 Issue
     数据模型，不新增数据类型（CLAUDE.md 理念 1）。
     """
-    args = ["issue", "list", "--state", state, "--json", "number,title,body"]
+    args = ["issue", "list", "--state", state, "--json", "number,title,body,labels"]
     for label in labels:
         args += ["--label", label]
     data = _gh_json(args, allow_returncodes=set())
     rows = data if isinstance(data, list) else []
+    # Spec-0039/T1：--json 增 labels 并解析，使发现段闸 3 能直接读 issue.labels 快检认领标签。
     return [
         Issue(
             number=int(raw["number"]),
             title=raw.get("title") or "",
             body=raw.get("body") or "",
+            labels=_parse_label_names(raw=raw),
         )
         for raw in rows
     ]
@@ -351,6 +384,21 @@ def post_comment(*, pr_number: int, body: str) -> None:
     )
 
 
+def issue_comment(*, number: int, body: str) -> None:
+    """Spec-0043/T1：给 issue 贴评论（`gh issue comment <number> --body <body>`）。
+
+    post_comment 走 `gh pr comment`（PR 专用）——但 issuecheck 拦下一个 issue 冻结时它**还没有
+    PR**，无从贴评论。补一个对称的 issue 级出口，与 issue_add_label / issue_remove_label /
+    issue_stamp_label 走 `gh issue edit/view` 的 issue 级操作族并列。签名由调用方（orchestrator
+    经 identity.sign）盖——本函数保持「对 gh 的薄封装、不含业务逻辑」（理念 10）。失败由 _run_gh
+    抛 GithubError（自带 RFC-0010 瞬时错误重试）。不改 post_comment 及任何既有函数（零回归）。
+    """
+    _run_gh(
+        ["issue", "comment", str(number), "--body", body],
+        allow_returncodes=set(),
+    )
+
+
 def mark_ready(*, pr_number: int) -> None:
     """RFC-0005 T3（决策 2）：把 draft PR 转正（`gh pr ready <n>`）。
 
@@ -406,6 +454,85 @@ def remove_label(*, pr_number: int, name: str) -> None:
         if _is_label_absent(reason=str(exc)):
             return
         raise
+
+
+def issue_add_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：给 issue 打标签（`gh issue edit <n> --add-label <name>`），与 add_label 对称。
+
+    add_label / remove_label / has_label 都作用于 **PR**（`gh pr edit/view`），而发现段的
+    认领对象是 **issue**，故补一组走 `gh issue edit/view` 的 issue 级操作。认领打标经
+    issue_stamp_label（remove-then-add）复用本函数。失败由 _run_gh 抛 GithubError。
+    """
+    _run_gh(["issue", "edit", str(number), "--add-label", name], allow_returncodes=set())
+
+
+def issue_remove_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：摘掉 issue 上的标签（`gh issue edit <n> --remove-label <name>`）。
+
+    与 remove_label（PR 版）对称、复用同一 _is_label_absent 幂等识别：标签本就不在时 gh 以
+    非零退出并报「not found / does not have ... label / does not exist」——吞掉视为成功 no-op
+    （PR 已开出后清理认领标签、或人已手动摘除时不报错）。其它 gh 错误照常抛 GithubError。
+    """
+    try:
+        _run_gh(["issue", "edit", str(number), "--remove-label", name], allow_returncodes=set())
+    except GithubError as exc:
+        if _is_label_absent(reason=str(exc)):
+            return
+        raise
+
+
+def issue_stamp_label(*, number: int, name: str) -> None:
+    """Spec-0039/T1：给 issue「盖」认领标签——remove-then-add，保证产生一个全新的 `labeled` 事件。
+
+    为什么不能直接 `--add-label`：对已带该标签的 issue 再 add 是 no-op，**不刷新时间线时戳**；
+    而认领年龄取该标签最近 `labeled` 事件的 created_at，若不刷新，回收僵尸认领（对已带标签的
+    issue 重新认领）后会立刻又被判过期而抖动。故先幂等 remove（吞「本不在」）、再 add，使每次
+    认领都在时间线上落一个新的 `labeled` 事件，让「认领年龄」对首次认领与重新认领都有良定义。
+    """
+    issue_remove_label(number=number, name=name)
+    issue_add_label(number=number, name=name)
+
+
+def issue_label_age_seconds(*, number: int, name: str) -> float | None:
+    """Spec-0039/T1：issue 上某标签最近一次 `labeled` 事件距今的秒数；无该事件返回 None。
+
+    走 `gh api repos/{owner}/{repo}/issues/<n>/timeline`（跨后端共享的时钟），筛出 event==
+    "labeled" 且 label.name==name 的事件，取最近一条 created_at（ISO 8601，字典序即时序），
+    返回 `now - created_at` 秒数。供发现段判「认领是否过期（僵尸认领）」——仅在「带认领标签且
+    远端无分支」这一罕见路径调用，不拖慢常态扫描。
+
+    必须 `--paginate`：timeline 端点固定按**时间升序**（最旧在前）返回、且不支持排序/倒序参数，
+    单页 `per_page=100` 只取**最旧的 100 条**事件；而认领 `labeled` 事件总在时间线**尾部**（新近
+    打上）。对「打认领标签前已积累 >100 条事件」的老 issue（vigil 恰会派单这类），不翻页就取不到
+    那条 labeled → 错判 None → 僵尸认领永远回收不掉、认领永久卡死。故 `--paginate --slurp` 拉全部
+    页（`--slurp` 把各页数组包成「数组的数组」，保持单次 JSON 可解析），跨全页取 max(created_at)。
+    """
+    data = _gh_json(
+        [
+            "api",
+            f"{_REPO_PLACEHOLDER}/issues/{number}/timeline?per_page=100",
+            "--paginate",
+            "--slurp",
+        ],
+        allow_returncodes=set(),
+    )
+    # --slurp 输出为「数组的数组」（每页一个数组）；无分页/单页时也可能是「事件数组」。逐层摊平。
+    rows: list[Any] = []
+    for item in data if isinstance(data, list) else []:
+        rows.extend(item) if isinstance(item, list) else rows.append(item)
+    stamps = [
+        str(event.get("created_at") or "")
+        for event in rows
+        if isinstance(event, dict)
+        and str(event.get("event") or "") == "labeled"
+        and (event.get("label") or {}).get("name") == name
+        and event.get("created_at")
+    ]
+    if not stamps:
+        return None
+    latest = max(stamps)  # ISO 8601 → 字典序即时间序，取最近一次 labeled
+    stamped_at = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+    return (datetime.now(UTC) - stamped_at).total_seconds()
 
 
 def _is_label_absent(*, reason: str) -> bool:
@@ -587,6 +714,38 @@ def is_closed(*, pr_number: int) -> bool:
     if not isinstance(data, dict):
         raise GithubError("gh pr view 返回了非预期的结构")
     return str(data.get("state") or "").upper() == "CLOSED"
+
+
+def is_open(*, pr_number: int) -> bool:
+    """Spec-0042/T2：PR 当前是否为 OPEN（`gh pr view <n> --json state` == "OPEN"）。
+
+    与 is_merged / is_closed 对称——GitHub PR 的 state 有 OPEN / CLOSED / MERGED 三态且互斥。
+    供消息层识别「reopen」：本地已置 closed 的 run，其 PR 若在 GitHub 上又变回 OPEN 即为被重开，
+    据此复活该 run（close 可逆，与不可逆的 merged 相反）。不改既有函数（零回归）。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "state"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return str(data.get("state") or "").upper() == "OPEN"
+
+
+def is_draft(*, pr_number: int) -> bool:
+    """Spec-0042/T2：PR 当前是否为 draft（`gh pr view <n> --json isDraft`）。
+
+    供消息层在 reopen 复活时推断阶段：draft PR（RFC 未批、代码未写完）→ 复活到 rfc-review；
+    已转正 PR → 复活到 pr-open。与 has_label(rfc-approved) 互为旁证。isDraft 缺失/非布尔视为
+    非预期结构（比照 is_closed 抛 GithubError）。不改既有函数（零回归）。
+    """
+    data = _gh_json(
+        ["pr", "view", str(pr_number), "--json", "isDraft"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict) or not isinstance(data.get("isDraft"), bool):
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return data["isDraft"]
 
 
 def list_open_prs() -> list[PR]:

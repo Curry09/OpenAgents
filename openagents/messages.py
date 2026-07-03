@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import UTC, datetime
 
 from openagents import (
     blocknote,
@@ -134,6 +135,12 @@ def _configured_max_merge_attempts() -> int:
 
 MAX_MERGE_ATTEMPTS = _configured_max_merge_attempts()
 
+# Spec-0042/T3：closed run 的「复活窗口」——只对 closed_at 在此秒数内的 closed run 每轮花一次
+# gh 查 reopen，超窗口即硬化成真终态、poll 不再对它发任何 gh（成本有界；见 Spec-0042 Motivation
+# 的成本约束）。默认 7 天。GitHub 的 PR close 可逆（可 reopen 回 OPEN），但历史累积的 closed run
+# 越攒越多，若无界地每轮盲查会把 gh 调用数拖垮，故用时间窗口上界住。可按实际观测调（暂不暴露 env）。
+REOPEN_REVIVE_WINDOW_SECONDS = 7 * 24 * 3600
+
 # Spec-0032/T5: gate → 挂起评论「我试过什么」段的人类可读文案。messages 据持久化 gate 选一句
 # 传给 blocknote.build（展示文案，不参与路由判定）；未知 gate 回落到通用句、绝不抛。
 _TRIED_BY_GATE = {
@@ -179,10 +186,12 @@ class Messages:
         返回本轮事件列表，每个事件含 pr_number 与 reason（reason ∈ {"merged", "closed",
         "approved", "rfc-pass", "refine", "ci", "review", "review-invalid", "blocked",
         "resumed", "resolved", "unmergeable", "merge-retry", "hold-spec", "hold-merge",
-        "e2e"}），便于日志与测试断言。Spec-0021/T2：新增 "review-invalid"（评审无效本轮等下一轮
-        重评，不吃 round、不空转）。Spec-0031/T2：新增 "merge-retry"（armed 模式本轮派 agent 解冲突
-        未成、未达上限，保持 pr-open 等下一轮再试，不重挂）。Spec-0040/T5：新增 "e2e"（reviewer PASS
-        后证据闸 FAIL，本轮走 iterate 回去改，未挂起）。
+        "e2e", "reopened"}），便于日志与测试断言。Spec-0021/T2：新增 "review-invalid"（评审无效
+        本轮等下一轮重评，不吃 round、不空转）。Spec-0031/T2：新增 "merge-retry"（armed 模式本轮派
+        agent 解冲突未成、未达上限，保持 pr-open 等下一轮再试，不重挂）。Spec-0040/T5：新增 "e2e"
+        （reviewer PASS 后证据闸 FAIL，本轮走 iterate 回去改，未挂起）。Spec-0042/T3：新增 "reopened"
+        （closed run 对应 PR 被 reopen → 复活到 rfc-review/pr-open、清 closed_at，当轮不续跑闸、
+        下轮走既有路径）。
 
         Spec-0020/T3：新增关键字参数 hold（Hold），默认「全不停」以保持现有调用与行为；
         poll 内部把 hold 下传给两道闸的私有处理函数，spec / merge 闸据 hold 选择「停在闸门
@@ -191,7 +200,14 @@ class Messages:
         events: list[dict] = []
         for record in self._state.all_runs():
             # issue #49：blocked 也纳入扫描（用于解挂/reconcile），其余非 open 状态照常跳过。
-            if record.status not in _OPEN_STATUSES and record.status != STATUS_BLOCKED:
+            # Spec-0042/T3：closed 不是真终态——「复活候选」（closed 且 closed_at 在复活窗口内）
+            # 也放行进 _process_run，去查它对应的 PR 是否已被 reopen；超窗口/无 closed_at 的老
+            # closed run 不是候选，照常跳过（不发任何 gh，成本有界）。
+            if (
+                record.status not in _OPEN_STATUSES
+                and record.status != STATUS_BLOCKED
+                and not self._revive_eligible(record=record)
+            ):
                 continue
             # Spec-0022/T2：单 record 错误隔离（沿用 RFC-0004 决策 8 / rebase_open_prs 风格）——
             # 单个 PR 处理失败（含 merge_pr 抛 GithubError）只追加一条 error 事件并 continue，绝不让
@@ -237,9 +253,23 @@ class Messages:
             # update_branch 跟上集成（只剩门2一个集成/冲突处理点，理念 1 奥卡姆）。
             return {"pr_number": pr_number, "reason": "merged"}
 
+        # 1a2. Spec-0042/T3：本地已 closed 的复活候选（能走到这里说明已过 _revive_eligible 窗口
+        # 守卫）——查它对应的 PR 是否被 reopen。merged 优先（上分支已收口，不可逆）；这里只处理
+        # closed。放在 is_closed 之前，使已 closed 的 run 走复活分支而非重跑下面的 open→closed 逻辑
+        # （从而下面的 is_closed 分支只会在 open→closed 这一次转移时命中、打戳一次，绝不重打戳）。
+        if record.status == STATUS_CLOSED:
+            return self._revive_if_reopened(record=record)
+
         # 1b. RFC-0006：人主动关闭（未合并）也是终止信号 → 置 closed 并跳过。merged 优先于 closed。
+        # Spec-0042/T3：置 closed 的同时打 closed_at 时间戳（复活窗口起点）。此分支只在 open→closed
+        # （或 blocked→closed）这一次转移时命中——已 closed 的 run 在上面的复活分支就 return 了，
+        # 不会再落到这里，故这里的 set_closed_at 永远是首次打戳、天然满足「仅转移时打戳、不重打戳」。
         if github.is_closed(pr_number=pr_number):
             self._state.update_status(issue_number=record.issue_number, status=STATUS_CLOSED)
+            self._state.set_closed_at(
+                issue_number=record.issue_number,
+                when=datetime.now(UTC).isoformat(),
+            )
             return {"pr_number": pr_number, "reason": "closed"}
 
         # 1c. issue #49 / Spec-0032/T5：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile。
@@ -252,6 +282,45 @@ class Messages:
         if record.status == STATUS_RFC_REVIEW:
             return self._process_rfc_review(record=record, hold=hold)
         return self._process_coding(record=record, hold=hold)
+
+    def _revive_eligible(self, *, record: RunRecord) -> bool:
+        """Spec-0042/T3：该 record 是否为「复活候选」——closed 且 closed_at 在复活窗口内。
+
+        只有候选才被 poll 入口守卫放行去查 reopen（发 gh）；超窗口 / 无 closed_at（含缺该键的
+        旧 closed 记录）的 closed run 硬化成真终态、返 False（照常跳过、不发任何 gh，成本有界）。
+        窗口是墙钟判定：now 取 UTC，与 closed_at 时间戳比较；closed_at 无法解析（异常数据）→ False。
+        """
+        if record.status != STATUS_CLOSED or not record.closed_at:
+            return False
+        try:
+            closed_at = datetime.fromisoformat(record.closed_at)
+        except ValueError:
+            return False
+        elapsed = (datetime.now(UTC) - closed_at).total_seconds()
+        return elapsed <= REOPEN_REVIVE_WINDOW_SECONDS
+
+    def _revive_if_reopened(self, *, record: RunRecord) -> dict | None:
+        """Spec-0042/T3：closed 复活候选的专属 reconcile——PR 被 reopen 则按现状复活，否则保持跳过。
+
+        - PR 仍非 OPEN（还是 closed；merged 已在上游分支收口）→ return None：保持跳过、**不重打戳**
+          （closed_at 不动，窗口不刷新，成本有界）。
+        - PR 已 OPEN（reopened）→ 按 PR 现状推断阶段并复活：draft PR（RFC 未批/代码未写完）→
+          rfc-review；已转正 PR → pr-open（走代码闸）。复活同时清 closed_at（退出复活窗口）+ 清回合
+          预算 + 清 block_gate 残留（reopen = 重来，避免旧 armed "merge" 标记在复活到 pr-open 后被误判
+          为「派 agent 解冲突」）。复活只做状态归位，**当轮返回 reopened 事件、不续跑闸**——下一轮 poll
+          这个 run 已是正常 open run，走既有 rfc-review / coding 路径（评论 / CI / 冲突全由既有机制处理）。
+        """
+        pr_number = record.pr_number
+        if not github.is_open(pr_number=pr_number):
+            return None
+        stage = STATUS_RFC_REVIEW if github.is_draft(pr_number=pr_number) else STATUS_PR_OPEN
+        issue_number = record.issue_number
+        self._state.update_status(issue_number=issue_number, status=stage)
+        self._state.set_closed_at(issue_number=issue_number, when="")
+        # reopen = 重来：清回合预算 + 清 armed 标记残留，避免陈旧状态渗进复活后的既有流程。
+        self._state.reset_rounds(issue_number=issue_number)
+        self._state.set_block_gate(issue_number=issue_number, gate="")
+        return {"pr_number": pr_number, "reason": "reopened", "stage": stage}
 
     def _process_blocked(self, *, record: RunRecord) -> dict | None:
         """Spec-0032/T5：blocked run 的两层解挂——回评论解挂（主）+ 人手动摘标签（兜底）。
@@ -276,8 +345,9 @@ class Messages:
         - rfc/rfc-unparseable → refine_rfc(detail, announce=False)（内部置 rfc-review）+ 清残留
           block_gate + **引用原评论贴回 agent 回应**（Spec-0036/T5：announce=False 抑制泛化广播，
           换成一条针对性回应）。
-        - code/code-unparseable → iterate(reason="human", detail)（内部置 iterating）+ 清残留
-          block_gate + **引用原评论贴回 agent 回应**。
+        - code/code-unparseable/merge-hold → iterate(reason="human", detail)（内部置 iterating）+ 清残留
+          block_gate + **引用原评论贴回 agent 回应**。Spec-0041/T1：merge-hold（hold-merge 夯住）与
+          code* 同款——人在已通过 PR 上回评论 = 想据评论继续改。
         - merge → 不直接喂解冲突器，按 armed 语义恢复 pr-open、**保留** block_gate="merge" 作标记
           （reset_rounds 已清 merge_attempts 给满预算），并 set_unblock_detail 把评论正文存进 state
           供下一轮 armed 解冲突当 guidance + 回应时引用（Spec-0036/T5）。**本轮不回应**（动作尚未发生，
@@ -296,7 +366,9 @@ class Messages:
             )
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)
-        elif gate in ("code", "code-unparseable"):
+        elif gate in ("code", "code-unparseable", "merge-hold"):
+            # Spec-0041/T1（决策 B）：merge-hold（hold-merge 夯住）与 code* 同款——人在这个已通过、
+            # 健康的 PR 上回评论 = 想让写码 agent 据评论继续改，故 iterate(reason="human", detail)。
             summary = self._orchestrator.iterate(pr_number=pr_number, reason="human", detail=detail)
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)
@@ -429,17 +501,20 @@ class Messages:
         # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
         decision = self._orchestrator.review_code(pr_number=pr_number)
         if decision.passed:
-            # Spec-0040/T5：代码 reviewer PASS 后、merge 前插入**证据闸**——独立 executor 照定稿说明书
-            # 真跑系统、证据闸拿 RFC 意图对照证据门控合并。代码 reviewer PASS（看着对）但证据闸 FAIL
-            # （真跑跑不通）正是要抓的：短路返回其事件（iterate(reason="e2e") / 超 K 挂起），不 merge。
+            # Spec-0040/T5：代码 reviewer PASS 后、merge（及 merge 闸夯住）前插入**证据闸**——独立
+            # executor 照定稿说明书真跑系统、证据闸拿 RFC 意图对照证据门控合并。代码 reviewer PASS
+            # （看着对）但证据闸 FAIL（真跑跑不通）正是要抓的：短路返回其事件（iterate(reason="e2e")
+            # / 超 K 挂起），不 merge、也不进 merge 闸。
             gate_event = self._evidence_gate(record=record)
             if gate_event is not None:
                 return gate_event
-            # Spec-0020/T3：merge 闸 hold——CI / reviewer 评审照跑，但 reviewer PASS 后不自动
-            # merge_pr，停在「待人 merge」（PR 保持 open、本轮不动状态），把最后一下留给人。
-            # 人手动 merge 后，下一轮 poll 的 is_merged 分支照常 reconcile 成 done（既有逻辑）。
+            # Spec-0041/T1：merge 闸 hold——证据闸过后仍不自动 merge_pr，改为**夯住**：置 blocked +
+            # needs-human + 贴成功文案（决策 A）。blocked 不在 _OPEN_STATUSES → 下一轮 poll 自动跳过、
+            # 不再重审，从根上消除同码复审震荡（取代 Spec-0020/T3 的「停在 pr-open 空转、下轮重审」旧
+            # 行为）。人点合并/回评论/撕标签三出口全复用既有机制（is_merged reconcile / merge-hold→
+            # iterate / _unblock_by_label）。
             if hold.at_merge:
-                return {"pr_number": pr_number, "reason": "hold-merge"}
+                return self._hold_merge_freeze(record=record)
             github.merge_pr(pr_number=pr_number)
             self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
             # RFC-0017：合进 test 后显式关 issue（与上方已合并分支同理，幂等容错）。
@@ -612,6 +687,35 @@ class Messages:
             issue_number=record.issue_number, watermark=self._latest_created_at(pr_number=pr_number)
         )
         return {"pr_number": pr_number, "reason": "blocked", "gate": gate}
+
+    def _hold_merge_freeze(self, *, record: RunRecord) -> dict:
+        """Spec-0041/T1（决策 A）：hold-merge PASS 后夯住待合并——成功文案 + 置 BLOCKED + 标签 + 水位线。
+
+        复用 _block 的冻结骨架（同次序：先贴评论 → add_label → update_status(BLOCKED) →
+        set_block_gate → set_block_watermark），但两处不同：
+        1. 贴 blocknote.build_hold_merge_pass() 的「✅ 已通过评审，待你合并」成功文案（**非** _block 的
+           「🤖 卡住了」失败模板），经 identity.post_signed_comment 盖签名（→ 解挂读侧 new_human_comments
+           按签名滤掉它、不自触发）。
+        2. gate 设自描述的 "merge-hold"（非复用 "code"——见 spec 决策 B/备选 4）：运维看 block_gate
+           即知「这条 blocked 不是评审失败、而是通过后待合并」，且 _unblock_with_comment 据此走
+           iterate(reason="human")。set_block_watermark 落挂起时刻最新评论 createdAt（含刚贴的成功
+           评论），供解挂环只认水位线之后的新人类评论。
+
+        STATUS_BLOCKED 不在 _OPEN_STATUSES → 下一轮 poll 自动跳过、不再重审（反震荡的根）。
+        """
+        pr_number = record.pr_number
+        # 贴成功文案（沿用 _block 的「先评论、后置状态」次序）。盖本实例签名 → 解挂读侧滤掉、不自触发。
+        body = blocknote.build_hold_merge_pass()
+        identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
+        # 副作用先行、state 落盘后行（与 _block 同理，issue #47）：add_label 失败则 state 未变 blocked，
+        # 下一轮仍当 open 自然重试，避免「state=blocked 但 PR 无标签」的双源发散。
+        github.add_label(pr_number=pr_number, name=BLOCKED_LABEL)
+        self._state.update_status(issue_number=record.issue_number, status=STATUS_BLOCKED)
+        self._state.set_block_gate(issue_number=record.issue_number, gate="merge-hold")
+        self._state.set_block_watermark(
+            issue_number=record.issue_number, watermark=self._latest_created_at(pr_number=pr_number)
+        )
+        return {"pr_number": pr_number, "reason": "hold-merge", "gate": "merge-hold"}
 
     def _latest_created_at(self, *, pr_number: int) -> str:
         """Spec-0032/T5：取 PR 当前最新评论的 createdAt（无评论返回 ""）——供 _block 落水位线。

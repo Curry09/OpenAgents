@@ -66,6 +66,18 @@ _RFC_REVIEW_TASK = (
 # Spec-0040/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
 # （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0040 Reference-level）。删掉了
 # Spec-0030/T4 的条件式 browser-e2e rubric（那道「要不要有 e2e」的把关已上移到 _RFC_REVIEW_TASK）。
+# Spec-0044/T2：无证据=REWORK 结构化检查项——把 wind-palace PR #14 里 reviewer 手动做过的
+# 「宣称验证过某产品对外行为却拿不出 tracked 证据 → 打回」固化为常驻 rubric（软约定硬化）。
+# 条件式触发（仅当 PR 出现端到端/e2e/截图/已验证 UI 类措辞才查），避免误伤纯内部重构 PR。
+# 与 Spec-0040 的职责收口不冲突：证据闸判「系统真跑起来是否达成意图」（运行时正确性），本 rubric
+# 判「作者宣称验证过却拿不出证据」（声明诚信），两者分属不同层，故并存。
+_EVIDENCE_RUBRIC = (
+    "宣称验证过但无证据 → REWORK：仅当本 PR 正文/评论出现「端到端 / e2e / 截图 / 已验证 UI」"
+    "类措辞（声称验证过某个产品对外行为）时才触发本检查——纯内部重构 PR（无此类措辞）不查、"
+    "不误伤。触发时核对仓库里有没有对应的 tracked 证据（截图文件如 docs/evidence/** 下的图、"
+    "或真实运行日志文本），且 PR 评论里有没有实跑留痕；若既无 tracked 证据、评论也无实跑留痕 → "
+    "判 REWORK，理由写明「宣称验证过但无证据」。自动化测试绿 / 后端日志替代不了真 app 证据。\n"
+)
 _CODE_REVIEW_TASK = (
     "你是独立的代码审核员，与作者不共享上下文。请评审 PR #{pr_number} 的代码改动。\n"
     "用 `git diff` 查看本分支相对 base 的改动并读涉及文件的完整上下文。判定：是否"
@@ -73,7 +85,9 @@ _CODE_REVIEW_TASK = (
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
     "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n"
     "【职责边界】你只判**静态**代码质量/安全/结构；**运行时行为（系统真跑起来是否达成意图）"
-    "由证据闸负责，你不判**——不必也不应据「有没有真跑过」下裁决。\n" + _RUBRIC_TAIL
+    "由证据闸负责，你不判**——不必也不应据「有没有真跑过」下裁决。\n"
+    + _EVIDENCE_RUBRIC
+    + _RUBRIC_TAIL
 )
 
 
@@ -149,9 +163,14 @@ def review(
         verdict in ("REWORK", "RETHINK") and summaries[i].strip()
         for i, verdict in enumerate(verdicts)
     )
-    # 非 PASS（含 REWORK/RETHINK/无法解析）的摘要原文汇总为反馈，喂回 refine/iterate。
+    # 非 PASS（含 REWORK/RETHINK/无法解析）的摘要净化后汇总为反馈，喂回 refine/iterate。
+    # Spec-0041/T3：喂人前先 _distill_feedback 剥掉 reviewer 内心独白/scratchpad（只作用于展示
+    # 用的 feedback，不改 verdicts/actionable 判定）；净化后为空回落既有占位（疑罪从严）。
     parts = [
-        (summary.strip() or "（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）")
+        (
+            _distill_feedback(summary=summary)
+            or "（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）"
+        )
         for summary, verdict in zip(summaries, verdicts, strict=True)
         if verdict != "PASS"
     ]
@@ -226,6 +245,50 @@ def _run_reviewers(*, backend: AgentBackend, work_dir: Path, task: str, n: int) 
             pool.submit(backend.run, work_dir=work_dir, task=task, context="") for _ in range(n)
         ]
         return [future.result().summary for future in futures]
+
+
+# Spec-0041/T3：scratchpad「内心独白」句的保守启发式——第一人称过程叙述前缀。命中即视为
+# reviewer 给自己看的过程记录（非给人的可操作反馈）。措辞含中英（backend 输出双语皆可能）。
+_SCRATCHPAD_RE = re.compile(
+    r"^\s*(?:"
+    r"let me\b|let's\b|lets\b"
+    r"|i'?ll\b|i will\b|i'?m going to\b|i am going to\b"
+    r"|i'?ve\b|i have\b|i now have\b|i need to\b|i should\b|i can\b|i'?m\b|i am\b"
+    r"|now i\b|okay\b|ok[,. ]|alright\b"
+    r"|all \d+ tests?\b"  # 「All 32 tests pass…」式过程叙述
+    r"|好[的，,]|我现在\b|我来\b|让我\b|接下来我\b"
+    r")",
+    re.IGNORECASE,
+)
+# 即便命中 scratchpad 前缀，若句中含可操作信号（文件:行号 / 裁决关键词 / 中文祈使）则保留——
+# 避免把「Let me note that x.py:10 应改…」这类真反馈误删（保守：宁可漏删不可误删可操作反馈）。
+_ACTIONABLE_HINT_RE = re.compile(
+    r":\d+|\bVERDICT\b|\bISSUES?\b|\bNEXT\b|\bREASON\b|\bREWORK\b|\bRETHINK\b|\bbug\b"
+    r"|应\b|需\b|建议\b|缺\b|错\b|漏\b|未\b",
+    re.IGNORECASE,
+)
+# 句子切分：按换行 + 中英句末标点。保留切分符外的可操作行结构（bullet / 裁决段）不受影响。
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.。!?！？])\s+|\n")
+
+
+def _distill_feedback(*, summary: str) -> str:
+    """Spec-0041/T3：从 reviewer summary 剥离内心独白/scratchpad，保留可操作反馈（纯函数）。
+
+    保守启发式：按行 + 句末标点切成句子，逐句丢弃「第一人称过程叙述」（`_SCRATCHPAD_RE` 命中）
+    且不含可操作信号（`_ACTIONABLE_HINT_RE`：文件:行号 / VERDICT|ISSUES|NEXT|REWORK / 中文祈使）
+    的句子；其余原样保留、按原分隔重拼。净化后为空（全是独白 / 原本就空）返回空串——由调用方
+    回落既有占位。只作用于喂人的 feedback，不影响 verdicts/actionable 判定与 render_decision。
+    """
+    text = summary or ""
+    kept: list[str] = []
+    for segment in _SENTENCE_SPLIT_RE.split(text):
+        sentence = segment.strip()
+        if not sentence:
+            continue
+        if _SCRATCHPAD_RE.match(sentence) and not _ACTIONABLE_HINT_RE.search(sentence):
+            continue
+        kept.append(sentence)
+    return "\n".join(kept)
 
 
 def _parse_verdict(*, summary: str) -> str | None:
