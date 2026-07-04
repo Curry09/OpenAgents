@@ -218,7 +218,7 @@ def test_parse_outcome_variants():
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0050/T1: render_result 纯函数（ExecutorResult → PR 回执 Markdown）
+# Spec-0051/T1: render_result 纯函数（ExecutorResult → PR 回执 Markdown）
 # --------------------------------------------------------------------------- #
 
 

@@ -1,4 +1,4 @@
-"""Spec-0050/T5: messages 回执收口——_post_agent_report + _report_already_posted + 防刷屏去重。
+"""Spec-0051/T5: messages 回执收口——_post_agent_report + _report_already_posted + 防刷屏去重。
 
 聚焦收口层本身（不跑整链，整链在 test_agent_report_integration.py）：
 - _report_header / _normalize_report 纯函数（标题锚点 + 规范化去签名尾巴）；

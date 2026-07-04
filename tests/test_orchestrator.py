@@ -590,7 +590,7 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
 
 
 def test_implement_returns_agent_summary(tmp_path, monkeypatch):
-    # Spec-0050/T4：implement 返回 result.summary（None→str），供 messages 渲「## 实现自述」回执。
+    # Spec-0051/T4：implement 返回 result.summary（None→str），供 messages 渲「## 实现自述」回执。
     backend = _FakeBackend(summary="实现了 issue #3 的 foo/bar 两处")
     orch, backend, state = _make(tmp_path, backend=backend)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
@@ -603,7 +603,7 @@ def test_implement_returns_agent_summary(tmp_path, monkeypatch):
 
 
 def test_implement_empty_summary_falls_back_to_placeholder(tmp_path, monkeypatch):
-    # Spec-0050/T4：agent 无摘要时回落占位保证返回非空 str。
+    # Spec-0051/T4：agent 无摘要时回落占位保证返回非空 str。
     backend = _FakeBackend(summary="")
     orch, backend, state = _make(tmp_path, backend=backend)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())

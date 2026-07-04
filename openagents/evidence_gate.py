@@ -68,12 +68,12 @@ class EvidenceDecision:
     feedback: str
 
 
-# Spec-0050/T2：判决回执抬头（render_decision 渲染的稳定锚点）——messages 收口点据此标题行去重。
+# Spec-0051/T2：判决回执抬头（render_decision 渲染的稳定锚点）——messages 收口点据此标题行去重。
 _DECISION_HEADER = "## 证据闸判决"
 
 
 def render_decision(*, decision: EvidenceDecision) -> str:
-    """Spec-0050/T2：把证据闸裁决渲染成 PR 回执 Markdown 正文（纯函数，不含签名）。
+    """Spec-0051/T2：把证据闸裁决渲染成 PR 回执 Markdown 正文（纯函数，不含签名）。
 
     仿 `reviewer.render_decision`：以稳定抬头 `## 证据闸判决` 开头，渲 `decision.passed`（✅/❌）+
     `decision.feedback`（FAIL 且非空时附代码块，喂人看清「哪条验收行为没达成」）。PASS 时不含

@@ -134,7 +134,7 @@ def test_backend_raises_maps_to_fail(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0050/T2: render_decision 纯函数（EvidenceDecision → PR 回执 Markdown）
+# Spec-0051/T2: render_decision 纯函数（EvidenceDecision → PR 回执 Markdown）
 # --------------------------------------------------------------------------- #
 
 

@@ -1,5 +1,5 @@
 ---
-number: "0050"
+number: "0051"
 title: 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
 issue: 131
 slug: unify-agent-run-report
@@ -85,13 +85,13 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0050-unify-agent-run-report.sh
+      - scripts/e2e-spec-0051-unify-agent-run-report.sh
       - tests/test_agent_report_integration.py
     scope: 内存假 GitHub（评论账本记 body+created_at、list_comments 回读）+ 假 backend 驱动 MessageLoop 走完 rfc-pass→implement→ci→review→证据闸(finalize→executor→review_evidence FAIL→e2e) 全链，断言五处收口各留一条署名回执、已有正例不双贴、重复 poll 不刷屏、发评论故障不阻断编排；e2e 脚本跑 ruff+ruff format --check+定向 pytest+spec validate 并打印三条断言证据（浏览器 e2e 不适用：无产品前端界面，成果=PR 机器评论流）
-    acceptance: bash scripts/e2e-spec-0050-unify-agent-run-report.sh 退出码 0；集成测试断言五处收口各一条回执 + human 不双贴 + 重复 poll 零新增 + 发评论故障不阻断全部通过；脚本输出可作 PR 指路牌收录的可复现证据
+    acceptance: bash scripts/e2e-spec-0051-unify-agent-run-report.sh 退出码 0；集成测试断言五处收口各一条回执 + human 不双贴 + 重复 poll 零新增 + 发评论故障不阻断全部通过；脚本输出可作 PR 指路牌收录的可复现证据
 ---
 
-# 0050 · 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
+# 0051 · 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -268,7 +268,7 @@ graph TD
 | T3 | `openagents/worknote.py`, `tests/test_worknote.py` | 新模块：implement/iterate/runbook 的「本轮做了什么」渲染（基元入参、无反向 import） |
 | T4 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | `implement` 返回 `result.summary`（`None`→`str`），使收口点拿得到摘要 |
 | T5 | `openagents/messages.py`, `tests/test_messages.py`, `tests/test_messages_agent_report.py` | 收口：`_post_agent_report`（唯一 IO 出口 + 签名 + 尽力而为）+ `_report_already_posted`（防刷屏）+ 五处接线；并更新既有 messages 环测试替身 |
-| T6 | `scripts/e2e-spec-0050-unify-agent-run-report.sh`, `tests/test_agent_report_integration.py` | 成果测试：假 GitHub 评论账本驱动整条 coding→证据链，断言五处收口各贴一条、重复 poll 不刷屏 |
+| T6 | `scripts/e2e-spec-0051-unify-agent-run-report.sh`, `tests/test_agent_report_integration.py` | 成果测试：假 GitHub 评论账本驱动整条 coding→证据链，断言五处收口各贴一条、重复 poll 不刷屏 |
 
 文件跨 Task 互斥（理念 6 单一 writer）：`executor.py`(T1) / `evidence_gate.py`(T2) / `worknote.py`(T3) /
 `orchestrator.py`(T4) / `messages.py`+既有 messages 测试(T5) / 脚本+集成测试(T6) 无重叠。T5 因是唯一改
@@ -291,7 +291,7 @@ graph TD
   2. **已有正例不双贴**：`reason="human"` 路径仍只出 `_post_comment_reply` 那条，无叠加的迭代自述；
   3. **防刷屏**：对同一步骤重复 poll（内容不变）→ `_report_already_posted` 命中、**不新增**评论；
   4. **发评论不阻断编排**：让假 `post_comment` 抛错，断言链路仍推进到合并/挂起、仅 `_progress` 告警。
-- **e2e 脚本** `scripts/e2e-spec-0050-unify-agent-run-report.sh`：跑 `ruff check` + `ruff format --check`
+- **e2e 脚本** `scripts/e2e-spec-0051-unify-agent-run-report.sh`：跑 `ruff check` + `ruff format --check`
   + 定向 `pytest`（上述集成测试 + T1–T4 单测）+ `spec validate`，把「五处收口各一条回执 / 重复 poll 不刷屏 /
   发评论故障不阻断」三条断言的通过输出作为可复现证据（被 PR 指路牌自动收录）。
 

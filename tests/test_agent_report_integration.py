@@ -1,11 +1,11 @@
-"""Spec-0050/T6: 整链回执集成测试（成果测试，理念 8）。
+"""Spec-0051/T6: 整链回执集成测试（成果测试，理念 8）。
 
 用**内存假 GitHub 评论账本**（记 body+created_at、list_comments 回读）+ 假 orchestrator（记录调用、
 返回可编排 summary/handle）驱动 messages.poll 走完一条 coding→证据链，断言五处收口各留**一条署名
 回执**、已有正例（reason=human）不双贴、重复 poll 不刷屏、发评论故障不阻断编排。
 
 本 feature 的「成果」是 GitHub PR 上的机器评论流（可观测性）；本仓库无产品前端界面可驱动、真发评论
-需真 GitHub，故成果测试形态为**确定性集成复现**（非浏览器 e2e，见 Spec-0050 成果测试自检）。
+需真 GitHub，故成果测试形态为**确定性集成复现**（非浏览器 e2e，见 Spec-0051 成果测试自检）。
 """
 
 from pathlib import Path

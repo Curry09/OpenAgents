@@ -182,7 +182,7 @@ class RunbookHandle:
     runbook_path: Path
     evidence_dir: Path
     intent: str
-    # Spec-0050/T4：e2e 执行形态（来自组级 e2e 粗规划 plan.form）——供 messages 收口点渲「说明书定稿」
+    # Spec-0051/T4：e2e 执行形态（来自组级 e2e 粗规划 plan.form）——供 messages 收口点渲「说明书定稿」
     # 回执展示形态（worknote.render_runbook）。放在 handle 上（而非 T5 只用 runbook_path）使回执信息更全。
     form: str
 
@@ -512,7 +512,7 @@ class Orchestrator:
     def implement(self, *, pr_number: int) -> str:
         """RFC-0005：RFC 获批后按其写代码、把 draft PR 转正，状态 pr-open；返回 agent 本轮实现摘要。
 
-        Spec-0050/T4：返回 `result.summary`（与 iterate/refine_rfc 同款返回 str，agent 无摘要时回落
+        Spec-0051/T4：返回 `result.summary`（与 iterate/refine_rfc 同款返回 str，agent 无摘要时回落
         占位保证非空），使 messages 收口点（_process_rfc_review）拿得到「本轮实现了什么」摘要、渲成
         「## 实现自述」回执贴回 PR（理念 8 可观测性）。其余编排语义逐字节不变（backend.run / commit /
         mark_ready / 状态流转 / 清回合数不动）；既有忽略返回值的 cli 调用（cli.py）零影响。
@@ -540,7 +540,7 @@ class Orchestrator:
         # RFC-0012 决策 6：进入代码闸前清零回合数，使 K 对 RFC 闸 / 代码闸独立计
         # （RFC 闸耗掉的回合不挤占代码闸的预算）。
         self._state.reset_rounds(issue_number=record.issue_number)
-        # Spec-0050/T4：回 agent 本轮实现摘要（空则占位保证非空），供 messages 渲「## 实现自述」回执。
+        # Spec-0051/T4：回 agent 本轮实现摘要（空则占位保证非空），供 messages 渲「## 实现自述」回执。
         return result.summary or "（无摘要）"
 
     # --- 评审闸：调 reviewer agent 给 RFC / 代码裁决（RFC-0012 决策 5）------ #

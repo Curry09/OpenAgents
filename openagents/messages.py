@@ -158,7 +158,7 @@ _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
 
 def _report_header(*, body: str) -> str | None:
-    """Spec-0050/T5：取回执正文首个 `## ` 标题行（去重锚点）；无标题 → None（非回执评论）。
+    """Spec-0051/T5：取回执正文首个 `## ` 标题行（去重锚点）；无标题 → None（非回执评论）。
 
     render_*（executor/evidence_gate/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
     隐藏签名，故 PR 上存量回执评论的首个 `## ` 行仍是原抬头，可作同类回执的分桶锚点。
@@ -171,7 +171,7 @@ def _report_header(*, body: str) -> str | None:
 
 
 def _normalize_report(*, body: str) -> str:
-    """Spec-0050/T5：回执正文规范化——逐行 strip、丢空行、丢 identity 签名行、\\n 连接。
+    """Spec-0051/T5：回执正文规范化——逐行 strip、丢空行、丢 identity 签名行、\\n 连接。
 
     使「措辞未变、仅缩进/空行漂移」的两段回执规范化后相等（仿 reviewer._extract_feedback_norm 的
     归一化）；identity.sign 追加的隐藏签名行（`<!-- openagents:agent=… -->`）在比较时排除——本轮
@@ -428,14 +428,14 @@ class Messages:
         identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
 
     def _progress(self, *, message: str) -> None:
-        """Spec-0050/T5：把收口层进度/告警打到 stderr（镜像 orchestrator._progress）。
+        """Spec-0051/T5：把收口层进度/告警打到 stderr（镜像 orchestrator._progress）。
 
         回执尽力而为旁路的告警落点（去重跳过 / 查询降级 / 发送失败）——只观测、不影响返回值与编排。
         """
         print(message, file=sys.stderr, flush=True)
 
     def _post_agent_report(self, *, pr_number: int, body: str) -> None:
-        """Spec-0050/T5：agent 执行后回执的**唯一 IO 出口**——去重(fail-open) → 盖签名贴出，尽力而为。
+        """Spec-0051/T5：agent 执行后回执的**唯一 IO 出口**——去重(fail-open) → 盖签名贴出，尽力而为。
 
         逐字节镜像 orchestrator._post_review_decision 的骨架（渲染归各域、发送归 messages）：贴前调
         _report_already_posted 去重（查询/比对的任何异常都 fail-open 降级为照发，宁可多发一条也不因
@@ -455,7 +455,7 @@ class Messages:
             self._progress(message=f"⚠ 回执评论发送失败（已忽略）：{error}")
 
     def _report_already_posted(self, *, pr_number: int, body: str) -> bool:
-        """Spec-0050/T5：本轮回执是否与 PR 上最近一条**同标题**回执正文规范化后相等（防刷屏去重）。
+        """Spec-0051/T5：本轮回执是否与 PR 上最近一条**同标题**回执正文规范化后相等（防刷屏去重）。
 
         仿 orchestrator._decision_already_posted，但锚点从 reviewer 的结构化 DecisionContent 简化为
         「标题行（body 首个 `## …`）+ 规范化全文」——回执无票数语义，无需结构化反解。取 body 标题行为
@@ -481,10 +481,10 @@ class Messages:
         return _normalize_report(body=prev.body) == cur_norm
 
     def _report_implement(self, *, pr_number: int) -> None:
-        """Spec-0050/T5（收口点①）：派 implement 写代码 → 渲「## 实现自述」→ 收口贴回执。
+        """Spec-0051/T5（收口点①）：派 implement 写代码 → 渲「## 实现自述」→ 收口贴回执。
 
         _process_rfc_review 的两条 implement 路径（已有 rfc-approved 标签 / reviewer 全票 PASS）
-        共用此收口，捕获 orchestrator.implement 返回的本轮实现摘要（Spec-0050/T4：None→str）渲成
+        共用此收口，捕获 orchestrator.implement 返回的本轮实现摘要（Spec-0051/T4：None→str）渲成
         回执贴回 PR。发回执尽力而为、不阻断转入 coding 的编排语义。
         """
         summary = self._orchestrator.implement(pr_number=pr_number)
@@ -592,7 +592,7 @@ class Messages:
         if status.state == "fail":
             detail = "\n".join(status.failed_logs)
             summary = self._orchestrator.iterate(pr_number=pr_number, reason="ci", detail=detail)
-            # Spec-0050/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（CI 反馈）」贴回（尽力而为）。
+            # Spec-0051/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（CI 反馈）」贴回（尽力而为）。
             self._post_agent_report(
                 pr_number=pr_number, body=worknote.render_iterate(reason="ci", summary=summary)
             )
@@ -635,7 +635,7 @@ class Messages:
             summary = self._orchestrator.iterate(
                 pr_number=pr_number, reason="review", detail=decision.feedback
             )
-            # Spec-0050/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（代码评审反馈）」贴回（尽力而为）。
+            # Spec-0051/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（代码评审反馈）」贴回（尽力而为）。
             self._post_agent_report(
                 pr_number=pr_number, body=worknote.render_iterate(reason="review", summary=summary)
             )
@@ -680,7 +680,7 @@ class Messages:
         handle = self._orchestrator.finalize_runbook(pr_number=pr_number)
         if handle is None:
             return None  # 无 e2e 粗规划：非交互 PR，证据闸空过。
-        # Spec-0050/T5（收口点③）：说明书定稿后渲「## 说明书定稿」贴回（尽力而为）。
+        # Spec-0051/T5（收口点③）：说明书定稿后渲「## 说明书定稿」贴回（尽力而为）。
         self._post_agent_report(
             pr_number=pr_number,
             body=worknote.render_runbook(form=handle.form, runbook_path=str(handle.runbook_path)),
@@ -693,7 +693,7 @@ class Messages:
             evidence_dir=handle.evidence_dir,
             pr_number=pr_number,
         )
-        # Spec-0050/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
+        # Spec-0051/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
         self._post_agent_report(pr_number=pr_number, body=executor.render_result(result=result))
         # ⑤ 证据 commit 进 PR（durable、可被证据闸读、给人看成果）。
         self._orchestrator.commit_evidence(pr_number=pr_number)
@@ -705,7 +705,7 @@ class Messages:
             evidence_dir=handle.evidence_dir,
             pr_number=pr_number,
         )
-        # Spec-0050/T5（收口点⑤）：判决渲「## 证据闸判决」贴回——PASS/FAIL 都贴（尽力而为）。
+        # Spec-0051/T5（收口点⑤）：判决渲「## 证据闸判决」贴回——PASS/FAIL 都贴（尽力而为）。
         self._post_agent_report(
             pr_number=pr_number, body=evidence_gate.render_decision(decision=decision)
         )
@@ -718,7 +718,7 @@ class Messages:
         summary = self._orchestrator.iterate(
             pr_number=pr_number, reason="e2e", detail=decision.feedback
         )
-        # Spec-0050/T5（收口点②·e2e）：FAIL 走 iterate(e2e)，另贴「## 迭代自述（证据闸反馈）」。
+        # Spec-0051/T5（收口点②·e2e）：FAIL 走 iterate(e2e)，另贴「## 迭代自述（证据闸反馈）」。
         self._post_agent_report(
             pr_number=pr_number, body=worknote.render_iterate(reason="e2e", summary=summary)
         )

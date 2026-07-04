@@ -1,4 +1,4 @@
-"""Spec-0050/T3: worknote（agent「本轮做了什么」回执渲染）单元测试。
+"""Spec-0051/T3: worknote（agent「本轮做了什么」回执渲染）单元测试。
 
 worknote 是纯字符串模块（仿 blocknote/replynote），只吃基元 str、无副作用、不含签名、不做 IO。
 覆盖：三个 render_* 各带稳定抬头；reason ci/review/e2e 中文化；summary 空回落占位不报错；

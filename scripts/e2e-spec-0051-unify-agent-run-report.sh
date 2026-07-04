@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0050 端到端测试启动脚本：统一 agent 执行后回贴 PR 评论（可观测性收口）。
+# Spec-0051 端到端测试启动脚本：统一 agent 执行后回贴 PR 评论（可观测性收口）。
 #
 # 本组把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层
 # （messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在
@@ -14,7 +14,7 @@
 # 不调真实 gh/LLM/git 远端**。
 #
 # 用法：
-#   bash scripts/e2e-spec-0050-unify-agent-run-report.sh
+#   bash scripts/e2e-spec-0051-unify-agent-run-report.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -24,7 +24,7 @@ uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] 定向单元/集成测试（Spec-0050 T1–T6）"
+echo "==> [2/4] 定向单元/集成测试（Spec-0051 T1–T6）"
 uv run --extra dev pytest -q \
   tests/test_executor.py \
   tests/test_evidence_gate.py \
@@ -37,7 +37,7 @@ uv run --extra dev pytest -q \
 echo
 echo "==> [3/4] 成果证据：用**真实** Messages 收口 + render_* 驱动整条回执链，打印三条断言证据"
 uv run python - <<'PY'
-# Spec-0050 成果演练：用**真实**产品代码——messages.Messages（含 _post_agent_report/_report_already_posted
+# Spec-0051 成果演练：用**真实**产品代码——messages.Messages（含 _post_agent_report/_report_already_posted
 # 去重 + 五处收口接线）+ executor.render_result / evidence_gate.render_decision / worknote.render_* 真渲染函数
 # ——把「派 agent 执行完→回贴一条署名说明评论」跑出来，打印证据。脚本只提供内存版 GitHub 评论账本 +
 # 假 orchestrator（返回可编排 summary/handle）+ 假裁决；回执渲染/去重/收口全部来自产品代码。
@@ -294,16 +294,16 @@ print("  ✓ 三条断言全部通过")
 PY
 
 echo
-echo "==> [4/4] spec 校验（Spec-0050 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
+echo "==> [4/4] spec 校验（Spec-0051 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
 uv run spec validate --specs-root docs/specs
 # 幂等（无漂移）自检：render/graph 前先存副本，重渲后 diff 应逐字节一致——不依赖 git 提交状态。
-cp docs/specs/OVERVIEW.md /tmp/oa-0050-overview.bak
-cp docs/specs/ARCHITECTURE.md /tmp/oa-0050-arch.bak
+cp docs/specs/OVERVIEW.md /tmp/oa-0051-overview.bak
+cp docs/specs/ARCHITECTURE.md /tmp/oa-0051-arch.bak
 uv run spec render --specs-root docs/specs
 uv run spec graph --specs-root docs/specs
-diff /tmp/oa-0050-overview.bak docs/specs/OVERVIEW.md
-diff /tmp/oa-0050-arch.bak docs/specs/ARCHITECTURE.md
+diff /tmp/oa-0051-overview.bak docs/specs/OVERVIEW.md
+diff /tmp/oa-0051-arch.bak docs/specs/ARCHITECTURE.md
 uv run spec graph --specs-root docs/specs --check
 
 echo
-echo "✅ Spec-0050 端到端验证通过：五处收口各一条署名回执 + 重复 poll 不刷屏 + 发评论故障不阻断（可复现证据见上）。"
+echo "✅ Spec-0051 端到端验证通过：五处收口各一条署名回执 + 重复 poll 不刷屏 + 发评论故障不阻断（可复现证据见上）。"
