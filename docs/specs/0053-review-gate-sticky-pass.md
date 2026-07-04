@@ -147,7 +147,11 @@ CI 全绿 → fp = github.code_fingerprint(pr)          # 算 PR 净 diff 指纹
 指纹要满足一个硬约束：**「只是 base 前进、PR 自身未改」时必须不变**，否则短路命中不了本 spec 要优化的那个场景（这正是 `update_branch` 引发的重审）。
 
 - **PR head tree SHA（否决）。** `update_branch` 默认把 main **merge 进** PR head（`openagents/github.py:749`，非 rebase）→ PR head OID 变、连带 head tree 也变（现在含 main 的改动）。于是 head-tree-SHA 指纹会被**恰恰是本 spec 想优化的那次 `update_branch` 本身**改掉 → 短路永远命中不了目标场景。故 head tree SHA 直接出局，不是「简单但略差」，而是「测不到点」。
-- **PR 净 diff（采纳）。** GitHub 的 `gh pr diff <n>` 返回的是 PR 相对其 base 的 **base…head 三点语义 unified diff**（GitHub 侧计算的「这个 PR 在 base 之上加了什么」）。`update_branch` 把 main merge 进 head 后，base…head 的净 diff **仍只是 PR 自身的改动**（main 的改动既进了 base 也进了 head，相消）——在「无冲突地 merge 最新 main」时保持不变。这正是要的不变式，与 k8s `lgtm` 的 tree-hash 同构（都锚在「PR 自身贡献」而非「含 base 的完整树」）。
+- **PR 净 diff（采纳）。** GitHub 的 `gh pr diff <n>` 返回的是 PR 相对其 base 的 **三点语义（`base...head`）unified diff**（GitHub 侧计算的「这个 PR 在 base 之上加了什么」）——这是 GitHub PR「Files changed」与 `gh pr diff` 一致采用的比较口径，非两点 `base..head`。为什么这个口径在 `update_branch` 后保持不变，可由三点 diff 的定义严格推出：`base...head` ≡ `diff(merge-base(base, head), head)`（git 三点语义）。`update_branch` 把 main（即 base 的 tip）**merge 进** head 后，base 成为 head 的祖先，于是 `merge-base(base, head)` 前移到 base 的 tip；相对这个新 merge-base，head 的净贡献**仍只是 PR 自身的改动**（main 的改动既在新 merge-base 里、也在 head 里，相消）。因此在「无冲突地 merge 最新 main」时 `base...head` 保持逐字节不变——这正是要的不变式，与 k8s `lgtm` 的 tree-hash 同构（都锚在「PR 自身贡献」而非「含 base 的完整树」）。
+  - **证据（三点 diff 口径，来源已列，本会话 web 受限未能在线复核，均为稳定的官方文档）**：
+    - GitHub PR 用三点比较 — https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests
+    - git 三点语义 `A...B` = `merge-base(A,B)` 到 `B` 的差 — https://git-scm.com/docs/git-diff（"git diff A...B" is equivalent to "git diff `$(git merge-base A B)` B"）
+    - `gh pr diff` 展示 PR 的改动集 — https://cli.github.com/manual/gh_pr_diff
 
 **指纹实现**：在 `openagents/github.py` 新增薄封装 `code_fingerprint(*, pr_number: int) -> str`——跑 `gh pr diff <n>`，对输出做 `sha256` 取 hexdigest 返回；`gh` 故障 / 空输出时返回 `""`（fail-open，调用方据空串落回照常评审）。理念 10：github 层只做「取 diff + 定长哈希」，不含任何「要不要短路」的业务判定。
 
@@ -223,6 +227,8 @@ T1 与 T2 无相互依赖，可并行（协同模式，文件互斥）。所有�
 
 脚本以「成果」为中心断言短路真的发生：构造一条已 PASS 一次的 run（`code_passed_fingerprint` 已落盘），用 stub 的 `github.code_fingerprint` 返回与上次相同的指纹 + 计数版 `orchestrator.review_code`，驱动 `_process_coding` 连跑两轮，**断言 reviewer 只被调用一次**（第二轮走 sticky）；再翻转 stub 指纹（模拟 `iterate` 改码）跑第三轮，**断言 reviewer 再被调一次**（指纹变 → 重审）。即以「reviewer 调用次数」这一可观测成果验证短路语义，而非只跑单元断言。
 
+**测试边界（显式声明，evidence 分层）**：T4 用 stub 的 `code_fingerprint` 喂「同指纹 / 翻转指纹」，验证的是**编排层短路语义**（同码复用 PASS、变码重审、空指纹 fail-open），**不**去实跑一次真 `update_branch` 来观察「merge main 进 head 后 `gh pr diff` 果真不变」。原因：真 `update_branch` 要一个活的 GitHub 服务端 PR 状态（本仓 e2e 走 CLI/pytest 无 live GitHub lane），成本高且不稳定；而「`base...head` 三点 diff 在无冲突 merge base 后不变」是上文 Reference-level 已由三点语义定义严格推出、并有官方文档背书的**前提**，不是需要每次 e2e 复验的运行期行为。二者分层：T4 锚定「给定指纹口径不变式 → 我们的短路正确」，不变式本身锚定「GitHub/git 三点语义」。这条边界若要补强，见 Unresolved 3。
+
 **浏览器 e2e 自检**：我具备浏览器工具（playwright / chrome-devtools MCP）。但本 feature **没有 product-facing 的前端界面**——它是守夜人 poll 循环内部的编排短路，唯一可观测成果是「代码未变时不再起 reviewer 进程」，这不经任何 HTTP 前端 / 看板渲染（本仓 `results.py` 是 CLI/markdown 看板，也不呈现「本轮是否复用 PASS」）。因此按理念 8 与任务的 product-facing 条件，浏览器 e2e **不适用**；成果证据用上述 CLI/pytest 驱动的 shell 脚本以「reviewer 调用计数」断言，是此内部行为的正确观测面。
 
 ## Drawbacks
@@ -261,7 +267,7 @@ T1 与 T2 无相互依赖，可并行（协同模式，文件互斥）。所有�
 
 2. **sticky 会不会给恶意改动开口（是否需要 k8s `store_tree_hash` 式安全门）？**（issue 待确认之二）我们的 agent 跑在隔离 worktree、无外部不可信贡献者，安全模型比 k8s 宽（k8s 要防「lgtm 后偷偷 force-push 换掉代码」）。判断：**直接 sticky，不加额外安全门**——`fail-open`（算不出指纹就全审）已覆盖「状态不明」；恶意 force-push 这类威胁在本项目的信任边界外。倾向：接受直接 sticky。
 
-3. **指纹口径要不要与 reviewer 的实际输入做一次显式对齐校验？** 目前二者都锚在「PR 相对 base 的净 diff」，一致。若将来 reviewer 输入口径变化，需同步 `code_fingerprint` 的取值口径。是否加一个「口径一致性」的测试/断言把它硬化（软约定硬化）待定。
+3. **指纹口径要不要与 reviewer 的实际输入做一次显式对齐校验，以及三点不变式要不要跑一条 live `update_branch` 集成测试？** 目前指纹与 reviewer 输入都锚在「PR 相对 base 的净 diff」，一致；若将来 reviewer 输入口径变化，需同步 `code_fingerprint` 的取值口径，是否加一个「口径一致性」断言把它硬化（软约定硬化）待定。另外，T4 以 stub 指纹验证短路语义、把「merge main 进 head 后 `gh pr diff` 不变」当已由三点语义 + 官方文档背书的前提（见 Reference-level 与 e2e 测试边界），**未**实跑真 `update_branch` 复验该不变式。判断：本仓无 live GitHub e2e lane，为一条已被 git 三点语义严格蕴含的不变式引入活服务端依赖，成本收益不划算，故先不做。**留观**：若将来接入 live GitHub e2e lane，可补一条「真 `update_branch` 前后指纹相等」的集成断言把前提也纳入可执行证据。倾向：先靠文档背书 + 定义推导，不加 live 集成测试。
 
 ## Future possibilities
 
