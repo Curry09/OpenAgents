@@ -134,6 +134,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0049 vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
 消除 vigil 多后端认领标签反复互撕：resume 不再重复认领(止血) + 认领编码 agent 归属(署名认领评论) + 认领后 read-after-write 退让，使同一 issue 任一时刻只被一个后端有效认领、他方识别并退让。
 
+### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
+把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层（messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在 _process_rfc_review/_process_coding/_evidence_gate 的收口点统一「执行完→render_*→identity.post_signed_comment（带防刷屏去重）」，补齐 implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤，让人盯 PR 即知每步进展（理念 8），且 executor/evidence_gate 保持不碰 IO 的解耦定位（理念 10）。
+
 ### 0052 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
 抽一个统一的 build_agent_context(pr_number, extra_detail) 入口，所有派 agent 入口（orchestrator 各原子操作 + reviewer）统一走它：既保证 PR 号进入 prompt（refine_rfc/implement 补上），又把本 PR 对话历史（历轮评审裁决 + 作者回复 + 人类评论，带作者与轮次、截断去噪）注入 context，消除各模板自拼装的分叉；reviewer 附「落盘产物为准、评论仅供参考」rubric 以保留其独立读仓库的价值。
 
@@ -312,6 +315,12 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0049 | 0049/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | done | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0049 | 0049/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | done | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
 | 0049 | 0049/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | done | T3, T4 | scripts/e2e-spec-0049-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
+| 0051 | 0051/T1 | executor.render_result 纯函数（ExecutorResult→PR 评论） | done | — | openagents/executor.py<br>tests/test_executor.py |
+| 0051 | 0051/T2 | evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论） | done | — | openagents/evidence_gate.py<br>tests/test_evidence_gate.py |
+| 0051 | 0051/T3 | worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染 | done | — | openagents/worknote.py<br>tests/test_worknote.py |
+| 0051 | 0051/T4 | orchestrator.implement 返回 result.summary（None→str） | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
+| 0051 | 0051/T5 | messages 收口：_post_agent_report + 防刷屏去重 + 五处接线 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_agent_report.py |
+| 0051 | 0051/T6 | 成果测试：整链回执集成测试 + e2e 脚本 | done | T5 | scripts/e2e-spec-0051-unify-agent-run-report.sh<br>tests/test_agent_report_integration.py |
 | 0052 | 0052/T1 | agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号） | done | — | openagents/agentcontext.py<br>tests/test_agentcontext.py |
 | 0052 | 0052/T2 | reviewer：review 增 history 参数 + 落盘产物为准 rubric | done | — | openagents/reviewer.py<br>tests/test_reviewer_history.py |
 | 0052 | 0052/T3 | orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号 | done | T1, T2 | openagents/orchestrator.py<br>tests/test_orchestrator_context.py |
@@ -576,6 +585,14 @@ graph LR
         n0049_T4["T4 orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让"]
         n0049_T5["T5 成果测试：多后端竞态复现集成测试 + e2e 脚本"]
     end
+    subgraph G0051[0051 unify-agent-run-report]
+        n0051_T1["T1 executor.render_result 纯函数（ExecutorResult→PR 评论）"]
+        n0051_T2["T2 evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论）"]
+        n0051_T3["T3 worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染"]
+        n0051_T4["T4 orchestrator.implement 返回 result.summary（None→str）"]
+        n0051_T5["T5 messages 收口：_post_agent_report + 防刷屏去重 + 五处接线"]
+        n0051_T6["T6 成果测试：整链回执集成测试 + e2e 脚本"]
+    end
     subgraph G0052[0052 unified-agent-context-injection]
         n0052_T1["T1 agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号）"]
         n0052_T2["T2 reviewer：review 增 history 参数 + 落盘产物为准 rubric"]
@@ -732,6 +749,11 @@ graph LR
     n0049_T4 --> n0049_T2
     n0049_T5 --> n0049_T3
     n0049_T5 --> n0049_T4
+    n0051_T5 --> n0051_T1
+    n0051_T5 --> n0051_T2
+    n0051_T5 --> n0051_T3
+    n0051_T5 --> n0051_T4
+    n0051_T6 --> n0051_T5
     n0052_T3 --> n0052_T1
     n0052_T3 --> n0052_T2
     n0052_T4 --> n0052_T1
@@ -763,11 +785,13 @@ graph LR
 | openagents/conflict.py | 0028, 0036, 0038, 0045 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
+| openagents/evidence_gate.py | 0040, 0051 |
+| openagents/executor.py | 0040, 0051 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0052 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -799,17 +823,19 @@ graph LR
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
+| tests/test_evidence_gate.py | 0040, 0051 |
+| tests/test_executor.py | 0040, 0051 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
 | tests/test_github_claim_label.py | 0039, 0049 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
 | tests/test_messages_conflict_diag.py | 0034, 0038 |
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
@@ -2037,6 +2063,42 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）（issue #131）
+
+```mermaid
+graph LR
+    nT1["T1 executor.render_result 纯函数（ExecutorResult→PR 评论）"]
+    nT2["T2 evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论）"]
+    nT3["T3 worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染"]
+    nT4["T4 orchestrator.implement 返回 result.summary（None→str）"]
+    nT5["T5 messages 收口：_post_agent_report + 防刷屏去重 + 五处接线"]
+    nT6["T6 成果测试：整链回执集成测试 + e2e 脚本"]
+    nT1 --> nT5
+    nT2 --> nT5
+    nT3 --> nT5
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```
 
 ### 0052 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史（issue #129）

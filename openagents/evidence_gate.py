@@ -68,6 +68,28 @@ class EvidenceDecision:
     feedback: str
 
 
+# Spec-0051/T2：判决回执抬头（render_decision 渲染的稳定锚点）——messages 收口点据此标题行去重。
+_DECISION_HEADER = "## 证据闸判决"
+
+
+def render_decision(*, decision: EvidenceDecision) -> str:
+    """Spec-0051/T2：把证据闸裁决渲染成 PR 回执 Markdown 正文（纯函数，不含签名）。
+
+    仿 `reviewer.render_decision`：以稳定抬头 `## 证据闸判决` 开头，渲 `decision.passed`（✅/❌）+
+    `decision.feedback`（FAIL 且非空时附代码块，喂人看清「哪条验收行为没达成」）。PASS 时不含
+    feedback 块（render 恒不产反馈块 → 天然与 reviewer PASS 同构）。纯字符串、无副作用、不 import
+    identity/github——保持 evidence_gate「只依赖 AgentBackend + 文件系统、只返结构化结果」（理念 10）。
+    """
+    verdict = "✅ PASS" if decision.passed else "❌ FAIL"
+    lines = [_DECISION_HEADER, f"- 裁决：{verdict}"]
+    if not decision.passed and decision.feedback.strip():
+        lines.append("- 反馈：")
+        lines.append("```")
+        lines.append(decision.feedback)
+        lines.append("```")
+    return "\n".join(lines)
+
+
 def evidence_dir_for(*, pr_number: int) -> Path:
     """Spec-0040/T3：给出 PR 的证据落点相对路径 `docs/e2e-results/<pr>/`（路径约定单一来源）。
 
