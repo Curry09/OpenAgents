@@ -144,6 +144,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
 把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层（messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在 _process_rfc_review/_process_coding/_evidence_gate 的收口点统一「执行完→render_*→identity.post_signed_comment（带防刷屏去重）」，补齐 implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤，让人盯 PR 即知每步进展（理念 8），且 executor/evidence_gate 保持不碰 IO 的解耦定位（理念 10）。
 
+### 0052 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
+新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence/merge（及 all）中任一闸视为 PASS 放行；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -327,6 +330,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0051 | 0051/T4 | orchestrator.implement 返回 result.summary（None→str） | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0051 | 0051/T5 | messages 收口：_post_agent_report + 防刷屏去重 + 五处接线 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_agent_report.py |
 | 0051 | 0051/T6 | 成果测试：整链回执集成测试 + e2e 脚本 | done | T5 | scripts/e2e-spec-0051-unify-agent-run-report.sh<br>tests/test_agent_report_integration.py |
+| 0052 | 0052/T1 | skip 解析模块 + 矛盾检测 | pending | — | openagents/skip.py<br>tests/test_skip.py |
+| 0052 | 0052/T2 | 逐闸消费：透传 Skip 到 6 道闸 | pending | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
+| 0052 | 0052/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | pending | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
+| 0052 | 0052/T4 | README 闸门树 | pending | T1 | README.md |
+| 0052 | 0052/T5 | 成果测试 e2e 脚本（离线闸控时间线） | pending | T2, T3 | scripts/e2e-spec-0052-vigil-skip-gate.sh |
 
 ## 跨 feature 关系图
 
@@ -599,6 +607,13 @@ graph LR
         n0051_T5["T5 messages 收口：_post_agent_report + 防刷屏去重 + 五处接线"]
         n0051_T6["T6 成果测试：整链回执集成测试 + e2e 脚本"]
     end
+    subgraph G0052[0052 vigil-skip-gate-bypass]
+        n0052_T1["T1 skip 解析模块 + 矛盾检测"]
+        n0052_T2["T2 逐闸消费：透传 Skip 到 6 道闸"]
+        n0052_T3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
+        n0052_T4["T4 README 闸门树"]
+        n0052_T5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -755,6 +770,12 @@ graph LR
     n0051_T5 --> n0051_T3
     n0051_T5 --> n0051_T4
     n0051_T6 --> n0051_T5
+    n0052_T2 --> n0052_T1
+    n0052_T3 --> n0052_T1
+    n0052_T3 --> n0052_T2
+    n0052_T4 --> n0052_T1
+    n0052_T5 --> n0052_T2
+    n0052_T5 --> n0052_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -767,7 +788,7 @@ graph LR
 |----|----|
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
 | .github/workflows/ci.yml | 0014, 0023 |
-| README.md | 0026, 0029 |
+| README.md | 0026, 0029, 0052 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
@@ -776,7 +797,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0052 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -786,7 +807,7 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0052 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
@@ -803,7 +824,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0052 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -2115,4 +2136,38 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0052 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树（issue #135）
+
+```mermaid
+graph LR
+    nT1["T1 skip 解析模块 + 矛盾检测"]
+    nT2["T2 逐闸消费：透传 Skip 到 6 道闸"]
+    nT3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
+    nT4["T4 README 闸门树"]
+    nT5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT5
+    nT3 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
