@@ -7,7 +7,7 @@ summary: 抽一个统一的 build_agent_context(pr_number, extra_detail) 入口�
 tasks:
   - id: T1
     title: agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: build_agent_context 产出含 PR 号 + 三类历史（裁决/作者回复/人类评论，带作者与轮次）+ extra_detail；认领便签(<!-- openagents:claim -->)与隐藏签名被滤除/剥离；历史超上限时截断保留最近并标注；历史为空/extra_detail 为空各自优雅降级不产空标题块；ruff + pytest tests/test_agentcontext.py 通过
   - id: T2
     title: reviewer：review 增 history 参数 + 落盘产物为准 rubric
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: review(history=…) 把历史送进每个 reviewer 的 backend.run context；history 缺省 '' 时行为逐字节同今天（既有 test_reviewer.py 绿）；两个评审任务模板均含『落盘产物为准、评论仅供参考』rubric；ruff + pytest tests/test_reviewer_history.py 通过
   - id: T3
     title: orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: refine_rfc/implement 派给 backend 的 task 均含 PR 号；refine_rfc/implement/iterate 派给 backend 的 context 含本 PR 历史；_review 把历史经 reviewer.review(history=…) 送达 reviewer；start_rfc 行为不变；既有 test_orchestrator.py 绿；ruff + pytest tests/test_orchestrator_context.py 通过
   - id: T4
     title: 成果测试：#128 式历史复现集成测试 + e2e 脚本
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

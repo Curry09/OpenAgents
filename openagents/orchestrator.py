@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from openagents import backfill, evidence_gate, github, identity, issuecheck, reviewer
+from openagents import agentcontext, backfill, evidence_gate, github, identity, issuecheck, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
 from openagents.spec import model, signpost, validate
@@ -92,13 +92,18 @@ _DRAFT_RFC_TASK = (
     + "\n\nissue 正文：\n{body}"
 )
 _REFINE_RFC_TASK = (
-    "本 issue 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
+    # Spec-0050/T3：任务模板补 PR 号（issue #129 缺口一）——原文只说「本 issue 的 spec」，agent
+    # 手里有 gh 却不知 PR 号，无从自查 PR 元信息/评论线程；统一约定所有派单入口把 PR 号写进 task。
+    "PR #{pr_number} 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
     "（直接编辑组 markdown：改组级 9 段总览或 frontmatter tasks，保持单 spec 自包含、总览先行，"
     "只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
     "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
 )
 _IMPLEMENT_TASK = (
-    "issue #{number} 的 spec 已获批准（rfc-approved）。请阅读 docs/specs/ 下对应 spec 组，"
+    # Spec-0050/T3：任务模板由「只带 issue 号」改为**同时**带 PR 号（issue #129 缺口一）——原文
+    # 误用 issue 号定位，agent 拿不到 PR 号；保留 issue 号线索、补上 PR #{pr_number}，形成统一约定。
+    "issue #{issue_number} 的 spec 已获批准（rfc-approved），对应 PR #{pr_number}。"
+    "请阅读 docs/specs/ 下对应 spec 组，"
     "按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。\n"
     # Spec-0044/T3：实现阶段注入取证判断纪律（三分类 + 反测试顶替 + 诚实报阻塞 + skill 指路）。
     + _E2E_EVIDENCE_DISCIPLINE
@@ -484,8 +489,10 @@ class Orchestrator:
         self._progress(message=f"▶ 按评审意见精炼 PR #{pr_number} 的 RFC …")
         result = self._backend.run(
             work_dir=worktree,
-            task=_REFINE_RFC_TASK.format(detail=detail),
-            context=detail,
+            task=_REFINE_RFC_TASK.format(pr_number=pr_number, detail=detail),
+            # Spec-0050/T3：context 统一走 build_agent_context——注入 PR 号 + 本 PR 对话历史
+            # （历轮裁决/作者回复/人类评论），extra_detail 为本轮评审意见（issue #129 缺口二）。
+            context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=detail),
         )
         self._workspace.commit_and_push(
             worktree=worktree,
@@ -514,8 +521,10 @@ class Orchestrator:
         self._progress(message=f"▶ RFC 已批准，按 RFC 实现 PR #{pr_number} 的代码 …")
         self._backend.run(
             work_dir=worktree,
-            task=_IMPLEMENT_TASK.format(number=record.issue_number),
-            context="",
+            # Spec-0050/T3：模板补 PR 号（issue 号 + PR 号并存）；context 走 build_agent_context
+            # 注入 PR 号 + 本 PR 对话历史，implement 本轮无额外反馈故 extra_detail=""（缺口一/二）。
+            task=_IMPLEMENT_TASK.format(issue_number=record.issue_number, pr_number=pr_number),
+            context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=""),
         )
         self._workspace.commit_and_push(
             worktree=worktree,
@@ -555,12 +564,18 @@ class Orchestrator:
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
         self._progress(message=f"▶ 调 reviewer 评审 PR #{pr_number}（{kind}）…")
+        # Spec-0050/T3：组好本 PR 对话历史，作为 reviewer.review(history=…) 新参传入——让 reviewer
+        # 不再失忆（历轮裁决/作者回复/人类评论可见），配套的落盘产物为准 rubric（Spec-0050/T2）保留
+        # 其独立性。历史组装收口在 orchestrator（唯一持有 pr_number + github 读能力），reviewer 只
+        # 接收字符串、不 import github/agentcontext（issue #129 缺口二 + 理念 10 解耦）。
+        history = agentcontext.build_agent_context(pr_number=pr_number, extra_detail="")
         decision = reviewer.review(
             backend=self._backend,
             work_dir=worktree,
             kind=kind,
             pr_number=pr_number,
             n=reviewer.configured_reviewers(),
+            history=history,
         )
         # RFC-0018：把裁决回贴 PR（恢复人对评审闸的可观测性，理念 8），旁路尽力而为。
         self._post_review_decision(pr_number=pr_number, kind=kind, decision=decision)
@@ -711,7 +726,13 @@ class Orchestrator:
             task = _HUMAN_UNBLOCK_TASK.format(pr_number=pr_number, detail=detail)
         else:
             task = _ITERATE_TASK.format(pr_number=pr_number, reason=reason, detail=detail)
-        result = self._backend.run(work_dir=worktree, task=task, context=detail)
+        # Spec-0050/T3：context 统一走 build_agent_context——本轮反馈（CI/评论/人类）作 extra_detail，
+        # 叠加 PR 号 + 本 PR 对话历史，让迭代 agent 也能看到历轮记忆（issue #129 缺口二）。
+        result = self._backend.run(
+            work_dir=worktree,
+            task=task,
+            context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=detail),
+        )
         self._workspace.commit_and_push(
             worktree=worktree,
             branch=record.branch,

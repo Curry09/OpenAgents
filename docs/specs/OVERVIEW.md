@@ -312,10 +312,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0049 | 0049/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | done | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0049 | 0049/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | done | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
 | 0049 | 0049/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | done | T3, T4 | scripts/e2e-spec-0049-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
-| 0050 | 0050/T1 | agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号） | pending | — | openagents/agentcontext.py<br>tests/test_agentcontext.py |
-| 0050 | 0050/T2 | reviewer：review 增 history 参数 + 落盘产物为准 rubric | pending | — | openagents/reviewer.py<br>tests/test_reviewer_history.py |
-| 0050 | 0050/T3 | orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号 | pending | T1, T2 | openagents/orchestrator.py<br>tests/test_orchestrator_context.py |
-| 0050 | 0050/T4 | 成果测试：#128 式历史复现集成测试 + e2e 脚本 | pending | T1, T2, T3 | scripts/e2e-spec-0050-agent-context-injection.sh<br>tests/test_agent_context_integration.py |
+| 0050 | 0050/T1 | agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号） | done | — | openagents/agentcontext.py<br>tests/test_agentcontext.py |
+| 0050 | 0050/T2 | reviewer：review 增 history 参数 + 落盘产物为准 rubric | done | — | openagents/reviewer.py<br>tests/test_reviewer_history.py |
+| 0050 | 0050/T3 | orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号 | done | T1, T2 | openagents/orchestrator.py<br>tests/test_orchestrator_context.py |
+| 0050 | 0050/T4 | 成果测试：#128 式历史复现集成测试 + e2e 脚本 | done | T1, T2, T3 | scripts/e2e-spec-0050-agent-context-injection.sh<br>tests/test_agent_context_integration.py |
 
 ## 跨 feature 关系图
 
@@ -2062,9 +2062,9 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```
