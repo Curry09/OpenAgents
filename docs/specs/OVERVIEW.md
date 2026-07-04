@@ -134,6 +134,13 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0049 vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
 消除 vigil 多后端认领标签反复互撕：resume 不再重复认领(止血) + 认领编码 agent 归属(署名认领评论) + 认领后 read-after-write 退让，使同一 issue 任一时刻只被一个后端有效认领、他方识别并退让。
 
+### 0050 Review 不通过理由增强可读性：强制 reviewer 反馈输出为一段简短中文
+在 reviewer 的 _RUBRIC_TAIL 输出格式规约里加一条硬要求——REASON/ISSUES/NEXT 等所有面向人类的裁决理由必须用一段简短的中文书写（直击要害、避免长篇英文堆砌），让人能在 GitHub 评审评论里直接读懂并处理；配套单测锚定该文本 + 浏览器成果 e2e（把真实评审评论渲染出来、截图并断言反馈摘要为简短中文）。
+- e2e 粗规划（cli）：本改动是纯 prompt 文本硬化（reviewer 的 _RUBRIC_TAIL 加「理由必须简短中文」硬规约），无运行时行为变更、无浏览器可跑成果；「反馈摘要须为简短中文」这条约束的可验证成果，是离线确定性地跑通真实 render_decision 渲染路径 + 机器可验证的可读性判据（CJK 占比/长度），而非需要真 LLM 或浏览器交互的界面闭环。
+  - 验收行为：跑 scripts/e2e-spec-0050-review-reason-chinese-readability.sh 离线段全绿：ruff check + ruff format --check + pytest -q 全套通过；grep 锚点断言 _RUBRIC_TAIL 含 T1 语言/长度硬规则关键字（简短 / 中文 / REASON·ISSUES·NEXT）。
+  - 验收行为：用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown 并抽「反馈摘要」块，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值（「简短中文」的机器可验证操作化判据），渲染出的 GitHub 风格 HTML 页存 tracked docs/evidence/spec-0050/。
+  - 验收行为：RED 反证：同一判据喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照 HTML 一并存证，证明判据能区分、绿非恒真。（浏览器导航+截图闭环为可选增强，非门控红线：无浏览器可跑成果，判据本身已在离线段机器可验。）
+
 ### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
 把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层（messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在 _process_rfc_review/_process_coding/_evidence_gate 的收口点统一「执行完→render_*→identity.post_signed_comment（带防刷屏去重）」，补齐 implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤，让人盯 PR 即知每步进展（理念 8），且 executor/evidence_gate 保持不碰 IO 的解耦定位（理念 10）。
 
@@ -315,6 +322,8 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0049 | 0049/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | done | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0049 | 0049/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | done | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
 | 0049 | 0049/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | done | T3, T4 | scripts/e2e-spec-0049-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
+| 0050 | 0050/T1 | _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0050 | 0050/T2 | cli 离线 e2e：真实 render_decision 渲染评审评论 + 反馈摘要简短中文判据（浏览器闭环可选） | done | T1 | scripts/e2e-spec-0050-review-reason-chinese-readability.sh |
 | 0051 | 0051/T1 | executor.render_result 纯函数（ExecutorResult→PR 评论） | done | — | openagents/executor.py<br>tests/test_executor.py |
 | 0051 | 0051/T2 | evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论） | done | — | openagents/evidence_gate.py<br>tests/test_evidence_gate.py |
 | 0051 | 0051/T3 | worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染 | done | — | openagents/worknote.py<br>tests/test_worknote.py |
@@ -585,6 +594,10 @@ graph LR
         n0049_T4["T4 orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让"]
         n0049_T5["T5 成果测试：多后端竞态复现集成测试 + e2e 脚本"]
     end
+    subgraph G0050[0050 review-reason-chinese-readability]
+        n0050_T1["T1 _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测"]
+        n0050_T2["T2 cli 离线 e2e：真实 render_decision 渲染评审评论 + 反馈摘要简短中文判据（浏览器闭环可选）"]
+    end
     subgraph G0051[0051 unify-agent-run-report]
         n0051_T1["T1 executor.render_result 纯函数（ExecutorResult→PR 评论）"]
         n0051_T2["T2 evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论）"]
@@ -749,6 +762,7 @@ graph LR
     n0049_T4 --> n0049_T2
     n0049_T5 --> n0049_T3
     n0049_T5 --> n0049_T4
+    n0050_T2 --> n0050_T1
     n0051_T5 --> n0051_T1
     n0051_T5 --> n0051_T2
     n0051_T5 --> n0051_T3
@@ -796,7 +810,7 @@ graph LR
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0052 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040 |
@@ -842,7 +856,7 @@ graph LR
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
-| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048 |
+| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040 |
@@ -2063,6 +2077,26 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0050 Review 不通过理由增强可读性：强制 reviewer 反馈输出为一段简短中文（issue #124）
+
+```mermaid
+graph LR
+    nT1["T1 _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测"]
+    nT2["T2 cli 离线 e2e：真实 render_decision 渲染评审评论 + 反馈摘要简短中文判据（浏览器闭环可选）"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
 
 ### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）（issue #131）

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>评审评论（简短中文·应通过）</title>
+<style>
+  body { background:#f6f8fa; font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+          color:#1f2328; margin:0; padding:32px; }
+  .comment { max-width:760px; margin:0 auto; background:#fff; border:1px solid #d0d7de;
+              border-radius:6px; overflow:hidden; }
+  .comment-header { background:#f6f8fa; border-bottom:1px solid #d0d7de; padding:8px 16px;
+                     font-size:12px; color:#59636e; }
+  .comment-body { padding:16px; }
+  h2 { font-size:18px; margin:0 0 12px; padding-bottom:6px; border-bottom:1px solid #d8dee4; }
+  ul { padding-left:20px; }
+  #feedback-summary { background:#f6f8fa; border:1px solid #d0d7de; border-radius:6px;
+                       padding:12px; white-space:pre-wrap; font-family:ui-monospace,
+                       SFMono-Regular,Menlo,monospace; font-size:13px; line-height:1.6; }
+  .raw { margin-top:24px; color:#59636e; font-size:12px; }
+  pre.raw-md { background:#f6f8fa; border:1px solid #d0d7de; border-radius:6px; padding:12px;
+                white-space:pre-wrap; font-size:12px; }
+</style>
+</head>
+<body>
+  <div class="comment">
+    <div class="comment-header">openagents-bot 评论于 GitHub PR · GREEN 简短中文</div>
+    <div class="comment-body">
+      <h2>评审闸裁决</h2>
+      <ul>
+        <li>类型：代码</li>
+        <li>裁决：❌ REWORK</li>
+        <li>票数：1 票中 0 票 PASS</li>
+        <li>票型：REWORK</li>
+      </ul>
+      <p><strong>反馈摘要：</strong></p>
+      <div id="feedback-summary">ISSUES:
+- openagents/reviewer.py:42 空输入未做边界处理，会抛异常
+NEXT: 补一个空字符串分支的单测并加防御
+REASON: 核心路径缺失边界覆盖，关键验证标准未满足，判打回</div>
+    </div>
+  </div>
+  <div class="raw">
+    <p>—— 上方「反馈摘要」块取自真实 <code>reviewer.render_decision(kind="code")</code> 的评论 markdown 原文（下方折叠）：</p>
+    <pre class="raw-md">## 评审闸裁决
+- 类型：代码
+- 裁决：❌ REWORK
+- 票数：1 票中 0 票 PASS
+- 票型：REWORK
+- 反馈摘要：
+```
+ISSUES:
+- openagents/reviewer.py:42 空输入未做边界处理，会抛异常
+NEXT: 补一个空字符串分支的单测并加防御
+REASON: 核心路径缺失边界覆盖，关键验证标准未满足，判打回
+```</pre>
+  </div>
+</body>
+</html>
