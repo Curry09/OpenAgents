@@ -61,6 +61,15 @@ _BARE_OUTCOME_RE = re.compile(r"\b(PASSED|FAILED)\b", re.IGNORECASE)
 # 各自持有这个文件名字面量（filename 级重复优于模块耦合，理念 10）。
 RESULT_FILENAME = "result.md"
 
+# Spec-0050/T1：回执抬头（render_result 渲染的稳定锚点）——messages 收口点据此标题行去重（防刷屏）。
+_REPORT_HEADER = "## 证据执行"
+# outcome 中文化：给盯 PR 的人一眼看懂真跑结果（passed/failed/skipped，仿 reviewer 的 ✅/❌ 视觉）。
+_OUTCOME_LABELS = {
+    OUTCOME_PASSED: "✅ 通过",
+    OUTCOME_FAILED: "❌ 未通过",
+    OUTCOME_SKIPPED: "⏭️ 跳过",
+}
+
 # executor 任务模板：要求独立 agent 读 runbook、按形态真跑系统、把观察写进 evidence_dir、
 # 末行给出 `OUTCOME: PASSED|FAILED`（结构化输出便于解析，仿 reviewer 的裁决前置约定）。
 _EXECUTOR_TASK = (
@@ -191,6 +200,28 @@ def _write_evidence(*, evidence_dir: Path, result: ExecutorResult, pr_number: in
         (evidence_dir / RESULT_FILENAME).write_text(body, encoding="utf-8")
     except OSError:  # 尽力而为：写失败不破坏「run_executor 绝不抛错」契约
         pass
+
+
+def render_result(*, result: ExecutorResult) -> str:
+    """Spec-0050/T1：把一次 executor 真跑结果渲染成 PR 回执 Markdown 正文（纯函数，不含签名）。
+
+    仿 `reviewer.render_decision`：以稳定抬头 `## 证据执行` 开头，渲 `result.outcome`（中文化）/
+    `result.form` / `result.notes`（非空时附代码块，仿 render_decision 的「反馈摘要」块）。纯字符串
+    函数、无副作用、不 import github/identity——保持 executor「只依赖 AgentBackend 协议 + 文件系统、
+    只返结构化结果」的解耦定位（理念 10）；发评论这个 IO 收口在 messages（Spec-0050/T5）。
+    """
+    outcome = _OUTCOME_LABELS.get(result.outcome, result.outcome)
+    lines = [
+        _REPORT_HEADER,
+        f"- 结论：{outcome}",
+        f"- 执行形态：{result.form or '（未声明）'}",
+    ]
+    if result.notes.strip():
+        lines.append("- 运行说明：")
+        lines.append("```")
+        lines.append(result.notes)
+        lines.append("```")
+    return "\n".join(lines)
 
 
 def _render_evidence(*, result: ExecutorResult, pr_number: int) -> str:

@@ -33,6 +33,7 @@ watch：每隔 interval 秒循环调用 poll，无 open PR 或用户中断时退
 from __future__ import annotations
 
 import os
+import sys
 import time
 from datetime import UTC, datetime
 
@@ -45,6 +46,7 @@ from openagents import (
     github,
     identity,
     replynote,
+    worknote,
 )
 from openagents.backends.base import AgentBackend
 from openagents.hold import NONE as NO_HOLD
@@ -153,6 +155,37 @@ _TRIED_BY_GATE = {
     "e2e": "已多轮定稿说明书 + 独立 executor 真跑系统，证据仍未达成 RFC 批准的 e2e 意图",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
+
+
+def _report_header(*, body: str) -> str | None:
+    """Spec-0050/T5：取回执正文首个 `## ` 标题行（去重锚点）；无标题 → None（非回执评论）。
+
+    render_*（executor/evidence_gate/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
+    隐藏签名，故 PR 上存量回执评论的首个 `## ` 行仍是原抬头，可作同类回执的分桶锚点。
+    """
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            return stripped
+    return None
+
+
+def _normalize_report(*, body: str) -> str:
+    """Spec-0050/T5：回执正文规范化——逐行 strip、丢空行、丢 identity 签名行、\\n 连接。
+
+    使「措辞未变、仅缩进/空行漂移」的两段回执规范化后相等（仿 reviewer._extract_feedback_norm 的
+    归一化）；identity.sign 追加的隐藏签名行（`<!-- openagents:agent=… -->`）在比较时排除——本轮
+    render 出的裸正文尚无签名，PR 上存量回执带签名，去掉签名行两者才可逐行比对。
+    """
+    lines = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if identity.parse_agent_id(body=stripped) is not None:
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)
 
 
 class Messages:
@@ -394,6 +427,71 @@ class Messages:
         body = replynote.build(original=original, response=response)
         identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
 
+    def _progress(self, *, message: str) -> None:
+        """Spec-0050/T5：把收口层进度/告警打到 stderr（镜像 orchestrator._progress）。
+
+        回执尽力而为旁路的告警落点（去重跳过 / 查询降级 / 发送失败）——只观测、不影响返回值与编排。
+        """
+        print(message, file=sys.stderr, flush=True)
+
+    def _post_agent_report(self, *, pr_number: int, body: str) -> None:
+        """Spec-0050/T5：agent 执行后回执的**唯一 IO 出口**——去重(fail-open) → 盖签名贴出，尽力而为。
+
+        逐字节镜像 orchestrator._post_review_decision 的骨架（渲染归各域、发送归 messages）：贴前调
+        _report_already_posted 去重（查询/比对的任何异常都 fail-open 降级为照发，宁可多发一条也不因
+        抖动漏发回执、损害可观测性）；再 identity.post_signed_comment（RFC-0011 唯一发评论出口）盖本
+        实例签名贴出。整段包 try/except——任何 gh 故障只记 _progress、绝不上抛，绝不阻断实现/迭代/
+        证据闸/合并主干（理念 8 的可观测性是增益，不能反过来成为主干的故障点）。
+        """
+        try:
+            if self._report_already_posted(pr_number=pr_number, body=body):
+                self._progress(message=f"↩ PR #{pr_number} 同内容回执已存在，跳过重发")
+                return
+        except Exception as error:  # noqa: BLE001 — 去重尽力而为，查询抖动不得漏发回执
+            self._progress(message=f"⚠ 回执去重查询失败（降级为照发）：{error}")
+        try:
+            identity.post_signed_comment(pr_number=pr_number, body=body, agent_id=self._agent_id)
+        except Exception as error:  # noqa: BLE001 — 旁路尽力而为，任何 gh 故障都不得阻断编排
+            self._progress(message=f"⚠ 回执评论发送失败（已忽略）：{error}")
+
+    def _report_already_posted(self, *, pr_number: int, body: str) -> bool:
+        """Spec-0050/T5：本轮回执是否与 PR 上最近一条**同标题**回执正文规范化后相等（防刷屏去重）。
+
+        仿 orchestrator._decision_already_posted，但锚点从 reviewer 的结构化 DecisionContent 简化为
+        「标题行（body 首个 `## …`）+ 规范化全文」——回执无票数语义，无需结构化反解。取 body 标题行为
+        锚，在 github.list_comments 里筛出同标题回执评论，按 created_at 取最近一条，正文规范化（逐行
+        strip、丢空行、去 identity 签名尾巴）后与本轮相等即判重复。
+
+        同标题分桶使「迭代自述（CI 反馈）/（代码评审反馈）/（证据闸反馈）」天然互不抑制；「同标题、
+        正文不同」（同 reason 连续两轮内容各异的迭代、连续两轮结论不同的判决）规范化后不相等 → 照发
+        （与 _decision_already_posted「结论同+反馈不同则照发」一致）。只读 github.list_comments，不改状态。
+        """
+        cur_header = _report_header(body=body)
+        if cur_header is None:
+            return False  # 无标题行（不应发生）→ fail-open 照发
+        cur_norm = _normalize_report(body=body)
+        same_header = [
+            comment
+            for comment in github.list_comments(pr_number=pr_number)
+            if _report_header(body=comment.body) == cur_header
+        ]
+        if not same_header:
+            return False
+        prev = max(same_header, key=lambda comment: comment.created_at)
+        return _normalize_report(body=prev.body) == cur_norm
+
+    def _report_implement(self, *, pr_number: int) -> None:
+        """Spec-0050/T5（收口点①）：派 implement 写代码 → 渲「## 实现自述」→ 收口贴回执。
+
+        _process_rfc_review 的两条 implement 路径（已有 rfc-approved 标签 / reviewer 全票 PASS）
+        共用此收口，捕获 orchestrator.implement 返回的本轮实现摘要（Spec-0050/T4：None→str）渲成
+        回执贴回 PR。发回执尽力而为、不阻断转入 coding 的编排语义。
+        """
+        summary = self._orchestrator.implement(pr_number=pr_number)
+        self._post_agent_report(
+            pr_number=pr_number, body=worknote.render_implement(summary=summary)
+        )
+
     def _unblock_by_label(self, *, record: RunRecord) -> dict:
         """issue #49 / Spec-0031/T2：人手动摘 needs-human 标签后的解挂（无 detail 注入）——兜底路径。
 
@@ -420,7 +518,7 @@ class Messages:
         pr_number = record.pr_number
         # 2a. 已带批准标签（人或上一轮 reviewer 打的）优先：直接转入实现（向后兼容）。
         if github.has_label(pr_number=pr_number, name=APPROVAL_LABEL):
-            self._orchestrator.implement(pr_number=pr_number)
+            self._report_implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "approved"}
         # Spec-0020/T3：spec 闸 hold——跳过下面的自动 reviewer（2b），只认上面 2a 的人工
         # rfc-approved label。无 label 即本轮什么都不做、停在 spec 闸等人批（不评审、不打
@@ -431,7 +529,7 @@ class Messages:
         decision = self._orchestrator.review_rfc(pr_number=pr_number)
         if decision.passed:
             github.add_label(pr_number=pr_number, name=APPROVAL_LABEL)
-            self._orchestrator.implement(pr_number=pr_number)
+            self._report_implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "rfc-pass"}
         # Spec-0021/T2：非 PASS 按 decision.actionable 分流。
         # 真 REWORK（actionable）：回合 +1，未超 K 则按 reviewer 反馈精炼 RFC，超 K 则挂起（决策 5，行为不变）。
@@ -493,7 +591,11 @@ class Messages:
         status = github.check_status(pr_number=pr_number)
         if status.state == "fail":
             detail = "\n".join(status.failed_logs)
-            self._orchestrator.iterate(pr_number=pr_number, reason="ci", detail=detail)
+            summary = self._orchestrator.iterate(pr_number=pr_number, reason="ci", detail=detail)
+            # Spec-0050/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（CI 反馈）」贴回（尽力而为）。
+            self._post_agent_report(
+                pr_number=pr_number, body=worknote.render_iterate(reason="ci", summary=summary)
+            )
             return {"pr_number": pr_number, "reason": "ci"}
         # 3b. CI 进行中：等下一轮（不评审、不动状态）。
         if status.state == "pending":
@@ -530,8 +632,12 @@ class Messages:
             if rounds >= MAX_ROUNDS:
                 # Spec-0032/T5：超 K 挂起时把 reviewer 反馈原文当 blocker 喂进结构化挂起评论。
                 return self._block(record=record, gate="code", blocker=decision.feedback)
-            self._orchestrator.iterate(
+            summary = self._orchestrator.iterate(
                 pr_number=pr_number, reason="review", detail=decision.feedback
+            )
+            # Spec-0050/T5（收口点②）：捕获迭代摘要渲「## 迭代自述（代码评审反馈）」贴回（尽力而为）。
+            self._post_agent_report(
+                pr_number=pr_number, body=worknote.render_iterate(reason="review", summary=summary)
             )
             return {"pr_number": pr_number, "reason": "review"}
         # 评审无效：不 rounds++、不 iterate，走独立小重试上限（gate=code-unparseable）。
@@ -574,14 +680,21 @@ class Messages:
         handle = self._orchestrator.finalize_runbook(pr_number=pr_number)
         if handle is None:
             return None  # 无 e2e 粗规划：非交互 PR，证据闸空过。
+        # Spec-0050/T5（收口点③）：说明书定稿后渲「## 说明书定稿」贴回（尽力而为）。
+        self._post_agent_report(
+            pr_number=pr_number,
+            body=worknote.render_runbook(form=handle.form, runbook_path=str(handle.runbook_path)),
+        )
         # ④ 独立 executor 照 runbook 真跑系统、把证据写进 evidence_dir（契约绝不抛错）。
-        executor.run_executor(
+        result = executor.run_executor(
             backend=self._backend,
             work_dir=handle.worktree,
             runbook_path=handle.runbook_path,
             evidence_dir=handle.evidence_dir,
             pr_number=pr_number,
         )
+        # Spec-0050/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
+        self._post_agent_report(pr_number=pr_number, body=executor.render_result(result=result))
         # ⑤ 证据 commit 进 PR（durable、可被证据闸读、给人看成果）。
         self._orchestrator.commit_evidence(pr_number=pr_number)
         # ⑥ 证据闸拿 RFC 意图对照证据判达成与否（契约绝不抛错）。
@@ -592,13 +705,23 @@ class Messages:
             evidence_dir=handle.evidence_dir,
             pr_number=pr_number,
         )
+        # Spec-0050/T5（收口点⑤）：判决渲「## 证据闸判决」贴回——PASS/FAIL 都贴（尽力而为）。
+        self._post_agent_report(
+            pr_number=pr_number, body=evidence_gate.render_decision(decision=decision)
+        )
         if decision.passed:
             return None  # 证据真达成 RFC 意图 → 放行 merge。
         # 证据 FAIL：复用现成回合预算与 code 闸共用一份 K（Spec-0040 状态机影响：不新增 status）。
         rounds = self._state.increment_rounds(issue_number=record.issue_number)
         if rounds >= MAX_ROUNDS:
             return self._block(record=record, gate="e2e", blocker=decision.feedback)
-        self._orchestrator.iterate(pr_number=pr_number, reason="e2e", detail=decision.feedback)
+        summary = self._orchestrator.iterate(
+            pr_number=pr_number, reason="e2e", detail=decision.feedback
+        )
+        # Spec-0050/T5（收口点②·e2e）：FAIL 走 iterate(e2e)，另贴「## 迭代自述（证据闸反馈）」。
+        self._post_agent_report(
+            pr_number=pr_number, body=worknote.render_iterate(reason="e2e", summary=summary)
+        )
         return {"pr_number": pr_number, "reason": "e2e"}
 
     def _process_armed_conflict(self, *, record: RunRecord) -> dict:

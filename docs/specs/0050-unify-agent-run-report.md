@@ -7,7 +7,7 @@ summary: 把「派 agent 执行→执行完在 PR 回贴一条署名说明评论
 tasks:
   - id: T1
     title: executor.render_result 纯函数（ExecutorResult→PR 评论）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: render_result 对 passed/failed/skipped 三种 outcome 均产出含标题「## 证据执行」的确定性 Markdown（notes 非空时体现）；纯函数无副作用、不触 IO；ruff check + ruff format --check + pytest tests/test_executor.py 通过
   - id: T2
     title: evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: render_decision 对 passed=True/False 均产出含标题「## 证据闸判决」的确定性 Markdown，FAIL 时含 feedback 块、PASS 时不含；纯函数无副作用；ruff + ruff format --check + pytest tests/test_evidence_gate.py 通过
   - id: T3
     title: worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -46,7 +46,7 @@ tasks:
     acceptance: 三个 render_* 各产出带各自稳定标题的确定性 Markdown；reason 覆盖 ci/review/e2e 中文化；summary='' 回落占位不报错；worknote 无外部 import 副作用；ruff + ruff format --check + pytest tests/test_worknote.py 通过
   - id: T4
     title: orchestrator.implement 返回 result.summary（None→str）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -59,7 +59,7 @@ tasks:
     acceptance: implement 返回非空 str（agent 无摘要时回落占位）、其余行为逐字节不变；既有忽略返回值的 cli 调用不受影响；ruff + ruff format --check + pytest tests/test_orchestrator.py 通过
   - id: T5
     title: messages 收口：_post_agent_report + 防刷屏去重 + 五处接线
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -77,7 +77,7 @@ tasks:
     acceptance: 五处收口各贴一条署名回执、内容取自对应 render_*；reason=human 不叠加迭代自述；重复 poll 同内容不新增评论（_report_already_posted 命中）；post_comment 抛错时链路仍推进、仅 _progress 告警；executor/evidence_gate 不因此 import identity；ruff + ruff format --check + pytest tests/test_messages.py tests/test_messages_agent_report.py 通过
   - id: T6
     title: 成果测试：整链回执集成测试 + e2e 脚本
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

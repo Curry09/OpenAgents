@@ -35,6 +35,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `reviewer.py` | RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。 |
 | `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
 | `vigil.py` | RFC-0004: openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）。 |
+| `worknote.py` | Spec-0050/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
 
 ### openagents.backends
@@ -104,6 +105,7 @@ graph LR
     nopenagents_spec_validate["spec.validate"]
     nopenagents_state["openagents.state"]
     nopenagents_vigil["openagents.vigil"]
+    nopenagents_worknote["openagents.worknote"]
     nopenagents_workspace["openagents.workspace"]
     nopenagents_align --> nopenagents_backends_base
     nopenagents_backends_claude_code --> nopenagents_backends_base
@@ -158,6 +160,7 @@ graph LR
     nopenagents_messages --> nopenagents_orchestrator
     nopenagents_messages --> nopenagents_replynote
     nopenagents_messages --> nopenagents_state
+    nopenagents_messages --> nopenagents_worknote
     nopenagents_orchestrator --> nopenagents
     nopenagents_orchestrator --> nopenagents_backends_base
     nopenagents_orchestrator --> nopenagents_backfill

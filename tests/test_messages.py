@@ -64,13 +64,17 @@ class _FakeOrchestrator:
         self.commit_evidence_calls = []
 
     def implement(self, *, pr_number):
+        # Spec-0050/T4：implement 返回本轮实现摘要（None→str），供 messages 渲「## 实现自述」回执。
         self.implement_calls.append(pr_number)
+        return "实现了 X 与 Y"
 
     def refine_rfc(self, *, pr_number, detail):
         self.refine_calls.append({"pr_number": pr_number, "detail": detail})
 
     def iterate(self, *, pr_number, reason, detail):
+        # Spec-0040/T5：iterate 返回 result.summary；Spec-0050/T5：ci/review/e2e 收口点据此渲迭代自述。
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
+        return f"据 {reason} 反馈改了代码"
 
     def review_rfc(self, *, pr_number):
         self.review_rfc_calls.append(pr_number)
@@ -482,6 +486,7 @@ def _handle():
         runbook_path=Path("/wt/docs/e2e-results/5/runbook.md"),
         evidence_dir=Path("/wt/docs/e2e-results/5"),
         intent="意图：x\n验收行为：\n- a",
+        form="cli",
     )
 
 
