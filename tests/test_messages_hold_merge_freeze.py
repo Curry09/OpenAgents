@@ -90,6 +90,13 @@ class _FakeState:
         if record is not None:
             record.block_gate = gate
 
+    def set_code_fingerprint(self, *, issue_number, fingerprint):
+        # Spec-0053/T3：代码闸 PASS 后落盘 PR 净 diff 指纹（sticky 短路用）；本套用例走 fail-open
+        # 路径（code_fingerprint 桩返回 ""），故指纹恒不落盘，此方法在本套内不被调用，留作契约完整。
+        record = self._find(issue_number)
+        if record is not None:
+            record.code_passed_fingerprint = fingerprint
+
     def set_block_watermark(self, *, issue_number, watermark):
         self.watermark_sets.append({"issue_number": issue_number, "watermark": watermark})
         record = self._find(issue_number)
@@ -159,6 +166,9 @@ def _patch_coding_reads(monkeypatch, *, comments):
         "check_status",
         lambda *, pr_number: CheckStatus(state="pass", failed_logs=[]),
     )
+    # Spec-0053/T3：代码闸先算指纹做 sticky 短路。桩返回 ""（fail-open）→ 落回照常评审，本套
+    # 「PASS 后夯住 / 反震荡」用例逐字节零回归（reviewer 仍被调、指纹恒不落盘）。
+    monkeypatch.setattr(messages_module.github, "code_fingerprint", lambda *, pr_number: "")
     monkeypatch.setattr(
         messages_module.github, "list_comments", lambda *, pr_number: list(comments)
     )

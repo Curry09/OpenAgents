@@ -154,6 +154,12 @@ class _FakeState:
             if r.issue_number == issue_number:
                 r.unblock_detail = detail
 
+    def set_code_fingerprint(self, *, issue_number, fingerprint):
+        # Spec-0053/T3：代码闸 PASS 后落盘 PR 净 diff 指纹（sticky 短路用）。
+        for r in self._runs:
+            if r.issue_number == issue_number:
+                r.code_passed_fingerprint = fingerprint
+
 
 def _run(*, status, rounds=0):
     return RunRecord(
@@ -212,6 +218,9 @@ def _wire(monkeypatch, *, ledger, cfg, code_decision, evidence_decision):
         "check_status",
         lambda *, pr_number: CheckStatus(state=cfg.ci_state, failed_logs=cfg.failed_logs),
     )
+    # Spec-0053/T3：代码闸先算指纹做 sticky 短路。桩返回 ""（fail-open）→ 落回照常评审，本套
+    # 「全链路收口回执」用例逐字节零回归（reviewer 仍被调、指纹恒不落盘）。
+    monkeypatch.setattr(g, "code_fingerprint", lambda *, pr_number: "")
     monkeypatch.setattr(g, "list_comments", ledger.list_comments)
     monkeypatch.setattr(messages_module.identity, "post_signed_comment", ledger.post_signed_comment)
     monkeypatch.setattr(

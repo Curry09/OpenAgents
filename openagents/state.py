@@ -99,6 +99,12 @@ class RunRecord:
     # 复查仍 closed 绝不重打戳（否则窗口永远刷新→退化成无界）；复活时经 set_closed_at(when="") 清除。
     # 由 messages 的 is_closed 分支 / 复活分支经 set_closed_at 显式管理；与 block_* / merge_attempts 互不干扰。
     closed_at: str = ""
+    # Spec-0053/T1：上一次 reviewer 全票 PASS 时 PR 净 diff 的指纹（sha256(gh pr diff)）。
+    # 默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧 state.json）。代码闸每轮据它短路：
+    # 本轮 code_fingerprint 与它相等 → 复用上轮 PASS、跳过重审；不等 → 照常重审、PASS 后更新它。
+    # 对照 k8s Tide sticky approve / lgtm store_tree_hash（代码状态没变就别重签）。
+    # 与 block_* / merge_attempts / closed_at 互不干扰。
+    code_passed_fingerprint: str = ""
 
 
 class State:
@@ -265,6 +271,20 @@ class State:
         for record in data["runs"]:
             if record["issue_number"] == issue_number:
                 record["closed_at"] = when
+        self._save(data=data)
+
+    def set_code_fingerprint(self, *, issue_number: int, fingerprint: str) -> None:
+        """Spec-0053/T1：落盘某 issue 对应 run 的 code_passed_fingerprint（上轮 PASS 的 PR 净 diff 指纹）。
+
+        镜像 set_block_gate / set_block_watermark / set_unblock_detail 的写法（按 issue 定位 run、
+        只改单字段、整体落盘）。代码闸只在 reviewer 全票 PASS 时写入当轮指纹，下一轮进 review_code
+        前据它短路（指纹一致复用 PASS）；fingerprint="" 即清除（本设计不主动清，留作对称）。与
+        block_gate / block_watermark / unblock_detail / merge_attempts / closed_at 互不干扰。
+        """
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["code_passed_fingerprint"] = fingerprint
         self._save(data=data)
 
     def increment_merge_attempts(self, *, issue_number: int) -> int:

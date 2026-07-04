@@ -330,10 +330,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0051 | 0051/T4 | orchestrator.implement 返回 result.summary（None→str） | done | — | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0051 | 0051/T5 | messages 收口：_post_agent_report + 防刷屏去重 + 五处接线 | done | T1, T2, T3, T4 | openagents/messages.py<br>tests/test_messages.py<br>tests/test_messages_agent_report.py |
 | 0051 | 0051/T6 | 成果测试：整链回执集成测试 + e2e 脚本 | done | T5 | scripts/e2e-spec-0051-unify-agent-run-report.sh<br>tests/test_agent_report_integration.py |
-| 0053 | 0053/T1 | state：PR 净 diff 指纹字段 + setter | pending | — | openagents/state.py<br>tests/test_state_code_fingerprint.py |
-| 0053 | 0053/T2 | github：PR 净 diff 指纹取值 | pending | — | openagents/github.py<br>tests/test_github_code_fingerprint.py |
-| 0053 | 0053/T3 | messages：_process_coding 3c sticky 短路接线 | pending | T1, T2 | openagents/messages.py<br>tests/test_messages_review_sticky.py |
-| 0053 | 0053/T4 | e2e：sticky 复用 PASS 成果脚本 | pending | T3 | scripts/e2e-spec-0053-review-sticky-pass.sh |
+| 0053 | 0053/T1 | state：PR 净 diff 指纹字段 + setter | done | — | openagents/state.py<br>tests/test_state_code_fingerprint.py |
+| 0053 | 0053/T2 | github：PR 净 diff 指纹取值 | done | — | openagents/github.py<br>tests/test_github_code_fingerprint.py |
+| 0053 | 0053/T3 | messages：_process_coding 3c sticky 短路接线 | done | T1, T2 | openagents/messages.py<br>tests/test_messages_review_sticky.py |
+| 0053 | 0053/T4 | e2e：sticky 复用 PASS 成果脚本 | done | T3 | scripts/e2e-spec-0053-review-sticky-pass.sh |
 
 ## 跨 feature 关系图
 
@@ -2154,9 +2154,9 @@ graph LR
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

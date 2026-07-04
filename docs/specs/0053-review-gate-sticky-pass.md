@@ -7,7 +7,7 @@ summary: 给代码评审闸引入「PR 净改动指纹」短路：reviewer 全�
 tasks:
   - id: T1
     title: state：PR 净 diff 指纹字段 + setter
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: RunRecord(**缺该键的旧记录) 不报错；set_code_fingerprint 写入后 State 重载读回一致；ruff+pytest 绿
   - id: T2
     title: github：PR 净 diff 指纹取值
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -33,7 +33,7 @@ tasks:
     acceptance: 同一 diff 输入哈希稳定且等长；gh 失败/空输出返回 ""；两次相同 diff 指纹相等、diff 变化后指纹不等；ruff+pytest 绿
   - id: T3
     title: messages：_process_coding 3c sticky 短路接线
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -48,7 +48,7 @@ tasks:
     acceptance: 指纹与上次 PASS 相同→review_code 不被调用且照进证据闸/merge；指纹不同→review_code 被调一次并落盘新指纹；指纹为空→照常评审（fail-open）；ruff+pytest 绿
   - id: T4
     title: e2e：sticky 复用 PASS 成果脚本
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
