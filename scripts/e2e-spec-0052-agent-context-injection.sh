@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0050 端到端测试启动脚本：统一 agent 上下文注入（所有派单入口带 PR 号 + 注入本 PR 对话历史）。
+# Spec-0052 端到端测试启动脚本：统一 agent 上下文注入（所有派单入口带 PR 号 + 注入本 PR 对话历史）。
 #
 # 本组治理 issue #129 暴露的两类缺口（触发案例：PR #128 e2e 闸反复 FAIL → needs-human）：
 #   缺口一 PR 号注入不统一——refine_rfc / implement 的 task 缺 PR 号；本组补上，形成「所有派单
@@ -15,7 +15,7 @@
 # 证据），而非浏览器 e2e。全程不触网、不调真实 gh/LLM/git 远端。
 #
 # 用法：
-#   bash scripts/e2e-spec-0050-agent-context-injection.sh
+#   bash scripts/e2e-spec-0052-agent-context-injection.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -42,7 +42,7 @@ echo "==> [1/4] 静态检查（ruff lint + format）"
   tests/test_orchestrator_context.py tests/test_agent_context_integration.py
 
 echo
-echo "==> [2/4] 定向单元/集成测试（Spec-0050 T1–T4）+ 既有回归（reviewer / orchestrator 零回归）"
+echo "==> [2/4] 定向单元/集成测试（Spec-0052 T1–T4）+ 既有回归（reviewer / orchestrator 零回归）"
 "${PYTEST[@]}" -q \
   tests/test_agentcontext.py \
   tests/test_reviewer_history.py \
@@ -54,7 +54,7 @@ echo "==> [2/4] 定向单元/集成测试（Spec-0050 T1–T4）+ 既有回归�
 echo
 echo "==> [3/4] 成果证据：用**真实** build_agent_context + orchestrator + reviewer 复现 #128 式历史，打印四条断言证据"
 "${PYTHON[@]}" - <<'PY'
-# Spec-0050 成果演练：用**真实**产品代码——agentcontext.build_agent_context（拉历史+去噪+截断+PR 号）、
+# Spec-0052 成果演练：用**真实**产品代码——agentcontext.build_agent_context（拉历史+去噪+截断+PR 号）、
 # Orchestrator.refine_rfc/implement/iterate/review_code（四入口收口 build_agent_context）、reviewer.review
 # （history 注入 + 落盘产物为准 rubric）——把 issue #129 两类缺口的修复跑出来，打印证据。脚本只提供
 # 内存版 GitHub 评论账本（#128 式历史：认领噪声 + 历轮 FAIL 裁决 + 作者「已改 PASS」+ 人类评论）与
@@ -171,15 +171,15 @@ print("  ✓ 四条断言全部通过")
 PY
 
 echo
-echo "==> [4/4] spec 校验（Spec-0050 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
+echo "==> [4/4] spec 校验（Spec-0052 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
 "${SPEC[@]}" validate --specs-root docs/specs
 # 幂等（无漂移）自检：render/graph 前先存副本，重渲后 diff 应逐字节一致——不依赖 git 提交状态。
-cp docs/specs/OVERVIEW.md /tmp/oa-0050-overview.bak
-cp docs/specs/ARCHITECTURE.md /tmp/oa-0050-arch.bak
+cp docs/specs/OVERVIEW.md /tmp/oa-0052-overview.bak
+cp docs/specs/ARCHITECTURE.md /tmp/oa-0052-arch.bak
 "${SPEC[@]}" render --specs-root docs/specs
 "${SPEC[@]}" graph --specs-root docs/specs
-diff /tmp/oa-0050-overview.bak docs/specs/OVERVIEW.md
-diff /tmp/oa-0050-arch.bak docs/specs/ARCHITECTURE.md
+diff /tmp/oa-0052-overview.bak docs/specs/OVERVIEW.md
+diff /tmp/oa-0052-arch.bak docs/specs/ARCHITECTURE.md
 
 echo
-echo "✅ Spec-0050 端到端验证通过：PR 号进 prompt / 三类历史进 context / 噪声被滤 / reviewer 得历史且 rubric 生效（可复现证据见上）。"
+echo "✅ Spec-0052 端到端验证通过：PR 号进 prompt / 三类历史进 context / 噪声被滤 / reviewer 得历史且 rubric 生效（可复现证据见上）。"

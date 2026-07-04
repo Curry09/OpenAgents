@@ -1,4 +1,4 @@
-"""Spec-0050/T4：#128 式历史复现集成测试——统一 agent 上下文注入的成果测试。
+"""Spec-0052/T4：#128 式历史复现集成测试——统一 agent 上下文注入的成果测试。
 
 用内存假 github（评论账本）复现触发 issue #129 的 PR #128 式历史：历轮 reviewer FAIL 裁决评论
 （用**真实** reviewer.render_decision 渲染 + identity 签名，drift-catching）、作者「已把 result.md

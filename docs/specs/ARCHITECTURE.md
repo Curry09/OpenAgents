@@ -11,7 +11,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | OpenAgents —— RFC 驱动的多 Agent 框架。 |
-| `agentcontext.py` | Spec-0050/T1：统一 agent 上下文构造——build_agent_context。 |
+| `agentcontext.py` | Spec-0052/T1：统一 agent 上下文构造——build_agent_context。 |
 | `align.py` | Spec-0020/T1: issue 前门对齐——把模糊想法复述成「要做 X / 边界 Y / 不做 Z」。 |
 | `backfill.py` | Spec-0025/T1: 代码盘点助手——扫存量代码路径产出结构化 inventory。 |
 | `blocknote.py` | Spec-0032/T3: 结构化阻塞评论构造（纯函数模块，解耦理念 10）。 |

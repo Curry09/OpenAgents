@@ -1,4 +1,4 @@
-"""Spec-0050/T2：reviewer.review 的 history 注入 + 落盘产物为准 rubric 单元测试。
+"""Spec-0052/T2：reviewer.review 的 history 注入 + 落盘产物为准 rubric 单元测试。
 
 打桩 AgentBackend（记录每次 run 的 context），覆盖：
 - review(history=…) 把历史送进每个 reviewer 的 backend.run context（n=1 与 n>1）；

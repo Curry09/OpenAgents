@@ -134,7 +134,7 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0049 vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
 消除 vigil 多后端认领标签反复互撕：resume 不再重复认领(止血) + 认领编码 agent 归属(署名认领评论) + 认领后 read-after-write 退让，使同一 issue 任一时刻只被一个后端有效认领、他方识别并退让。
 
-### 0050 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
+### 0052 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
 抽一个统一的 build_agent_context(pr_number, extra_detail) 入口，所有派 agent 入口（orchestrator 各原子操作 + reviewer）统一走它：既保证 PR 号进入 prompt（refine_rfc/implement 补上），又把本 PR 对话历史（历轮评审裁决 + 作者回复 + 人类评论，带作者与轮次、截断去噪）注入 context，消除各模板自拼装的分叉；reviewer 附「落盘产物为准、评论仅供参考」rubric 以保留其独立读仓库的价值。
 
 ## 全局看板
@@ -312,10 +312,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0049 | 0049/T3 | vigil：_dispatch_kind/_claim_expired 归属感知闸 | done | T1, T2 | openagents/vigil.py<br>tests/test_vigil_claim.py |
 | 0049 | 0049/T4 | orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让 | done | T1, T2 | openagents/orchestrator.py<br>openagents/state.py<br>tests/test_orchestrator_claim.py |
 | 0049 | 0049/T5 | 成果测试：多后端竞态复现集成测试 + e2e 脚本 | done | T3, T4 | scripts/e2e-spec-0049-vigil-claim-ownership.sh<br>tests/test_claim_dedup_integration.py |
-| 0050 | 0050/T1 | agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号） | done | — | openagents/agentcontext.py<br>tests/test_agentcontext.py |
-| 0050 | 0050/T2 | reviewer：review 增 history 参数 + 落盘产物为准 rubric | done | — | openagents/reviewer.py<br>tests/test_reviewer_history.py |
-| 0050 | 0050/T3 | orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号 | done | T1, T2 | openagents/orchestrator.py<br>tests/test_orchestrator_context.py |
-| 0050 | 0050/T4 | 成果测试：#128 式历史复现集成测试 + e2e 脚本 | done | T1, T2, T3 | scripts/e2e-spec-0050-agent-context-injection.sh<br>tests/test_agent_context_integration.py |
+| 0052 | 0052/T1 | agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号） | done | — | openagents/agentcontext.py<br>tests/test_agentcontext.py |
+| 0052 | 0052/T2 | reviewer：review 增 history 参数 + 落盘产物为准 rubric | done | — | openagents/reviewer.py<br>tests/test_reviewer_history.py |
+| 0052 | 0052/T3 | orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号 | done | T1, T2 | openagents/orchestrator.py<br>tests/test_orchestrator_context.py |
+| 0052 | 0052/T4 | 成果测试：#128 式历史复现集成测试 + e2e 脚本 | done | T1, T2, T3 | scripts/e2e-spec-0052-agent-context-injection.sh<br>tests/test_agent_context_integration.py |
 
 ## 跨 feature 关系图
 
@@ -576,11 +576,11 @@ graph LR
         n0049_T4["T4 orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让"]
         n0049_T5["T5 成果测试：多后端竞态复现集成测试 + e2e 脚本"]
     end
-    subgraph G0050[0050 unified-agent-context-injection]
-        n0050_T1["T1 agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号）"]
-        n0050_T2["T2 reviewer：review 增 history 参数 + 落盘产物为准 rubric"]
-        n0050_T3["T3 orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号"]
-        n0050_T4["T4 成果测试：#128 式历史复现集成测试 + e2e 脚本"]
+    subgraph G0052[0052 unified-agent-context-injection]
+        n0052_T1["T1 agentcontext 新模块：build_agent_context（拉 PR 历史 + 分类去噪 + 截断 + PR 号）"]
+        n0052_T2["T2 reviewer：review 增 history 参数 + 落盘产物为准 rubric"]
+        n0052_T3["T3 orchestrator：四入口统一走 build_agent_context + 补 refine/implement 的 PR 号"]
+        n0052_T4["T4 成果测试：#128 式历史复现集成测试 + e2e 脚本"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -732,11 +732,11 @@ graph LR
     n0049_T4 --> n0049_T2
     n0049_T5 --> n0049_T3
     n0049_T5 --> n0049_T4
-    n0050_T3 --> n0050_T1
-    n0050_T3 --> n0050_T2
-    n0050_T4 --> n0050_T1
-    n0050_T4 --> n0050_T2
-    n0050_T4 --> n0050_T3
+    n0052_T3 --> n0052_T1
+    n0052_T3 --> n0052_T2
+    n0052_T4 --> n0052_T1
+    n0052_T4 --> n0052_T2
+    n0052_T4 --> n0052_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -767,12 +767,12 @@ graph LR
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0050 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0052 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0052 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040 |
@@ -2039,7 +2039,7 @@ graph LR
     class v_T5_1 st_done;
 ```
 
-### 0050 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史（issue #129）
+### 0052 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史（issue #129）
 
 ```mermaid
 graph LR

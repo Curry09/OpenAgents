@@ -1,5 +1,5 @@
 ---
-number: "0050"
+number: "0052"
 title: 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
 issue: 129
 slug: unified-agent-context-injection
@@ -58,13 +58,13 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0050-agent-context-injection.sh
+      - scripts/e2e-spec-0052-agent-context-injection.sh
       - tests/test_agent_context_integration.py
     scope: '内存假 github（评论账本）复现 PR #128 式历史：历轮 reviewer FAIL 裁决 + 作者『已把 result.md 改成 PASS』说明 + 一条人类评论 + 一条认领便签噪声。集成测试断言：①build_agent_context 产出含 PR 号+三类历史（带作者与轮次）+extra_detail；②认领便签/隐藏签名被滤除；③捕获 prompt 的假 backend 驱动 refine_rfc/implement/iterate→task 含 PR 号且 context 含历史；④reviewer.review(history=…) 把历史送进 backend context 且模板含落盘产物为准 rubric。e2e 脚本跑 ruff+定向 pytest+spec validate 打印可复现证据（浏览器 e2e 不适用：本改动是后端 prompt/context 组装、无产品前端界面可截图断言）'
-    acceptance: bash scripts/e2e-spec-0050-agent-context-injection.sh 退出码 0；集成测试四条断言（PR 号进 prompt / 三类历史进 context / 噪声被滤 / reviewer 得历史且 rubric 生效）全部通过；脚本输出可作 PR 指路牌收录的可复现证据
+    acceptance: bash scripts/e2e-spec-0052-agent-context-injection.sh 退出码 0；集成测试四条断言（PR 号进 prompt / 三类历史进 context / 噪声被滤 / reviewer 得历史且 rubric 生效）全部通过；脚本输出可作 PR 指路牌收录的可复现证据
 ---
 
-# 0050 · 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
+# 0052 · 统一 agent 上下文注入：所有派单入口带 PR 号 + 注入本 PR 对话历史
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -225,7 +225,7 @@ graph TD
 | T1 | `openagents/agentcontext.py`, `tests/test_agentcontext.py` | `build_agent_context(pr_number, extra_detail)`：`github.list_comments` 拉历史 → 分类去噪（留裁决/作者回复/人类评论，滤认领便签+签名噪声）→ 按作者+轮次渲染 → 截断 → 拼 PR 号 |
 | T2 | `openagents/reviewer.py`, `tests/test_reviewer_history.py` | `review` / `_run_reviewers` 增 `history: str = ""`（默认空零回归）→ `backend.run(context=history)`；新增 `_HISTORY_PRIMACY_RUBRIC`「落盘产物为准、评论仅供参考」拼进两模板 |
 | T3 | `openagents/orchestrator.py`, `tests/test_orchestrator_context.py` | `refine_rfc`/`implement` 模板补 PR 号；四入口 `context` 统一走 `build_agent_context`；`_review` 组历史传 `reviewer.review(history=…)`；`start_rfc` 不动 |
-| T4 | `scripts/e2e-spec-0050-agent-context-injection.sh`, `tests/test_agent_context_integration.py` | 成果测试：内存假 github 评论账本复现 #128 式历史（历轮 FAIL 裁决 + 作者「已改 PASS」+ 人类评论），断言 PR 号 + 三类历史进 prompt/context、认领便签被滤、reviewer 收到历史 + rubric；e2e 脚本跑 ruff+pytest+spec validate 打印证据 |
+| T4 | `scripts/e2e-spec-0052-agent-context-injection.sh`, `tests/test_agent_context_integration.py` | 成果测试：内存假 github 评论账本复现 #128 式历史（历轮 FAIL 裁决 + 作者「已改 PASS」+ 人类评论），断言 PR 号 + 三类历史进 prompt/context、认领便签被滤、reviewer 收到历史 + rubric；e2e 脚本跑 ruff+pytest+spec validate 打印证据 |
 
 文件跨 Task 互斥（理念 6 单一 writer）：`agentcontext.py`(T1) / `reviewer.py`(T2) / `orchestrator.py`(T3) /
 脚本+集成测试(T4) 无重叠；各 Task 自带独立新测试文件，既有 `test_orchestrator.py` / `test_reviewer.py`
@@ -249,7 +249,7 @@ cli-agent 子进程的文本，**无任何产品前端界面可驱动**（无导
      的 **task 含 PR 号**、**context 含历史**（补上两个 PR 号缺口 + 全入口注入历史）；
   4. reviewer 侧：`reviewer.review(history=…)` 把历史送进 `backend.run` 的 context，且评审任务模板含
      「落盘产物为准、评论仅供参考」rubric（保留独立性的同时可见历史）。
-- **e2e 脚本** `scripts/e2e-spec-0050-agent-context-injection.sh`：跑 `ruff check` + `ruff format --check`
+- **e2e 脚本** `scripts/e2e-spec-0052-agent-context-injection.sh`：跑 `ruff check` + `ruff format --check`
   + 定向 `pytest`（上述集成测试 + T1/T2/T3 单测）+ `spec validate`，把「PR 号进 prompt / 三类历史进
   context / 噪声被滤 / reviewer 得历史且 rubric 生效」的断言通过输出作为可复现证据（被 PR 指路牌自动收录）。
 

@@ -67,11 +67,11 @@ _RFC_AUTOMATION_RUBRIC = (
     "artifact 落点 / 失败路径 / 正·反例验收；否则这份 spec 只算设计草案，不应让对应实现 PR 仅凭这份 "
     "spec 过代码闸——判 REWORK，把「缺自动化闭环声明」写进 ISSUES。纯静态 / 重构 / 内部非自动化 spec 不查。\n"
 )
-# Spec-0050/T2：落盘产物为准 rubric——issue #129 给 reviewer 注入本 PR 对话历史（历轮裁决/作者
+# Spec-0052/T2：落盘产物为准 rubric——issue #129 给 reviewer 注入本 PR 对话历史（历轮裁决/作者
 # 回复/人类评论）作背景后，配套的独立性守卫。issue #129 要「让 reviewer 知晓历轮意见/人类指导」，
 # 又要保留其「独立读仓库真实状态、不被说辞蒙蔽」的价值（这是 PR #128 能**正确**判 FAIL 的原因：
 # 作者在评论里说『已把 result.md 改成 PASS』，但文件真实内容仍是 skipped）。故常驻一条硬约束：历史
-# 仅供背景，裁决必须以落盘产物为唯一依据。这是 prompt 层软约束（见 Spec-0050 Drawbacks：非结构性
+# 仅供背景，裁决必须以落盘产物为唯一依据。这是 prompt 层软约束（见 Spec-0052 Drawbacks：非结构性
 # 保证），与 messages/orchestrator 不共享草稿状态的结构性隔离互补。历史由 orchestrator 组好经
 # review(history=…) 传入 backend context，reviewer 本模块不 import github/agentcontext（理念 10 解耦）。
 _HISTORY_PRIMACY_RUBRIC = (
@@ -199,7 +199,7 @@ def review(
     聚合规则（决策 1）：全部解析为 PASS → passed=True；否则 passed=False，feedback 汇总
     各非 PASS（含无法解析裁决）的反馈正文。n<1 视为 1（至少一个 reviewer）。
 
-    Spec-0050/T2：`history` = 本 PR 对话历史（历轮裁决/作者回复/人类评论，由 orchestrator 经
+    Spec-0052/T2：`history` = 本 PR 对话历史（历轮裁决/作者回复/人类评论，由 orchestrator 经
     agentcontext.build_agent_context 组好传入），作为每个 reviewer 的 backend.run context 送达，
     让 reviewer 不再失忆（issue #129 缺口二）。默认空串 → 既有调用/测试逐字节零回归。配套的
     `_HISTORY_PRIMACY_RUBRIC`（已拼进两模板）约束「裁决以落盘产物为准、评论仅供参考」，保留
@@ -395,7 +395,7 @@ def _run_reviewers(
     n==1 时直接同步调用，避免无谓起线程池；n>1 用 ThreadPoolExecutor 并发——backend.run
     是子进程调用（IO 密集），线程并行即可缩短墙钟（决策 1 缺点缓解：N 默认 1）。
 
-    Spec-0050/T2：`history`（默认空串）作为每个 reviewer 的 backend.run `context` 送达，注入本 PR
+    Spec-0052/T2：`history`（默认空串）作为每个 reviewer 的 backend.run `context` 送达，注入本 PR
     对话历史（issue #129 缺口二）；缺省 "" 时行为逐字节同今天。
     """
     if n == 1:

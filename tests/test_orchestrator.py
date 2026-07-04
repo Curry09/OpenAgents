@@ -515,12 +515,12 @@ def test_refine_rfc_feeds_detail_posts_comment_and_keeps_rfc_review(tmp_path, mo
 
     orch.refine_rfc(pr_number=5, detail="请补充权衡章节")
 
-    # Spec-0050/T3：context 现在走 build_agent_context（PR 号 + 本 PR 历史 + 本轮反馈），本轮反馈
+    # Spec-0052/T3：context 现在走 build_agent_context（PR 号 + 本 PR 历史 + 本轮反馈），本轮反馈
     # detail 作为「本轮具体反馈」块含进去（不再逐字节等于 detail），且带上 PR 号。
     assert "请补充权衡章节" in backend.calls[0]["context"]
     assert "本 PR 是 #5" in backend.calls[0]["context"]
     assert "请补充权衡章节" in backend.calls[0]["task"]
-    # Spec-0050/T3：refine 任务模板补上 PR 号（issue #129 缺口一）。
+    # Spec-0052/T3：refine 任务模板补上 PR 号（issue #129 缺口一）。
     assert "PR #5" in backend.calls[0]["task"]
     assert posted["pr_number"] == 5
     assert "done" in posted["body"]  # 回贴评论含后端摘要
@@ -705,7 +705,7 @@ def test_iterate_feeds_detail_to_backend_and_appends_commit(tmp_path, monkeypatc
 
     orch.iterate(pr_number=5, reason="comment", detail="please fix the typo")
 
-    # Spec-0050/T3：context 走 build_agent_context——本轮反馈作「本轮具体反馈」块含进去、带 PR 号
+    # Spec-0052/T3：context 走 build_agent_context——本轮反馈作「本轮具体反馈」块含进去、带 PR 号
     # （不再逐字节等于 detail）。
     assert "please fix the typo" in backend.calls[0]["context"]
     assert "本 PR 是 #5" in backend.calls[0]["context"]

@@ -1,4 +1,4 @@
-"""Spec-0050/T3：orchestrator 四入口统一走 build_agent_context 的单元测试。
+"""Spec-0052/T3：orchestrator 四入口统一走 build_agent_context 的单元测试。
 
 外部副作用注入：capturing backend（记录 task/context）+ monkeypatch github.list_comments
 （内存评论账本）+ subprocess（Workspace git 走它）。覆盖：

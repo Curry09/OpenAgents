@@ -1,4 +1,4 @@
-"""Spec-0050/T1：build_agent_context 单元测试。
+"""Spec-0052/T1：build_agent_context 单元测试。
 
 打桩 github.list_comments（内存评论账本，不触达 gh/网络），覆盖：
 - 三块结构：PR 号 + 对话历史（带作者 + 轮次）+ 本轮反馈；

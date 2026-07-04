@@ -1,4 +1,4 @@
-"""Spec-0050/T1：统一 agent 上下文构造——build_agent_context。
+"""Spec-0052/T1：统一 agent 上下文构造——build_agent_context。
 
 OpenAgents 每次派 coding agent（精炼 spec / 实现 / 迭代 / 评审）时喂给它的 `context` 今天既
 不统一也不完整：PR 号有的入口写进 prompt、有的不写；所有 agent 都看不到**本 PR 的对话历史**
@@ -21,7 +21,7 @@ from openagents import github, identity
 
 # 历史块长度上限：超出则「保留最近若干条 + 头部标注省略」压缩，控制塞进 prompt 的长度
 # （与 claude_code._SUMMARY_MAX_LEN 同源的「别让上下文无限膨胀」思路）。多轮 PR 上历史会累积，
-# 最近的澄清 / 共识最相关，故按时序保留尾部。取值待集成测试标定（Spec-0050 Unresolved questions）。
+# 最近的澄清 / 共识最相关，故按时序保留尾部。取值待集成测试标定（Spec-0052 Unresolved questions）。
 _HISTORY_MAX_CHARS = 4000
 
 # 分类去噪用的机器评论标记（规范来源在别处，此处以本地常量匹配以保持解耦）：
@@ -38,7 +38,7 @@ _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def build_agent_context(*, pr_number: int, extra_detail: str) -> str:
-    """Spec-0050/T1：构造一段统一的 agent `context`——PR 号 + 本 PR 对话历史 + 本轮反馈。
+    """Spec-0052/T1：构造一段统一的 agent `context`——PR 号 + 本 PR 对话历史 + 本轮反馈。
 
     结构固定为三块（各自缺省时优雅降级，不产空标题块）：
       ① 一行「本 PR 是 #N」把 PR 号带进上下文；
@@ -67,7 +67,7 @@ def build_agent_context(*, pr_number: int, extra_detail: str) -> str:
 
 
 def _render_history(*, comments: list[github.Comment]) -> str:
-    """Spec-0050/T1：把 PR 评论列表分类去噪 → 按时序渲染 → 截断，返回历史块正文（纯函数）。
+    """Spec-0052/T1：把 PR 评论列表分类去噪 → 按时序渲染 → 截断，返回历史块正文（纯函数）。
 
     保留三类（正是要让 agent 看见的历史）：评审闸裁决、作者 refine 说明、一切人类评论；
     过滤认领便签与其它纯噪声机器评论。每条剥掉隐藏 HTML 注释签名后渲染成
@@ -85,7 +85,7 @@ def _render_history(*, comments: list[github.Comment]) -> str:
 
 
 def _should_keep(*, comment: github.Comment) -> bool:
-    """Spec-0050/T1：判定一条评论是否进历史（保留裁决 / 作者回复 / 人类评论，滤认领便签+机器噪声）。
+    """Spec-0052/T1：判定一条评论是否进历史（保留裁决 / 作者回复 / 人类评论，滤认领便签+机器噪声）。
 
     认领便签（含 `_CLAIM_MARKER`）无论是否署名一律过滤——它是派单去重噪声。无 OpenAgents 签名的
     即人类评论，保留。带签名的机器评论仅当是评审闸裁决或作者 refine 说明才保留，其余（指路牌 /
@@ -100,12 +100,12 @@ def _should_keep(*, comment: github.Comment) -> bool:
 
 
 def _strip_signatures(*, text: str) -> str:
-    """Spec-0050/T1：剥掉正文里的隐藏 HTML 注释（签名 / 认领标记 / 埋点），返回可读正文（纯函数）。"""
+    """Spec-0052/T1：剥掉正文里的隐藏 HTML 注释（签名 / 认领标记 / 埋点），返回可读正文（纯函数）。"""
     return _HTML_COMMENT_RE.sub("", text)
 
 
 def _truncate(*, entries: list[str]) -> str:
-    """Spec-0050/T1：历史条目按 `\\n\\n` 拼接；超 `_HISTORY_MAX_CHARS` 时保留最近若干条 + 标注省略。
+    """Spec-0052/T1：历史条目按 `\\n\\n` 拼接；超 `_HISTORY_MAX_CHARS` 时保留最近若干条 + 标注省略。
 
     从最新一条起向前累加，直到再加一条会超上限即停；至少保留最新一条（哪怕它单条就超上限——
     最近的反馈最相关）。截断时头部标注「（更早的 N 条历史已省略）」，让 agent 知道有更早历史被裁掉。
