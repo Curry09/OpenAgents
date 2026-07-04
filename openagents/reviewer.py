@@ -42,8 +42,16 @@ _RUBRIC_TAIL = (
     "【硬性格式】你的回复第一行必须就是 `VERDICT: <token>`（token ∈ PASS/REWORK/RETHINK），"
     "在任何 REASON/ISSUES/论证之前。所有理由、证据、问题列表一律写在裁决行之后——"
     "这样即便回复被长度截断，丢的也是尾部论证而非裁决本身。\n"
-    "PASS 示例：\n  VERDICT: PASS\n  REASON: <一句话说明核对的关键验证标准>\n"
-    "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 具体问题>\n  NEXT: <修复方向>\n"
+    # Spec-0050/T1：语言/长度硬化——把「理由用简短中文」从「示例偏置」升级为并列于裁决前置的硬性
+    # 输出规约。落在 _RUBRIC_TAIL（code/rfc 两闸共享）改一处即两闸同时生效（DRY，奥卡姆，理念 1）。
+    # 只约束「裁决行之后的理由正文」，与裁决前置正交、互不削弱；不改任何解析/聚合/渲染逻辑。
+    "【硬性语言/长度】面向人类的裁决理由（REASON / ISSUES / NEXT，即裁决行之后的正文）必须用"
+    "一段简短的中文书写：直击要害、只讲结论与可操作的下一步，避免长篇英文、避免逐行英文堆砌、"
+    "避免照搬内部推理原文。无论你内部以什么语言推理，最终给人看的理由一律译成中文。这段话是给"
+    "盯 PR 的人在 GitHub 评论里直接读懂并处理用的，不是给你自己看的过程记录。\n"
+    "PASS 示例：\n  VERDICT: PASS\n  REASON: <一句话中文说明核对的关键验证标准>\n"
+    "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 一句话中文点出问题>\n"
+    "  NEXT: <一句话中文说明修复方向>\n"
 )
 # Spec-0040/T4：「要不要有 e2e」从代码 reviewer 上移到 RFC 闸——加一条更硬的规则：前端/交互类
 # 改动的 spec 若没声明 e2e 粗规划（组级 frontmatter 的 e2e{form,intent,acceptance}，见 Spec-0040/
