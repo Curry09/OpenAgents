@@ -187,6 +187,9 @@ class RunbookHandle:
     runbook_path: Path
     evidence_dir: Path
     intent: str
+    # Spec-0051/T4：e2e 执行形态（来自组级 e2e 粗规划 plan.form）——供 messages 收口点渲「说明书定稿」
+    # 回执展示形态（worknote.render_runbook）。放在 handle 上（而非 T5 只用 runbook_path）使回执信息更全。
+    form: str
 
 
 def _intent_text(*, plan: model.E2EPlan) -> str:
@@ -513,13 +516,19 @@ class Orchestrator:
         return result.summary
 
     # --- 原子操作 3：RFC 获批后实现代码 --------------------------------- #
-    def implement(self, *, pr_number: int) -> None:
-        """RFC-0005：RFC 获批后按其写代码、把 draft PR 转正，状态 pr-open。"""
+    def implement(self, *, pr_number: int) -> str:
+        """RFC-0005：RFC 获批后按其写代码、把 draft PR 转正，状态 pr-open；返回 agent 本轮实现摘要。
+
+        Spec-0051/T4：返回 `result.summary`（与 iterate/refine_rfc 同款返回 str，agent 无摘要时回落
+        占位保证非空），使 messages 收口点（_process_rfc_review）拿得到「本轮实现了什么」摘要、渲成
+        「## 实现自述」回执贴回 PR（理念 8 可观测性）。其余编排语义逐字节不变（backend.run / commit /
+        mark_ready / 状态流转 / 清回合数不动）；既有忽略返回值的 cli 调用（cli.py）零影响。
+        """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
 
         self._progress(message=f"▶ RFC 已批准，按 RFC 实现 PR #{pr_number} 的代码 …")
-        self._backend.run(
+        result = self._backend.run(
             work_dir=worktree,
             # Spec-0050/T3：模板补 PR 号（issue 号 + PR 号并存）；context 走 build_agent_context
             # 注入 PR 号 + 本 PR 对话历史，implement 本轮无额外反馈故 extra_detail=""（缺口一/二）。
@@ -540,6 +549,8 @@ class Orchestrator:
         # RFC-0012 决策 6：进入代码闸前清零回合数，使 K 对 RFC 闸 / 代码闸独立计
         # （RFC 闸耗掉的回合不挤占代码闸的预算）。
         self._state.reset_rounds(issue_number=record.issue_number)
+        # Spec-0051/T4：回 agent 本轮实现摘要（空则占位保证非空），供 messages 渲「## 实现自述」回执。
+        return result.summary or "（无摘要）"
 
     # --- 评审闸：调 reviewer agent 给 RFC / 代码裁决（RFC-0012 决策 5）------ #
     def review_rfc(self, *, pr_number: int) -> ReviewDecision:
@@ -677,6 +688,7 @@ class Orchestrator:
             runbook_path=runbook_path,
             evidence_dir=evidence_dir,
             intent=intent,
+            form=plan.form,
         )
 
     def commit_evidence(self, *, pr_number: int) -> None:
