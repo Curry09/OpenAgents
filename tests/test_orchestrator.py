@@ -589,6 +589,33 @@ def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
         orch.implement(pr_number=999)
 
 
+def test_implement_returns_agent_summary(tmp_path, monkeypatch):
+    # Spec-0051/T4：implement 返回 result.summary（None→str），供 messages 渲「## 实现自述」回执。
+    backend = _FakeBackend(summary="实现了 issue #3 的 foo/bar 两处")
+    orch, backend, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    monkeypatch.setattr(orch_module.github, "mark_ready", lambda *, pr_number: None)
+
+    summary = orch.implement(pr_number=5)
+
+    assert summary == "实现了 issue #3 的 foo/bar 两处"
+
+
+def test_implement_empty_summary_falls_back_to_placeholder(tmp_path, monkeypatch):
+    # Spec-0051/T4：agent 无摘要时回落占位保证返回非空 str。
+    backend = _FakeBackend(summary="")
+    orch, backend, state = _make(tmp_path, backend=backend)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    monkeypatch.setattr(orch_module.github, "mark_ready", lambda *, pr_number: None)
+
+    summary = orch.implement(pr_number=5)
+
+    assert summary
+    assert summary == "（无摘要）"
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0040/T5: 退役旧 smoke + 证据闸 finalize_runbook / commit_evidence
 # --------------------------------------------------------------------------- #

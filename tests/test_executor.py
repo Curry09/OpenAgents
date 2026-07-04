@@ -19,6 +19,7 @@ from openagents.executor import (
     ExecutorResult,
     _parse_form,
     _parse_outcome,
+    render_result,
     run_executor,
 )
 
@@ -214,3 +215,35 @@ def test_parse_outcome_variants():
     assert _parse_outcome(summary="结论 PASSED") == OUTCOME_PASSED
     # 无法解析 → 疑罪从严判 failed。
     assert _parse_outcome(summary="没有明确结论") == OUTCOME_FAILED
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0051/T1: render_result 纯函数（ExecutorResult → PR 回执 Markdown）
+# --------------------------------------------------------------------------- #
+
+
+def test_render_result_passed_has_header_and_outcome():
+    body = render_result(result=ExecutorResult(outcome=OUTCOME_PASSED, form="cli", notes="跑通了"))
+    assert body.startswith("## 证据执行")
+    assert "✅ 通过" in body
+    assert "cli" in body
+    # notes 非空 → 附代码块体现。
+    assert "```" in body and "跑通了" in body
+
+
+def test_render_result_failed_and_skipped_outcomes_localized():
+    failed = render_result(result=ExecutorResult(outcome=OUTCOME_FAILED, form="api", notes=""))
+    assert failed.startswith("## 证据执行")
+    assert "❌ 未通过" in failed
+    # notes 为空 → 不附代码块。
+    assert "```" not in failed
+    skipped = render_result(
+        result=ExecutorResult(outcome=OUTCOME_SKIPPED, form="ui", notes="留 Phase 2")
+    )
+    assert "⏭️ 跳过" in skipped
+
+
+def test_render_result_is_deterministic_pure():
+    result = ExecutorResult(outcome=OUTCOME_PASSED, form="backend", notes="n")
+    # 纯函数：同输入恒同输出、无副作用。
+    assert render_result(result=result) == render_result(result=result)

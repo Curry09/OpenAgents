@@ -15,6 +15,7 @@ from openagents.evidence_gate import (
     RESULT_FILENAME,
     EvidenceDecision,
     evidence_dir_for,
+    render_decision,
     review_evidence,
 )
 
@@ -130,3 +131,32 @@ def test_backend_raises_maps_to_fail(tmp_path):
     )
     assert decision.passed is False
     assert "异常" in decision.feedback
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0051/T2: render_decision 纯函数（EvidenceDecision → PR 回执 Markdown）
+# --------------------------------------------------------------------------- #
+
+
+def test_render_decision_pass_has_header_no_feedback():
+    body = render_decision(decision=EvidenceDecision(passed=True, feedback=""))
+    assert body.startswith("## 证据闸判决")
+    assert "✅ PASS" in body
+    # PASS 不含 feedback 代码块。
+    assert "```" not in body
+
+
+def test_render_decision_fail_has_feedback_block():
+    body = render_decision(
+        decision=EvidenceDecision(passed=False, feedback="验收行为 A 未达成；避重就轻")
+    )
+    assert body.startswith("## 证据闸判决")
+    assert "❌ FAIL" in body
+    # FAIL 且 feedback 非空 → 附代码块。
+    assert "```" in body
+    assert "验收行为 A 未达成" in body
+
+
+def test_render_decision_is_deterministic_pure():
+    decision = EvidenceDecision(passed=False, feedback="缺证据")
+    assert render_decision(decision=decision) == render_decision(decision=decision)
