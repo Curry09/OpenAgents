@@ -9,12 +9,12 @@
 ## 0. 执行形态声明
 
 ```
-form = ui
+form = cli
 ```
 
-**为什么是 ui（executor 据此选工具真跑）**：本 PR 的产品成果是「渲染出来的 GitHub PR 评论里『反馈摘要』块文字的可读性」——它落在**浏览器可见界面**上（issue #124 原文：「这样人类才能在 github 中直接处理」）。「反馈摘要」块是不是「盯 PR 的人能一眼读懂并据此处理的一段简短中文」，是一个**渲染 / 视觉属性**，只有把评论真渲染成页面、用浏览器打开、抽渲染后 DOM 文本做判据，才算真验。因此 executor **必须走浏览器成果闭环**（真实浏览器导航 + 截图 + `browser_evaluate` 文本断言 + console 无报错），**不得**用「跑单测绿了」「grep 到 rubric 文本」「脚本 `--help` 不崩」之类离线断言顶替浏览器成果段——那是弱化，判 FAIL。
+**为什么是 cli（e2e 规约降级，见 spec frontmatter e2e 块）**：本 PR 是纯 prompt 文本硬化（reviewer 的 `_RUBRIC_TAIL` 加「裁决理由必须一段简短中文」硬规约），**无运行时行为变更、无浏览器可跑成果**。「反馈摘要须为简短中文」这条约束的可验证成果，是**离线确定性**地跑通真实 `render_decision` 渲染路径 + 机器可验证的可读性判据（CJK 占比 ≥ 0.5 且 长度 ≤ 300，GREEN 通过 / RED 长英文不通过），而非需要真 LLM 或浏览器交互的界面闭环。故 executor 的**门控成果 = 离线段真跑全绿**（步骤 A）；浏览器导航+截图闭环（步骤 B/C）为**可选增强**，环境具备 browser MCP 时可做以留视觉存证，**缺失亦不判 FAIL**——判据本身已在离线段机器可验。
 
-**RFC 批准的意图（不可偷换、不得弱化）**：reviewer 的裁决理由（反馈摘要）落在 GitHub PR 评论这个浏览器可见界面上，必须是盯 PR 的人能一眼读懂并据此处理的**一段简短中文**，而非长篇英文堆砌。
+**RFC 批准的意图（不可偷换、不得弱化）**：reviewer 的裁决理由（反馈摘要）必须是盯 PR 的人能一眼读懂并据此处理的**一段简短中文**，而非长篇英文堆砌；这一意图由离线段的真实 `render_decision` 渲染路径 + CJK/长度判据（GREEN 通过、RED 反证不通过）机器可验。
 
 ---
 
@@ -70,11 +70,13 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
 
 **判定点 A**：脚本以 0 退出；GREEN 自检「通过」、RED 自检「不通过」（离线侧已证判据能区分两者、绿非恒真）；两个 HTML 页确实生成。任一不满足 → **FAIL**，记录脚本 stderr。
 
-> 注意：这一步只是「渲染出真实评论页 + 离线判据自检」，**它本身不是浏览器成果段**。浏览器成果闭环在步骤 B/C，必须真跑，不能止步于此。
+> 注意（降级后）：这一步「离线段真跑全绿 + 真实 render 路径判据（GREEN 通过 / RED 不通过）」**就是本 cli 形态的门控成果**。步骤 B/C 的浏览器闭环为可选视觉存证，环境无 browser MCP 时可跳过，不判 FAIL。
 
 ---
 
-## 4. 步骤 B —— GREEN 浏览器成果闭环（核心正样本）
+## 4. 步骤 B —— GREEN 浏览器成果闭环（可选视觉存证）
+
+> 降级后：本步为**可选增强**，非门控红线。环境具备 browser MCP 时做以留视觉截图；缺失则跳过并在 `result.md` 据实标注，不判 FAIL。
 
 用 `playwright` MCP（或 `chrome-devtools` MCP）对 GREEN 页走完整闭环。GREEN 页 URL = 步骤 A 打印的 `file://<repo>/docs/evidence/spec-0050/comment-green-short-chinese.html`。
 
@@ -113,7 +115,9 @@ bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh
 
 ---
 
-## 5. 步骤 C —— RED 反证浏览器闭环（证明绿非恒真）
+## 5. 步骤 C —— RED 反证浏览器闭环（可选视觉存证）
+
+> 降级后：同步骤 B 为**可选增强**，非门控红线。RED 反证的判据区分能力已在步骤 A 离线段机器可验（RED 自检判不通过）。
 
 对 RED 页 `file://<repo>/docs/evidence/spec-0050/comment-red-long-english.html` 重复 B1–B4 的**同一套**判据（同阈值、同 `browser_evaluate` 脚本），但**期望结论相反**。
 
@@ -137,7 +141,7 @@ executor 完成 B/C 后：
    - `comment-green-short-chinese.png` / `.html`
    - `comment-red-long-english.png` / `.html`
 2. 写 / 更新 `docs/e2e-results/128/result.md`，至少含：
-   - 本 PR / spec / issue 标识（PR #128、Spec-0050、issue #124）与 `form: ui`。
+   - 本 PR / spec / issue 标识（PR #128、Spec-0050、issue #124）与 `form: cli`。
    - **被验证的意图**（原文）：reviewer 裁决理由（反馈摘要）在 GitHub PR 评论里必须是盯 PR 的人一眼读懂并据此处理的一段简短中文。
    - 一张结果表：GREEN 与 RED 各自的 `实测 CJK 占比 / 实测长度 / console error 数 / 判据结论（通过·应通过 / 不通过·应不通过）`，附截图相对链接。
    - 浏览器驱动方式的**诚实说明**：用了 playwright MCP / chrome-devtools MCP / 还是回退到系统真实 Chrome headless；截图与 DOM 文本均来自**真实浏览器渲染**，非自动化测试或日志顶替。
@@ -165,13 +169,10 @@ OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0050-review-reason-chinese-readabili
 
 ## 8. 整体判定（PASS / FAIL 汇总）
 
-**全部满足才 PASS**：
+**门控项（A）满足即 PASS；B/C 为可选增强**：
 
-- [ ] A：`bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh` 以 0 退出；GREEN 自检通过、RED 自检不通过；两 HTML 页生成。
-- [ ] B：GREEN 页经**真实浏览器**导航 + 截图；`browser_evaluate` 实测 `#feedback-summary` 满足 `CJK 占比 ≥ 0.5 且 长度 ≤ 300`；console 无 error；截图落 `docs/evidence/spec-0050/`。
-- [ ] C：RED 页同一判据**判不通过**（CJK 低 / 超长），对照截图落 `docs/evidence/spec-0050/`——证明绿非恒真。
-- [ ] 证据：`docs/e2e-results/128/result.md` 写全上述实测值 + 诚实说明；截图 / 页面在 tracked `docs/evidence/spec-0050/`。
+- [ ] A（门控）：`bash scripts/e2e-spec-0050-review-reason-chinese-readability.sh` 以 0 退出；离线段 ruff+format+pytest 全绿、grep 锚点命中；真实 `render_decision` 路径 GREEN 自检通过、RED 自检不通过；两 HTML 页生成落 tracked `docs/evidence/spec-0050/`。
+- [ ] 证据：`docs/e2e-results/128/result.md` 写全上述实测值 + 诚实说明。
+- [ ]（可选）B/C：环境具备 browser MCP 时，对 GREEN/RED 页走浏览器导航 + 截图 + `browser_evaluate` 判据复核，留视觉存证；缺失则据实标注跳过。
 
-**任一浏览器成果闭环（B/C）未真跑，或用离线单测 / grep 顶替浏览器成果 → 判 FAIL**（这是意图不可弱化的红线：成果必须在浏览器可见界面上被真验，且 RED 反证必须真判不通过）。
-
-若浏览器自动化客观不可得且系统真实 Chrome 亦不可得 → 不判 PASS，在 `result.md` 明写「浏览器成果段未执行」阻塞项与原因，交回人工 / 待环境具备后复跑。
+**判定红线（降级后）**：门控成果是**离线段（步骤 A）真跑全绿 + 真实 render 路径判据 GREEN 通过 / RED 反证不通过**——纯 prompt 文本改动无浏览器可跑成果，判据已在离线段机器可验，故浏览器闭环（B/C）缺失**不判 FAIL**。仅当步骤 A 未真跑 / 未全绿，或用「grep 到 rubric 文本」之外的空口顶替离线判据 → 判 FAIL。
