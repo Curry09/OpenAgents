@@ -151,7 +151,7 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 给代码评审闸引入「PR 净改动指纹」短路：reviewer 全票 PASS 时落盘指纹，下一轮进 review_code 前比指纹一致则复用 PASS、跳过重审——止住 base 前进（BEHIND→update_branch→CI 重跑）触发的同码空转重审。
 
 ### 0054 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
-新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence/merge（及 all）中任一闸视为 PASS 放行；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
+新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence（及 all）中任一闸视为 PASS 放行（可合并性预检闸不提供 --skip——见 Rationale 备选 4）；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
 
 ## 全局看板
 
@@ -345,7 +345,7 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0053 | 0053/T3 | messages：_process_coding 3c sticky 短路接线 | done | T1, T2 | openagents/messages.py<br>tests/test_messages_review_sticky.py |
 | 0053 | 0053/T4 | e2e：sticky 复用 PASS 成果脚本 | done | T3 | scripts/e2e-spec-0053-review-sticky-pass.sh |
 | 0054 | 0054/T1 | skip 解析模块 + 矛盾检测 | pending | — | openagents/skip.py<br>tests/test_skip.py |
-| 0054 | 0054/T2 | 逐闸消费：透传 Skip 到 6 道闸 | pending | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
+| 0054 | 0054/T2 | 逐闸消费：透传 Skip 到 5 道闸 | pending | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
 | 0054 | 0054/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | pending | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
 | 0054 | 0054/T4 | README 闸门树 | pending | T1 | README.md |
 | 0054 | 0054/T5 | 成果测试 e2e 脚本（离线闸控时间线） | pending | T2, T3 | scripts/e2e-spec-0054-vigil-skip-gate.sh |
@@ -635,7 +635,7 @@ graph LR
     end
     subgraph G0054[0054 vigil-skip-gate-bypass]
         n0054_T1["T1 skip 解析模块 + 矛盾检测"]
-        n0054_T2["T2 逐闸消费：透传 Skip 到 6 道闸"]
+        n0054_T2["T2 逐闸消费：透传 Skip 到 5 道闸"]
         n0054_T3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
         n0054_T4["T4 README 闸门树"]
         n0054_T5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
@@ -2235,7 +2235,7 @@ graph LR
 ```mermaid
 graph LR
     nT1["T1 skip 解析模块 + 矛盾检测"]
-    nT2["T2 逐闸消费：透传 Skip 到 6 道闸"]
+    nT2["T2 逐闸消费：透传 Skip 到 5 道闸"]
     nT3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
     nT4["T4 README 闸门树"]
     nT5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
