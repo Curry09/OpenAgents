@@ -14,6 +14,7 @@ from openagents.github import GithubError, Issue
 from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
 from openagents.orchestrator import OrchestratorError
+from openagents.skip import NONE as NO_SKIP
 from openagents.state import STATUS_SOLVING, RunRecord
 from openagents.vigil import Vigil
 
@@ -44,10 +45,13 @@ class _StubMessages:
         self.poll_count = 0
         # Spec-0020/T3：记录每轮 poll 收到的 hold，用于断言 vigil 把意图逐轮透传下去。
         self.holds = []
+        # Spec-0054/T2：记录每轮 poll 收到的 skip，用于断言 vigil 把 skip 意图逐轮透传下去。
+        self.skips = []
 
-    def poll(self, *, hold=NO_HOLD):
+    def poll(self, *, hold=NO_HOLD, skip=NO_SKIP):
         self.poll_count += 1
         self.holds.append(hold)
+        self.skips.append(skip)
         return []
 
 
@@ -335,7 +339,7 @@ def test_run_long_running_swallows_generic_exception(monkeypatch):
         def __init__(self):
             self.poll_count = 0
 
-        def poll(self, *, hold=NO_HOLD):
+        def poll(self, *, hold=NO_HOLD, skip=NO_SKIP):
             self.poll_count += 1
             if self.poll_count == 1:
                 raise RuntimeError("unexpected boom")
