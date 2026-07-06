@@ -11,6 +11,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | OpenAgents —— RFC 驱动的多 Agent 框架。 |
+| `agentcontext.py` | Spec-0052/T1：统一 agent 上下文构造——build_agent_context。 |
 | `align.py` | Spec-0020/T1: issue 前门对齐——把模糊想法复述成「要做 X / 边界 Y / 不做 Z」。 |
 | `backfill.py` | Spec-0025/T1: 代码盘点助手——扫存量代码路径产出结构化 inventory。 |
 | `blocknote.py` | Spec-0032/T3: 结构化阻塞评论构造（纯函数模块，解耦理念 10）。 |
@@ -69,6 +70,7 @@ _spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态�
 ```mermaid
 graph LR
     nopenagents["openagents"]
+    nopenagents_agentcontext["openagents.agentcontext"]
     nopenagents_align["openagents.align"]
     nopenagents_backends["openagents.backends"]
     nopenagents_backends_base["backends.base"]
@@ -107,6 +109,9 @@ graph LR
     nopenagents_vigil["openagents.vigil"]
     nopenagents_worknote["openagents.worknote"]
     nopenagents_workspace["openagents.workspace"]
+    nopenagents_agentcontext --> nopenagents
+    nopenagents_agentcontext --> nopenagents_github
+    nopenagents_agentcontext --> nopenagents_identity
     nopenagents_align --> nopenagents_backends_base
     nopenagents_backends_claude_code --> nopenagents_backends_base
     nopenagents_cli --> nopenagents
@@ -162,6 +167,7 @@ graph LR
     nopenagents_messages --> nopenagents_state
     nopenagents_messages --> nopenagents_worknote
     nopenagents_orchestrator --> nopenagents
+    nopenagents_orchestrator --> nopenagents_agentcontext
     nopenagents_orchestrator --> nopenagents_backends_base
     nopenagents_orchestrator --> nopenagents_backfill
     nopenagents_orchestrator --> nopenagents_evidence_gate

@@ -353,9 +353,11 @@ def test_verdicts_map_each_token(tmp_path, monkeypatch):
     # 每条 summary 派发一次、不保证 summary→future 的对应），故打桩 _run_reviewers 固定
     # 按序返回 summaries，把映射断言与线程时序解耦——避免 CI 不确定地翻红（核对：「PR 的 CI 全通过」）。
     summaries = ["VERDICT: PASS", "VERDICT: REWORK", "VERDICT: RETHINK"]
+    # Spec-0052/T2：_run_reviewers 新增 history 形参（默认空）；打桩 lambda 的签名随之带上
+    # history（否则 review() 传 history=… 时 lambda 报意外 kwarg）——仅同步 mock 签名，不改断言。
     monkeypatch.setattr(
         "openagents.reviewer._run_reviewers",
-        lambda *, backend, work_dir, task, n: summaries,
+        lambda *, backend, work_dir, task, n, history="": summaries,
     )
     decision = review(backend=_backend("unused"), work_dir=tmp_path, kind="code", pr_number=7, n=3)
     assert decision.verdicts == ("PASS", "REWORK", "RETHINK")
