@@ -1,5 +1,5 @@
 ---
-number: "0052"
+number: "0054"
 title: vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
 issue: 135
 slug: vigil-skip-gate-bypass
@@ -72,12 +72,12 @@ tasks:
     relates-to: []
     parallel: false
     files:
-      - scripts/e2e-spec-0052-vigil-skip-gate.sh
-    scope: 新增 scripts/e2e-spec-0052-vigil-skip-gate.sh（镜像 e2e-spec-0020-hold-gate.sh）：段1 离线确定性验证 ruff+pytest；段2 离线闸控时间线，用打桩 orchestrator/state + 内存 label 集合驱动 Messages.poll(skip=spec) 断言 spec 闸被当 PASS 直接进实现，并演示 --hold spec --skip spec 报错。CLI/离线形态（无 browser MCP，纯内部控制流、无前端）。
-    acceptance: bash scripts/e2e-spec-0052-vigil-skip-gate.sh 在无凭证环境可跑通、可重复：段1 lint+pytest 全绿；段2 打印『spec 闸 skip→直接进实现』断言通过 + 矛盾报错演示通过；脚本头注明因无 browser MCP 取 CLI 离线形态。
+      - scripts/e2e-spec-0054-vigil-skip-gate.sh
+    scope: 新增 scripts/e2e-spec-0054-vigil-skip-gate.sh（镜像 e2e-spec-0020-hold-gate.sh）：段1 离线确定性验证 ruff+pytest；段2 离线闸控时间线，用打桩 orchestrator/state + 内存 label 集合驱动 Messages.poll(skip=spec) 断言 spec 闸被当 PASS 直接进实现，并演示 --hold spec --skip spec 报错。CLI/离线形态（无 browser MCP，纯内部控制流、无前端）。
+    acceptance: bash scripts/e2e-spec-0054-vigil-skip-gate.sh 在无凭证环境可跑通、可重复：段1 lint+pytest 全绿；段2 打印『spec 闸 skip→直接进实现』断言通过 + 矛盾报错演示通过；脚本头注明因无 browser MCP 取 CLI 离线形态。
 ---
 
-# 0052 · vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
+# 0054 · vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -194,7 +194,7 @@ vigil 自主环闸门
 | T2 | 逐闸消费：透传 Skip 到 6 道闸 | `openagents/vigil.py`, `openagents/messages.py`, `tests/test_messages_skip.py` | T1 |
 | T3 | CLI 接线 `--skip` + hold/skip 矛盾校验 | `openagents/cli.py`, `tests/test_cli_skip.py` | T1, T2 |
 | T4 | README 闸门树 | `README.md` | T1 |
-| T5 | 成果测试 e2e 脚本（离线闸控时间线） | `scripts/e2e-spec-0052-vigil-skip-gate.sh` | T2, T3 |
+| T5 | 成果测试 e2e 脚本（离线闸控时间线） | `scripts/e2e-spec-0054-vigil-skip-gate.sh` | T2, T3 |
 
 ```mermaid
 graph TD
@@ -210,7 +210,7 @@ graph TD
 
 ### e2e 脚本路径
 
-`scripts/e2e-spec-0052-vigil-skip-gate.sh`（T5）。**成果测试形态说明（理念 8）：** 本改动是纯 CLI/流水线内部控制流，**无前端、无产品对外浏览器行为**，且本 spec 起草环境**不具备 browser MCP（Playwright / Chrome DevTools）**——由 agent 自检工具列表确认——故成果测试取 **CLI/离线形态**，不设计浏览器导航/截图 e2e（与既有 `--hold` 的 `scripts/e2e-spec-0020-hold-gate.sh` 同构、可 CI 跑、可重复）。脚本两段：(1) 离线确定性验证：`ruff check` + `ruff format --check` + `pytest -q`（全程 mock，覆盖 skip 解析 / 矛盾检测 / 各闸 PASS 短路 / CLI 接线）；(2) 离线闸控时间线演示：用打桩 orchestrator/state + 内存 label 集合模拟 GitHub，离线驱动 `Messages.poll(skip=spec)` 断言「spec 闸被当作 PASS、直接进实现」，并演示 `--hold spec --skip spec` 报错。
+`scripts/e2e-spec-0054-vigil-skip-gate.sh`（T5）。**成果测试形态说明（理念 8）：** 本改动是纯 CLI/流水线内部控制流，**无前端、无产品对外浏览器行为**，且本 spec 起草环境**不具备 browser MCP（Playwright / Chrome DevTools）**——由 agent 自检工具列表确认——故成果测试取 **CLI/离线形态**，不设计浏览器导航/截图 e2e（与既有 `--hold` 的 `scripts/e2e-spec-0020-hold-gate.sh` 同构、可 CI 跑、可重复）。脚本两段：(1) 离线确定性验证：`ruff check` + `ruff format --check` + `pytest -q`（全程 mock，覆盖 skip 解析 / 矛盾检测 / 各闸 PASS 短路 / CLI 接线）；(2) 离线闸控时间线演示：用打桩 orchestrator/state + 内存 label 集合模拟 GitHub，离线驱动 `Messages.poll(skip=spec)` 断言「spec 闸被当作 PASS、直接进实现」，并演示 `--hold spec --skip spec` 报错。
 
 ## Drawbacks
 

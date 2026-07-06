@@ -16,6 +16,7 @@ found / no checks reported / pending 退出码 8）绝不重试，立即按原�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import time
@@ -767,6 +768,28 @@ def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
             return False
         raise
     return True
+
+
+def code_fingerprint(*, pr_number: int) -> str:
+    """Spec-0053/T2：取 PR 相对其 base 的净 diff 指纹（`sha256(gh pr diff <n>)` 的 hexdigest）。
+
+    `gh pr diff` 返回的是 GitHub 侧计算的三点语义（base...head）unified diff——「这个 PR 在
+    base 之上加了什么」。它在「只是 base 前进、PR 自身未改」（如 update_branch 无冲突并入 main）时
+    保持逐字节不变，故是代码闸 sticky 短路（Spec-0053/T3）判「代码状态是否变」的正确口径，而非
+    head tree SHA（会被 update_branch merge main 进 head 改掉）。对照 k8s lgtm store_tree_hash。
+
+    本函数是对 gh 的薄封装（理念 10）：只做「取 diff + 定长哈希」，不含任何「要不要短路」的业务判定。
+    gh 故障（非零退出抛 GithubError）或空输出 → 返回 "" （fail-open）：调用方据空串落回照常评审，
+    sticky 永不基于「算不出指纹」做跳过。
+    """
+    try:
+        result = _run_gh(["pr", "diff", str(pr_number)], allow_returncodes=set())
+    except GithubError:
+        return ""
+    diff = result.stdout or ""
+    if not diff:
+        return ""
+    return hashlib.sha256(diff.encode("utf-8")).hexdigest()
 
 
 def _is_already_up_to_date(*, reason: str) -> bool:
