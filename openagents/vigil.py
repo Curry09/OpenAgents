@@ -28,6 +28,8 @@ from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
 from openagents.messages import Messages
 from openagents.orchestrator import Orchestrator, OrchestratorError
+from openagents.skip import NONE as NO_SKIP
+from openagents.skip import Skip
 from openagents.state import STATUS_SOLVING
 
 # 与 orchestrator 一致的分支命名：单 issue → 单分支。
@@ -64,7 +66,14 @@ class Vigil:
         self._agent_id = agent_id
 
     def run(
-        self, *, interval: int, labels: list[str], base: str, once: bool, hold: Hold = NO_HOLD
+        self,
+        *,
+        interval: int,
+        labels: list[str],
+        base: str,
+        once: bool,
+        hold: Hold = NO_HOLD,
+        skip: Skip = NO_SKIP,
     ) -> None:
         """守夜人主循环：每轮先发现+派单，再 poll 已开 PR；持续到 Ctrl-C（决策 6）。
 
@@ -75,6 +84,11 @@ class Vigil:
         Spec-0020/T3：新增关键字参数 hold（Hold），默认取「全不停」实例以保持现有调用与
         行为逐字节不变；vigil 自身不消费 hold，仅把人的意图逐轮透传给 messages.poll，由
         真正分流的 messages 层在 spec / merge 闸据 hold 决定停或照常（vigil 仍是薄调度循环）。
+
+        Spec-0054/T2：新增关键字参数 skip（Skip），默认「全不关」实例以保持现有调用与行为
+        逐字节不变（零回归）。skip 与 hold 并列逐轮透传：发现段本层消费 skip.at_issue（跳过
+        precheck_issue 直接放行派单），守候段把 skip 下传 messages.poll，由 messages 层在
+        spec / code / ci / evidence 四道闸把 skip 中命中的闸当 PASS 直接放行。
 
         once=True 跑一轮即返回（适配 cron/CI 周期触发）；否则 sleep(interval) 续循环。
         KeyboardInterrupt 是人类的停止信号 → 干净退出，不抛出（决策 8）。
@@ -88,7 +102,7 @@ class Vigil:
         try:
             while True:
                 try:
-                    self._run_one_round(labels=labels, base=base, hold=hold)
+                    self._run_one_round(labels=labels, base=base, hold=hold, skip=skip)
                 except Exception as exc:  # noqa: BLE001 —— 决策 6：守夜第一要务是「活着进下一轮」
                     if once:
                         raise  # 决策 5：once 模式不吞，让 cron/CI 得到非零退出
@@ -101,18 +115,24 @@ class Vigil:
             self._log(message="✓ 守夜人已停止（Ctrl-C）")
             return
 
-    def _run_one_round(self, *, labels: list[str], base: str, hold: Hold) -> None:
+    def _run_one_round(
+        self, *, labels: list[str], base: str, hold: Hold, skip: Skip = NO_SKIP
+    ) -> None:
         """RFC-0010 T2：单轮——发现+派单，再 poll 已开 PR。
 
         从既有 run 循环体中机械抽取的私有方法，行为不变；抽出后供长驻模式 try/except
         包裹（单轮失败兜底）与 once 模式直接调用（异常上抛）复用。
 
         Spec-0020/T3：把本次运行的 hold 透传给 messages.poll，让分流落到真正的闸门处。
+        Spec-0054/T2：skip 一并透传——发现段 discover_and_dispatch 消费 skip.at_issue，
+        守候段 messages.poll 消费 spec / code / ci / evidence 四道闸的 skip 短路。
         """
-        self.discover_and_dispatch(labels=labels, base=base)
-        self._messages.poll(hold=hold)
+        self.discover_and_dispatch(labels=labels, base=base, skip=skip)
+        self._messages.poll(hold=hold, skip=skip)
 
-    def discover_and_dispatch(self, *, labels: list[str], base: str) -> list[int]:
+    def discover_and_dispatch(
+        self, *, labels: list[str], base: str, skip: Skip = NO_SKIP
+    ) -> list[int]:
         """发现段：列出标签门控的 open issue，按本地 State 三路分流派单（RFC-0004/0007）。
 
         RFC-0007 决策 1/3：用 `_dispatch_kind` 取代原 `_is_new`，对每个 issue 区分：
@@ -134,7 +154,14 @@ class Vigil:
                 # （precheck_issue 已打 needs-human + 贴对齐评论），本轮跳过、不派单。只对 fresh
                 # 判读——resume 是已 precheck 过的孤儿 run，续跑即可、不重判。precheck 的异常纳入
                 # 本 per-issue except 隔离（判读/贴评论失败只跳过该 issue、下轮重试，不拖垮整轮）。
-                if not resume and self._orchestrator.precheck_issue(issue_number=issue.number):
+                # Spec-0054/T2：issue 自检闸 skip——skip.at_issue 为真时把该闸当 PASS 直接
+                # 放行，不调 precheck_issue（不判读、不冻结、不贴对齐评论），照常派单起草。
+                # 仍只对 fresh 判读（resume 是已 precheck 过的孤儿 run）。
+                if (
+                    not resume
+                    and not skip.at_issue
+                    and self._orchestrator.precheck_issue(issue_number=issue.number)
+                ):
                     self._log(
                         message=f"⏸ issue #{issue.number}：检出修法方向冲突，"
                         "已打 needs-human 待对齐，跳过起草"

@@ -344,11 +344,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0053 | 0053/T2 | github：PR 净 diff 指纹取值 | done | — | openagents/github.py<br>tests/test_github_code_fingerprint.py |
 | 0053 | 0053/T3 | messages：_process_coding 3c sticky 短路接线 | done | T1, T2 | openagents/messages.py<br>tests/test_messages_review_sticky.py |
 | 0053 | 0053/T4 | e2e：sticky 复用 PASS 成果脚本 | done | T3 | scripts/e2e-spec-0053-review-sticky-pass.sh |
-| 0054 | 0054/T1 | skip 解析模块 + 矛盾检测 | pending | — | openagents/skip.py<br>tests/test_skip.py |
-| 0054 | 0054/T2 | 逐闸消费：透传 Skip 到 5 道闸 | pending | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
-| 0054 | 0054/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | pending | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
-| 0054 | 0054/T4 | README 闸门树 | pending | T1 | README.md |
-| 0054 | 0054/T5 | 成果测试 e2e 脚本（离线闸控时间线） | pending | T2, T3 | scripts/e2e-spec-0054-vigil-skip-gate.sh |
+| 0054 | 0054/T1 | skip 解析模块 + 矛盾检测 | done | — | openagents/skip.py<br>tests/test_skip.py |
+| 0054 | 0054/T2 | 逐闸消费：透传 Skip 到 5 道闸 | done | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
+| 0054 | 0054/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
+| 0054 | 0054/T4 | README 闸门树 | done | T1 | README.md |
+| 0054 | 0054/T5 | 成果测试 e2e 脚本（离线闸控时间线） | done | T2, T3 | scripts/e2e-spec-0054-vigil-skip-gate.sh |
 
 ## 跨 feature 关系图
 
@@ -2256,10 +2256,10 @@ graph LR
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
-    class v_T5_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
