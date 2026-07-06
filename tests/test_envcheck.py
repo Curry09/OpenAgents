@@ -135,3 +135,35 @@ def test_check_integrates_detection_and_mode(monkeypatch, tmp_path):
     report = envcheck.check()
     assert report.all_ok is True
     assert report.text.count("✓") == 2
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0054/T1: ui_capable —— browser MCP 在册 ∧ 权限全放行 才为 True
+# --------------------------------------------------------------------------- #
+
+
+def test_ui_capable_true_when_mcp_and_full_access(monkeypatch, tmp_path):
+    _patch_home(monkeypatch, tmp_path)
+    _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}, "chrome-devtools": {}}})
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
+    assert envcheck.ui_capable() is True
+
+
+def test_ui_capable_false_when_missing_mcp(monkeypatch, tmp_path):
+    _patch_home(monkeypatch, tmp_path)
+    _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}}})  # 缺 chrome-devtools
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
+    assert envcheck.ui_capable() is False
+
+
+def test_ui_capable_false_when_not_full_access(monkeypatch, tmp_path):
+    _patch_home(monkeypatch, tmp_path)
+    _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}, "chrome-devtools": {}}})
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "acceptEdits")
+    assert envcheck.ui_capable() is False
+
+
+def test_ui_capable_false_when_no_claude_json(monkeypatch, tmp_path):
+    _patch_home(monkeypatch, tmp_path)  # 无 ~/.claude.json
+    monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
+    assert envcheck.ui_capable() is False

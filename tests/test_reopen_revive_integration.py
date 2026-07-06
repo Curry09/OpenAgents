@@ -50,6 +50,9 @@ class _CountingOrchestrator:
         self.review_code_calls += 1
         return ReviewDecision(passed=True, feedback="", verdicts=("PASS",))
 
+    def run_e2e(self, *, pr_number):
+        return None  # Spec-0054/T6：无 e2e 计划，直接进 review
+
     def __getattr__(self, name):
         raise AssertionError(f"本演练不应调用 orchestrator.{name}")
 

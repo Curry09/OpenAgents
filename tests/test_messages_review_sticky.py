@@ -30,6 +30,9 @@ class _FakeOrchestrator:
         self.review_code_calls += 1
         return self._decision
 
+    def run_e2e(self, *, pr_number):
+        return None  # Spec-0054/T6：无 e2e 计划，直接进 review（sticky 逻辑不受影响）
+
     def iterate(self, *, pr_number, reason, detail):
         raise AssertionError("PASS 路径不应调 iterate")
 

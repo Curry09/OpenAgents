@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from openagents import agentcontext, backfill, evidence_gate, github, identity, issuecheck, reviewer
+from openagents import agentcontext, backfill, executor, github, identity, issuecheck, reviewer
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
 from openagents.spec import model, signpost, validate
@@ -157,46 +157,20 @@ _BACKFILL_RFC_TASK = (
 )
 
 
-# Spec-0040/T5：定稿说明书文件名（③ 定稿说明书的落点，与 evidence_gate 的 result.md 同目录）。
-_RUNBOOK_FILENAME = "runbook.md"
-# 定稿 runbook 的任务模板（派实现者 backend）：把 RFC 阶段的 e2e 粗规划落成【具体可执行说明书】。
-# tautology guard 防线①支点：runbook 必须落在 RFC 批准意图内，不得把强意图偷换成更弱的检查。
-_FINALIZE_RUNBOOK_TASK = (
-    "代码已实现完毕，请把本 PR #{pr_number} 的 e2e 粗规划**定稿**成一份具体可执行的说明书 runbook，"
-    "写到文件 `{runbook_path}`（若目录不存在请创建）。\n"
-    "【RFC 批准的意图（不可偷换、不得弱化）】\n{intent}\n\n"
-    "runbook 内容要求（prose 说明书，给独立 executor 照做）：\n"
-    "1) 声明执行形态 form={form}（executor 据此选工具真跑）;\n"
-    "2) 列出**具体命令 / 请求 / 操作**、期望输出、判定点（怎么起、跑什么、看什么算过），"
-    "每一条都要对得上上面的意图与验收行为——不得把「无 origin 报错」偷换成「跑 --help 不崩」式弱化;\n"
-    "3) 只写 runbook 这一个文件，不要改实现代码。"
-)
+# Spec-0054/T5：证据落点相对路径约定（executor 写 result.md / 截图，reviewer 读；单一来源在此）。
+_EVIDENCE_ROOT = ("docs", "e2e-results")
 
 
 @dataclass(frozen=True)
-class RunbookHandle:
-    """Spec-0040/T5：finalize_runbook 的产物——供 messages 接 executor / 证据闸的定位信息。
+class E2ERunResult:
+    """Spec-0054/T5：orchestrator.run_e2e 的产物——供 messages 渲报告 + 判是否复用。
 
-    worktree: PR 的隔离 worktree（executor / 证据闸 backend.run 的 cwd）。
-    runbook_path: 定稿说明书路径（executor 读它按形态真跑）。
-    evidence_dir: 证据落点 `worktree/docs/e2e-results/<pr>/`（executor 写、证据闸读）。
-    intent: RFC 批准的意图 + 验收行为文本（证据闸拿它对照证据判达成，tautology guard 防线①/③）。
+    reused: True = 源码指纹未变、复用上轮证据（executor 未真跑，result=None）；False = 本轮真跑了。
+    result: 本轮 executor 的结构化结果（reused=True 时为 None）。
     """
 
-    worktree: Path
-    runbook_path: Path
-    evidence_dir: Path
-    intent: str
-    # Spec-0051/T4：e2e 执行形态（来自组级 e2e 粗规划 plan.form）——供 messages 收口点渲「说明书定稿」
-    # 回执展示形态（worknote.render_runbook）。放在 handle 上（而非 T5 只用 runbook_path）使回执信息更全。
-    form: str
-
-
-def _intent_text(*, plan: model.E2EPlan) -> str:
-    """把组级 e2e 粗规划渲成给 runbook / 证据闸的意图文本（意图 + 逐条验收行为）。"""
-    lines = [f"意图：{plan.intent}", "验收行为："]
-    lines.extend(f"- {behavior}" for behavior in plan.acceptance)
-    return "\n".join(lines)
+    reused: bool
+    result: executor.ExecutorResult | None
 
 
 class OrchestratorError(Exception):
@@ -540,9 +514,9 @@ class Orchestrator:
             branch=record.branch,
             message=f"feat: implement issue #{record.issue_number} per RFC",
         )
-        # Spec-0040/T5：退役 implement 内的一次性 smoke（旧 _post_e2e_result，病灶：测过期版本 + 没牙 +
-        # 结果没人消费）。e2e 改由 merge 前的证据闸负责（finalize_runbook → executor → 证据闸门控合并，
-        # 见 messages._process_coding），测的是最终要合的集成态、且 FAIL 挡合并。
+        # Spec-0040/T5 + Spec-0054/T5：implement 内不跑任何 e2e（旧一次性 smoke 早退役）。e2e 改由
+        # merge 前的 run_e2e 负责（CI 绿后派独立 executor 真跑 → 证据进 review_code 判，见
+        # messages._process_coding），测的是最终要合的集成态、且证据不达成即 REWORK 挡合并。
         self._progress(message="▶ 取消 draft，PR 转正 …")
         github.mark_ready(pr_number=pr_number)
         self._state.update_status(issue_number=record.issue_number, status=STATUS_PR_OPEN)
@@ -580,6 +554,8 @@ class Orchestrator:
         # 其独立性。历史组装收口在 orchestrator（唯一持有 pr_number + github 读能力），reviewer 只
         # 接收字符串、不 import github/agentcontext（issue #129 缺口二 + 理念 10 解耦）。
         history = agentcontext.build_agent_context(pr_number=pr_number, extra_detail="")
+        # Spec-0054/T4：透传固化的 e2e 能力状态量——RFC 闸据它分流截图测法要求（起草/评审同源）；
+        # code 闸不用它。读侧收口在 orchestrator（持有 state），reviewer 只接布尔参数（理念 10 解耦）。
         decision = reviewer.review(
             backend=self._backend,
             work_dir=worktree,
@@ -587,6 +563,7 @@ class Orchestrator:
             pr_number=pr_number,
             n=reviewer.configured_reviewers(),
             history=history,
+            ui_capable=self._state.get_ui_capable(),
         )
         # RFC-0018：把裁决回贴 PR（恢复人对评审闸的可观测性，理念 8），旁路尽力而为。
         self._post_review_decision(pr_number=pr_number, kind=kind, decision=decision)
@@ -646,68 +623,58 @@ class Orchestrator:
         _, prev = max(same_kind, key=lambda pair: pair[0].created_at)
         return prev.verdict_line == cur.verdict_line and prev.feedback_norm == cur.feedback_norm
 
-    # --- 证据闸：定稿 runbook + 固化证据（Spec-0040/T5）------------------ #
-    def finalize_runbook(self, *, pr_number: int) -> RunbookHandle | None:
-        """Spec-0040/T5（③）：把本分支 spec 的 e2e 粗规划定稿成可执行 runbook 并 commit。
+    # --- e2e v2：说明书直喂 executor 真跑 + 固化证据（Spec-0054/T5）--------- #
+    def run_e2e(self, *, pr_number: int) -> E2ERunResult | None:
+        """Spec-0054/T5：把本分支 spec 的 prose 测法直接喂独立 executor 真跑、固化证据、幂等短路。
 
-        代码在了才定稿（具体命令/判定点这时才定得下来）：读本分支改动的 spec 组的组级 e2e 粗规划
-        （form/intent/acceptance，Spec-0040/T1）——**未声明即返回 None**（非交互 PR，证据闸空过，
-        零回归）。声明则派**实现者 backend**（它最懂代码）把粗规划落成 `docs/e2e-results/<pr>/runbook.md`
-        （声明形态、列出「怎么起、跑什么、看什么算过」），受 tautology guard 约束：runbook 必须落在 RFC
-        批准的意图内、不得偷换。写完 commit+push 进 PR。返回 RunbookHandle 供 messages 接 executor/证据闸。
+        取代 0040 的 finalize_runbook + commit_evidence + 证据闸三步（说明书直喂、无中间 runbook、无
+        独立证据闸——达成判决合并进 review_code，见 Spec-0054）。流程：
+        - 读本分支改动的 spec 组的 e2e 测法 {intent, method}——**未声明即返回 None**（非交互 PR 空过，零回归）；
+        - 算**源码指纹**（github.code_fingerprint 默认排除 docs/e2e-results/）与 record.e2e_ran_fingerprint
+          比对：**一致 → 复用上轮证据、不重跑 executor**（返回 reused=True；证据 commit 不改源码指纹，
+          故稳态不自我刷屏）；
+        - **不一致（或指纹算不出 fail-open）→ 派独立 executor 真跑**（method + intent 直接入 prompt，
+          agent 运行时自检工具选路）→ commit+push 证据 → 落盘新指纹 → 返回 reused=False + result。
+        绝不抛错的收口在各下游（executor 契约绝不抛；本方法的 gh/commit 由既有通道保证）。
         """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
         plan = self._e2e_plan(worktree=worktree)
         if plan is None:
-            self._progress(message=f"▶ PR #{pr_number} 无 e2e 粗规划，证据闸空过")
+            self._progress(message=f"▶ PR #{pr_number} 无 e2e 测法，e2e 空过")
             return None
 
-        evidence_dir = worktree / evidence_gate.evidence_dir_for(pr_number=pr_number)
-        runbook_path = evidence_dir / _RUNBOOK_FILENAME
-        intent = _intent_text(plan=plan)
+        fingerprint = github.code_fingerprint(pr_number=pr_number)
+        if fingerprint and fingerprint == record.e2e_ran_fingerprint:
+            self._progress(
+                message=f"▶ PR #{pr_number} 源码指纹未变，复用上轮 e2e 证据（跳过 executor）"
+            )
+            return E2ERunResult(reused=True, result=None)
 
-        self._progress(message=f"▶ 定稿 PR #{pr_number} 的 e2e 说明书 runbook（形态 {plan.form}）…")
-        self._backend.run(
+        evidence_dir = worktree.joinpath(*_EVIDENCE_ROOT, str(pr_number))
+        self._progress(message=f"▶ 派独立 executor 照 spec 测法真跑 PR #{pr_number} 的 e2e…")
+        result = executor.run_executor(
+            backend=self._backend,
             work_dir=worktree,
-            task=_FINALIZE_RUNBOOK_TASK.format(
-                pr_number=pr_number,
-                form=plan.form,
-                intent=intent,
-                runbook_path=runbook_path,
-            ),
-            context=intent,
-        )
-        self._workspace.commit_and_push(
-            worktree=worktree,
-            branch=record.branch,
-            message=f"test: finalize e2e runbook for PR #{pr_number}",
-        )
-        return RunbookHandle(
-            worktree=worktree,
-            runbook_path=runbook_path,
+            method=plan.method,
             evidence_dir=evidence_dir,
-            intent=intent,
-            form=plan.form,
+            pr_number=pr_number,
+            ui_intent=plan.intent,
         )
-
-    def commit_evidence(self, *, pr_number: int) -> None:
-        """Spec-0040/T5（⑤）：把 executor 写进 evidence_dir 的证据 commit+push 进 PR（durable）。
-
-        executor.run_executor 已把 result.md / 日志写进 worktree 的 `docs/e2e-results/<pr>/`；这里统一
-        提交（无改动时 commit_and_push 内部幂等无操作）。让证据 durable、可被证据闸读、也给人看成果
-        （理念 8）。ensure worktree 幂等（复用 finalize 已建的）。
-        """
-        record = self._require_run(pr_number=pr_number)
-        worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
         self._workspace.commit_and_push(
             worktree=worktree,
             branch=record.branch,
             message=f"test: e2e evidence for PR #{pr_number}",
         )
+        # 只在指纹算得出时落盘（fail-open：算不出则不落、下轮照跑，sticky 永不基于「算不出」跳过）。
+        if fingerprint:
+            self._state.set_e2e_ran_fingerprint(
+                issue_number=record.issue_number, fingerprint=fingerprint
+            )
+        return E2ERunResult(reused=False, result=result)
 
     def _e2e_plan(self, *, worktree: Path) -> model.E2EPlan | None:
-        """读本分支改动的 spec 组的组级 e2e 粗规划；无改动组 / 组不可读 / 未声明 → None。"""
+        """读本分支改动的 spec 组的组级 e2e 测法 {intent, method}；无改动组 / 组不可读 / 未声明 → None。"""
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=DEFAULT_BASE)
         if spec_group is None or not spec_group.is_file():
             return None

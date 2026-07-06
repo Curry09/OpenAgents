@@ -179,7 +179,7 @@ def test_schemas_are_valid_jsonschema(doc: dict) -> None:
 
 
 def test_e2e_plan_round_trip(tmp_path: Path) -> None:
-    """声明 e2e 粗规划的组：render_group→load_group 保真 form/intent/acceptance。"""
+    """Spec-0054/T2：声明 e2e 测法的组：render_group→load_group 保真 intent/method。"""
     group = _sample_group()
     group = Group(
         number=group.number,
@@ -189,9 +189,8 @@ def test_e2e_plan_round_trip(tmp_path: Path) -> None:
             slug=group.metadata.slug,
             summary=group.metadata.summary,
             e2e=E2EPlan(
-                form="cli",
                 intent="init 无 origin 必须显式失败。",
-                acceptance=["无 origin 跑 init → 非零退出", "补 origin 再跑 → 成功"],
+                method="1. 无 origin 跑 init → 断言非零退出\n2. 补 origin 再跑 → 断言成功",
             ),
         ),
         tasks=group.tasks,
@@ -200,9 +199,9 @@ def test_e2e_plan_round_trip(tmp_path: Path) -> None:
     path = _write_group(root=tmp_path, group=group)
     reloaded = model.load_group(path=path)
     assert reloaded.metadata.e2e == group.metadata.e2e
-    # frontmatter 落了 e2e 块，正文不含它。
+    # frontmatter 落了 e2e 块（intent/method），正文不含它。
     head, _body = path.read_text(encoding="utf-8").split("\n---\n", 1)
-    assert "e2e:" in head and "form: cli" in head
+    assert "e2e:" in head and "intent:" in head and "method:" in head
     # 字节级确定性。
     assert model.render_group(group=group) == model.render_group(group=reloaded)
 
@@ -217,5 +216,5 @@ def test_e2e_absent_defaults_none_and_omitted(tmp_path: Path) -> None:
 
 def test_e2e_from_mapping_none_returns_none() -> None:
     assert model.e2e_from_mapping(data=None) is None
-    plan = model.e2e_from_mapping(data={"form": "api", "intent": "x", "acceptance": ["a"]})
-    assert plan == E2EPlan(form="api", intent="x", acceptance=["a"])
+    plan = model.e2e_from_mapping(data={"intent": "x", "method": "跑一下看结果"})
+    assert plan == E2EPlan(intent="x", method="跑一下看结果")

@@ -7,7 +7,7 @@ summary: 把 e2e 从 0040 的「form 分派 + runbook 定稿 + 独立证据闸�
 tasks:
   - id: T1
     title: 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -24,7 +24,7 @@ tasks:
     acceptance: 单测：ui_capable() 两态正确；set/get_ui_capable 落盘往返；cli 入口固化调用被打桩验证。ruff + pytest 通过。
   - id: T2
     title: spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -44,7 +44,7 @@ tasks:
     acceptance: 单测：新格式 validate 通过、旧枚举字段不再被 schema 认；render/signpost 显示 intent+method；无 e2e 块零回归。ruff + pytest 通过。
   - id: T3
     title: executor 重写：单一自主 agent 运行时自检真跑，删 form 分派
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -58,7 +58,7 @@ tasks:
     acceptance: 单测（假 backend）：run_executor 无 form 形参、把 method 喂进 prompt、outcome 随 OUTCOME 解析、异常→failed 不抛、result.md 落地。ruff + pytest 通过。
   - id: T4
     title: reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -72,7 +72,7 @@ tasks:
     acceptance: 单测：_CODE_REVIEW_TASK 含判证据/截图措辞、不再含不判运行时行为；_RFC_REVIEW_TASK 据 ui_capable 分流；review(ui_capable=...) 透传；聚合解析零回归。ruff + pytest 通过。
   - id: T5
     title: 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -89,7 +89,7 @@ tasks:
     acceptance: 单测（假 backend/github）：run_e2e 指纹变则跑+commit、没变则复用不重跑；code_fingerprint 排除证据目录；无 e2e 段返回 None。ruff + pytest 通过。
   - id: T6
     title: messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

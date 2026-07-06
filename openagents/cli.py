@@ -155,6 +155,15 @@ def _state_for(*, repo_root: Path):
     return State(path=repo_root / ".openagents" / "state.json")
 
 
+# Spec-0054/T1：守夜/单步入口启动时把「前端 e2e 能力」固化进 state（单一真相源）。每次启动重写——
+# 环境（装/删 browser MCP、切权限模式）变了下次启动即更新。下游 RFC 起草/评审据它分流测法要求；
+# executor 执行时自检工具、不读本状态量。延迟 import + 走工厂 _state_for，保持 cli 测试可打桩、不触真实 ~/.claude.json。
+def _persist_ui_capable(*, ctx: ProjectContext) -> None:
+    from openagents import envcheck
+
+    _state_for(repo_root=ctx.repo_root).set_ui_capable(value=envcheck.ui_capable())
+
+
 # RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（Orchestrator / Messages / reply-comment）。
 # resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，保证 solve / poll / vigil
 # 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
@@ -337,6 +346,8 @@ def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0001 T5: 一次性扫描所有 open PR 的 CI / 新评论并触发 iterate。
+    # Spec-0054/T1：进 poll 前固化一次 e2e 能力状态量（供本轮 orchestrator 起草/评审读）。
+    _persist_ui_capable(ctx=ctx)
     events = _messages_for(ctx=ctx).poll()
     print(f"✓ poll 完成，处理 {len(events)} 个事件")
     return 0
@@ -344,6 +355,8 @@ def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0001 T5（决策 6）：按间隔循环 poll，自动化拉取直到无 open PR。
+    # Spec-0054/T1：进循环前固化一次 e2e 能力状态量。
+    _persist_ui_capable(ctx=ctx)
     _messages_for(ctx=ctx).watch(interval=args.interval)
     return 0
 
@@ -360,6 +373,8 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段。test 分支门控退役后
     # 日常 base 改回恒存在的 main，无需分支自举。只在进循环前一次，不进每轮（自恢复定位）。
     github.ensure_prerequisites()
+    # Spec-0054/T1：进主循环前固化一次 e2e 能力状态量（与 ensure_prerequisites 同为「进循环前一次」）。
+    _persist_ui_capable(ctx=ctx)
     _vigil_for(ctx=ctx).run(
         interval=args.interval, labels=labels, base=args.base, once=args.once, hold=hold
     )

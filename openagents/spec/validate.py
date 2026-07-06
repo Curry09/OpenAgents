@@ -23,7 +23,7 @@ from jsonschema import Draft202012Validator
 
 from openagents.spec import model
 from openagents.spec.model import Group
-from openagents.spec.schema import E2E_FORM_VALUES, GROUP_FRONTMATTER_SCHEMA
+from openagents.spec.schema import GROUP_FRONTMATTER_SCHEMA
 
 _ERROR = "error"
 _WARNING = "warning"
@@ -94,11 +94,11 @@ def validate(*, specs_root: Path) -> ValidationReport:
 
 
 def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:
-    """Spec-0040/T1：组级 e2e 粗规划的硬化——**存在才校验**（不存在零回归，向后兼容）。
+    """Spec-0054/T2：组级 e2e 测法的硬化——**存在才校验**（不存在零回归，向后兼容）。
 
-    e2e 块声明时：form 必须落在 E2E_FORM_VALUES（ui/api/cli/backend）、intent 去空白后非空、
-    acceptance 至少 1 条。三者各报一条 error。schema 已保证键存在与类型，这里补 whitespace-only /
-    空数组 / 枚举这三个 schema 拦不住的语义门槛（与 _summary_checks 同风格）。
+    e2e 块声明时：intent 去空白后非空、method 去空白后非空，各报一条 error。schema 已保证键存在与
+    类型（intent/method 为 string），这里补 whitespace-only 这个 schema 拦不住的语义门槛（与
+    _summary_checks 同风格）。form/acceptance 已随 Spec-0054 退役，不再校验。
     """
     issues: list[ValidationIssue] = []
     for group in groups:
@@ -106,28 +106,18 @@ def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:
         if e2e is None:
             continue
         where = f"{group.number}/e2e"
-        if e2e.form not in E2E_FORM_VALUES:
-            issues.append(
-                ValidationIssue(
-                    level=_ERROR,
-                    where=where,
-                    message=(
-                        f"e2e.form 非法：{e2e.form!r}（应为 {'/'.join(E2E_FORM_VALUES)} 之一）"
-                    ),
-                )
-            )
         if not e2e.intent.strip():
             issues.append(
                 ValidationIssue(
                     level=_ERROR, where=where, message="e2e.intent 为空（须声明成果验证意图）"
                 )
             )
-        if not [item for item in e2e.acceptance if item.strip()]:
+        if not e2e.method.strip():
             issues.append(
                 ValidationIssue(
                     level=_ERROR,
                     where=where,
-                    message="e2e.acceptance 为空（至少声明 1 条可验证的验收行为）",
+                    message="e2e.method 为空（须声明怎么测的 prose 测法步骤）",
                 )
             )
     return issues

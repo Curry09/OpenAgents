@@ -770,26 +770,54 @@ def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
     return True
 
 
-def code_fingerprint(*, pr_number: int) -> str:
-    """Spec-0053/T2：取 PR 相对其 base 的净 diff 指纹（`sha256(gh pr diff <n>)` 的 hexdigest）。
+def code_fingerprint(
+    *, pr_number: int, exclude_paths: tuple[str, ...] = ("docs/e2e-results/",)
+) -> str:
+    """Spec-0053/T2（Spec-0054/T5 加 exclude_paths）：取 PR 相对其 base 的净 diff 指纹。
 
-    `gh pr diff` 返回的是 GitHub 侧计算的三点语义（base...head）unified diff——「这个 PR 在
-    base 之上加了什么」。它在「只是 base 前进、PR 自身未改」（如 update_branch 无冲突并入 main）时
-    保持逐字节不变，故是代码闸 sticky 短路（Spec-0053/T3）判「代码状态是否变」的正确口径，而非
-    head tree SHA（会被 update_branch merge main 进 head 改掉）。对照 k8s lgtm store_tree_hash。
+    `gh pr diff` 返回 GitHub 侧计算的三点语义（base...head）unified diff——「这个 PR 在 base 之上加了
+    什么」。它在「只是 base 前进、PR 自身未改」（如 update_branch 无冲突并入 main）时保持逐字节不变，
+    故是 sticky 短路（Spec-0053）判「代码状态是否变」的正确口径，而非 head tree SHA。对照 k8s
+    lgtm store_tree_hash。
 
-    本函数是对 gh 的薄封装（理念 10）：只做「取 diff + 定长哈希」，不含任何「要不要短路」的业务判定。
-    gh 故障（非零退出抛 GithubError）或空输出 → 返回 "" （fail-open）：调用方据空串落回照常评审，
-    sticky 永不基于「算不出指纹」做跳过。
+    Spec-0054/T5：`exclude_paths` 从 diff 里剔掉这些前缀下的**文件块**（默认排除 `docs/e2e-results/`）
+    再哈希——使「executor 写证据的 commit」不改**源码**指纹，避免 e2e 幂等闸/代码 sticky 被证据 commit
+    自触发重跑重审（收敛的关键，见 Spec-0054）。传空元组即不排除（旧口径）。
+
+    本函数是对 gh 的薄封装（理念 10）：只做「取 diff + 剔证据文件块 + 定长哈希」，不含「要不要短路」的
+    业务判定。gh 故障（非零退出抛 GithubError）或（剔除后）空输出 → 返回 ""（fail-open）：调用方据空串
+    落回照常，sticky 永不基于「算不出指纹」做跳过。
     """
     try:
         result = _run_gh(["pr", "diff", str(pr_number)], allow_returncodes=set())
     except GithubError:
         return ""
     diff = result.stdout or ""
-    if not diff:
+    if exclude_paths:
+        diff = _strip_diff_file_blocks(diff=diff, exclude_paths=exclude_paths)
+    if not diff.strip():
         return ""
     return hashlib.sha256(diff.encode("utf-8")).hexdigest()
+
+
+def _strip_diff_file_blocks(*, diff: str, exclude_paths: tuple[str, ...]) -> str:
+    """Spec-0054/T5：从 unified diff 里剔掉 `b/<path>` 落在 exclude_paths 前缀下的整个文件块。
+
+    git diff 以 `diff --git a/<path> b/<path>` 起每个文件块；按这些行切块，丢弃 b 路径命中任一前缀的块，
+    其余原样拼回。纯字符串处理、无副作用（便于单测）。首块之前的前言（罕见）归属「无归属」一并保留。
+    """
+    lines = diff.splitlines(keepends=True)
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        if line.startswith("diff --git "):
+            # 取 b/ 后的路径判是否排除；解析失败按「不排除」保守保留。
+            parts = line.split(" b/", 1)
+            b_path = parts[1].rstrip("\n") if len(parts) == 2 else ""
+            skipping = any(b_path.startswith(prefix) for prefix in exclude_paths)
+        if not skipping:
+            kept.append(line)
+    return "".join(kept)
 
 
 def _is_already_up_to_date(*, reason: str) -> bool:

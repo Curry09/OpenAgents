@@ -85,17 +85,18 @@ def _render_tldr(*, groups: list[Group]) -> str:
 
 
 def _render_e2e(*, group: Group) -> list[str]:
-    """Spec-0040/T1：把组级 e2e 粗规划渲成 TL;DR 里的「e2e 意图（form）+ 验收行为」若干行。
+    """Spec-0054/T2：把组级 e2e 测法渲成 TL;DR 里的「e2e 意图 + prose 测法」两行。
 
-    e2e 未声明返回空列表（零回归）；声明则输出一行意图 + 逐条验收行为。纯函数、_cell 归一保证幂等。
+    e2e 未声明返回空列表（零回归）；声明则输出一行意图 + 一行测法（method 多行 prose 经 _cell 归一
+    折成单行摘要）。纯函数、_cell 归一保证幂等（`spec render` 无漂移）。
     """
     e2e = group.metadata.e2e
     if e2e is None:
         return []
-    lines = [f"- e2e 粗规划（{_cell(e2e.form)}）：{_cell(e2e.intent)}"]
-    for behavior in e2e.acceptance:
-        lines.append(f"  - 验收行为：{_cell(behavior)}")
-    return lines
+    return [
+        f"- e2e 意图：{_cell(e2e.intent)}",
+        f"  - 测法：{_cell(e2e.method)}",
+    ]
 
 
 def _render_board(*, groups: list[Group]) -> str:

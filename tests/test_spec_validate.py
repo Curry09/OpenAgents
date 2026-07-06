@@ -262,35 +262,28 @@ def _group_with_e2e(*, root: Path, e2e: E2EPlan | None) -> Path:
 
 
 def test_valid_e2e_block_is_ok(tmp_path: Path) -> None:
-    """合法 e2e 块（form 合法 + intent 非空 + acceptance≥1）→ 无 e2e 相关 error。"""
+    """Spec-0054/T2：合法 e2e 块（intent 非空 + method 非空）→ 无 e2e 相关 error。"""
     _group_with_e2e(
         root=tmp_path,
-        e2e=E2EPlan(form="cli", intent="init 无 origin 必须报错", acceptance=["非零退出"]),
+        e2e=E2EPlan(intent="init 无 origin 必须报错", method="跑 init，断言非零退出 + 提示"),
     )
     report = validate(specs_root=tmp_path)
     assert report.ok is True
     assert not any("e2e" in m for m in _errors(report))
 
 
-def test_e2e_illegal_form_is_error(tmp_path: Path) -> None:
-    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="mobile", intent="x", acceptance=["a"]))
-    report = validate(specs_root=tmp_path)
-    assert report.ok is False
-    assert any("e2e.form 非法" in m for m in _errors(report))
-
-
 def test_e2e_empty_intent_is_error(tmp_path: Path) -> None:
-    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="cli", intent="  ", acceptance=["a"]))
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(intent="  ", method="跑一下"))
     report = validate(specs_root=tmp_path)
     assert report.ok is False
     assert any("e2e.intent 为空" in m for m in _errors(report))
 
 
-def test_e2e_empty_acceptance_is_error(tmp_path: Path) -> None:
-    _group_with_e2e(root=tmp_path, e2e=E2EPlan(form="cli", intent="x", acceptance=[]))
+def test_e2e_empty_method_is_error(tmp_path: Path) -> None:
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(intent="x", method="   "))
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("e2e.acceptance 为空" in m for m in _errors(report))
+    assert any("e2e.method 为空" in m for m in _errors(report))
 
 
 def test_no_e2e_block_is_ok_zero_regression(tmp_path: Path) -> None:

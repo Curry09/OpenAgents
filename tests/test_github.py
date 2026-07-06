@@ -1145,3 +1145,65 @@ def test_branch_ci_green_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="not found"))
     with pytest.raises(GithubError):
         branch_ci_green(branch="main")
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0054/T5: code_fingerprint 排除证据目录（docs/e2e-results/）——证据 commit 不改源码指纹
+# --------------------------------------------------------------------------- #
+
+_SRC_BLOCK = (
+    "diff --git a/openagents/foo.py b/openagents/foo.py\n"
+    "index aaa..bbb 100644\n--- a/openagents/foo.py\n+++ b/openagents/foo.py\n"
+    "@@ -1 +1 @@\n-old\n+new\n"
+)
+_EVID_BLOCK_A = (
+    "diff --git a/docs/e2e-results/5/result.md b/docs/e2e-results/5/result.md\n"
+    "index 000..111 100644\n--- a/docs/e2e-results/5/result.md\n+++ b/docs/e2e-results/5/result.md\n"
+    "@@ -1 +1 @@\n-passed A\n+passed A\n"
+)
+_EVID_BLOCK_B = _EVID_BLOCK_A.replace("passed A", "passed B totally different")
+
+
+def test_strip_diff_file_blocks_drops_evidence_keeps_source():
+    from openagents.github import _strip_diff_file_blocks
+
+    stripped = _strip_diff_file_blocks(
+        diff=_SRC_BLOCK + _EVID_BLOCK_A, exclude_paths=("docs/e2e-results/",)
+    )
+    assert "openagents/foo.py" in stripped
+    assert "docs/e2e-results/" not in stripped
+
+
+def _patch_diff(monkeypatch, diff):
+    from openagents import github as gh
+
+    monkeypatch.setattr(gh, "_run_gh", lambda args, *, allow_returncodes: _FakeProc(stdout=diff))
+
+
+def test_code_fingerprint_ignores_evidence_only_changes(monkeypatch):
+    # 两个 diff 仅证据块不同、源码块相同 → 指纹相等（证据 commit 不改源码指纹，收敛的关键）。
+    from openagents.github import code_fingerprint
+
+    _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_A)
+    fp1 = code_fingerprint(pr_number=5)
+    _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_B)
+    fp2 = code_fingerprint(pr_number=5)
+    assert fp1 and fp1 == fp2
+
+
+def test_code_fingerprint_source_change_flips(monkeypatch):
+    from openagents.github import code_fingerprint
+
+    _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_A)
+    fp1 = code_fingerprint(pr_number=5)
+    _patch_diff(monkeypatch, _SRC_BLOCK.replace("+new", "+newer") + _EVID_BLOCK_A)
+    fp2 = code_fingerprint(pr_number=5)
+    assert fp1 != fp2
+
+
+def test_code_fingerprint_evidence_only_diff_is_empty(monkeypatch):
+    # 整个 diff 只有证据块 → 剔除后为空 → 返回 ""（fail-open，sticky 不基于此跳过）。
+    from openagents.github import code_fingerprint
+
+    _patch_diff(monkeypatch, _EVID_BLOCK_A)
+    assert code_fingerprint(pr_number=5) == ""

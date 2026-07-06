@@ -76,6 +76,9 @@ def _patch_ensure(monkeypatch):
     # Spec-0039/T3：rfc/vigil 入口现会自举 ensure_prerequisites（预建流程标签）——默认打成 no-op
     # 保持 CLI 单测不触达真实 gh；需要观测调用的用例（如 rfc/vigil preflight）再各自 re-patch 记录。
     monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    # Spec-0054/T1：poll/watch/vigil 入口现会固化 e2e 能力状态量——默认打成 no-op 保持 CLI 单测
+    # 不触真实 ~/.claude.json / 不写真实 state；需要观测该调用的用例再各自 re-patch 记录。
+    monkeypatch.setattr("openagents.cli._persist_ui_capable", lambda *, ctx: None)
     return calls
 
 
@@ -818,3 +821,42 @@ def test_orchestrator_and_messages_share_resolved_agent_id(monkeypatch, tmp_path
 
     assert orch._agent_id
     assert orch._agent_id == msgs._agent_id == msgs._orchestrator._agent_id
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0054/T1: poll/watch/vigil 入口启动时固化 e2e 能力状态量
+# --------------------------------------------------------------------------- #
+
+
+def _capture_persist(monkeypatch):
+    """re-patch _persist_ui_capable 记录调用（覆盖 _patch_ensure 的 no-op）。"""
+    seen = {"called": 0}
+
+    def _rec(*, ctx):
+        seen["called"] += 1
+
+    monkeypatch.setattr("openagents.cli._persist_ui_capable", _rec)
+    return seen
+
+
+def test_poll_persists_ui_capable(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _capture_persist(monkeypatch)
+    monkeypatch.setattr("openagents.cli._messages_for", lambda *, ctx: _FakeMessagesNoop())
+    code = main(["poll"])
+    assert code == 0
+    assert seen["called"] == 1
+
+
+def test_vigil_persists_ui_capable(monkeypatch):
+    _patch_ensure(monkeypatch)
+    seen = _capture_persist(monkeypatch)
+    _patch_vigil_capture(monkeypatch)
+    code = main(["vigil", "--once"])
+    assert code == 0
+    assert seen["called"] == 1
+
+
+class _FakeMessagesNoop:
+    def poll(self):
+        return []
