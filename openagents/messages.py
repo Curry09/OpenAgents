@@ -600,9 +600,27 @@ class Messages:
         # 3b. CI 进行中：等下一轮（不评审、不动状态）。
         if status.state == "pending":
             return None
-        # 3c. CI 全绿 → 调 reviewer 评审代码（决策 1）。
-        decision = self._orchestrator.review_code(pr_number=pr_number)
-        if decision.passed:
+        # 3c. CI 全绿 → 代码闸。Spec-0053/T3：先算 PR 净 diff 指纹做 sticky 短路——与上轮 PASS 的
+        # 指纹一致（代码状态未变，k8s Tide sticky approve / lgtm tree-hash 不变式）即复用上轮 PASS、
+        # 跳过重审，止住「base 前进→update_branch→CI 重跑→同码空转重审」的浪费。把「是否 PASS」抽成
+        # 布尔 passed，让 sticky 分支与真评审分支汇流到同一段下游（证据闸 + merge），下游逐字节不变。
+        fingerprint = github.code_fingerprint(pr_number=pr_number)
+        if fingerprint and fingerprint == record.code_passed_fingerprint:
+            # 指纹非空且与上轮 PASS 相同 → 代码逐字节未变，复用上轮 PASS、跳过 review_code。
+            self._progress(message=f"↩ PR #{pr_number} 代码指纹未变，复用上轮 PASS，跳过重审")
+            passed = True
+        else:
+            # 指纹变了 / 首轮无历史指纹 / 算不出指纹（空串 fail-open）→ 照常起 N 个 reviewer 评审。
+            decision = self._orchestrator.review_code(pr_number=pr_number)
+            passed = decision.passed
+            if passed and fingerprint:
+                # 全票 PASS 且指纹可算 → 落盘本轮指纹，下一轮同码即可短路。空指纹（gh 抖动/失败）
+                # 时不落盘：既不误清上一轮 PASS 的有效指纹，也让下一轮照常评审——sticky 只在「可
+                # 证明代码逐字节相同」时省工，任何含糊都走完整评审。
+                self._state.set_code_fingerprint(
+                    issue_number=record.issue_number, fingerprint=fingerprint
+                )
+        if passed:
             # Spec-0040/T5：代码 reviewer PASS 后、merge（及 merge 闸夯住）前插入**证据闸**——独立
             # executor 照定稿说明书真跑系统、证据闸拿 RFC 意图对照证据门控合并。代码 reviewer PASS
             # （看着对）但证据闸 FAIL（真跑跑不通）正是要抓的：短路返回其事件（iterate(reason="e2e")

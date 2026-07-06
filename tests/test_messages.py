@@ -138,6 +138,12 @@ class _FakeState:
             if record.issue_number == issue_number:
                 record.block_gate = gate
 
+    def set_code_fingerprint(self, *, issue_number, fingerprint):
+        # Spec-0053/T3：代码闸 PASS 后落盘 PR 净 diff 指纹（sticky 短路用）。
+        for record in self._runs:
+            if record.issue_number == issue_number:
+                record.code_passed_fingerprint = fingerprint
+
     def set_block_watermark(self, *, issue_number, watermark):
         # Spec-0032/T1：_block 现会落「解挂水位线」（挂起时刻最新评论 createdAt）。
         for record in self._runs:
@@ -235,6 +241,9 @@ def _patch_github(
         "check_status",
         lambda *, pr_number: check or CheckStatus(state="pass", failed_logs=[]),
     )
+    # Spec-0053/T3：代码闸 sticky 短路会先算 PR 净 diff 指纹。默认桩返回 ""（fail-open）——落回照常
+    # 评审，使既有 coding 用例逐字节零回归；sticky 命中/落盘的专项断言见 test_messages_review_sticky。
+    monkeypatch.setattr(messages_module.github, "code_fingerprint", lambda *, pr_number: "")
     monkeypatch.setattr(
         messages_module.github,
         "merge_pr",
