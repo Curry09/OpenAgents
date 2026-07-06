@@ -146,6 +146,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0053 代码评审闸每轮重审：代码状态未变时复用上轮 PASS（对照 k8s Tide sticky approve / tree-hash）
 给代码评审闸引入「PR 净改动指纹」短路：reviewer 全票 PASS 时落盘指纹，下一轮进 review_code 前比指纹一致则复用 PASS、跳过重审——止住 base 前进（BEHIND→update_branch→CI 重跑）触发的同码空转重审。
 
+### 0054 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
+新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence（及 all）中任一闸视为 PASS 放行（可合并性预检闸不提供 --skip——见 Rationale 备选 4）；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
+
 ### 0055 e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
 把 e2e 从 0040 的「form 分派 + runbook 定稿 + 独立证据闸」三层机械脚手架，重设计为「启动时固化浏览器能力状态量 → RFC 写 prose 测法（能力决定要不要求截图）→ 独立 executor agent 运行时自检工具真跑并把截图/声明写进 docs/e2e-results/<pr>/ → 现有 review 同时判代码+证据（reviewer 亲眼看图）」，砍掉 finalize_runbook/form 枚举/独立 evidence_gate；流水线在 CI 后跑 executor 再 review，配源码指纹（排除证据目录）幂等闸与 sticky 复用，证据 commit 意外弄红 CI 走 bad_ci_after_e2e 挂起。
 
@@ -340,6 +343,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0053 | 0053/T2 | github：PR 净 diff 指纹取值 | done | — | openagents/github.py<br>tests/test_github_code_fingerprint.py |
 | 0053 | 0053/T3 | messages：_process_coding 3c sticky 短路接线 | done | T1, T2 | openagents/messages.py<br>tests/test_messages_review_sticky.py |
 | 0053 | 0053/T4 | e2e：sticky 复用 PASS 成果脚本 | done | T3 | scripts/e2e-spec-0053-review-sticky-pass.sh |
+| 0054 | 0054/T1 | skip 解析模块 + 矛盾检测 | done | — | openagents/skip.py<br>tests/test_skip.py |
+| 0054 | 0054/T2 | 逐闸消费：透传 Skip 到 5 道闸 | done | T1 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_messages_skip.py |
+| 0054 | 0054/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
+| 0054 | 0054/T4 | README 闸门树 | done | T1 | README.md |
+| 0054 | 0054/T5 | 成果测试 e2e 脚本（离线闸控时间线） | done | T2, T3 | scripts/e2e-spec-0054-vigil-skip-gate.sh |
 | 0055 | 0055/T1 | 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线 | done | — | openagents/envcheck.py<br>openagents/state.py<br>openagents/cli.py<br>tests/test_envcheck.py<br>tests/test_state.py<br>tests/test_cli.py |
 | 0055 | 0055/T2 | spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/validate.py<br>openagents/spec/render.py<br>openagents/spec/signpost.py<br>tests/test_spec_model.py<br>tests/test_spec_validate.py<br>tests/test_spec_render.py<br>tests/test_spec_signpost.py |
 | 0055 | 0055/T3 | executor 重写：单一自主 agent 运行时自检真跑，删 form 分派 | done | T2 | openagents/executor.py<br>tests/test_executor.py |
@@ -630,6 +638,13 @@ graph LR
         n0053_T3["T3 messages：_process_coding 3c sticky 短路接线"]
         n0053_T4["T4 e2e：sticky 复用 PASS 成果脚本"]
     end
+    subgraph G0054[0054 vigil-skip-gate-bypass]
+        n0054_T1["T1 skip 解析模块 + 矛盾检测"]
+        n0054_T2["T2 逐闸消费：透传 Skip 到 5 道闸"]
+        n0054_T3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
+        n0054_T4["T4 README 闸门树"]
+        n0054_T5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
+    end
     subgraph G0055[0055 e2e-v2-capability-aware]
         n0055_T1["T1 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线"]
         n0055_T2["T2 spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举"]
@@ -802,6 +817,12 @@ graph LR
     n0053_T3 --> n0053_T1
     n0053_T3 --> n0053_T2
     n0053_T4 --> n0053_T3
+    n0054_T2 --> n0054_T1
+    n0054_T3 --> n0054_T1
+    n0054_T3 --> n0054_T2
+    n0054_T4 --> n0054_T1
+    n0054_T5 --> n0054_T2
+    n0054_T5 --> n0054_T3
     n0055_T3 --> n0055_T2
     n0055_T4 --> n0055_T1
     n0055_T5 --> n0055_T1
@@ -821,7 +842,7 @@ graph LR
 |----|----|
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
 | .github/workflows/ci.yml | 0014, 0023 |
-| README.md | 0026, 0029 |
+| README.md | 0026, 0029, 0054 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
@@ -830,7 +851,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0055 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -841,7 +862,7 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0055 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
@@ -858,7 +879,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -2230,6 +2251,40 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0054 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树（issue #135）
+
+```mermaid
+graph LR
+    nT1["T1 skip 解析模块 + 矛盾检测"]
+    nT2["T2 逐闸消费：透传 Skip 到 5 道闸"]
+    nT3["T3 CLI 接线 --skip + hold/skip 矛盾校验"]
+    nT4["T4 README 闸门树"]
+    nT5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT5
+    nT3 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
 
 ### 0055 e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）（issue #123）

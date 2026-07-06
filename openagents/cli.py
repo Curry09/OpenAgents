@@ -117,6 +117,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="GATE",
         help="在指定闸门停下等人：spec / merge / spec,merge（默认全自动不停）",
     )
+    # Spec-0054/T3：逐闸旁路——把指定 CLI 可达闸当 PASS 直接放行（与 --hold 对称）。默认 None
+    # （全闸开启、行为不变）。--hold 与 --skip 对同一闸的矛盾意图由 reconcile_hold_skip 报错。
+    p_vigil.add_argument(
+        "--skip",
+        default=None,
+        metavar="GATE",
+        help="把指定闸当 PASS 放行：issue / spec / code / ci / evidence / all（默认全闸开启）",
+    )
 
     # Spec-0027/T3：vigil-all —— 多仓库统管。单进程读一份 YAML 配置（仓库列表 + 全局默认 +
     # 每仓库覆盖），为每个仓库各起一隔离子进程复用现有 Vigil 并发守夜、聚合日志。与单仓库
@@ -364,11 +372,17 @@ def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
     from openagents.hold import parse_hold
+    from openagents.skip import parse_skip, reconcile_hold_skip
 
     labels = args.label if args.label else [DISCOVERY_LABEL]
     # Spec-0020/T4：把 --hold 原始串解析成 Hold（None → 默认全不停），传给 vigil.run；
     # 非法值由 parse_hold 抛 ValueError，经 _run 的异常通道转干净一行提示（不 traceback）。
     hold = parse_hold(raw=args.hold)
+    # Spec-0054/T3：把 --skip 解析成 Skip（None → 默认全闸开启），再 reconcile_hold_skip 校验
+    # 与 hold 对同一闸的矛盾意图（如 --hold spec --skip spec）——非法值 / 矛盾都抛 ValueError，
+    # 经 _run 的既有异常通道转干净一行提示（不 traceback）。
+    skip = parse_skip(raw=args.skip)
+    reconcile_hold_skip(hold=hold, skip=skip)
     # RFC-0015 / Spec-0023/T1：进主循环前自举一次结构性 prerequisite（流程标签），使无人值守
     # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段。test 分支门控退役后
     # 日常 base 改回恒存在的 main，无需分支自举。只在进循环前一次，不进每轮（自恢复定位）。
@@ -376,7 +390,12 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0055/T1：进主循环前固化一次 e2e 能力状态量（与 ensure_prerequisites 同为「进循环前一次」）。
     _persist_ui_capable(ctx=ctx)
     _vigil_for(ctx=ctx).run(
-        interval=args.interval, labels=labels, base=args.base, once=args.once, hold=hold
+        interval=args.interval,
+        labels=labels,
+        base=args.base,
+        once=args.once,
+        hold=hold,
+        skip=skip,
     )
     return 0
 
