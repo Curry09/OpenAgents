@@ -13,6 +13,7 @@ from openagents.cli import build_parser, main
 from openagents.config import ProjectContext
 from openagents.github import Comment, Issue
 from openagents.hold import Hold
+from openagents.skip import NONE as NO_SKIP
 
 COMMANDS = [
     "init",
@@ -512,8 +513,9 @@ def _patch_vigil_capture(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold):
+        def run(self, *, interval, labels, base, once, hold, skip=None):
             seen["hold"] = hold
+            seen["skip"] = skip
 
     monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
     return seen
@@ -591,8 +593,10 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold):
-            seen.update(interval=interval, labels=labels, base=base, once=once, hold=hold)
+        def run(self, *, interval, labels, base, once, hold, skip=None):
+            seen.update(
+                interval=interval, labels=labels, base=base, once=once, hold=hold, skip=skip
+            )
 
     monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
     code = main(["vigil"])
@@ -601,12 +605,14 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     # RFC-0015：进主循环前自举恰一次。
     assert bootstrapped == [True]
     # Spec-0023/T4：vigil 默认基线为 main（test 门控退役）。Spec-0020/T4：无 --hold → 默认全不停。
+    # Spec-0054/T3：无 --skip → 默认全闸开启 NONE。
     assert seen == {
         "interval": 60,
         "labels": ["openagents"],
         "base": "main",
         "once": False,
         "hold": Hold(),
+        "skip": NO_SKIP,
     }
 
 
@@ -617,8 +623,10 @@ def test_vigil_passes_all_overrides(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold):
-            seen.update(interval=interval, labels=labels, base=base, once=once, hold=hold)
+        def run(self, *, interval, labels, base, once, hold, skip=None):
+            seen.update(
+                interval=interval, labels=labels, base=base, once=once, hold=hold, skip=skip
+            )
 
     monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
     code = main(
@@ -631,6 +639,7 @@ def test_vigil_passes_all_overrides(monkeypatch):
         "base": "dev",
         "once": True,
         "hold": Hold(),
+        "skip": NO_SKIP,
     }
 
 
