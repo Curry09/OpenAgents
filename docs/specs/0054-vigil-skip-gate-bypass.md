@@ -7,7 +7,7 @@ summary: 新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold �
 tasks:
   - id: T1
     title: skip 解析模块 + 矛盾检测
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: parse_skip 对 None/空→NONE、'spec,ci'→对应布尔置位、'all'→5 位全置、未知 token（含 'merge'，不再是合法 skip token）→ValueError 列合法取值；reconcile_hold_skip 对 hold spec+skip spec 报错、对作用于不同闸（hold merge+skip spec / hold spec+skip ci）放行；tests/test_skip.py 全覆盖，ruff + pytest 通过，无任何 IO/argparse 依赖。
   - id: T2
     title: 逐闸消费：透传 Skip 到 5 道闸
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -35,7 +35,7 @@ tasks:
     acceptance: skip.at_spec → 不调 review_rfc、直接打 rfc-approved 标签进实现；at_ci → 跳过 check_status 当绿；at_code → 跳过 review_code 视为 PASS；at_evidence → 跳过 _evidence_gate；at_issue → 不调 precheck_issue 放行派单；mergeability 预检不受 skip 影响、照常执行。默认 NONE 时所有路径与今天逐字节一致（零回归），既有 test_messages/test_vigil 不变绿。tests/test_messages_skip.py 断言每道闸的 PASS 短路，ruff + pytest 通过。
   - id: T3
     title: CLI 接线 --skip + hold/skip 矛盾校验
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -50,7 +50,7 @@ tasks:
     acceptance: openagents vigil --skip spec,ci 解析并传入 run；--skip spc 报干净一行（列合法取值、不 traceback）；--hold spec --skip spec 报矛盾一行；不传 --skip 时 run 收到 NONE（零回归）。tests/test_cli_skip.py 覆盖解析/矛盾/默认三态，ruff + pytest 通过。
   - id: T4
     title: README 闸门树
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:
@@ -63,7 +63,7 @@ tasks:
     acceptance: README 含闸门树，5 个 --skip token 与 T1 常量一一对应、标注可关(--skip)/可停(--hold)，可合并性预检闸标注不提供 --skip，硬闸单独成节标明须在仓库设置改；markdown 渲染正常、无死链。
   - id: T5
     title: 成果测试 e2e 脚本（离线闸控时间线）
-    status: pending
+    status: done
     priority: P2
     tags: []
     depends-on:

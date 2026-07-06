@@ -70,11 +70,43 @@ openagents vigil --once                   # 只跑一轮后退出
 openagents vigil --label bug --label p0   # 自定义发现标签门控(可重复)
 openagents vigil --hold spec              # 分级监督:在 RFC 批准前停下等人
 openagents vigil --hold spec,merge        # 可组合:spec(RFC 批准前停)/ merge(合并前停)
+openagents vigil --skip ci                # 逐闸旁路:把 CI 等待闸当 PASS 直接放行
+openagents vigil --skip spec,code         # 可组合:把 spec / 代码评审两道闸都放行
+openagents vigil --skip all               # 一次放行全部 5 道 CLI 可达闸
 ```
 
 特性:标签门控的 issue 发现、「发现段 + 守候段」两段循环、单 issue 错误隔离(单轮出错不拖垮整个循环)、对已关闭 PR/issue 识别终止信号、崩溃后从孤儿 run 恢复、`gh` 瞬时错误指数退避重试。
 
 全新仓库可以直接 `vigil`(无需先 `init`)——进主循环前会自举一次流程标签,使无人值守进程能自恢复。
+
+#### vigil 自主环的闸门树
+
+`vigil` 把每个 issue 推过一串闸门。下表按「发现段 / 守候段」列出各闸,以及它可被哪个临时开关调节——`--skip <闸>` 把该闸当 **PASS 直接放行**(更宽),`--hold <闸>` 让流水线在该闸**停下等人**(更严)。默认不传任何开关 = 全闸开启、无人值守全自动。`--hold` 与 `--skip` 若对同一道闸给出矛盾意图(如 `--hold spec --skip spec`)会立即报错。
+
+```
+vigil 自主环
+├─ 发现段(discover_and_dispatch)
+│  └─ ① issue 自检闸        起草前自检 issue 修法方向是否自洽   [--skip issue]
+└─ 守候段(messages.poll,每个在途 PR 逐闸推进)
+   ├─ ② 可合并性预检闸       DIRTY/CONFLICTING 的 PR 早退       (不可 --skip —— 仅省功早退,跳过无放行语义)
+   ├─ ③ CI 等待闸           等 GitHub checks 全绿              [--skip ci]
+   ├─ ④ 代码评审闸           reviewer 评审改动代码             [--skip code]
+   ├─ ⑤ 证据闸              独立 executor 照说明书真跑系统取证   [--skip evidence]
+   └─ ⑥ merge(合并前)      证据闸过后合并回 main             [--hold merge —— 夯住待人合并;不提供 --skip]
+   └─ spec 评审闸(draft PR 承载 spec 时) reviewer 评审 spec  [--skip spec] / [--hold spec —— 停下等人]
+```
+
+- **`--skip` 可关的 5 道闸**:`issue` / `spec` / `code` / `ci` / `evidence`(外加 `all` 一次展开为全部)。
+- **可合并性预检闸不提供 `--skip`**:它只是「真冲突的 PR 连 CI 都不必等」的省功早退,跳过它不放行任何东西。
+- **merge 只归 `--hold`**:合并前可用 `--hold merge` 夯住待人点合并;跳过合并没有实质放行语义,故不设 `--skip merge`。
+
+##### GitHub 分支保护硬闸(CLI 不可关)
+
+下面这些闸由 **GitHub 仓库的分支保护规则**强制,`vigil` 的 CLI 开关**关不掉**——要调整须去仓库 **Settings → Branches → Branch protection rules** 改:
+
+- **lint**(Ruff check/format)、**test**(pytest)、**commitlint**(提交信息规范)、**spec-validate**(spec frontmatter/结构校验)等 required status checks。
+
+即便 `--skip ci` 让 `vigil` 不再**等待** CI,这些 check 仍会在 GitHub 侧作为合并的必要条件运行——`--skip` 调的是「守夜人要不要等/评」,改不了「GitHub 允不允许合」。
 
 ---
 
