@@ -138,7 +138,7 @@ def test_check_integrates_detection_and_mode(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T1: ui_capable —— browser MCP 在册 ∧ 权限全放行 才为 True
+# Spec-0055/T1: ui_capable —— browser MCP 在册 ∧ 权限全放行 才为 True
 # --------------------------------------------------------------------------- #
 
 

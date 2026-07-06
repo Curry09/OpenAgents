@@ -179,7 +179,7 @@ def test_schemas_are_valid_jsonschema(doc: dict) -> None:
 
 
 def test_e2e_plan_round_trip(tmp_path: Path) -> None:
-    """Spec-0054/T2：声明 e2e 测法的组：render_group→load_group 保真 intent/method。"""
+    """Spec-0055/T2：声明 e2e 测法的组：render_group→load_group 保真 intent/method。"""
     group = _sample_group()
     group = Group(
         number=group.number,

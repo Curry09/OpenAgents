@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0054 端到端测试启动脚本：e2e v2——能力感知 + 说明书直喂 + 合并 review（重设计 0040）。
+# Spec-0055 端到端测试启动脚本：e2e v2——能力感知 + 说明书直喂 + 合并 review（重设计 0040）。
 #
 # 本组把 e2e 从 0040 的「form 分派 + finalize_runbook 定稿 + 独立证据闸」三层机械脚手架，重设计为：
 #   ① 守夜启动 envcheck 扫一遍 → 固化「浏览器能力状态量」ui_capable 进 state.json（只在写测法时读）；
@@ -25,7 +25,7 @@
 # 在此脚本行使。故成果证据用下面 CLI/pytest 驱动的离线段断言，是此内部行为的正确观测面。
 #
 # 用法：
-#   bash scripts/e2e-spec-0054-e2e-v2-capability-aware.sh
+#   bash scripts/e2e-spec-0055-e2e-v2-capability-aware.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -38,7 +38,7 @@ uv run --extra dev pytest -q
 echo
 echo "==> [2/3] 离线成果演练：executor 在 review 前 / 源码未变复用 / bad_ci_after_e2e 走 blocked"
 uv run python - <<'PY'
-# Spec-0054：真实 State + 内存 GitHub 世界，离线驱动 _process_coding，验证 e2e v2 流水线语义。
+# Spec-0055：真实 State + 内存 GitHub 世界，离线驱动 _process_coding，验证 e2e v2 流水线语义。
 from openagents import messages as messages_module
 from openagents.executor import ExecutorResult
 from openagents.github import CheckStatus, Mergeability
@@ -48,7 +48,7 @@ from openagents.orchestrator import E2ERunResult
 from openagents.reviewer import ReviewDecision
 from openagents.state import STATUS_BLOCKED, STATUS_PR_OPEN, RunRecord
 
-AGENT_ID = "agent-e2e-0054"
+AGENT_ID = "agent-e2e-0055"
 
 
 class _State:
@@ -187,4 +187,4 @@ grep -q "bad-ci-after-e2e" openagents/messages.py && echo "  ✓ messages 含 ba
 grep -q "def ui_capable" openagents/envcheck.py && echo "  ✓ envcheck.ui_capable 存在"
 
 echo
-echo "全部通过 ✅（Spec-0054 e2e v2）"
+echo "全部通过 ✅（Spec-0055 e2e v2）"

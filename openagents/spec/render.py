@@ -85,7 +85,7 @@ def _render_tldr(*, groups: list[Group]) -> str:
 
 
 def _render_e2e(*, group: Group) -> list[str]:
-    """Spec-0054/T2：把组级 e2e 测法渲成 TL;DR 里的「e2e 意图 + prose 测法」两行。
+    """Spec-0055/T2：把组级 e2e 测法渲成 TL;DR 里的「e2e 意图 + prose 测法」两行。
 
     e2e 未声明返回空列表（零回归）；声明则输出一行意图 + 一行测法（method 多行 prose 经 _cell 归一
     折成单行摘要）。纯函数、_cell 归一保证幂等（`spec render` 无漂移）。

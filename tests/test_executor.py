@@ -1,4 +1,4 @@
-"""Spec-0054/T3: executor（单一自主运行时验证 agent）单元测试。
+"""Spec-0055/T3: executor（单一自主运行时验证 agent）单元测试。
 
 打桩 AgentBackend（不触达真实 coding agent），覆盖：
 - run_executor 把 spec 的 prose 测法 method + intent 喂进任务模板、派 backend 真跑、把证据写进 evidence_dir；
@@ -153,7 +153,7 @@ def test_parse_outcome_variants():
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0051/T1（Spec-0054 去 form）: render_result 纯函数
+# Spec-0051/T1（Spec-0055 去 form）: render_result 纯函数
 # --------------------------------------------------------------------------- #
 
 

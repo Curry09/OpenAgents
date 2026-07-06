@@ -1,6 +1,6 @@
-"""Spec-0054/T2·T3: executor —— 独立的运行时验证 agent（单一自主 agent，无 form 分派）。
+"""Spec-0055/T2·T3: executor —— 独立的运行时验证 agent（单一自主 agent，无 form 分派）。
 
-e2e v2（见 docs/specs/0054-e2e-v2-capability-aware.md，取代 Spec-0040 的 form 分派 + runbook 定稿）：
+e2e v2（见 docs/specs/0055-e2e-v2-capability-aware.md，取代 Spec-0040 的 form 分派 + runbook 定稿）：
 一个**独立** agent（跑的人 ≠ 写代码的人，tautology guard 防线②）拿 spec 的 **prose 测法 `method`**
 （+ 一句话 `intent`）直接跑——**运行时自检手里有没有 `browser_*` 工具**：有则真开浏览器导航/交互/截图
 存进 evidence_dir；无则用命令行/HTTP 等能用的方式真跑，或如实报「环境不具备、无法真跑」。把观察固化进
@@ -8,13 +8,13 @@ evidence_dir，返回结构化 {outcome, notes}。角色结构仿 `reviewer.revi
 第二套运行机制）：以一段 executor 任务模板调既有 `AgentBackend.run`，从 `AgentResult.summary` 解析 outcome。
 
 **executor 只跑只报、不做门控判决**：outcome 供 messages 渲报告 + 人看；「达成没达成」的裁决由合并后的
-`review_code`（reviewer 亲眼看截图 + 读声明）做（Spec-0054 机制 4/5，无独立证据闸）。
+`review_code`（reviewer 亲眼看截图 + 读声明）做（Spec-0055 机制 4/5，无独立证据闸）。
 
 契约上**绝不抛错**：backend 抛错一律映射成 `failed`（+ notes 说明），并把结构化结果固化到
 `evidence_dir/result.md`（证据落点，供 reviewer 读；截图等附件由 agent 自己落 evidence_dir）。
 
 解耦：本模块只依赖 `AgentBackend` 协议 + 文件系统，不碰 git / GitHub / 编排（便于 hermetic 单测打桩
-backend）。**Spec-0054 删掉了 form 枚举 / _parse_form / _run_by_form / ui-skipped 分支**——形态由 agent
+backend）。**Spec-0055 删掉了 form 枚举 / _parse_form / _run_by_form / ui-skipped 分支**——形态由 agent
 运行时自检工具决定，不再在 Python 侧分派。
 """
 
@@ -26,7 +26,7 @@ from pathlib import Path
 
 from openagents.backends.base import AgentBackend
 
-# Spec-0040/T2（Spec-0054 保留）：两种 outcome——真跑通 / 真跑挂或无法验证。ui-skipped 分支已随 form 删除。
+# Spec-0040/T2（Spec-0055 保留）：两种 outcome——真跑通 / 真跑挂或无法验证。ui-skipped 分支已随 form 删除。
 OUTCOME_PASSED = "passed"
 OUTCOME_FAILED = "failed"
 
@@ -46,7 +46,7 @@ _OUTCOME_LABELS = {
     OUTCOME_FAILED: "❌ 未通过",
 }
 
-# Spec-0054/T3：executor 任务模板——把 spec 的 prose 测法 method + 一句话 intent 直接喂给独立 agent，
+# Spec-0055/T3：executor 任务模板——把 spec 的 prose 测法 method + 一句话 intent 直接喂给独立 agent，
 # 要求它运行时自检工具、真跑系统、把观察/截图写进 evidence_dir、末行给 `OUTCOME: PASSED|FAILED`。
 # 不预设执行形态（agent 据自己手里的工具决定开不开浏览器）；不做门控判决（裁决交合并后的 review_code）。
 _EXECUTOR_TASK = (
@@ -74,7 +74,7 @@ _EXECUTOR_TASK = (
 
 @dataclass(frozen=True)
 class ExecutorResult:
-    """Spec-0054/T3：一次 executor 运行的结构化结果。
+    """Spec-0055/T3：一次 executor 运行的结构化结果。
 
     outcome: "passed" | "failed"（agent 自报的真跑结论，供 messages 渲报告；非门控判决）。
     notes: agent 的运行说明 / 降级原因（喂给 reviewer 和人看）。
@@ -93,7 +93,7 @@ def run_executor(
     pr_number: int,
     ui_intent: str,
 ) -> ExecutorResult:
-    """Spec-0054/T3：把 spec 的 prose 测法直接喂独立 agent 真跑系统 → 固化证据 → 返回结构化结果。
+    """Spec-0055/T3：把 spec 的 prose 测法直接喂独立 agent 真跑系统 → 固化证据 → 返回结构化结果。
 
     绝不抛错（契约）：backend 抛错映射成 `failed`（+ notes）。无论何 outcome 都把结构化结果写进
     `evidence_dir/result.md`（证据落点，reviewer 据此 + 截图判达成）。agent 运行时自检工具选路
@@ -126,7 +126,7 @@ def _parse_outcome(*, summary: str) -> str:
 
 
 def render_result(*, result: ExecutorResult) -> str:
-    """Spec-0051/T1（Spec-0054 去 form）：把一次 executor 真跑结果渲染成 PR 回执 Markdown 正文。
+    """Spec-0051/T1（Spec-0055 去 form）：把一次 executor 真跑结果渲染成 PR 回执 Markdown 正文。
 
     以稳定抬头 `## 证据执行` 开头，渲 `result.outcome`（中文化）/ `result.notes`（非空时附代码块）。
     纯字符串函数、无副作用、不 import github/identity——保持 executor 解耦定位（理念 10）；发评论收口在

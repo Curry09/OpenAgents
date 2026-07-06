@@ -21,7 +21,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
 | `evidence_gate.py` | Spec-0040/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。 |
-| `executor.py` | Spec-0054/T2·T3: executor —— 独立的运行时验证 agent（单一自主 agent，无 form 分派）。 |
+| `executor.py` | Spec-0055/T2·T3: executor —— 独立的运行时验证 agent（单一自主 agent，无 form 分派）。 |
 | `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
 | `fleet_config.py` | Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |

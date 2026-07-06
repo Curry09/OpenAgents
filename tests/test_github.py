@@ -1148,7 +1148,7 @@ def test_branch_ci_green_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T5: code_fingerprint 排除证据目录（docs/e2e-results/）——证据 commit 不改源码指纹
+# Spec-0055/T5: code_fingerprint 排除证据目录（docs/e2e-results/）——证据 commit 不改源码指纹
 # --------------------------------------------------------------------------- #
 
 _SRC_BLOCK = (

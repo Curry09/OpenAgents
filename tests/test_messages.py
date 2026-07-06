@@ -58,7 +58,7 @@ class _FakeOrchestrator:
         self.review_code_calls = []
         self._rfc_decision = rfc_decision
         self._code_decision = code_decision
-        # Spec-0054/T6：run_e2e 接线——返回预设 E2ERunResult（None = 无 e2e 计划，空过）。
+        # Spec-0055/T6：run_e2e 接线——返回预设 E2ERunResult（None = 无 e2e 计划，空过）。
         self._e2e_result = e2e_result
         self.run_e2e_calls = []
 
@@ -84,7 +84,7 @@ class _FakeOrchestrator:
         return self._code_decision
 
     def run_e2e(self, *, pr_number):
-        # Spec-0054/T6：返回预设 E2ERunResult（None=无 e2e 计划空过 / reused=True 复用 / reused=False 真跑）。
+        # Spec-0055/T6：返回预设 E2ERunResult（None=无 e2e 计划空过 / reused=True 复用 / reused=False 真跑）。
         self.run_e2e_calls.append(pr_number)
         return self._e2e_result
 
@@ -189,7 +189,7 @@ def _make(
         rfc_decision=rfc_decision, code_decision=code_decision, e2e_result=e2e_result
     )
     state = _FakeState(runs=runs)
-    # Spec-0054/T6：run_e2e 归编排器（本 fake 返回预设结果）；messages 只据其 reused/None 决定流转。
+    # Spec-0055/T6：run_e2e 归编排器（本 fake 返回预设结果）；messages 只据其 reused/None 决定流转。
     msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id, backend=backend)
     return msgs, orch, state
 
@@ -468,7 +468,7 @@ def test_coding_reviewer_fail_over_k_blocks(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T6: e2e——CI 绿后 run_e2e（在 review 前）+ 收敛/bad_ci_after_e2e
+# Spec-0055/T6: e2e——CI 绿后 run_e2e（在 review 前）+ 收敛/bad_ci_after_e2e
 # --------------------------------------------------------------------------- #
 
 
@@ -488,7 +488,7 @@ def _e2e_reused():
 
 
 def test_run_e2e_ran_this_round_defers_merge(monkeypatch):
-    # Spec-0054/T6：本轮真跑了 executor（reused=False）→ 证据是新 docs commit，本轮不 review/merge，
+    # Spec-0055/T6：本轮真跑了 executor（reused=False）→ 证据是新 docs commit，本轮不 review/merge，
     # 返回 reason="e2e" 让证据 commit 过一遍 CI；review_code 本轮不调。
     msgs, orch, state = _make(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
@@ -506,7 +506,7 @@ def test_run_e2e_ran_this_round_defers_merge(monkeypatch):
 
 
 def test_run_e2e_reused_proceeds_to_review_and_merge(monkeypatch):
-    # Spec-0054/T6：源码未变、run_e2e 复用（reused=True）→ 继续 review_code → PASS → merge。
+    # Spec-0055/T6：源码未变、run_e2e 复用（reused=True）→ 继续 review_code → PASS → merge。
     msgs, orch, state = _make(
         runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
         code_decision=_PASS,
@@ -539,7 +539,7 @@ def test_run_e2e_none_no_plan_proceeds_to_merge(monkeypatch):
 
 
 def test_bad_ci_after_e2e_blocks_not_iterate(monkeypatch):
-    # Spec-0054/T6：源码自 e2e 真跑后未变（e2e_ran_fingerprint == 当前源码指纹），CI 却变红 →
+    # Spec-0055/T6：源码自 e2e 真跑后未变（e2e_ran_fingerprint == 当前源码指纹），CI 却变红 →
     # 走 bad_ci_after_e2e：不 iterate(ci)（源码没错），打 needs-human + bad_ci_after_e2e 标签 + blocked。
     msgs, orch, state = _make(
         runs=[

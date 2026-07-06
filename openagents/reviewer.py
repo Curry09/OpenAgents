@@ -53,9 +53,9 @@ _RUBRIC_TAIL = (
     "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 一句话中文点出问题>\n"
     "  NEXT: <一句话中文说明修复方向>\n"
 )
-# Spec-0054/T4：「要不要有 e2e」在 RFC 闸把关，且**标准据本机 e2e 能力（ui_capable）确定性分流**——
-# 起草与评审读同一个固化状态量（Spec-0054/T1），杜绝两头标准漂移。e2e 块从 0040 的 {form,intent,
-# acceptance} 瘦身为 {intent,method}（prose 测法，见 Spec-0054/T2）。ui_capable 由 orchestrator 经
+# Spec-0055/T4：「要不要有 e2e」在 RFC 闸把关，且**标准据本机 e2e 能力（ui_capable）确定性分流**——
+# 起草与评审读同一个固化状态量（Spec-0055/T1），杜绝两头标准漂移。e2e 块从 0040 的 {form,intent,
+# acceptance} 瘦身为 {intent,method}（prose 测法，见 Spec-0055/T2）。ui_capable 由 orchestrator 经
 # review(ui_capable=...) 透传，reviewer 据此选下面两条规则之一拼进 RFC 任务（保持 reviewer 只依赖
 # AgentBackend + 传入参数的解耦，理念 10）。
 _RFC_E2E_RUBRIC_CAPABLE = (
@@ -97,7 +97,7 @@ _HISTORY_PRIMACY_RUBRIC = (
     "**不构成放行理由**，你必须核对文件的真实内容再裁决。人类在评论里的指导可纳入考量，但同样以落盘"
     "事实为准。\n"
 )
-# Spec-0054/T4：RFC 任务的头/尾（e2e 测法 rubric 据 ui_capable 在 _rfc_review_task 里选一条插入）。
+# Spec-0055/T4：RFC 任务的头/尾（e2e 测法 rubric 据 ui_capable 在 _rfc_review_task 里选一条插入）。
 _RFC_REVIEW_HEAD = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
     "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
@@ -113,13 +113,13 @@ _RFC_REVIEW_TASK = _RFC_REVIEW_HEAD + _RFC_E2E_RUBRIC_CAPABLE + _RFC_REVIEW_TAIL
 
 
 def _rfc_review_task(*, pr_number: int, ui_capable: bool) -> str:
-    """Spec-0054/T4：据 ui_capable 选 e2e 测法 rubric 拼成 RFC 评审任务（起草/评审同源分流）。"""
+    """Spec-0055/T4：据 ui_capable 选 e2e 测法 rubric 拼成 RFC 评审任务（起草/评审同源分流）。"""
     e2e_rubric = _RFC_E2E_RUBRIC_CAPABLE if ui_capable else _RFC_E2E_RUBRIC_INCAPABLE
     return (_RFC_REVIEW_HEAD + e2e_rubric + _RFC_REVIEW_TAIL).format(pr_number=pr_number)
 
 
-# Spec-0054/T4：证据/运行时行为 rubric（**反转 Spec-0040/T4**）。0040 曾让代码 reviewer「只判静态、
-# 运行时行为交独立证据闸」；Spec-0054 取消独立证据闸，把运行时行为验收**合并回 code review**——
+# Spec-0055/T4：证据/运行时行为 rubric（**反转 Spec-0040/T4**）。0040 曾让代码 reviewer「只判静态、
+# 运行时行为交独立证据闸」；Spec-0055 取消独立证据闸，把运行时行为验收**合并回 code review**——
 # reviewer 靠亲眼看 executor 产的证据（result.md + 用 Read 打开截图看画面）对照 spec 的 e2e intent 判。
 # 统一证据落点为 docs/e2e-results/<pr>/，并入 Spec-0044 原来指向 docs/evidence/** 的「无证据=REWORK」
 # （消除两套证据目录）。延伸自 Spec-0048/T1：宣称实现了自动化执行/门控却只交付骨架 → 同样 REWORK。
@@ -162,7 +162,7 @@ _CODE_REVIEW_TASK = (
     "真的实现了对应 spec 的 Task 与验收标准、有无 tautological test / 绕过真实路径、"
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
     "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n"
-    "【职责边界】你既判**静态**代码质量/安全/结构，**也判运行时行为**——Spec-0054 取消了独立证据闸，"
+    "【职责边界】你既判**静态**代码质量/安全/结构，**也判运行时行为**——Spec-0055 取消了独立证据闸，"
     "运行时行为验收合并进本次 code review：靠亲眼看 executor 产的证据（见下条），对照 spec 的 e2e "
     "intent 判系统真跑起来是否达成意图。\n"
     + _EVIDENCE_RUBRIC
@@ -411,7 +411,7 @@ def _extract_feedback_norm(*, lines: list[str]) -> str:
 def _task_for(*, kind: str, pr_number: int, ui_capable: bool) -> str:
     """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。
 
-    Spec-0054/T4：rfc 闸的 e2e 测法 rubric 据 ui_capable 分流（起草/评审同源）；code 闸不用 ui_capable。
+    Spec-0055/T4：rfc 闸的 e2e 测法 rubric 据 ui_capable 分流（起草/评审同源）；code 闸不用 ui_capable。
     """
     if kind == "rfc":
         return _rfc_review_task(pr_number=pr_number, ui_capable=ui_capable)

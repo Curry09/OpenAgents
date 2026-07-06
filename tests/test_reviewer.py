@@ -152,7 +152,7 @@ def test_task_for_rfc_and_code_differ():
 
 
 def test_code_review_task_now_judges_runtime_behavior():
-    # Spec-0054/T4：反转 0040/T4——code reviewer 现在**判运行时行为**（读 executor 证据 + 亲眼看截图），
+    # Spec-0055/T4：反转 0040/T4——code reviewer 现在**判运行时行为**（读 executor 证据 + 亲眼看截图），
     # 不再「运行时行为由证据闸负责、你不判」。
     code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "也判运行时行为" in code_task
@@ -163,7 +163,7 @@ def test_code_review_task_now_judges_runtime_behavior():
 
 
 def test_rfc_review_task_has_hard_e2e_rubric():
-    # Spec-0054/T4：「要不要有 e2e」在 RFC 闸把关——前端/交互类改动未声明 e2e 测法 → REWORK。
+    # Spec-0055/T4：「要不要有 e2e」在 RFC 闸把关——前端/交互类改动未声明 e2e 测法 → REWORK。
     rfc_task = _task_for(kind="rfc", pr_number=5, ui_capable=True)
     assert "e2e 测法" in rfc_task
     assert "REWORK" in rfc_task
@@ -171,7 +171,7 @@ def test_rfc_review_task_has_hard_e2e_rubric():
 
 
 def test_rfc_e2e_rubric_branches_on_ui_capable():
-    # Spec-0054/T4：起草/评审据固化的 ui_capable 分流——具备浏览器时 UI 改动 method 必须要求截图；
+    # Spec-0055/T4：起草/评审据固化的 ui_capable 分流——具备浏览器时 UI 改动 method 必须要求截图；
     # 不具备时不得因缺截图 REWORK。两条规则互斥地进入 RFC 任务。
     capable = _task_for(kind="rfc", pr_number=5, ui_capable=True)
     incapable = _task_for(kind="rfc", pr_number=5, ui_capable=False)
@@ -182,7 +182,7 @@ def test_rfc_e2e_rubric_branches_on_ui_capable():
 
 
 def test_code_review_task_has_evidence_rubric():
-    # Spec-0054/T4：code rubric 含「读证据判运行时行为」+ 缺证据/证据对不上 → REWORK，
+    # Spec-0055/T4：code rubric 含「读证据判运行时行为」+ 缺证据/证据对不上 → REWORK，
     # 统一证据落点 docs/e2e-results/<pr>/（并入 0044 的 docs/evidence）。
     code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "缺运行时证据" in code_task
@@ -193,7 +193,7 @@ def test_code_review_task_has_evidence_rubric():
 
 
 def test_evidence_rubric_only_on_code_not_rfc():
-    # Spec-0054/T4：运行时行为/证据检查只挂代码 review，不挂 spec 文档 review。
+    # Spec-0055/T4：运行时行为/证据检查只挂代码 review，不挂 spec 文档 review。
     rfc_task = _task_for(kind="rfc", pr_number=7, ui_capable=True)
     assert "docs/e2e-results/7/" not in rfc_task
     assert "缺运行时证据" not in rfc_task

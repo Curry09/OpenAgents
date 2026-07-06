@@ -262,7 +262,7 @@ def _group_with_e2e(*, root: Path, e2e: E2EPlan | None) -> Path:
 
 
 def test_valid_e2e_block_is_ok(tmp_path: Path) -> None:
-    """Spec-0054/T2：合法 e2e 块（intent 非空 + method 非空）→ 无 e2e 相关 error。"""
+    """Spec-0055/T2：合法 e2e 块（intent 非空 + method 非空）→ 无 e2e 相关 error。"""
     _group_with_e2e(
         root=tmp_path,
         e2e=E2EPlan(intent="init 无 origin 必须报错", method="跑 init，断言非零退出 + 提示"),

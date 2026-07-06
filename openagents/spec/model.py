@@ -136,7 +136,7 @@ class Overview:
 
 @dataclass(frozen=True)
 class E2EPlan:
-    """Spec-0054/T2：组级 e2e 测法——RFC 阶段声明「验什么 + 怎么测」，executor 运行时直接照它跑。
+    """Spec-0055/T2：组级 e2e 测法——RFC 阶段声明「验什么 + 怎么测」，executor 运行时直接照它跑。
 
     承载「要不要验、验什么、怎么测」：`intent` 一句话意图（RFC 闸批准后冻结，tautology guard 支点），
     `method` 一段 prose 测法（怎么测的人话步骤，**不含精确命令**——命令由 executor 运行时自己敲）。
@@ -295,10 +295,10 @@ def task_from_mapping(*, data: object) -> Task:
 
 
 def e2e_from_mapping(*, data: object) -> E2EPlan | None:
-    """Spec-0054/T2：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
+    """Spec-0055/T2：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
 
     宽松归一化（与 task_from_mapping 同风格）：intent/method 转 str；非空由 validate._e2e_checks 强制，
-    本函数不判空。旧 {form,acceptance} 键被忽略（additionalProperties=False 会在 validate 报，迁移交 Spec-0055）。
+    本函数不判空。旧 {form,acceptance} 键被忽略（additionalProperties=False 会在 validate 报，迁移交 Spec-0056）。
     """
     if data is None:
         return None

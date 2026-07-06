@@ -16,9 +16,9 @@ _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 STATUS_VALUES = ("pending", "in-progress", "done", "abandoned")
 PRIORITY_VALUES = ("P0", "P1", "P2", "P3")
 RELATES_TYPE_VALUES = ("extends", "supersedes", "note")
-# Spec-0040/T1（Spec-0054 退役中）：组级 e2e 执行形态枚举。**Spec-0054 已砍掉 form**——测法改为 prose
-# `method`（executor 运行时自检工具选路，见 Spec-0054 机制 3），本枚举不再被 schema/validate 使用。
-# executor.py 迁移完（Spec-0054/T3 删其 import）后本常量即成死码，最终删除交 Spec-0055 清扫组。
+# Spec-0040/T1（Spec-0055 退役中）：组级 e2e 执行形态枚举。**Spec-0055 已砍掉 form**——测法改为 prose
+# `method`（executor 运行时自检工具选路，见 Spec-0055 机制 3），本枚举不再被 schema/validate 使用。
+# executor.py 迁移完（Spec-0055/T3 删其 import）后本常量即成死码，最终删除交 Spec-0056 清扫组。
 E2E_FORM_VALUES = ("ui", "api", "cli", "backend")
 
 # issue #69：Task 退化为工作分解行，只保留两个一行短 prose（进 frontmatter）。
@@ -66,7 +66,7 @@ TASK_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0054/T2：组级 e2e 测法（RFC 阶段声明的成果验证意图 + 怎么测）。从 0040 的 {form,intent,
+# Spec-0055/T2：组级 e2e 测法（RFC 阶段声明的成果验证意图 + 怎么测）。从 0040 的 {form,intent,
 # acceptance[]} 瘦身为 {intent, method}——`intent` 一句话意图（验什么，RFC 闸批准后冻结），`method`
 # 一段 prose 测法（怎么测，人话步骤，**不含精确命令**——命令由 executor 运行时自己敲）。砍掉 form
 # 枚举（executor 运行时自检工具选路，不再按形态分派）与 acceptance（并进 method prose）。schema 只

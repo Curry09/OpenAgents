@@ -1,5 +1,5 @@
 ---
-number: "0054"
+number: "0055"
 title: e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
 issue: 123
 slug: e2e-v2-capability-aware
@@ -101,12 +101,12 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages.py
-      - scripts/e2e-spec-0054-e2e-v2-capability-aware.sh
+      - scripts/e2e-spec-0055-e2e-v2-capability-aware.sh
     scope: _process_coding 顺序改 ①mergeability→②CI→③run_e2e→④review_code（读证据）→⑤merge；删 _evidence_gate/iterate(e2e)/_block(e2e)；证据 commit 后源码指纹未变则 sticky 复用 PASS+跳 executor、CI 绿直接 merge、不重 review；该轮 CI 红→_block(gate='bad-ci-after-e2e')+额外打 bad_ci_after_e2e GitHub 标签。加 e2e 脚本离线段。
     acceptance: 单测（假 backend/github）：新顺序、executor 在 review 前、REWORK 走普通 iterate、sticky 直接 merge 不重 review、CI 红走 _block(bad-ci-after-e2e)+双标签+blocked 状态。e2e 脚本离线段绿。ruff + pytest 通过。
 ---
 
-# 0054 · e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
+# 0055 · e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -133,7 +133,7 @@ tasks:
 自我刷屏、复用 Spec-0053 的 **sticky 复用**（源码没变就不重跑 executor、不重 review、CI 绿即直接
 合），并对「纯 docs 证据 commit 意外把 CI 弄红」这一异常单打 `bad_ci_after_e2e` 标签 + `_block` 挂起。
 
-本组（Spec-0054）落**核心重写**；删除 0040 遗留死码（`evidence_gate.py` 等）与存量 spec 的 e2e 块
+本组（Spec-0055）落**核心重写**；删除 0040 遗留死码（`evidence_gate.py` 等）与存量 spec 的 e2e 块
 迁移收进后继清扫组（见 Unresolved）。
 
 ## Motivation
@@ -335,7 +335,7 @@ graph TD
 | T3 | `openagents/executor.py`, `tests/test_executor.py` | T2 |
 | T4 | `openagents/reviewer.py`, `tests/test_reviewer.py` | T1 |
 | T5 | `openagents/orchestrator.py`, `openagents/github.py`, `tests/test_orchestrator.py`, `tests/test_github.py` | T1, T2 |
-| T6 | `openagents/messages.py`, `tests/test_messages.py`, `scripts/e2e-spec-0054-e2e-v2-capability-aware.sh` | T3, T4, T5 |
+| T6 | `openagents/messages.py`, `tests/test_messages.py`, `scripts/e2e-spec-0055-e2e-v2-capability-aware.sh` | T3, T4, T5 |
 
 （T1/T2 为并行叶子；`evidence_gate.py` 的**删除**与存量 spec e2e 块迁移收进后继清扫组，避免本组 T6 与
 清扫组抢 `evidence_gate.py`——本组 T6 只**停止调用** `evidence_gate`，删文件留清扫组。）
@@ -358,7 +358,7 @@ graph TD
   跑 `run_e2e` 断言证据落 `docs/e2e-results/<pr>/`、源码没变则复用不重跑；喂「达成/未达成」证据给
   `review_code`（假 backend）断言 PASS 放行 / REWORK 不合；构造「证据 commit 后 CI 红」断言走
   `_block(bad-ci-after-e2e)` + 双标签 + `blocked` 状态。
-- 脚本：`scripts/e2e-spec-0054-e2e-v2-capability-aware.sh`（离线段：ruff + pytest + grep 锚点）。
+- 脚本：`scripts/e2e-spec-0055-e2e-v2-capability-aware.sh`（离线段：ruff + pytest + grep 锚点）。
 
 ## Drawbacks
 
@@ -409,7 +409,7 @@ graph TD
 
 - **0040 死码删除 + 存量 spec e2e 块迁移**：`evidence_gate.py` 删除、`docs/evidence/` 合并进
   `docs/e2e-results/`、存量 spec 的旧 `e2e{form,...}` 迁移到新 `{intent,method}`、0029 pending 的
-  RFC-NNNN 遗留注释清扫——收进**后继清扫组 Spec-0055**（依赖本组），避免与本组 T6 抢 `evidence_gate.py`。
+  RFC-NNNN 遗留注释清扫——收进**后继清扫组 Spec-0056**（依赖本组），避免与本组 T6 抢 `evidence_gate.py`。
 - **`scripts/e2e-*.sh`（32 个开发期 dogfood 脚本）去留**：与运行时 e2e 是两回事（CI 期离线自测）。倾向
   **保留**（现在还绿、是 CI dogfood），仅在文档/命名上厘清它与 runbook/executor 的区别——放清扫组定夺。
 - **CI `paths-ignore: docs/e2e-results/**`**：能免掉 sticky 那轮 CI 重跑，是可选优化；本组先不依赖它、

@@ -157,13 +157,13 @@ _BACKFILL_RFC_TASK = (
 )
 
 
-# Spec-0054/T5：证据落点相对路径约定（executor 写 result.md / 截图，reviewer 读；单一来源在此）。
+# Spec-0055/T5：证据落点相对路径约定（executor 写 result.md / 截图，reviewer 读；单一来源在此）。
 _EVIDENCE_ROOT = ("docs", "e2e-results")
 
 
 @dataclass(frozen=True)
 class E2ERunResult:
-    """Spec-0054/T5：orchestrator.run_e2e 的产物——供 messages 渲报告 + 判是否复用。
+    """Spec-0055/T5：orchestrator.run_e2e 的产物——供 messages 渲报告 + 判是否复用。
 
     reused: True = 源码指纹未变、复用上轮证据（executor 未真跑，result=None）；False = 本轮真跑了。
     result: 本轮 executor 的结构化结果（reused=True 时为 None）。
@@ -514,7 +514,7 @@ class Orchestrator:
             branch=record.branch,
             message=f"feat: implement issue #{record.issue_number} per RFC",
         )
-        # Spec-0040/T5 + Spec-0054/T5：implement 内不跑任何 e2e（旧一次性 smoke 早退役）。e2e 改由
+        # Spec-0040/T5 + Spec-0055/T5：implement 内不跑任何 e2e（旧一次性 smoke 早退役）。e2e 改由
         # merge 前的 run_e2e 负责（CI 绿后派独立 executor 真跑 → 证据进 review_code 判，见
         # messages._process_coding），测的是最终要合的集成态、且证据不达成即 REWORK 挡合并。
         self._progress(message="▶ 取消 draft，PR 转正 …")
@@ -554,7 +554,7 @@ class Orchestrator:
         # 其独立性。历史组装收口在 orchestrator（唯一持有 pr_number + github 读能力），reviewer 只
         # 接收字符串、不 import github/agentcontext（issue #129 缺口二 + 理念 10 解耦）。
         history = agentcontext.build_agent_context(pr_number=pr_number, extra_detail="")
-        # Spec-0054/T4：透传固化的 e2e 能力状态量——RFC 闸据它分流截图测法要求（起草/评审同源）；
+        # Spec-0055/T4：透传固化的 e2e 能力状态量——RFC 闸据它分流截图测法要求（起草/评审同源）；
         # code 闸不用它。读侧收口在 orchestrator（持有 state），reviewer 只接布尔参数（理念 10 解耦）。
         decision = reviewer.review(
             backend=self._backend,
@@ -623,12 +623,12 @@ class Orchestrator:
         _, prev = max(same_kind, key=lambda pair: pair[0].created_at)
         return prev.verdict_line == cur.verdict_line and prev.feedback_norm == cur.feedback_norm
 
-    # --- e2e v2：说明书直喂 executor 真跑 + 固化证据（Spec-0054/T5）--------- #
+    # --- e2e v2：说明书直喂 executor 真跑 + 固化证据（Spec-0055/T5）--------- #
     def run_e2e(self, *, pr_number: int) -> E2ERunResult | None:
-        """Spec-0054/T5：把本分支 spec 的 prose 测法直接喂独立 executor 真跑、固化证据、幂等短路。
+        """Spec-0055/T5：把本分支 spec 的 prose 测法直接喂独立 executor 真跑、固化证据、幂等短路。
 
         取代 0040 的 finalize_runbook + commit_evidence + 证据闸三步（说明书直喂、无中间 runbook、无
-        独立证据闸——达成判决合并进 review_code，见 Spec-0054）。流程：
+        独立证据闸——达成判决合并进 review_code，见 Spec-0055）。流程：
         - 读本分支改动的 spec 组的 e2e 测法 {intent, method}——**未声明即返回 None**（非交互 PR 空过，零回归）；
         - 算**源码指纹**（github.code_fingerprint 默认排除 docs/e2e-results/）与 record.e2e_ran_fingerprint
           比对：**一致 → 复用上轮证据、不重跑 executor**（返回 reused=True；证据 commit 不改源码指纹，

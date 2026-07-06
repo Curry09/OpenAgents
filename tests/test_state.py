@@ -462,7 +462,7 @@ def test_record_run_multiple_runs(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T1: ui_capable 顶层状态量 + e2e_ran_fingerprint per-run 字段
+# Spec-0055/T1: ui_capable 顶层状态量 + e2e_ran_fingerprint per-run 字段
 # --------------------------------------------------------------------------- #
 
 

@@ -1,10 +1,10 @@
-"""Spec-0051/T6（Spec-0054/T6 重排后更新）: 整链回执集成测试（成果测试，理念 8）。
+"""Spec-0051/T6（Spec-0055/T6 重排后更新）: 整链回执集成测试（成果测试，理念 8）。
 
 用**内存假 GitHub 评论账本**（记 body+created_at、list_comments 回读）+ 假 orchestrator（记录调用、
 返回可编排 summary / E2ERunResult）驱动 messages.poll 走完 coding 链，断言各收口点各留**一条署名回执**、
 重复 poll 不刷屏、发评论故障不阻断编排。
 
-Spec-0054：证据闸（finalize_runbook / evidence_gate / iterate(e2e)）已退役——收口点变为 implement /
+Spec-0055：证据闸（finalize_runbook / evidence_gate / iterate(e2e)）已退役——收口点变为 implement /
 iterate(ci) / iterate(review) / run_e2e 真跑的「## 证据执行」。
 
 本 feature 的「成果」是 GitHub PR 上的机器评论流（可观测性）；本仓库无产品前端界面可驱动、真发评论

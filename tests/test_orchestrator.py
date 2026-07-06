@@ -622,7 +622,7 @@ def test_implement_empty_summary_falls_back_to_placeholder(tmp_path, monkeypatch
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T5: 退役旧 smoke + run_e2e（说明书直喂 executor + 源码指纹幂等）
+# Spec-0055/T5: 退役旧 smoke + run_e2e（说明书直喂 executor + 源码指纹幂等）
 # --------------------------------------------------------------------------- #
 
 
@@ -663,7 +663,7 @@ def test_implement_no_longer_posts_e2e_smoke(tmp_path, monkeypatch):
 
 
 def test_run_e2e_no_e2e_plan_returns_none(tmp_path, monkeypatch):
-    # Spec-0054/T5：无 e2e 测法的 spec 组 → run_e2e 返回 None（e2e 空过），不派 executor。
+    # Spec-0055/T5：无 e2e 测法的 spec 组 → run_e2e 返回 None（e2e 空过），不派 executor。
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
@@ -675,7 +675,7 @@ def test_run_e2e_no_e2e_plan_returns_none(tmp_path, monkeypatch):
 
 
 def test_run_e2e_fingerprint_changed_runs_executor_and_commits(tmp_path, monkeypatch):
-    # Spec-0054/T5：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）+ commit 证据 + 落盘指纹。
+    # Spec-0055/T5：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）+ commit 证据 + 落盘指纹。
     from openagents.spec.model import E2EPlan
 
     orch, backend, state = _make(tmp_path)
@@ -704,7 +704,7 @@ def test_run_e2e_fingerprint_changed_runs_executor_and_commits(tmp_path, monkeyp
 
 
 def test_run_e2e_fingerprint_unchanged_reuses_without_executor(tmp_path, monkeypatch):
-    # Spec-0054/T5：源码指纹与上轮 PASS 一致 → 复用上轮证据、跳过 executor（不产生新 commit）。
+    # Spec-0055/T5：源码指纹与上轮 PASS 一致 → 复用上轮证据、跳过 executor（不产生新 commit）。
     from openagents.spec.model import E2EPlan
 
     orch, backend, state = _make(tmp_path)

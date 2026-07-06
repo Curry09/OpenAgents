@@ -94,11 +94,11 @@ def validate(*, specs_root: Path) -> ValidationReport:
 
 
 def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:
-    """Spec-0054/T2：组级 e2e 测法的硬化——**存在才校验**（不存在零回归，向后兼容）。
+    """Spec-0055/T2：组级 e2e 测法的硬化——**存在才校验**（不存在零回归，向后兼容）。
 
     e2e 块声明时：intent 去空白后非空、method 去空白后非空，各报一条 error。schema 已保证键存在与
     类型（intent/method 为 string），这里补 whitespace-only 这个 schema 拦不住的语义门槛（与
-    _summary_checks 同风格）。form/acceptance 已随 Spec-0054 退役，不再校验。
+    _summary_checks 同风格）。form/acceptance 已随 Spec-0055 退役，不再校验。
     """
     issues: list[ValidationIssue] = []
     for group in groups:

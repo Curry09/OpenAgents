@@ -150,12 +150,12 @@ _TRIED_BY_GATE = {
     "rfc-unparseable": "多次重评仍无法解析 reviewer 对 RFC 的裁决",
     "code-unparseable": "多次重评仍无法解析 reviewer 对代码的裁决",
     "merge": "已尝试自动解冲突，但仍与目标分支存在冲突",
-    # Spec-0054/T6：证据 commit（纯 docs）意外把 CI 弄红——源码此前 CI 绿+已产证据，非源码问题。
+    # Spec-0055/T6：证据 commit（纯 docs）意外把 CI 弄红——源码此前 CI 绿+已产证据，非源码问题。
     "bad-ci-after-e2e": "源码已过 CI 且已产出 e2e 证据，但提交证据（纯 docs）后 CI 意外变红，非源码问题，需人排查",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
-# Spec-0054/T6：证据 commit 弄红 CI 的专属诊断标签（叠加在 needs-human 之上，区分 blocked 原因）。
+# Spec-0055/T6：证据 commit 弄红 CI 的专属诊断标签（叠加在 needs-human 之上，区分 blocked 原因）。
 # 打标 best-effort（标签未预建则忽略），真正夯住靠 _block 的 needs-human + blocked 状态。
 _BAD_CI_AFTER_E2E_LABEL = "bad_ci_after_e2e"
 _BAD_CI_BLOCKER = (
@@ -555,7 +555,7 @@ class Messages:
         return self._handle_review_invalid(record=record, gate="rfc-unparseable")
 
     def _process_coding(self, *, record: RunRecord, hold: Hold) -> dict | None:
-        """代码阶段流水线（Spec-0054/T6 重排）：①mergeability→②CI→③run_e2e→④review_code→⑤merge。
+        """代码阶段流水线（Spec-0055/T6 重排）：①mergeability→②CI→③run_e2e→④review_code→⑤merge。
 
         ① 可合并性预检（冲突→解/ _block(merge)）；② CI（fail→iterate(ci) 或 bad_ci_after_e2e；pending→等）；
         CI 绿后 ③ **先派 executor 真跑 e2e**（证据是 review 的对象之一，故在 review 前）——真跑了就贴回执
@@ -601,7 +601,7 @@ class Messages:
             except github.GithubError:
                 return {"pr_number": pr_number, "reason": "behind-conflict"}
             return {"pr_number": pr_number, "reason": "synced"}
-        # 3a. CI 失败。Spec-0054/T6：先分「证据 commit 弄红 CI」与「代码真的挂了」。若源码自 e2e 真跑
+        # 3a. CI 失败。Spec-0055/T6：先分「证据 commit 弄红 CI」与「代码真的挂了」。若源码自 e2e 真跑
         # 后未变（record.e2e_ran_fingerprint 非空且等于当前源码指纹——tip 是纯 docs 证据 commit），CI 却
         # 变红 → bad_ci_after_e2e：不打回 iterate（源码没错、白改），单打诊断标签 + _block 挂起等人。
         status = github.check_status(pr_number=pr_number)
@@ -624,7 +624,7 @@ class Messages:
         if status.state == "pending":
             return None
         # 3c. CI 全绿 → ③ **先派 executor 真跑 e2e**（在 review 之前，因为证据是 review 的对象之一，
-        # Spec-0054/T6）。run_e2e 内含源码指纹（排除证据目录）幂等：源码变了才真跑+commit 证据，没变
+        # Spec-0055/T6）。run_e2e 内含源码指纹（排除证据目录）幂等：源码变了才真跑+commit 证据，没变
         # 复用上轮证据。若本轮**真跑了**（reused=False）：证据是新的纯 docs commit，需要 CI 重跑一遍
         # 才好合——本轮不 review/merge，贴执行回执后返回，下一轮 CI 绿即 sticky 复用直接推进（避免合一个
         # 没过 CI 的证据 commit；证据 commit 意外弄红 CI 则下一轮走上面的 bad_ci_after_e2e）。
@@ -639,7 +639,7 @@ class Messages:
         # run_e2e 复用（源码未变没重跑）或无 e2e 计划（None）→ 证据已在（或本就无），继续 ④ review + merge。
         # Spec-0053/T3：先算 PR 净 diff 指纹（默认排除 docs/e2e-results/）做 sticky 短路——与上轮 PASS 的
         # 指纹一致（代码状态未变，k8s Tide sticky approve / lgtm tree-hash 不变式）即复用上轮 PASS、跳过
-        # 重审。Spec-0054：证据 commit 不改源码指纹（指纹排除证据目录），故「证据 commit 后一轮」源码指纹
+        # 重审。Spec-0055：证据 commit 不改源码指纹（指纹排除证据目录），故「证据 commit 后一轮」源码指纹
         # 未变 → 这里 sticky 复用 PASS、不重 review（避免同码复审震荡），CI 绿即直接 merge。
         fingerprint = github.code_fingerprint(pr_number=pr_number)
         if fingerprint and fingerprint == record.code_passed_fingerprint:
@@ -648,7 +648,7 @@ class Messages:
             passed = True
         else:
             # 指纹变了 / 首轮无历史指纹 / 算不出指纹（空串 fail-open）→ 照常起 N 个 reviewer 评审
-            # （reviewer 现在同时读 docs/e2e-results/<pr>/ 证据 + 亲眼看截图判运行时行为，Spec-0054/T4）。
+            # （reviewer 现在同时读 docs/e2e-results/<pr>/ 证据 + 亲眼看截图判运行时行为，Spec-0055/T4）。
             decision = self._orchestrator.review_code(pr_number=pr_number)
             passed = decision.passed
             if passed and fingerprint:
@@ -708,7 +708,7 @@ class Messages:
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
     def _flag_bad_ci_after_e2e(self, *, pr_number: int) -> None:
-        """Spec-0054/T6：给 PR 打 bad_ci_after_e2e 诊断标签（best-effort，标签未预建则忽略）。
+        """Spec-0055/T6：给 PR 打 bad_ci_after_e2e 诊断标签（best-effort，标签未预建则忽略）。
 
         真正夯住不空转靠 _block 的 needs-human + blocked 状态；本标签只是叠加的可观测诊断，区分
         「证据 commit 弄红 CI」与别的 blocked 原因，故失败（标签未在仓库预建 → gh not found）不阻断挂起。

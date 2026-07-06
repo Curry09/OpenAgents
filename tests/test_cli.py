@@ -76,7 +76,7 @@ def _patch_ensure(monkeypatch):
     # Spec-0039/T3：rfc/vigil 入口现会自举 ensure_prerequisites（预建流程标签）——默认打成 no-op
     # 保持 CLI 单测不触达真实 gh；需要观测调用的用例（如 rfc/vigil preflight）再各自 re-patch 记录。
     monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
-    # Spec-0054/T1：poll/watch/vigil 入口现会固化 e2e 能力状态量——默认打成 no-op 保持 CLI 单测
+    # Spec-0055/T1：poll/watch/vigil 入口现会固化 e2e 能力状态量——默认打成 no-op 保持 CLI 单测
     # 不触真实 ~/.claude.json / 不写真实 state；需要观测该调用的用例再各自 re-patch 记录。
     monkeypatch.setattr("openagents.cli._persist_ui_capable", lambda *, ctx: None)
     return calls
@@ -824,7 +824,7 @@ def test_orchestrator_and_messages_share_resolved_agent_id(monkeypatch, tmp_path
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0054/T1: poll/watch/vigil 入口启动时固化 e2e 能力状态量
+# Spec-0055/T1: poll/watch/vigil 入口启动时固化 e2e 能力状态量
 # --------------------------------------------------------------------------- #
 
 
