@@ -34,6 +34,7 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `reviewer.py` | RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。 |
+| `skip.py` | Spec-0054/T1: vigil --skip 逐闸旁路开关配置模型（与 hold.py 对称）。 |
 | `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
 | `vigil.py` | RFC-0004: openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）。 |
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
@@ -96,6 +97,7 @@ graph LR
     nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
     nopenagents_reviewer["openagents.reviewer"]
+    nopenagents_skip["openagents.skip"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
     nopenagents_spec_graph["spec.graph"]
@@ -128,6 +130,7 @@ graph LR
     nopenagents_cli --> nopenagents_orchestrator
     nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
+    nopenagents_cli --> nopenagents_skip
     nopenagents_cli --> nopenagents_state
     nopenagents_cli --> nopenagents_vigil
     nopenagents_cli --> nopenagents_workspace
@@ -164,6 +167,7 @@ graph LR
     nopenagents_messages --> nopenagents_identity
     nopenagents_messages --> nopenagents_orchestrator
     nopenagents_messages --> nopenagents_replynote
+    nopenagents_messages --> nopenagents_skip
     nopenagents_messages --> nopenagents_state
     nopenagents_messages --> nopenagents_worknote
     nopenagents_orchestrator --> nopenagents
@@ -186,6 +190,7 @@ graph LR
     nopenagents_release --> nopenagents_state
     nopenagents_results --> nopenagents_state
     nopenagents_reviewer --> nopenagents_backends_base
+    nopenagents_skip --> nopenagents_hold
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph
     nopenagents_spec_cli --> nopenagents_spec_mutate
@@ -209,5 +214,6 @@ graph LR
     nopenagents_vigil --> nopenagents_identity
     nopenagents_vigil --> nopenagents_messages
     nopenagents_vigil --> nopenagents_orchestrator
+    nopenagents_vigil --> nopenagents_skip
     nopenagents_vigil --> nopenagents_state
 ```
