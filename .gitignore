@@ -10,6 +10,15 @@ venv/
 .ruff_cache/
 .pytest_cache/
 
+# 测试覆盖率产物
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# 浏览器 MCP（Playwright / Chrome DevTools）e2e 运行期落盘的日志/快照，非源码
+.playwright-mcp/
+
 # Node (仅用于 git 钩子工具链)
 node_modules/
 
