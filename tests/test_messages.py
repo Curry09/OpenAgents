@@ -587,6 +587,50 @@ def test_ci_fail_with_changed_source_still_iterates_ci(monkeypatch):
     assert any(e["reason"] == "ci" for e in events)
 
 
+def test_run_e2e_ran_increments_rounds(monkeypatch):
+    # Spec-0055/T6：本轮真跑（reused=False）记一轮——健康 PR 只真跑一次，rounds 0→1（< K 不挂起），
+    # 仍返回 reason="e2e"。回合上限是「源码指纹每轮 churn 无界重跑」的收敛兜底。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_PR_OPEN)],
+        code_decision=_PASS,
+        e2e_result=_e2e_ran(),
+    )
+    _patch_github(monkeypatch)
+
+    events = msgs.poll()
+
+    assert state._runs[0].rounds == 1  # 真跑一次记一轮
+    assert any(e["reason"] == "e2e" for e in events)
+    assert not any(e["reason"] == "blocked" for e in events)
+
+
+def test_run_e2e_churn_blocks_at_max_rounds(monkeypatch):
+    # Spec-0055/T6：executor 在证据目录外留改动 → 源码指纹每轮 churn → run_e2e 永远 reused=False。
+    # rounds 攒到 MAX_ROUNDS → 不再无界重跑，走 _block(gate="e2e")（needs-human + blocked）。
+    msgs, orch, state = _make(
+        runs=[
+            _run(
+                issue_number=3,
+                pr_number=5,
+                status=STATUS_PR_OPEN,
+                rounds=messages_module.MAX_ROUNDS - 1,
+            )
+        ],
+        code_decision=_PASS,
+        e2e_result=_e2e_ran(),
+    )
+    rec = _patch_github(monkeypatch)
+
+    events = msgs.poll()
+
+    assert orch.review_code_calls == []  # 挂起短路，不进 review
+    assert rec["merged"] == []
+    assert state.status_updates[-1] == {"issue_number": 3, "status": STATUS_BLOCKED}
+    assert (5, BLOCKED_LABEL) in rec["labels"]
+    blocked = next(e for e in events if e["reason"] == "blocked")
+    assert blocked["gate"] == "e2e"
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0022/T2：代码闸可合并性预检 + poll 单 record 错误隔离
 # --------------------------------------------------------------------------- #

@@ -154,6 +154,8 @@ _TRIED_BY_GATE = {
     "merge": "已尝试自动解冲突，但仍与目标分支存在冲突",
     # Spec-0055/T6：证据 commit（纯 docs）意外把 CI 弄红——源码此前 CI 绿+已产证据，非源码问题。
     "bad-ci-after-e2e": "源码已过 CI 且已产出 e2e 证据，但提交证据（纯 docs）后 CI 意外变红，非源码问题，需人排查",
+    # Spec-0055/T6：run_e2e 连续多轮真跑仍未收敛——源码指纹每轮 churn（证据目录外有杂散改动被 add -A 提交）。
+    "e2e": "独立 executor 已多轮真跑 e2e，但源码指纹每轮都在变（证据目录外有杂散改动）始终无法收敛",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
@@ -164,6 +166,17 @@ _BAD_CI_BLOCKER = (
     "源码在提交 e2e 证据（纯 docs，`docs/e2e-results/`）之前 CI 是绿的，提交证据后 CI 变红——"
     "这不是源码问题（源码指纹自 e2e 真跑后未变）。请排查是不是 CI 配置对 docs 改动误触发/误判，"
     "或临时把 `docs/e2e-results/**` 加进 CI 的 paths-ignore；修好后撤 needs-human 即自动续跑合并。"
+)
+# Spec-0055/T6：run_e2e 真跑重跑的回合上限兜底文案——收敛靠「源码指纹（排除 docs/e2e-results/）未变即
+# reused 放行」，唯一依赖 executor 真跑后不在证据目录外留改动。若 executor 落下杂散文件（跑出的 log/db、
+# 被改的 lockfile、下载的依赖产物、存错位置的截图……），会被 workspace.commit_and_push 的 `git add -A`
+# 一并提交 → 源码指纹每轮 churn → run_e2e 永远 reused=False 无界重跑（每轮烧一个 agent + 一次 CI）。故给
+# 真跑分支加 MAX_ROUNDS 兜底（与 code 闸共用一份 K，对齐旧证据闸），超限即挂起等人排查。
+_E2E_CHURN_BLOCKER = (
+    "独立 executor 已连续多轮真跑 e2e，但源码指纹（排除 `docs/e2e-results/` 后）每轮都在变、幂等短路无法"
+    "收敛——很可能 executor 在证据目录外留下了改动（跑出的日志/数据库文件、被改的 lockfile、下载的依赖"
+    "产物、存错位置的截图等），被 `git add -A` 一并提交进 PR。请 `git show --stat` 看最近的证据 commit 是否"
+    "夹带了证据目录外的文件，加进目标仓库 `.gitignore` 或从提交里剔除后撤 needs-human 即自动续跑。"
 )
 
 
@@ -580,7 +593,8 @@ class Messages:
 
         ① 可合并性预检（冲突→解/ _block(merge)）；② CI（fail→iterate(ci) 或 bad_ci_after_e2e；pending→等；
         skip.at_ci 旁路）；CI 绿后 ③ **先派 executor 真跑 e2e**（证据是 review 的对象之一，故在 review 前；
-        skip.at_evidence 旁路）——真跑了就贴回执 + 本轮返回（让证据 commit 过一遍 CI）；复用/无 e2e 则继续
+        skip.at_evidence 旁路）——真跑了就记一轮、贴回执 + 本轮返回（让证据 commit 过一遍 CI；源码指纹
+        每轮 churn 无法收敛时超 MAX_ROUNDS 走 _block(e2e)）；复用/无 e2e 则继续
         ④ review_code（含 Spec-0053 sticky 短路，reviewer 同时读 diff + 证据判运行时行为；skip.at_code 旁路）；
         ⑤ PASS→hold-merge/merge_pr，REWORK→iterate，评审无效→重试。
         """
@@ -657,6 +671,14 @@ class Messages:
         if not skip.at_evidence:
             e2e = self._orchestrator.run_e2e(pr_number=pr_number)
             if e2e is not None and not e2e.reused:
+                # Spec-0055/T6：真跑一次记一轮、超 K 挂起——收敛兜底。健康 PR 只真跑一次（下一轮源码
+                # 指纹未变即 reused 放行，不再进这里）；若 executor 在证据目录外留改动使源码指纹每轮
+                # churn，run_e2e 会永远 reused=False 无界重跑，这里用与 code 闸共用的 rounds 预算夯住
+                # （对齐旧证据闸「共用一份 K」，Spec-0040 状态机影响：不新增 status）。增计数在贴回执前，
+                # 确保跨 poll 幂等推进（贴回执尽力而为，不因它成败影响回合推进）。
+                rounds = self._state.increment_rounds(issue_number=record.issue_number)
+                if rounds >= MAX_ROUNDS:
+                    return self._block(record=record, gate="e2e", blocker=_E2E_CHURN_BLOCKER)
                 if e2e.result is not None:
                     # Spec-0051/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
                     self._post_agent_report(
