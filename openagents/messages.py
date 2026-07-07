@@ -564,6 +564,17 @@ class Messages:
         # 标签、不 refine、不 block、不进 coding）——把这道闸完全交给人，复用既有 label 门控。
         if hold.at_spec:
             return {"pr_number": pr_number, "reason": "hold-spec"}
+        # Spec-0057/T1：调 LLM reviewer **之前**先做一道**确定性** e2e 块检查——改动的 spec 组必须声明真实
+        # e2e{intent,method} 块（run_e2e 唯一读的东西）。缺则不问 LLM 直接自动返工（LLM 会被 spec 正文的
+        # e2e 讨论骗过、把「没声明结构化块」放行，见 wind-palace PR #19）。走与 REWORK 同款的 rounds/refine/
+        # block，事件 reason="refine-e2e-block"。放在 has_label(2a)/skip.at_spec 之后——那两条是人工放行意图，仍尊重。
+        missing = self._orchestrator.e2e_block_missing(pr_number=pr_number)
+        if missing is not None:
+            rounds = self._state.increment_rounds(issue_number=record.issue_number)
+            if rounds >= MAX_ROUNDS:
+                return self._block(record=record, gate="rfc", blocker=missing)
+            self._orchestrator.refine_rfc(pr_number=pr_number, detail=missing)
+            return {"pr_number": pr_number, "reason": "refine-e2e-block"}
         # 2b. 主动调 reviewer 评审 RFC（决策 3：不再等人打标签）。
         decision = self._orchestrator.review_rfc(pr_number=pr_number)
         if decision.passed:

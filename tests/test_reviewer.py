@@ -181,13 +181,16 @@ def test_rfc_e2e_rubric_branches_on_ui_capable():
     assert "不得因 method 没要求真实截图就 REWORK" in incapable
 
 
-def test_code_review_task_has_evidence_rubric():
-    # Spec-0055/T4：code rubric 含「读证据判运行时行为」+ 缺证据/证据对不上 → REWORK，
-    # 统一证据落点 docs/e2e-results/<pr>/（并入 0044 的 docs/evidence）。
+def test_code_review_task_has_two_layer_cross_check():
+    # Spec-0057/T2：code rubric 明含两重测试交叉比对——自测(声明/运动员) vs 独立 executor(裁判)，
+    # 独立证据缺失不得凭自测放行，两者矛盾以独立为准。两个证据目录分开提及。
     code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
-    assert "缺运行时证据" in code_task
+    assert "两重" in code_task
+    # 第一重=自测（docs/evidence，不单独放行）；第二重=独立 executor（docs/e2e-results，门控依据）。
+    assert "docs/evidence/" in code_task and "docs/e2e-results/7/" in code_task
+    assert "不单独构成放行理由" in code_task or "不得凭自测放行" in code_task
+    assert "缺独立 e2e 证据" in code_task
     assert "证据与意图对不上" in code_task
-    assert "docs/e2e-results/7/" in code_task
     # 无浏览器时软判（不因缺截图 REWORK）。
     assert "软判" in code_task
 
@@ -196,7 +199,7 @@ def test_evidence_rubric_only_on_code_not_rfc():
     # Spec-0055/T4：运行时行为/证据检查只挂代码 review，不挂 spec 文档 review。
     rfc_task = _task_for(kind="rfc", pr_number=7, ui_capable=True)
     assert "docs/e2e-results/7/" not in rfc_task
-    assert "缺运行时证据" not in rfc_task
+    assert "两重" not in rfc_task
 
 
 # --------------------------------------------------------------------------- #
