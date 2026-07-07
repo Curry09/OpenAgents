@@ -128,6 +128,10 @@ class _FakeWorkspace:
     def commit_and_push(self, *, worktree, branch, message):
         pass
 
+    def assert_delivered(self, *, worktree, branch):
+        # Spec-0056/T2：交付下放 agent 后，交付点改调 head 前移硬闸；替身 no-op = 已交付放行。
+        pass
+
     def changed_spec_group(self, *, worktree, base):
         return None
 

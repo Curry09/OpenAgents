@@ -1100,6 +1100,10 @@ def test_integration_real_orchestrator_rfc_pass_implements(monkeypatch, tmp_path
         def commit_and_push(self, *, worktree, branch, message):
             pass
 
+        def assert_delivered(self, *, worktree, branch):
+            # Spec-0056/T2：交付下放 agent 后，implement 交付点改调 head 前移硬闸；替身 no-op = 已交付放行。
+            pass
+
         def changed_spec_group(self, *, worktree, base):
             # issue #53：implement 转正前实跑 e2e 需先定位本分支 spec 组；本用例只验放行链路，
             # 返回 None 让脚本定位降级为 skipped（不起子进程）。

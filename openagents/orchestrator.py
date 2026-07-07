@@ -33,7 +33,7 @@ from openagents.state import (
     RunRecord,
     State,
 )
-from openagents.workspace import Workspace
+from openagents.workspace import Workspace, WorkspaceError
 
 # 分支命名前缀：单 issue → 单分支（RFC-0001 概述数据流，RFC-0005 沿用）。
 _BRANCH_PREFIX = "openagents/issue-"
@@ -76,6 +76,31 @@ _E2E_EVIDENCE_DISCIPLINE = (
     "细则（反惰性 rationalization 表 / 通用流程 / 合格证据判据）见仓库内 "
     "docs/skills/end-to-end-ui-screenshots/。是否适用由你自检自己改的是哪一类行为。"
 )
+# Spec-0056/T2：git 交付协议（软约束）——交付/冲突自愈下放 agent（唯一有语义能力读冲突、判意图、
+# 跑自测的一方），追加进 _DRAFT/_REFINE/_IMPLEMENT/_ITERATE task。硬性次序：BASE 取 **fetch 前**
+# 的远端基点（否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force——社区公认 footgun）；推送用
+# `--force-with-lease=<branch>:$BASE` 且**仅限本 issue 分支**、**绝不裸 --force**；完成判据 origin==HEAD。
+# harness 只保留 assert_delivered 一道死代码硬闸兜底（agent 没落地→head 不前移→拦下转人工）。
+_GIT_DELIVERY_PROTOCOL = (
+    "\n\n【交付协议——你负责把改动真正推上远端本 issue 分支 <branch>，直到成果落到 PR head】\n"
+    '1. `git add -A && git commit -m "<语义化信息>"`——首稿用 draft 措辞、后续迭代用 refine 等'
+    "**不同**措辞，别再堆固定的 `docs: draft spec` 消息;\n"
+    "2. **先**记下远端基点 `BASE=$(git rev-parse origin/<branch>)`，**再** `git fetch origin "
+    "<branch>`（BASE 必须在 fetch **之前**求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价"
+    "裸 force）;\n"
+    "3. 与远端分叉就 `git rebase origin/<branch>`：有冲突你自己读 `<<<<<<<` 标记按双方意图语义"
+    "解决、`git add -A && git rebase --continue`，直到 rebase 走完（不许中途 abort、不甩 needs-human）;\n"
+    "4. `git push --force-with-lease=<branch>:$BASE origin <branch>`;\n"
+    "5. **禁止裸** `git push --force`（无 lease）；`--force-with-lease` 仅限本 issue 分支 <branch>，"
+    "绝不作用于 main / 受保护分支 / 他人分支;\n"
+    "完成判据：`git rev-parse origin/<branch>` == 你的 `HEAD`，不相等就继续处理直到相等。"
+)
+# Spec-0056/T2：head 前移硬闸拦下（agent 自判完成却没把成果推上去）时贴到 issue/PR 的署名说明评论。
+_DELIVERY_STALL_COMMENT = (
+    "🤖 交付未落地：本分支 `{branch}` 的远端 head 未前移到本地 HEAD，疑似自判完成却没把成果推上去"
+    "（未 push / rebase 半途放弃 / 漏 `--force-with-lease`）。\n\n"
+    "已打 `needs-human` 挂起，待人工介入。诊断：{reason}"
+)
 _DRAFT_RFC_TASK = (
     "为 issue #{number}「{title}」起草一份 spec，遵循 spec-driven-development skill 的 Phase 2"
     "（rust-RFC 形态，总览先行）：\n"
@@ -90,6 +115,8 @@ _DRAFT_RFC_TASK = (
     "只产出 spec（docs/specs/ 下），不要写实现代码。\n"
     + _BROWSER_E2E_GUIDANCE
     + "\n\nissue 正文：\n{body}"
+    # Spec-0056/T2：交付下放 agent——首稿 commit 用 draft 语义化措辞，再按协议 push（禁固定 draft-spec 消息）。
+    + _GIT_DELIVERY_PROTOCOL
 )
 _REFINE_RFC_TASK = (
     # Spec-0052/T3：任务模板补 PR 号（issue #129 缺口一）——原文只说「本 issue 的 spec」，agent
@@ -97,7 +124,8 @@ _REFINE_RFC_TASK = (
     "PR #{pr_number} 的 spec 收到了评审意见，请据此更新 docs/specs/ 下对应的 spec 组"
     "（直接编辑组 markdown：改组级 9 段总览或 frontmatter tasks，保持单 spec 自包含、总览先行，"
     "只改 spec、不写实现代码），改完 `spec validate` + `spec render`。"
-    "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}"
+    "再用一两句话概述你做了哪些调整。\n\n评审意见：\n{detail}" + _GIT_DELIVERY_PROTOCOL
+    # Spec-0056/T2：交付下放 agent——commit 用 refine 语义化措辞，再按协议 push。
 )
 _IMPLEMENT_TASK = (
     # Spec-0052/T3：任务模板由「只带 issue 号」改为**同时**带 PR 号（issue #129 缺口一）——原文
@@ -111,6 +139,8 @@ _IMPLEMENT_TASK = (
     + "\n收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决"
     "——`docs/specs/OVERVIEW.md` 这类生成式索引直接 `spec render` 重渲消解、其余语义解决——"
     "确保 PR 处于可干净合并状态，不要把机械冲突留给 merge 闸。"
+    # Spec-0056/T2：交付下放 agent——commit 用语义化措辞，再按协议 push（BASE 取 fetch 前、force-with-lease 仅本分支）。
+     + _GIT_DELIVERY_PROTOCOL
 )
 # refine 后回贴到 PR 的评论模板，明确告知人类「已据评审更新 spec」（决策 6）。
 _REFINE_COMMENT = "🤖 已根据评审意见更新 spec：\n\n{summary}"
@@ -130,6 +160,8 @@ _ITERATE_TASK = (
     "针对 PR #{pr_number} 的{reason}反馈，请继续修改：\n{detail}\n"
     "改完收尾前先确认本分支能与最新 `origin/main` 干净合并：若有冲突就地解决"
     "（`docs/specs/OVERVIEW.md` 这类生成索引用 `spec render` 重渲、其余语义解决），别把机械冲突留给 merge 闸。"
+    # Spec-0056/T2：交付下放 agent——追加 commit 用语义化措辞，再按协议 push。
+    + _GIT_DELIVERY_PROTOCOL
 )
 
 # Spec-0025/T2：反向补全任务模板（prompt）。与 _DRAFT_RFC_TASK 镜像，但输入端从「issue 编号」
@@ -250,11 +282,12 @@ class Orchestrator:
             task=_DRAFT_RFC_TASK.format(number=issue.number, title=issue.title, body=issue.body),
             context=issue.body,
         )
-        self._progress(message=f"▶ 提交并推送分支 {branch} …")
-        self._workspace.commit_and_push(
-            worktree=worktree,
-            branch=branch,
-            message=f"docs: draft spec for issue #{issue.number}",
+        # Spec-0056/T2：交付下放 agent——backend 已按 _GIT_DELIVERY_PROTOCOL 语义化 commit + push
+        # （删除原硬编码 `docs: draft spec for issue #<n>` 同名消息，根因 4）。harness 只调 head 前移
+        # 硬闸断言成果真的推上去；未前移即打 needs-human + raise（不再由 harness 盲推、分叉即静默卡死）。
+        self._progress(message=f"▶ 校验分支 {branch} 交付（head 前移硬闸）…")
+        self._assert_delivered_or_fail(
+            worktree=worktree, branch=branch, issue_number=issue.number, pr_number=None
         )
 
         # RFC-0008：开 PR 前，从本分支新增的 RFC 抽取「端到端验证」指路牌拼进正文。
@@ -471,10 +504,13 @@ class Orchestrator:
             # （历轮裁决/作者回复/人类评论），extra_detail 为本轮评审意见（issue #129 缺口二）。
             context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=detail),
         )
-        self._workspace.commit_and_push(
+        # Spec-0056/T2：交付下放 agent（按 _GIT_DELIVERY_PROTOCOL commit+push）；harness 以 head
+        # 前移硬闸兜底（未前移→打 needs-human + raise OrchestratorError，vigil per-issue 兜住）。
+        self._assert_delivered_or_fail(
             worktree=worktree,
             branch=record.branch,
-            message=f"docs: refine RFC for PR #{pr_number} per review",
+            issue_number=record.issue_number,
+            pr_number=pr_number,
         )
         # 决策 6：reviewer 驱动路径回贴评论说明改动，让人类知道 RFC 已据评审更新。
         # RFC-0011 决策 4：走 identity.post_signed_comment 给回贴盖本实例签名，用于评论溯源/审计。
@@ -509,10 +545,13 @@ class Orchestrator:
             task=_IMPLEMENT_TASK.format(issue_number=record.issue_number, pr_number=pr_number),
             context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=""),
         )
-        self._workspace.commit_and_push(
+        # Spec-0056/T2：交付下放 agent（按 _GIT_DELIVERY_PROTOCOL commit+push）；harness 以 head
+        # 前移硬闸兜底（未前移→打 needs-human + raise OrchestratorError，vigil per-issue 兜住）。
+        self._assert_delivered_or_fail(
             worktree=worktree,
             branch=record.branch,
-            message=f"feat: implement issue #{record.issue_number} per RFC",
+            issue_number=record.issue_number,
+            pr_number=pr_number,
         )
         # Spec-0040/T5 + Spec-0055/T5：implement 内不跑任何 e2e（旧一次性 smoke 早退役）。e2e 改由
         # merge 前的 run_e2e 负责（CI 绿后派独立 executor 真跑 → 证据进 review_code 判，见
@@ -712,13 +751,61 @@ class Orchestrator:
             task=task,
             context=agentcontext.build_agent_context(pr_number=pr_number, extra_detail=detail),
         )
-        self._workspace.commit_and_push(
+        # Spec-0056/T2：交付下放 agent（按 _GIT_DELIVERY_PROTOCOL 追加 commit + push）；harness 以
+        # head 前移硬闸兜底（未前移→打 needs-human + raise OrchestratorError，vigil per-issue 兜住）。
+        self._assert_delivered_or_fail(
             worktree=worktree,
             branch=record.branch,
-            message=f"fix: address {reason} feedback on PR #{pr_number}",
+            issue_number=record.issue_number,
+            pr_number=pr_number,
         )
         self._state.update_status(issue_number=record.issue_number, status=STATUS_ITERATING)
         return result.summary
+
+    def _assert_delivered_or_fail(
+        self, *, worktree: Path, branch: str, issue_number: int, pr_number: int | None
+    ) -> None:
+        """Spec-0056/T2：agent 交付后调 head 前移硬闸；未前移→needs-human+署名评论+raise OrchestratorError。
+
+        交付（commit→记 fetch 前 BASE→rebase 解冲突→push --force-with-lease）下放给 agent（prompt
+        软约束 _GIT_DELIVERY_PROTOCOL）；本方法是唯一死代码兜底：断言 origin/<branch> == 本地 HEAD。
+        断言失败（agent 自判完成却没推上去，正是 issue #140 复现）→ _fail_to_human 打 needs-human +
+        署名说明评论，再把 WorkspaceError **翻译**成 OrchestratorError 上抛——根因 2 隔离修复：让 vigil
+        的 `except (OrchestratorError, GithubError)`（vigil.py）兜住、不被裸 WorkspaceError 击穿整轮；
+        翻译落在 orchestrator 这个已同时持有 workspace/github 两侧的 seam，workspace 不反向依赖
+        orchestrator（守解耦理念 10；见 spec 备选 3 否决理由）。
+        """
+        try:
+            self._workspace.assert_delivered(worktree=worktree, branch=branch)
+        except WorkspaceError as exc:
+            self._fail_to_human(
+                issue_number=issue_number, pr_number=pr_number, branch=branch, reason=str(exc)
+            )
+            raise OrchestratorError(str(exc)) from exc
+
+    def _fail_to_human(
+        self, *, issue_number: int, pr_number: int | None, branch: str, reason: str
+    ) -> None:
+        """Spec-0056/T2：head 前移硬闸拦下 → 打 needs-human 标签 + 一条署名说明评论（复用既有原语）。
+
+        pr_number 已开出（refine/implement/iterate）走 PR 级 post_comment + add_label；尚未开 PR
+        （start_rfc draft 段，issue #140 复现路径）走 issue 级 issue_comment + issue_add_label。不新增
+        state 字段、复用 identity.sign + 既有 needs-human 原语（BLOCKED_LABEL）；评论附双 SHA 诊断
+        （reason 携本地 HEAD / 远端 head 摘要）便于人工定位（理念 8 可观测）。
+        """
+        self._progress(
+            message=f"⏸ 分支 {branch} head 未前移、疑似未交付，打 {github.BLOCKED_LABEL} 待人工 …"
+        )
+        body = identity.sign(
+            body=_DELIVERY_STALL_COMMENT.format(branch=branch, reason=reason),
+            agent_id=self._agent_id,
+        )
+        if pr_number is not None:
+            github.post_comment(pr_number=pr_number, body=body)
+            github.add_label(pr_number=pr_number, name=github.BLOCKED_LABEL)
+        else:
+            github.issue_comment(number=issue_number, body=body)
+            github.issue_add_label(number=issue_number, name=github.BLOCKED_LABEL)
 
     def _require_run(self, *, pr_number: int) -> RunRecord:
         """按 PR number 定位 run；找不到则抛 OrchestratorError（refine/implement/iterate 复用）。"""

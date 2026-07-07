@@ -5,8 +5,15 @@ GitHub / backend / state。orchestrator 的原子操作借本模块完成「确�
 「提交推送」，从而把 git 关注点与 GitHub/状态等关注点解耦（RFC-0005 决策 3）。
 
 RFC-0003 的 worktree 隔离与基线锁定语义在此原样保留：每 issue 独立 worktree、
-从 `origin/<base>` 拉分支；iterate/续写复用既有 worktree、缺失则重建；
-push 一律普通 push（决策 7：绝不 force-push）。所有 git 操作走 subprocess。
+从 `origin/<base>` 拉分支；iterate/续写复用既有 worktree、缺失则重建。所有 git 操作走 subprocess。
+
+# Spec-0056/T1（决策 7 修订）：由「绝不 force-push」改为**绝不裸 force-push；允许
+`--force-with-lease`，且仅限 agent 自己的 issue 分支 `openagents/issue-<n>`，不得作用于
+main / 受保护分支 / 他人分支**。交付（含分叉后 rebase 解冲突 + `push --force-with-lease`）
+下放给 agent（prompt 软约束，见 orchestrator._GIT_DELIVERY_PROTOCOL）；harness 自身
+**不执行** force-with-lease，只留一道只读硬闸 `assert_delivered`（断言成果真的推上远端）。
+`commit_and_push` 保留原样，仅供 harness 自著文件（证据/runbook 等无 agent turn 的收尾）
+的普通 push 路径，其行为逐字节不变。
 """
 
 from __future__ import annotations
@@ -21,6 +28,11 @@ _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
 # 2026-06-24 spec-markdown-form：spec 组 = 单文件 NNNN-slug.md（slug 以字母起，
 # 排除 dated 设计文档 YYYY-MM-DD-*.md）。
 _SPEC_GROUP_FILE_RE = re.compile(r"^\d{4}-[A-Za-z].*\.md$")
+
+
+def _short_sha(*, sha: str) -> str:
+    """# Spec-0056/T1：把完整 SHA 截成短摘要用于硬闸报错（空则显式标注，便于人工定位）。"""
+    return sha[:12] if sha else "（空）"
 
 
 class WorkspaceError(Exception):
@@ -62,14 +74,46 @@ class Workspace:
         return path
 
     def commit_and_push(self, *, worktree: Path, branch: str, message: str) -> None:
-        """git add -A → commit → push（决策 7：普通 push，绝不 force-push），均在 worktree 内。
+        """git add -A → commit → push（普通 push，绝不裸 force-push），均在 worktree 内。
 
         无改动可提交（后端可能未改文件）则跳过 commit（check=False），仍执行 push 以
         补推历史中尚未推送的 commit；远端已最新时 push 为幂等空操作。
+
+        # Spec-0056/T1：本方法仍是**普通 push**，只服务 harness 自著文件（证据/runbook 等
+        无 agent turn 的收尾）——分叉风险低。agent 自著路径的交付（含分叉后 rebase +
+        force-with-lease）改由 agent 按交付协议自负、harness 以 assert_delivered 硬闸兜底。
         """
         self._git(args=["add", "-A"], cwd=worktree, check=True)
         self._git(args=["commit", "-m", message], cwd=worktree, check=False)
         self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
+
+    def assert_delivered(self, *, worktree: Path, branch: str) -> None:
+        """# Spec-0056/T1：head 前移硬闸——断言 agent 的成果真的推上远端 <branch>，不等即抛。
+
+        agent 交付后（commit → 记 fetch 前 BASE → rebase 解冲突 → push --force-with-lease）由
+        harness 调用：`git fetch origin <branch>`（check=False，远端无分支时不报错）后取
+        `git rev-parse origin/<branch>` 与 `git rev-parse HEAD` 对比——相等 = 已交付放行；
+        不等 = agent 自判完成却没推上去（正是 issue #140 的复现场景）→ 抛 WorkspaceError（携双
+        SHA 摘要）。远端无该分支（rev-parse 失败）视作「未交付」→ 抛（agent 理应已 push 建分支）。
+
+        纯读，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
+        agent force-push（决策 7），本闸只判「到没到」。routing（打 needs-human）留在 orchestrator。
+        """
+        self._git(args=["fetch", "origin", branch], cwd=worktree, check=False)
+        remote = self._git(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)
+        head = self._git(args=["rev-parse", "HEAD"], cwd=worktree, check=False)
+        head_sha = head.stdout.strip()
+        remote_sha = remote.stdout.strip()
+        if remote.returncode != 0 or not remote_sha:
+            raise WorkspaceError(
+                f"分支 {branch} 未交付：远端无 origin/{branch}"
+                f"（本地 HEAD={_short_sha(sha=head_sha)}，疑似 agent 未 push）"
+            )
+        if remote_sha != head_sha:
+            raise WorkspaceError(
+                f"分支 {branch} head 未前移、疑似未交付："
+                f"origin/{branch}={_short_sha(sha=remote_sha)} ≠ 本地 HEAD={_short_sha(sha=head_sha)}"
+            )
 
     def changed_spec_group(self, *, worktree: Path, base: str) -> Path | None:
         """Locate the spec group markdown file this branch touches, via git diff vs base.

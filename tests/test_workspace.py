@@ -186,6 +186,86 @@ def test_changed_spec_group_picks_group_over_overview(tmp_path, monkeypatch):
     )
 
 
+# --------------------------------------------------------------------------- #
+# Spec-0056/T1: assert_delivered（head 前移硬闸）+ 决策 7 修订
+# --------------------------------------------------------------------------- #
+
+
+class _RevParseRecorder:
+    """subprocess.run 替身：按 rev-parse 目标（origin/<branch> vs HEAD）返回不同 SHA。
+
+    remote_fail=True 时让 `rev-parse origin/<branch>` 返回非零（模拟远端无分支）。
+    """
+
+    def __init__(self, *, remote_sha, head_sha, remote_fail=False):
+        self.commands = []
+        self._remote_sha = remote_sha
+        self._head_sha = head_sha
+        self._remote_fail = remote_fail
+
+    def __call__(self, args, **kwargs):
+        self.commands.append(list(args))
+        sub = args[3] if len(args) > 3 else ""
+        if sub == "rev-parse":
+            target = args[4]
+            if target == "HEAD":
+                return SimpleNamespace(returncode=0, stdout=self._head_sha + "\n", stderr="")
+            # origin/<branch>
+            if self._remote_fail:
+                return SimpleNamespace(returncode=128, stdout="", stderr="unknown revision")
+            return SimpleNamespace(returncode=0, stdout=self._remote_sha + "\n", stderr="")
+        # fetch 等其它子命令：无条件成功、空输出。
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+
+def test_assert_delivered_passes_when_remote_equals_head(tmp_path, monkeypatch):
+    # origin/<branch> == HEAD → 已交付，放行（不抛）。
+    recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40)
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+
+    ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
+
+    joined = _joined(recorder)
+    # fetch 先行（远端无分支不报错），再 rev-parse 两侧对比。
+    assert any("fetch origin openagents/issue-140" in c for c in joined)
+    assert any("rev-parse origin/openagents/issue-140" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
+    # 硬闸只读、绝不代 agent force-push（决策 7）。
+    assert not any("push" in c or "--force" in c for c in joined)
+
+
+def test_assert_delivered_raises_on_mismatch_with_both_shas(tmp_path, monkeypatch):
+    # origin/<branch> != HEAD → 未交付，抛 WorkspaceError，报错携双 SHA 摘要。
+    recorder = _RevParseRecorder(remote_sha="b" * 40, head_sha="c" * 40)
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+
+    with pytest.raises(WorkspaceError) as excinfo:
+        ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
+    msg = str(excinfo.value)
+    assert "b" * 12 in msg  # 远端短 SHA
+    assert "c" * 12 in msg  # 本地 HEAD 短 SHA
+
+
+def test_assert_delivered_raises_when_remote_branch_missing(tmp_path, monkeypatch):
+    # 远端无该分支（rev-parse origin/<branch> 失败）→ 视作未交付，抛。
+    recorder = _RevParseRecorder(remote_sha="", head_sha="d" * 40, remote_fail=True)
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+
+    with pytest.raises(WorkspaceError):
+        ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
+
+
+def test_decision_7_docstring_allows_force_with_lease_on_own_branch():
+    # 决策 7 修订：绝不*裸* force、允许 --force-with-lease 仅限本 issue 分支。
+    doc = ws_module.__doc__ or ""
+    assert "绝不裸 force-push" in doc
+    assert "--force-with-lease" in doc
+    assert "openagents/issue-" in doc
+
+
 def test_module_exposes_workspace_error():
     assert issubclass(ws_module.WorkspaceError, Exception)
 

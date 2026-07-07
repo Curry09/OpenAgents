@@ -7,7 +7,7 @@ summary: 把 git 交付/冲突自愈从 harness 死写下放给 agent（commit�
 tasks:
   - id: T1
     title: workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: 单测覆盖：origin/<branch>==HEAD 时 assert_delivered 放行、不等时抛 WorkspaceError（携双 SHA）、远端无分支时判未交付抛错；常态 commit_and_push 普通 push 行为逐字节不变；decision-7 docstring 已改为「绝不裸 force、允许 --force-with-lease 仅限本分支」。ruff+pytest 全绿。
   - id: T2
     title: orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: '单测覆盖：(1) fork 场景用执行协议的 fake backend 一轮内 rebase 自愈+force-with-lease 推上、head 前移到本地 HEAD；(2) 硬闸 mismatch→issue_add_label(BLOCKED_LABEL)+署名评论+raise OrchestratorError（不再裸 WorkspaceError 逃逸 vigil 的 except 元组）；(3) 交付协议 prompt 契约锁：含 --force-with-lease、BASE 取 fetch 前次序、禁裸 --force、完成判据 origin==HEAD；(4) 不再出现固定 docs: draft spec 消息。ruff+pytest 全绿。'
   - id: T3
     title: e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

@@ -76,9 +76,17 @@ class _GitRecorder:
         # Spec-0049/T4：start_rfc fresh 认领会 read-after-write 调 `gh issue view --json comments`
         # （list_issue_comments）；给它回一个空评论 JSON，使 latest_claim 返回 None（无他方认领）→
         # 不抛 ClaimLost，本用例聚焦 worktree/PR/状态路径，不验认领竞态（那由 test_orchestrator_claim）。
+        # Spec-0056/T2：交付后 harness 调 assert_delivered（fetch + rev-parse origin/<branch> 与 HEAD
+        # 对比）。让两处 rev-parse 都回同一 SHA，模拟「agent 已把成果推上、head 前移」→ 硬闸放行；
+        # 硬闸的 mismatch/未交付路径由 test_orchestrator_delivery.py 专门覆盖。
         class _Proc:
             returncode = 0
-            stdout = '{"comments": []}' if "comments" in args else ""
+            if "comments" in args:
+                stdout = '{"comments": []}'
+            elif "rev-parse" in args:
+                stdout = "deadbeefcafe"
+            else:
+                stdout = ""
             stderr = ""
 
         return _Proc()
@@ -104,6 +112,11 @@ class _FakeWorkspace:
         return self._root / f"issue-{issue_number}"
 
     def commit_and_push(self, *, worktree, branch, message):
+        pass
+
+    def assert_delivered(self, *, worktree, branch):
+        # Spec-0056/T2：交付下放 agent 后，start_rfc 在原 commit_and_push 位置改调 head 前移硬闸。
+        # 这两个用例只验 prepare/ensure/begin_run 路径，硬闸放行即可（no-op = 已交付）。
         pass
 
     def changed_spec_group(self, *, worktree, base):
@@ -177,7 +190,9 @@ def test_start_rfc_invokes_backend_with_rfc_task_in_worktree(tmp_path, monkeypat
     assert call["work_dir"] == tmp_path / ".openagents" / "worktrees" / "issue-3"
 
 
-def test_start_rfc_drafts_from_origin_base_and_commits_docs(tmp_path, monkeypatch):
+def test_start_rfc_drafts_from_origin_base_and_asserts_delivery(tmp_path, monkeypatch):
+    # Spec-0056/T2：交付下放 agent——harness 不再自著 `docs: draft spec` commit（删同名消息，根因 4），
+    # 改在原 commit_and_push 位置调 head 前移硬闸（fetch + rev-parse origin/<branch> 与 HEAD 对比）。
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -193,8 +208,12 @@ def test_start_rfc_drafts_from_origin_base_and_commits_docs(tmp_path, monkeypatc
     joined = [" ".join(c) for c in recorder.commands]
     assert any("fetch origin main" in c for c in joined)
     assert any("worktree add -b openagents/issue-3" in c and "origin/main" in c for c in joined)
-    commit_cmds = [c for c in recorder.commands if "commit" in c]
-    assert commit_cmds and "docs" in " ".join(commit_cmds[0])
+    # head 前移硬闸：fetch 本分支 + rev-parse origin/<branch> 与 HEAD 对比。
+    assert any("fetch origin openagents/issue-3" in c for c in joined)
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
+    # harness 不再自著固定 `docs: draft spec` commit（交付/commit 由 agent 按协议做）。
+    assert not any("draft spec for issue" in c for c in joined)
 
 
 def test_start_rfc_writes_rfc_review_in_single_record_run(tmp_path, monkeypatch):
@@ -532,7 +551,9 @@ def test_refine_rfc_feeds_detail_posts_comment_and_keeps_rfc_review(tmp_path, mo
     assert state.all_runs()[0].status == "rfc-review"
 
 
-def test_refine_rfc_commit_message_is_docs(tmp_path, monkeypatch):
+def test_refine_rfc_asserts_delivery_not_harness_commit(tmp_path, monkeypatch):
+    # Spec-0056/T2：refine 交付下放 agent——harness 改调 head 前移硬闸（fetch + rev-parse 对比），
+    # 不再自著 commit（commit/push 由 agent 按 _GIT_DELIVERY_PROTOCOL 做）。
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -541,8 +562,9 @@ def test_refine_rfc_commit_message_is_docs(tmp_path, monkeypatch):
 
     orch.refine_rfc(pr_number=5, detail="x")
 
-    commit_cmds = [c for c in recorder.commands if "commit" in c]
-    assert commit_cmds and "docs" in " ".join(commit_cmds[0])
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
 
 
 def test_refine_rfc_unknown_pr_raises(tmp_path, monkeypatch):
@@ -574,7 +596,8 @@ def test_implement_marks_ready_and_sets_pr_open(tmp_path, monkeypatch):
     assert state.all_runs()[0].status == "pr-open"
 
 
-def test_implement_commit_message_is_feat(tmp_path, monkeypatch):
+def test_implement_asserts_delivery_not_harness_commit(tmp_path, monkeypatch):
+    # Spec-0056/T2：implement 交付下放 agent——harness 改调 head 前移硬闸，不再自著 `feat:` commit。
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -583,8 +606,9 @@ def test_implement_commit_message_is_feat(tmp_path, monkeypatch):
 
     orch.implement(pr_number=5)
 
-    commit_cmds = [c for c in recorder.commands if "commit" in c]
-    assert commit_cmds and "feat" in " ".join(commit_cmds[0])
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
 
 
 def test_implement_unknown_pr_raises(tmp_path, monkeypatch):
@@ -728,7 +752,7 @@ def test_run_e2e_fingerprint_unchanged_reuses_without_executor(tmp_path, monkeyp
 # --------------------------------------------------------------------------- #
 
 
-def test_iterate_feeds_detail_to_backend_and_appends_commit(tmp_path, monkeypatch):
+def test_iterate_feeds_detail_to_backend_and_asserts_delivery(tmp_path, monkeypatch):
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -744,9 +768,11 @@ def test_iterate_feeds_detail_to_backend_and_appends_commit(tmp_path, monkeypatc
     # （不再逐字节等于 detail）。
     assert "please fix the typo" in backend.calls[0]["context"]
     assert "本 PR 是 #5" in backend.calls[0]["context"]
+    # Spec-0056/T2：交付下放 agent——harness 改调 head 前移硬闸，且**自身绝不 force-push**（决策 7：
+    # force-with-lease 由 agent 按协议做，harness 只读断言）。
     joined = [" ".join(c) for c in recorder.commands]
-    assert any("commit" in c for c in joined)
-    assert any("push" in c for c in joined)
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
     assert not any("--force" in c or "-f" in c.split() for c in joined)
 
 
