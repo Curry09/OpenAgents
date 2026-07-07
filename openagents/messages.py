@@ -41,7 +41,6 @@ from openagents import (
     blocknote,
     conflict,
     conflictdiag,
-    evidence_gate,
     executor,
     github,
     identity,
@@ -153,16 +152,38 @@ _TRIED_BY_GATE = {
     "rfc-unparseable": "多次重评仍无法解析 reviewer 对 RFC 的裁决",
     "code-unparseable": "多次重评仍无法解析 reviewer 对代码的裁决",
     "merge": "已尝试自动解冲突，但仍与目标分支存在冲突",
-    # Spec-0040/T5：证据闸多轮 FAIL——独立 executor 真跑系统的证据始终对不上 RFC 意图。
-    "e2e": "已多轮定稿说明书 + 独立 executor 真跑系统，证据仍未达成 RFC 批准的 e2e 意图",
+    # Spec-0055/T6：证据 commit（纯 docs）意外把 CI 弄红——源码此前 CI 绿+已产证据，非源码问题。
+    "bad-ci-after-e2e": "源码已过 CI 且已产出 e2e 证据，但提交证据（纯 docs）后 CI 意外变红，非源码问题，需人排查",
+    # Spec-0055/T6：run_e2e 连续多轮真跑仍未收敛——源码指纹每轮 churn（证据目录外有杂散改动被 add -A 提交）。
+    "e2e": "独立 executor 已多轮真跑 e2e，但源码指纹每轮都在变（证据目录外有杂散改动）始终无法收敛",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
+
+# Spec-0055/T6：证据 commit 弄红 CI 的专属诊断标签（叠加在 needs-human 之上，区分 blocked 原因）。
+# 打标 best-effort（标签未预建则忽略），真正夯住靠 _block 的 needs-human + blocked 状态。
+_BAD_CI_AFTER_E2E_LABEL = "bad_ci_after_e2e"
+_BAD_CI_BLOCKER = (
+    "源码在提交 e2e 证据（纯 docs，`docs/e2e-results/`）之前 CI 是绿的，提交证据后 CI 变红——"
+    "这不是源码问题（源码指纹自 e2e 真跑后未变）。请排查是不是 CI 配置对 docs 改动误触发/误判，"
+    "或临时把 `docs/e2e-results/**` 加进 CI 的 paths-ignore；修好后撤 needs-human 即自动续跑合并。"
+)
+# Spec-0055/T6：run_e2e 真跑重跑的回合上限兜底文案——收敛靠「源码指纹（排除 docs/e2e-results/）未变即
+# reused 放行」，唯一依赖 executor 真跑后不在证据目录外留改动。若 executor 落下杂散文件（跑出的 log/db、
+# 被改的 lockfile、下载的依赖产物、存错位置的截图……），会被 workspace.commit_and_push 的 `git add -A`
+# 一并提交 → 源码指纹每轮 churn → run_e2e 永远 reused=False 无界重跑（每轮烧一个 agent + 一次 CI）。故给
+# 真跑分支加 MAX_ROUNDS 兜底（与 code 闸共用一份 K，对齐旧证据闸），超限即挂起等人排查。
+_E2E_CHURN_BLOCKER = (
+    "独立 executor 已连续多轮真跑 e2e，但源码指纹（排除 `docs/e2e-results/` 后）每轮都在变、幂等短路无法"
+    "收敛——很可能 executor 在证据目录外留下了改动（跑出的日志/数据库文件、被改的 lockfile、下载的依赖"
+    "产物、存错位置的截图等），被 `git add -A` 一并提交进 PR。请 `git show --stat` 看最近的证据 commit 是否"
+    "夹带了证据目录外的文件，加进目标仓库 `.gitignore` 或从提交里剔除后撤 needs-human 即自动续跑。"
+)
 
 
 def _report_header(*, body: str) -> str | None:
     """Spec-0051/T5：取回执正文首个 `## ` 标题行（去重锚点）；无标题 → None（非回执评论）。
 
-    render_*（executor/evidence_gate/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
+    render_*（executor/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
     隐藏签名，故 PR 上存量回执评论的首个 `## ` 行仍是原抬头，可作同类回执的分桶锚点。
     """
     for line in body.splitlines():
@@ -567,7 +588,16 @@ class Messages:
     def _process_coding(
         self, *, record: RunRecord, hold: Hold, skip: Skip = NO_SKIP
     ) -> dict | None:
-        """代码评审闸（RFC-0012 决策 1）：CI 失败→iterate(ci)；CI 绿+reviewer PASS→merge；非 PASS→iterate 或 BLOCKED。"""
+        """代码阶段流水线（Spec-0055/T6 重排 + Spec-0054 vigil --skip 逐闸旁路）：
+        ①mergeability→②CI→③run_e2e→④review_code→⑤merge。
+
+        ① 可合并性预检（冲突→解/ _block(merge)）；② CI（fail→iterate(ci) 或 bad_ci_after_e2e；pending→等；
+        skip.at_ci 旁路）；CI 绿后 ③ **先派 executor 真跑 e2e**（证据是 review 的对象之一，故在 review 前；
+        skip.at_evidence 旁路）——真跑了就记一轮、贴回执 + 本轮返回（让证据 commit 过一遍 CI；源码指纹
+        每轮 churn 无法收敛时超 MAX_ROUNDS 走 _block(e2e)）；复用/无 e2e 则继续
+        ④ review_code（含 Spec-0053 sticky 短路，reviewer 同时读 diff + 证据判运行时行为；skip.at_code 旁路）；
+        ⑤ PASS→hold-merge/merge_pr，REWORK→iterate，评审无效→重试。
+        """
         pr_number = record.pr_number
         # Spec-0022/T2：跑 reviewer 前先做可合并性预检——真冲突的 PR 连 CI 都不必等，越早短路越省。
         # 判定取「或」更稳：DIRTY 与 CONFLICTING 在冲突场景同时出现（实例 PR #61）。
@@ -607,13 +637,20 @@ class Messages:
             except github.GithubError:
                 return {"pr_number": pr_number, "reason": "behind-conflict"}
             return {"pr_number": pr_number, "reason": "synced"}
-        # Spec-0054/T2：CI 等待闸 skip——skip.at_ci 为真时把 CI 当全绿直接放行：不查
-        # check_status（不因 fail 喂日志迭代、不因 pending 空等下一轮），直接落到下方代码闸。
-        # 供 CI 短期不可用 / 已人工确认时旁路。默认（未 skip）逐字节走原 CI 分流。
+        # 3a. CI（skip.at_ci 旁路）。Spec-0055/T6：先分「证据 commit 弄红 CI」与「代码真的挂了」。若源码
+        # 自 e2e 真跑后未变（record.e2e_ran_fingerprint 非空且等于当前源码指纹——tip 是纯 docs 证据 commit），
+        # CI 却变红 → bad_ci_after_e2e：不打回 iterate（源码没错、白改），单打诊断标签 + _block 挂起等人。
+        # Spec-0054（vigil --skip）：skip.at_ci 为真时把 CI 当全绿直接放行（CI 短期不可用 / 已人工确认时旁路）。
         if not skip.at_ci:
-            # 3a. CI 失败：以失败日志喂回 agent（决策 11，行为保持——CI 回合不计入 rounds）。
             status = github.check_status(pr_number=pr_number)
             if status.state == "fail":
+                if record.e2e_ran_fingerprint:
+                    src_fp = github.code_fingerprint(pr_number=pr_number)
+                    if src_fp and src_fp == record.e2e_ran_fingerprint:
+                        self._flag_bad_ci_after_e2e(pr_number=pr_number)
+                        return self._block(
+                            record=record, gate="bad-ci-after-e2e", blocker=_BAD_CI_BLOCKER
+                        )
                 detail = "\n".join(status.failed_logs)
                 summary = self._orchestrator.iterate(
                     pr_number=pr_number, reason="ci", detail=detail
@@ -626,14 +663,34 @@ class Messages:
             # 3b. CI 进行中：等下一轮（不评审、不动状态）。
             if status.state == "pending":
                 return None
-        # 3c. CI 全绿 → 代码闸。Spec-0053/T3：先算 PR 净 diff 指纹做 sticky 短路——与上轮 PASS 的
-        # 指纹一致（代码状态未变，k8s Tide sticky approve / lgtm tree-hash 不变式）即复用上轮 PASS、
-        # 跳过重审，止住「base 前进→update_branch→CI 重跑→同码空转重审」的浪费。把「是否 PASS」抽成
-        # 布尔 passed，让 sticky 分支与真评审分支汇流到同一段下游（证据闸 + merge），下游逐字节不变。
-        # Spec-0054/T2：代码评审闸 skip——skip.at_code 为真时把代码评审当 PASS 直接放行：不算
-        # 指纹、不调 review_code，passed 置真直落下方证据闸 / merge。默认（未 skip）逐字节走原
-        # sticky 指纹短路 + N reviewer 评审。skip 命中时 decision 不赋值——下方 actionable 分支只
-        # 在 not passed 时才触及 decision，故永不引用未赋值变量。
+        # 3c. CI 全绿 → ③ **先派 executor 真跑 e2e**（在 review 之前，因为证据是 review 的对象之一，
+        # Spec-0055/T6；skip.at_evidence 旁路——无 browser MCP / 离线等无法真跑成果的环境按需跳过）。run_e2e
+        # 内含源码指纹（排除证据目录）幂等：源码变了才真跑+commit 证据，没变复用上轮证据。若本轮**真跑了**
+        # （reused=False）：证据是新的纯 docs commit，需要 CI 重跑一遍才好合——本轮不 review/merge，贴执行回执
+        # 后返回，下一轮 CI 绿即 sticky 复用直接推进（证据 commit 意外弄红 CI 则下一轮走上面的 bad_ci_after_e2e）。
+        if not skip.at_evidence:
+            e2e = self._orchestrator.run_e2e(pr_number=pr_number)
+            if e2e is not None and not e2e.reused:
+                # Spec-0055/T6：真跑一次记一轮、超 K 挂起——收敛兜底。健康 PR 只真跑一次（下一轮源码
+                # 指纹未变即 reused 放行，不再进这里）；若 executor 在证据目录外留改动使源码指纹每轮
+                # churn，run_e2e 会永远 reused=False 无界重跑，这里用与 code 闸共用的 rounds 预算夯住
+                # （对齐旧证据闸「共用一份 K」，Spec-0040 状态机影响：不新增 status）。增计数在贴回执前，
+                # 确保跨 poll 幂等推进（贴回执尽力而为，不因它成败影响回合推进）。
+                rounds = self._state.increment_rounds(issue_number=record.issue_number)
+                if rounds >= MAX_ROUNDS:
+                    return self._block(record=record, gate="e2e", blocker=_E2E_CHURN_BLOCKER)
+                if e2e.result is not None:
+                    # Spec-0051/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
+                    self._post_agent_report(
+                        pr_number=pr_number, body=executor.render_result(result=e2e.result)
+                    )
+                return {"pr_number": pr_number, "reason": "e2e"}
+        # ④ 代码闸（skip.at_code 旁路）。run_e2e 复用/无 e2e/被 skip → 证据已在（或本就无），继续 review + merge。
+        # Spec-0053/T3：先算 PR 净 diff 指纹（默认排除 docs/e2e-results/）做 sticky 短路——与上轮 PASS 的
+        # 指纹一致（代码状态未变，k8s Tide sticky approve / lgtm tree-hash 不变式）即复用上轮 PASS、跳过
+        # 重审。Spec-0055：证据 commit 不改源码指纹（指纹排除证据目录），故「证据 commit 后一轮」源码指纹
+        # 未变 → 这里 sticky 复用 PASS、不重 review（避免同码复审震荡），CI 绿即直接 merge。skip 命中时
+        # decision 不赋值——下方 actionable 分支只在 not passed 时才触及，故永不引用未赋值变量。
         if skip.at_code:
             passed = True
         else:
@@ -643,7 +700,8 @@ class Messages:
                 self._progress(message=f"↩ PR #{pr_number} 代码指纹未变，复用上轮 PASS，跳过重审")
                 passed = True
             else:
-                # 指纹变了 / 首轮无历史指纹 / 算不出指纹（空串 fail-open）→ 照常起 N 个 reviewer 评审。
+                # 指纹变了 / 首轮无历史指纹 / 算不出指纹（空串 fail-open）→ 照常起 N 个 reviewer 评审
+                # （reviewer 现在同时读 docs/e2e-results/<pr>/ 证据 + 亲眼看截图判运行时行为，Spec-0055/T4）。
                 decision = self._orchestrator.review_code(pr_number=pr_number)
                 passed = decision.passed
                 if passed and fingerprint:
@@ -654,18 +712,7 @@ class Messages:
                         issue_number=record.issue_number, fingerprint=fingerprint
                     )
         if passed:
-            # Spec-0040/T5：代码 reviewer PASS 后、merge（及 merge 闸夯住）前插入**证据闸**——独立
-            # executor 照定稿说明书真跑系统、证据闸拿 RFC 意图对照证据门控合并。代码 reviewer PASS
-            # （看着对）但证据闸 FAIL（真跑跑不通）正是要抓的：短路返回其事件（iterate(reason="e2e")
-            # / 超 K 挂起），不 merge、也不进 merge 闸。
-            # Spec-0054/T2：证据闸 skip——skip.at_evidence 为真时把证据闸当 PASS 直接放行：
-            # 不起独立 executor 真跑系统、不做证据门控，直落 merge / merge 闸夯住。默认（未
-            # skip）逐字节走原证据闸；供无 browser MCP / 离线等无法真跑成果的环境按需旁路。
-            if not skip.at_evidence:
-                gate_event = self._evidence_gate(record=record)
-                if gate_event is not None:
-                    return gate_event
-            # Spec-0041/T1：merge 闸 hold——证据闸过后仍不自动 merge_pr，改为**夯住**：置 blocked +
+            # Spec-0041/T1：merge 闸 hold——过评审后仍不自动 merge_pr，改为**夯住**：置 blocked +
             # needs-human + 贴成功文案（决策 A）。blocked 不在 _OPEN_STATUSES → 下一轮 poll 自动跳过、
             # 不再重审，从根上消除同码复审震荡（取代 Spec-0020/T3 的「停在 pr-open 空转、下轮重审」旧
             # 行为）。人点合并/回评论/撕标签三出口全复用既有机制（is_merged reconcile / merge-hold→
@@ -713,71 +760,16 @@ class Messages:
             return self._block(record=record, gate=gate, blocker="")
         return {"pr_number": record.pr_number, "reason": "review-invalid"}
 
-    def _evidence_gate(self, *, record: RunRecord) -> dict | None:
-        """Spec-0040/T5：证据闸——定稿 runbook → executor 真跑 → 证据闸判 → 门控合并。
+    def _flag_bad_ci_after_e2e(self, *, pr_number: int) -> None:
+        """Spec-0055/T6：给 PR 打 bad_ci_after_e2e 诊断标签（best-effort，标签未预建则忽略）。
 
-        插在代码 reviewer PASS 之后、merge 之前（_process_coding）。链路（Spec-0040 Reference-level）：
-        ③ orchestrator.finalize_runbook（派实现者定稿 runbook.md 并 commit；**无 e2e 粗规划则返 None
-        →证据闸空过**，非交互 PR 零回归）→ ④ executor.run_executor（独立 agent 读 runbook 按形态真跑、
-        把证据写进 evidence_dir）→ ⑤ orchestrator.commit_evidence（证据 commit 进 PR）→
-        ⑥ evidence_gate.review_evidence（拿 RFC 意图对照证据判 PASS/FAIL）。
-
-        返回约定：
-        - None → 放行（证据闸空过 / 证据 PASS），_process_coding 继续走 merge / hold-merge。
-        - dict → 短路：证据 FAIL 走 iterate(reason="e2e")（回合 +1）；攒满 K 轮走 _block(gate="e2e")。
-
-        门控绝不因缺 backend 误挡：无 backend（老夹具/未注入）→ 无法真跑 executor → 证据闸空过（None），
-        与旧行为一致（真实编排 cli 必注入 backend，见 cli._messages_for）。executor/证据闸自身绝不抛错。
+        真正夯住不空转靠 _block 的 needs-human + blocked 状态；本标签只是叠加的可观测诊断，区分
+        「证据 commit 弄红 CI」与别的 blocked 原因，故失败（标签未在仓库预建 → gh not found）不阻断挂起。
         """
-        if self._backend is None:
-            return None
-        pr_number = record.pr_number
-        handle = self._orchestrator.finalize_runbook(pr_number=pr_number)
-        if handle is None:
-            return None  # 无 e2e 粗规划：非交互 PR，证据闸空过。
-        # Spec-0051/T5（收口点③）：说明书定稿后渲「## 说明书定稿」贴回（尽力而为）。
-        self._post_agent_report(
-            pr_number=pr_number,
-            body=worknote.render_runbook(form=handle.form, runbook_path=str(handle.runbook_path)),
-        )
-        # ④ 独立 executor 照 runbook 真跑系统、把证据写进 evidence_dir（契约绝不抛错）。
-        result = executor.run_executor(
-            backend=self._backend,
-            work_dir=handle.worktree,
-            runbook_path=handle.runbook_path,
-            evidence_dir=handle.evidence_dir,
-            pr_number=pr_number,
-        )
-        # Spec-0051/T5（收口点④）：真跑结果渲「## 证据执行」贴回（尽力而为）。
-        self._post_agent_report(pr_number=pr_number, body=executor.render_result(result=result))
-        # ⑤ 证据 commit 进 PR（durable、可被证据闸读、给人看成果）。
-        self._orchestrator.commit_evidence(pr_number=pr_number)
-        # ⑥ 证据闸拿 RFC 意图对照证据判达成与否（契约绝不抛错）。
-        decision = evidence_gate.review_evidence(
-            backend=self._backend,
-            work_dir=handle.worktree,
-            intent=handle.intent,
-            evidence_dir=handle.evidence_dir,
-            pr_number=pr_number,
-        )
-        # Spec-0051/T5（收口点⑤）：判决渲「## 证据闸判决」贴回——PASS/FAIL 都贴（尽力而为）。
-        self._post_agent_report(
-            pr_number=pr_number, body=evidence_gate.render_decision(decision=decision)
-        )
-        if decision.passed:
-            return None  # 证据真达成 RFC 意图 → 放行 merge。
-        # 证据 FAIL：复用现成回合预算与 code 闸共用一份 K（Spec-0040 状态机影响：不新增 status）。
-        rounds = self._state.increment_rounds(issue_number=record.issue_number)
-        if rounds >= MAX_ROUNDS:
-            return self._block(record=record, gate="e2e", blocker=decision.feedback)
-        summary = self._orchestrator.iterate(
-            pr_number=pr_number, reason="e2e", detail=decision.feedback
-        )
-        # Spec-0051/T5（收口点②·e2e）：FAIL 走 iterate(e2e)，另贴「## 迭代自述（证据闸反馈）」。
-        self._post_agent_report(
-            pr_number=pr_number, body=worknote.render_iterate(reason="e2e", summary=summary)
-        )
-        return {"pr_number": pr_number, "reason": "e2e"}
+        try:
+            github.add_label(pr_number=pr_number, name=_BAD_CI_AFTER_E2E_LABEL)
+        except github.GithubError:
+            pass  # 诊断标签尽力而为，不阻断 _block 的核心冻结
 
     def _process_armed_conflict(self, *, record: RunRecord) -> dict:
         """Spec-0031/T2 + Spec-0036/T5：armed 模式下派 agent 解冲突的有界重试 + 引用原评论贴回结论。

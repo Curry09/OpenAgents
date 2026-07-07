@@ -173,15 +173,15 @@ def test_report_already_posted_no_header_fails_open(monkeypatch):
     assert msgs._report_already_posted(pr_number=5, body="没有标题的正文") is False
 
 
-def test_executor_and_evidence_gate_do_not_import_identity():
-    """理念 10：executor / evidence_gate 保持不 import identity（渲染归域、发送归 messages）。
+def test_executor_does_not_import_identity():
+    """理念 10：executor 保持不 import identity/github（渲染归域、发送归 messages）。
 
     只查 import 语句行（正文/docstring 里提到 identity 是解释解耦意图，不算耦合）。
+    Spec-0055：evidence_gate 已随独立证据闸退役删除，此处只余 executor。
     """
-    import openagents.evidence_gate as eg
     import openagents.executor as ex
 
-    for mod in (ex, eg):
+    for mod in (ex,):
         with open(mod.__file__, encoding="utf-8") as fh:
             import_lines = [line for line in fh if line.startswith(("import ", "from "))]
         for line in import_lines:

@@ -105,10 +105,8 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 
 ### 0040 重设计 e2e：说明书驱动 + 独立执行 + 证据评审门控（Phase 1 骨架）
 把 e2e 从「实现者顺手写脚本、implement 里一次性跑、贴条不门控」升级为「spec 声明 e2e 意图 → 代码写完由实现者把意图定稿成可执行说明书 → 独立 executor agent 按形态（cli/api/backend）真跑系统产出证据文件 → 证据闸 reviewer 拿 RFC 意图对照证据门控合并」，并把「要不要验」上移到 RFC 闸、「行为验收」从代码 reviewer 划给证据闸。
-- e2e 粗规划（cli）：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
-  - 验收行为：造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。
-  - 验收行为：喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。
-  - 验收行为：喂「达成」证据 → 判 PASS 且照常放行 merge。
+- e2e 意图：证明「独立执行 + 证据固化 + 证据闸门控合并 + 上游强制」骨架真的有牙——证据 FAIL 必须挡住合并、证据 PASS 才放行。
+  - 测法：1. 造 fixture PR/worktree + 声明 cli 形态的 runbook，跑 executor → 证据文件落在 docs/e2e-results/<pr>/。 2. 喂「意图未达成」证据给证据闸 → 判 FAIL 且链路走 iterate(reason=e2e)、不调用 merge_pr。 3. 喂「达成」证据 → 判 PASS 且照常放行 merge。 
 
 ### 0041 hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
 reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
@@ -136,10 +134,8 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 
 ### 0050 Review 不通过理由增强可读性：强制 reviewer 反馈输出为一段简短中文
 在 reviewer 的 _RUBRIC_TAIL 输出格式规约里加一条硬要求——REASON/ISSUES/NEXT 等所有面向人类的裁决理由必须用一段简短的中文书写（直击要害、避免长篇英文堆砌），让人能在 GitHub 评审评论里直接读懂并处理；配套单测锚定该文本 + 浏览器成果 e2e（把真实评审评论渲染出来、截图并断言反馈摘要为简短中文）。
-- e2e 粗规划（cli）：本改动是纯 prompt 文本硬化（reviewer 的 _RUBRIC_TAIL 加「理由必须简短中文」硬规约），无运行时行为变更、无浏览器可跑成果；「反馈摘要须为简短中文」这条约束的可验证成果，是离线确定性地跑通真实 render_decision 渲染路径 + 机器可验证的可读性判据（CJK 占比/长度），而非需要真 LLM 或浏览器交互的界面闭环。
-  - 验收行为：跑 scripts/e2e-spec-0050-review-reason-chinese-readability.sh 离线段全绿：ruff check + ruff format --check + pytest -q 全套通过；grep 锚点断言 _RUBRIC_TAIL 含 T1 语言/长度硬规则关键字（简短 / 中文 / REASON·ISSUES·NEXT）。
-  - 验收行为：用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown 并抽「反馈摘要」块，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值（「简短中文」的机器可验证操作化判据），渲染出的 GitHub 风格 HTML 页存 tracked docs/evidence/spec-0050/。
-  - 验收行为：RED 反证：同一判据喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照 HTML 一并存证，证明判据能区分、绿非恒真。（浏览器导航+截图闭环为可选增强，非门控红线：无浏览器可跑成果，判据本身已在离线段机器可验。）
+- e2e 意图：本改动是纯 prompt 文本硬化（reviewer 的 _RUBRIC_TAIL 加「理由必须简短中文」硬规约），无运行时行为变更、无浏览器可跑成果；「反馈摘要须为简短中文」这条约束的可验证成果，是离线确定性地跑通真实 render_decision 渲染路径 + 机器可验证的可读性判据（CJK 占比/长度），而非需要真 LLM 或浏览器交互的界面闭环。
+  - 测法：1. 跑 scripts/e2e-spec-0050-review-reason-chinese-readability.sh 离线段全绿：ruff check + ruff format --check + pytest -q 全套通过；grep 锚点断言 _RUBRIC_TAIL 含 T1 语言/长度硬规则关键字（简短 / 中文 / REASON·ISSUES·NEXT）。 2. 用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown 并抽「反馈摘要」块，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值，渲染出的 GitHub 风格 HTML 页存 tracked docs/evidence/spec-0050/。 3. RED 反证：同一判据喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照 HTML 一并存证，证明判据能区分、绿非恒真。 
 
 ### 0051 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
 把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层（messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在 _process_rfc_review/_process_coding/_evidence_gate 的收口点统一「执行完→render_*→identity.post_signed_comment（带防刷屏去重）」，补齐 implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤，让人盯 PR 即知每步进展（理念 8），且 executor/evidence_gate 保持不碰 IO 的解耦定位（理念 10）。
@@ -152,6 +148,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 
 ### 0054 vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
 新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence（及 all）中任一闸视为 PASS 放行（可合并性预检闸不提供 --skip——见 Rationale 备选 4）；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
+
+### 0055 e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
+把 e2e 从 0040 的「form 分派 + runbook 定稿 + 独立证据闸」三层机械脚手架，重设计为「启动时固化浏览器能力状态量 → RFC 写 prose 测法（能力决定要不要求截图）→ 独立 executor agent 运行时自检工具真跑并把截图/声明写进 docs/e2e-results/<pr>/ → 现有 review 同时判代码+证据（reviewer 亲眼看图）」，砍掉 finalize_runbook/form 枚举/独立 evidence_gate；流水线在 CI 后跑 executor 再 review，配源码指纹（排除证据目录）幂等闸与 sticky 复用，证据 commit 意外弄红 CI 走 bad_ci_after_e2e 挂起。
 
 ## 全局看板
 
@@ -349,6 +348,12 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0054 | 0054/T3 | CLI 接线 --skip + hold/skip 矛盾校验 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_skip.py |
 | 0054 | 0054/T4 | README 闸门树 | done | T1 | README.md |
 | 0054 | 0054/T5 | 成果测试 e2e 脚本（离线闸控时间线） | done | T2, T3 | scripts/e2e-spec-0054-vigil-skip-gate.sh |
+| 0055 | 0055/T1 | 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线 | done | — | openagents/envcheck.py<br>openagents/state.py<br>openagents/cli.py<br>tests/test_envcheck.py<br>tests/test_state.py<br>tests/test_cli.py |
+| 0055 | 0055/T2 | spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/validate.py<br>openagents/spec/render.py<br>openagents/spec/signpost.py<br>tests/test_spec_model.py<br>tests/test_spec_validate.py<br>tests/test_spec_render.py<br>tests/test_spec_signpost.py |
+| 0055 | 0055/T3 | executor 重写：单一自主 agent 运行时自检真跑，删 form 分派 | done | T2 | openagents/executor.py<br>tests/test_executor.py |
+| 0055 | 0055/T4 | reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图 | done | T1 | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0055 | 0055/T5 | 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录 | done | T1, T2 | openagents/orchestrator.py<br>openagents/github.py<br>tests/test_orchestrator.py<br>tests/test_github.py |
+| 0055 | 0055/T6 | messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本 | done | T3, T4, T5 | openagents/messages.py<br>tests/test_messages.py<br>scripts/e2e-spec-0055-e2e-v2-capability-aware.sh |
 
 ## 跨 feature 关系图
 
@@ -640,6 +645,14 @@ graph LR
         n0054_T4["T4 README 闸门树"]
         n0054_T5["T5 成果测试 e2e 脚本（离线闸控时间线）"]
     end
+    subgraph G0055[0055 e2e-v2-capability-aware]
+        n0055_T1["T1 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线"]
+        n0055_T2["T2 spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举"]
+        n0055_T3["T3 executor 重写：单一自主 agent 运行时自检真跑，删 form 分派"]
+        n0055_T4["T4 reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图"]
+        n0055_T5["T5 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录"]
+        n0055_T6["T6 messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -810,6 +823,13 @@ graph LR
     n0054_T4 --> n0054_T1
     n0054_T5 --> n0054_T2
     n0054_T5 --> n0054_T3
+    n0055_T3 --> n0055_T2
+    n0055_T4 --> n0055_T1
+    n0055_T5 --> n0055_T1
+    n0055_T5 --> n0055_T2
+    n0055_T6 --> n0055_T3
+    n0055_T6 --> n0055_T4
+    n0055_T6 --> n0055_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -831,32 +851,33 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
+| openagents/envcheck.py | 0030, 0055 |
 | openagents/evidence_gate.py | 0040, 0051 |
-| openagents/executor.py | 0040, 0051 |
+| openagents/executor.py | 0040, 0051, 0055 |
 | openagents/fleet.py | 0027, 0029 |
-| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053 |
+| openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
-| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052 |
+| openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/spec/cli.py | 0014, 0015 |
-| openagents/spec/model.py | 0014, 0015, 0024, 0040 |
+| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/spec/mutate.py | 0014, 0015 |
-| openagents/spec/render.py | 0014, 0015, 0040 |
-| openagents/spec/schema.py | 0014, 0015, 0024, 0040 |
-| openagents/spec/signpost.py | 0024, 0028 |
-| openagents/spec/validate.py | 0014, 0015, 0024, 0040 |
-| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053 |
+| openagents/spec/render.py | 0014, 0015, 0040, 0055 |
+| openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055 |
+| openagents/spec/signpost.py | 0024, 0028, 0055 |
+| openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
+| openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029 |
@@ -867,40 +888,42 @@ graph LR
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038 |
 | tests/test_conflict_guidance.py | 0036, 0038, 0045 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
+| tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
-| tests/test_executor.py | 0040, 0051 |
+| tests/test_executor.py | 0040, 0051, 0055 |
 | tests/test_fleet.py | 0027, 0029 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055 |
 | tests/test_github_claim_label.py | 0039, 0049 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051, 0055 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
 | tests/test_messages_conflict_diag.py | 0034, 0038 |
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
-| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050 |
+| tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
-| tests/test_spec_model.py | 0014, 0015, 0024, 0040 |
+| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
-| tests/test_spec_render.py | 0014, 0015, 0040 |
-| tests/test_spec_validate.py | 0014, 0015, 0024, 0040 |
-| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029 |
+| tests/test_spec_render.py | 0014, 0015, 0040, 0055 |
+| tests/test_spec_signpost.py | 0024, 0055 |
+| tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055 |
+| tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
 | tests/test_vigil_claim.py | 0039, 0049 |
 | tests/test_workspace.py | 0005, 0008, 0029 |
@@ -2262,4 +2285,42 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0055 e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）（issue #123）
+
+```mermaid
+graph LR
+    nT1["T1 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线"]
+    nT2["T2 spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举"]
+    nT3["T3 executor 重写：单一自主 agent 运行时自检真跑，删 form 分派"]
+    nT4["T4 reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图"]
+    nT5["T5 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录"]
+    nT6["T6 messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本"]
+    nT2 --> nT3
+    nT1 --> nT4
+    nT1 --> nT5
+    nT2 --> nT5
+    nT3 --> nT6
+    nT4 --> nT6
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

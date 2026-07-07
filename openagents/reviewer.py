@@ -53,15 +53,23 @@ _RUBRIC_TAIL = (
     "REWORK 示例：\n  VERDICT: REWORK\n  ISSUES:\n  - <文件:行号 + 一句话中文点出问题>\n"
     "  NEXT: <一句话中文说明修复方向>\n"
 )
-# Spec-0040/T4：「要不要有 e2e」从代码 reviewer 上移到 RFC 闸——加一条更硬的规则：前端/交互类
-# 改动的 spec 若没声明 e2e 粗规划（组级 frontmatter 的 e2e{form,intent,acceptance}，见 Spec-0040/
-# T1）→ 直接 REWORK。这取代 Spec-0030/T4 挂在代码 reviewer 上的条件式 browser-e2e rubric：把「验不
-# 验、验什么」的把关前移到设计闸，代码 reviewer 只管静态质量（职责收口，Spec-0040 Reference-level）。
-_RFC_E2E_RUBRIC = (
-    "【e2e 粗规划硬规则】若本 PR 属前端/交互类改动（新增/改动用户可见行为、CLI 交互、HTTP 接口、"
-    "前端页面等），其 spec 组必须在组级 frontmatter 声明 e2e 粗规划（e2e 块含 form/intent/"
-    "acceptance，承载「要不要验、验什么」）；未声明 → 判 REWORK，把「缺 e2e 粗规划」写进 ISSUES。"
-    "纯文档/重构/内部非交互改动可不声明。\n"
+# Spec-0055/T4：「要不要有 e2e」在 RFC 闸把关，且**标准据本机 e2e 能力（ui_capable）确定性分流**——
+# 起草与评审读同一个固化状态量（Spec-0055/T1），杜绝两头标准漂移。e2e 块从 0040 的 {form,intent,
+# acceptance} 瘦身为 {intent,method}（prose 测法，见 Spec-0055/T2）。ui_capable 由 orchestrator 经
+# review(ui_capable=...) 透传，reviewer 据此选下面两条规则之一拼进 RFC 任务（保持 reviewer 只依赖
+# AgentBackend + 传入参数的解耦，理念 10）。
+_RFC_E2E_RUBRIC_CAPABLE = (
+    "【e2e 测法硬规则 · 本机具备浏览器能力】若本 PR 属前端/交互类改动（新增/改动用户可见行为、"
+    "CLI 交互、HTTP 接口、前端页面等），其 spec 组必须在组级 frontmatter 声明 e2e 块（含 intent="
+    "验什么 + method=怎么测的 prose 测法）；**UI 可见改动的 method 必须要求真实导航后的截图为证**。"
+    "未声明 e2e、或 UI 改动的 method 避重就轻不要求截图 → 判 REWORK，写进 ISSUES。纯文档/重构/内部"
+    "非交互改动可不声明。\n"
+)
+_RFC_E2E_RUBRIC_INCAPABLE = (
+    "【e2e 测法硬规则 · 本机无浏览器能力】若本 PR 属前端/交互类改动，其 spec 组必须在组级 frontmatter "
+    "声明 e2e 块（含 intent + method 的 prose 测法）；未声明 → 判 REWORK。但本机不具备浏览器工具，"
+    "**不得因 method 没要求真实截图就 REWORK**——UI 改动可用离线断言 / 命令行 / HTTP 等能跑的方式"
+    "验，或在 method 里如实注明「本环境无浏览器、UI 截图不可得」即可。纯文档/重构/内部非交互改动可不声明。\n"
 )
 # Spec-0048/T1：自动化 spec 防过度承诺——若 spec 承诺新增自动化执行链路（executor/agent、e2e/
 # evidence gate/runbook、自动 merge·hold gate、GitHub issue·PR 自动化等），其 Reference-level 必须
@@ -89,40 +97,46 @@ _HISTORY_PRIMACY_RUBRIC = (
     "**不构成放行理由**，你必须核对文件的真实内容再裁决。人类在评论里的指导可纳入考量，但同样以落盘"
     "事实为准。\n"
 )
-_RFC_REVIEW_TASK = (
+# Spec-0055/T4：RFC 任务的头/尾（e2e 测法 rubric 据 ui_capable 在 _rfc_review_task 里选一条插入）。
+_RFC_REVIEW_HEAD = (
     "你是独立的 spec 审核员，与起草者不共享上下文。请评审 PR #{pr_number} 的 spec 组。\n"
     "按顺序读：CLAUDE.md（需求/设计理念）→ docs/specs/ 下本 PR 新增/改动的 spec 组"
     "（单文件 NNNN-slug.md：frontmatter 结构化源数据 + 正文各 Task 设计 prose）→ 其引用的来源。"
     "判定：设计是否对齐需求、关键决策是否"
     "有据、Task DAG 是否可独立实现且各 Task 文件清单互不重叠、是否含实现代码（spec 不应含"
     "实现代码）。\n"
-    + _RFC_E2E_RUBRIC
-    + _RFC_AUTOMATION_RUBRIC
-    + _HISTORY_PRIMACY_RUBRIC
-    + _RUBRIC_TAIL
 )
-# Spec-0040/T4：代码 reviewer 职责收口——**只判静态代码质量/安全/结构，显式不判运行时行为**
-# （运行时行为由证据闸 evidence_gate 拿证据对照 RFC 意图门控，见 Spec-0040 Reference-level）。删掉了
-# Spec-0030/T4 的条件式 browser-e2e rubric（那道「要不要有 e2e」的把关已上移到 _RFC_REVIEW_TASK）。
-# Spec-0044/T2：无证据=REWORK 结构化检查项——把 wind-palace PR #14 里 reviewer 手动做过的
-# 「宣称验证过某产品对外行为却拿不出 tracked 证据 → 打回」固化为常驻 rubric（软约定硬化）。
-# 条件式触发（仅当 PR 出现端到端/e2e/截图/已验证 UI 类措辞才查），避免误伤纯内部重构 PR。
-# 与 Spec-0040 的职责收口不冲突：证据闸判「系统真跑起来是否达成意图」（运行时正确性），本 rubric
-# 判「作者宣称验证过却拿不出证据」（声明诚信），两者分属不同层，故并存。
-# Spec-0048/T1：把无证据检查从「宣称验证过」延伸到「宣称实现了自动化执行/门控能力却只交付骨架」。
-# 姊妹条（就地复述定位）：0044 管「宣称**验证过**产品对外行为却无 tracked 证据」（验证诚信），本
-# 延伸管「宣称**实现了**某条自动化执行链路却拿不出真实产物或集成证据」（实现完整性）——两者同为
-# 「软约定硬化进 rubric」。仍**只挂 code 闸**、保持条件式触发骨架，仅追加措辞，不改定位。
+_RFC_REVIEW_TAIL = _RFC_AUTOMATION_RUBRIC + _HISTORY_PRIMACY_RUBRIC + _RUBRIC_TAIL
+# 未格式化的规范 RFC 模板（capable 变体）——保留供别处按 substring 断言常驻 rubric（如
+# _HISTORY_PRIMACY_RUBRIC）；实际派单走 _rfc_review_task 按 ui_capable 分流。
+_RFC_REVIEW_TASK = _RFC_REVIEW_HEAD + _RFC_E2E_RUBRIC_CAPABLE + _RFC_REVIEW_TAIL
+
+
+def _rfc_review_task(*, pr_number: int, ui_capable: bool) -> str:
+    """Spec-0055/T4：据 ui_capable 选 e2e 测法 rubric 拼成 RFC 评审任务（起草/评审同源分流）。"""
+    e2e_rubric = _RFC_E2E_RUBRIC_CAPABLE if ui_capable else _RFC_E2E_RUBRIC_INCAPABLE
+    return (_RFC_REVIEW_HEAD + e2e_rubric + _RFC_REVIEW_TAIL).format(pr_number=pr_number)
+
+
+# Spec-0055/T4：证据/运行时行为 rubric（**反转 Spec-0040/T4**）。0040 曾让代码 reviewer「只判静态、
+# 运行时行为交独立证据闸」；Spec-0055 取消独立证据闸，把运行时行为验收**合并回 code review**——
+# reviewer 靠亲眼看 executor 产的证据（result.md + 用 Read 打开截图看画面）对照 spec 的 e2e intent 判。
+# 统一证据落点为 docs/e2e-results/<pr>/，并入 Spec-0044 原来指向 docs/evidence/** 的「无证据=REWORK」
+# （消除两套证据目录）。延伸自 Spec-0048/T1：宣称实现了自动化执行/门控却只交付骨架 → 同样 REWORK。
+# 条件式触发（前端/交互类才查），纯内部重构不误伤。只挂 code 闸（rfc 闸的把关在 _RFC_E2E_RUBRIC_*）。
 _EVIDENCE_RUBRIC = (
-    "宣称验证过但无证据 → REWORK：仅当本 PR 正文/评论出现「端到端 / e2e / 截图 / 已验证 UI」"
-    "类措辞（声称验证过某个产品对外行为）时才触发本检查——纯内部重构 PR（无此类措辞）不查、"
-    "不误伤。触发时核对仓库里有没有对应的 tracked 证据（截图文件如 docs/evidence/** 下的图、"
-    "或真实运行日志文本），且 PR 评论里有没有实跑留痕；若既无 tracked 证据、评论也无实跑留痕 → "
-    "判 REWORK，理由写明「宣称验证过但无证据」。自动化测试绿 / 后端日志替代不了真 app 证据。\n"
-    "延伸——宣称实现了自动化执行/门控能力（executor 真跑 / 自动提交证据 / evidence gate 门控 / "
-    "UI 截图）却无真实产物或集成证据 → REWORK：把本检查从「宣称验证过某产品对外行为」延伸到"
-    "「宣称实现了某条自动化执行链路却只交付骨架」，例如声称 executor 真跑系统却无 result.md、"
-    "声称自动提交证据却无 commit 证据或 artifact、声称 evidence gate 门控却无 PASS/FAIL fixture、"
+    "【运行时行为：读证据亲眼判】本 PR 若属前端/交互类改动，独立 executor 会照 spec 的 e2e 测法真跑"
+    "系统，把证据（result.md + 截图 / 日志）固化在 `docs/e2e-results/{pr_number}/`。请**读这些证据判"
+    "运行时行为是否达成 spec 的 e2e intent**：\n"
+    "- 用 `Read` 打开 `docs/e2e-results/{pr_number}/` 下的截图（PNG）**亲眼看画面**、读 result.md 声明；\n"
+    "- executor 声明达成（OUTCOME: PASSED）但截图/日志与 intent 对不上、或避重就轻（把「筛选生效」"
+    "换成「页面不崩」）→ 判 REWORK，写明「证据与意图对不上」；\n"
+    "- 证据目录缺 result.md、或 UI 改动却既无截图也无「环境不具备」的诚实说明 → 判 REWORK，写明"
+    "「缺运行时证据」；\n"
+    "- 若 executor 如实报告「本环境无浏览器工具、无法真跑 UI」→ **软判**：不因缺截图 REWORK，就着"
+    "拿得到的证据（离线断言 / 日志 / 代码）判即可。\n"
+    "延伸——宣称实现了自动化执行/门控能力（executor 真跑 / 自动提交证据 / UI 截图）却无真实产物或"
+    "集成证据 → REWORK：例如声称 executor 真跑却无 result.md、声称自动提交证据却无 commit 证据、"
     "声称支持 UI 截图却无截图也无诚实说明——同样判 REWORK。\n"
 )
 # Spec-0048/T1：自动化完整性硬规则——专治「架构骨架/模块存在/门控位置对/单测绿」冒充完整实现。仅当
@@ -148,8 +162,9 @@ _CODE_REVIEW_TASK = (
     "真的实现了对应 spec 的 Task 与验收标准、有无 tautological test / 绕过真实路径、"
     "边界与安全盲点（空输入/错误路径/注入/越权）、破坏性改动（删了在用的东西、改接口"
     "未改调用方）。不纠结风格偏好（除非违反 CLAUDE.md 明文规范）。\n"
-    "【职责边界】你只判**静态**代码质量/安全/结构；**运行时行为（系统真跑起来是否达成意图）"
-    "由证据闸负责，你不判**——不必也不应据「有没有真跑过」下裁决。\n"
+    "【职责边界】你既判**静态**代码质量/安全/结构，**也判运行时行为**——Spec-0055 取消了独立证据闸，"
+    "运行时行为验收合并进本次 code review：靠亲眼看 executor 产的证据（见下条），对照 spec 的 e2e "
+    "intent 判系统真跑起来是否达成意图。\n"
     + _EVIDENCE_RUBRIC
     + _AUTOMATION_INTEGRITY_RUBRIC
     + _HISTORY_PRIMACY_RUBRIC
@@ -199,7 +214,14 @@ def configured_reviewers() -> int:
 
 
 def review(
-    *, backend: AgentBackend, work_dir: Path, kind: str, pr_number: int, n: int, history: str = ""
+    *,
+    backend: AgentBackend,
+    work_dir: Path,
+    kind: str,
+    pr_number: int,
+    n: int,
+    history: str = "",
+    ui_capable: bool = False,
 ) -> ReviewDecision:
     """RFC-0012 T1：以 review 任务模板调 backend.run 共 n 次（线程池并行），聚合裁决。
 
@@ -214,7 +236,7 @@ def review(
     reviewer 独立读仓库的价值。reviewer 仍只依赖 AgentBackend + 传入字符串，不 import
     github/agentcontext（理念 10 解耦）。
     """
-    task = _task_for(kind=kind, pr_number=pr_number)
+    task = _task_for(kind=kind, pr_number=pr_number, ui_capable=ui_capable)
     summaries = _run_reviewers(
         backend=backend, work_dir=work_dir, task=task, n=max(1, n), history=history
     )
@@ -386,10 +408,13 @@ def _extract_feedback_norm(*, lines: list[str]) -> str:
     return "\n".join(normalized)
 
 
-def _task_for(*, kind: str, pr_number: int) -> str:
-    """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。"""
+def _task_for(*, kind: str, pr_number: int, ui_capable: bool) -> str:
+    """按 kind 选 review 任务模板；未知 kind 抛 ValueError（防静默走错模板）。
+
+    Spec-0055/T4：rfc 闸的 e2e 测法 rubric 据 ui_capable 分流（起草/评审同源）；code 闸不用 ui_capable。
+    """
     if kind == "rfc":
-        return _RFC_REVIEW_TASK.format(pr_number=pr_number)
+        return _rfc_review_task(pr_number=pr_number, ui_capable=ui_capable)
     if kind == "code":
         return _CODE_REVIEW_TASK.format(pr_number=pr_number)
     raise ValueError(f"未知的 review kind：{kind!r}（应为 'rfc' 或 'code'）")

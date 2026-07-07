@@ -105,6 +105,12 @@ class RunRecord:
     # 对照 k8s Tide sticky approve / lgtm store_tree_hash（代码状态没变就别重签）。
     # 与 block_* / merge_attempts / closed_at 互不干扰。
     code_passed_fingerprint: str = ""
+    # Spec-0055/T1：上一次 executor 真跑 e2e 时的**源码指纹**（sha256(gh pr diff)，排除 docs/e2e-results/）。
+    # 默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧 state.json）。orchestrator.run_e2e 每轮据它
+    # 幂等：本轮源码指纹与它相等 → executor 跳过、复用上轮证据（不再产生新证据 commit）；不等 → 真跑并更新它。
+    # 指纹排除证据目录，故「证据 commit」本身不改源码指纹、不会触发下一轮重跑（收敛的关键，见 Spec-0055）。
+    # 与 code_passed_fingerprint（Spec-0053 代码闸 sticky）互不干扰：一个记「上次审过的码」、一个记「上次跑过 e2e 的码」。
+    e2e_ran_fingerprint: str = ""
 
 
 class State:
@@ -287,6 +293,19 @@ class State:
                 record["code_passed_fingerprint"] = fingerprint
         self._save(data=data)
 
+    def set_e2e_ran_fingerprint(self, *, issue_number: int, fingerprint: str) -> None:
+        """Spec-0055/T1: 落盘某 issue 对应 run 的 e2e_ran_fingerprint（上次 executor 真跑时的源码指纹）。
+
+        镜像 set_code_fingerprint（Spec-0053）：按 issue 定位 run、只改单字段、整体落盘。orchestrator.run_e2e
+        在 executor 真跑并 commit 证据后写入当轮源码指纹，下一轮据它幂等短路（指纹一致则跳过重跑）；
+        fingerprint="" 即清除（本设计不主动清）。与 code_passed_fingerprint / block_* / merge_attempts 互不干扰。
+        """
+        data = self._load()
+        for record in data["runs"]:
+            if record["issue_number"] == issue_number:
+                record["e2e_ran_fingerprint"] = fingerprint
+        self._save(data=data)
+
     def increment_merge_attempts(self, *, issue_number: int) -> int:
         """Spec-0031/T1：把某 issue 对应 run 的 merge_attempts +1 并落盘，返回新值。
 
@@ -338,6 +357,26 @@ class State:
         data = self._load()
         data["agent_id"] = agent_id
         self._save(data=data)
+
+    def set_ui_capable(self, *, value: bool) -> None:
+        """Spec-0055/T1: 落盘本机「前端 e2e 能力」状态量（顶层键，与 agent_id 平级）。
+
+        cli 的守夜/单步入口在起 Messages/Orchestrator 前调 envcheck.ui_capable() 写入——每次启动
+        重写（环境变了下次启动即更新）。作为单一真相源，下游 RFC 起草/评审据它决定「要不要求真实
+        截图」。_load 保留全部既有顶层键，故写 ui_capable 不影响 runs/cursors/agent_id（反之亦然）。
+        """
+        data = self._load()
+        data["ui_capable"] = bool(value)
+        self._save(data=data)
+
+    def get_ui_capable(self) -> bool:
+        """Spec-0055/T1: 读固化的「前端 e2e 能力」状态量；未设过（旧 state / 未启动固化）视为 False。
+
+        缺该键回落 False = 保守假设「不具备浏览器」——即无法真跑 UI 截图，RFC 阶段不硬要求截图测法
+        （宁可不误挡，与 Drawbacks「无浏览器软判」一致）。
+        """
+        data = self._load()
+        return bool(data.get("ui_capable", False))
 
     def get_cursor(self, *, pr_number: int) -> str | None:
         """RFC-0001 T4：读某 PR 已处理到的游标（RFC-0005：comment 的 created_at）。

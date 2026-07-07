@@ -622,12 +622,12 @@ def test_implement_empty_summary_falls_back_to_placeholder(tmp_path, monkeypatch
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0040/T5: 退役旧 smoke + 证据闸 finalize_runbook / commit_evidence
+# Spec-0055/T5: 退役旧 smoke + run_e2e（说明书直喂 executor + 源码指纹幂等）
 # --------------------------------------------------------------------------- #
 
 
 def _write_spec_group(*, path, e2e):
-    """写一个 spec 组文件（带/不带 e2e 粗规划），供 finalize_runbook 读组级 e2e 计划。"""
+    """写一个 spec 组文件（带/不带 e2e 测法），供 run_e2e 读组级 e2e 计划。"""
     from openagents.spec import model as spec_model
     from openagents.spec.model import Group, Metadata, Overview, Task
 
@@ -662,57 +662,65 @@ def test_implement_no_longer_posts_e2e_smoke(tmp_path, monkeypatch):
     assert not hasattr(orch, "_post_e2e_result")
 
 
-def test_finalize_runbook_no_e2e_plan_returns_none(tmp_path, monkeypatch):
-    # 无 e2e 粗规划的 spec 组 → finalize_runbook 返回 None（证据闸空过），不派 backend 定稿。
+def test_run_e2e_no_e2e_plan_returns_none(tmp_path, monkeypatch):
+    # Spec-0055/T5：无 e2e 测法的 spec 组 → run_e2e 返回 None（e2e 空过），不派 executor。
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
     group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=None)
     monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
 
-    assert orch.finalize_runbook(pr_number=5) is None
+    assert orch.run_e2e(pr_number=5) is None
     assert backend.calls == []
 
 
-def test_finalize_runbook_with_e2e_plan_drafts_and_returns_handle(tmp_path, monkeypatch):
-    # 有 e2e 粗规划 → 派实现者定稿 runbook、返回 handle（worktree/runbook_path/evidence_dir/intent）。
+def test_run_e2e_fingerprint_changed_runs_executor_and_commits(tmp_path, monkeypatch):
+    # Spec-0055/T5：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）+ commit 证据 + 落盘指纹。
+    from openagents.spec.model import E2EPlan
+
+    orch, backend, state = _make(tmp_path)
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
+    plan = E2EPlan(intent="init 无 origin 必须报错", method="跑 init，断言非零退出。")
+    group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=plan)
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
+    monkeypatch.setattr(orch_module.github, "code_fingerprint", lambda *, pr_number: "fp-new")
+    backend._result = AgentResult(changed=False, summary="跑通了。\nOUTCOME: PASSED")
+
+    out = orch.run_e2e(pr_number=5)
+
+    assert out is not None and out.reused is False
+    assert out.result.outcome == "passed"
+    # executor 真跑（method + intent 入 prompt）。
+    assert len(backend.calls) == 1
+    assert "跑 init，断言非零退出" in backend.calls[0]["task"]
+    assert "init 无 origin 必须报错" in backend.calls[0]["task"]
+    # 证据被 commit + push；新指纹落盘。
+    joined = [" ".join(c) for c in recorder.commands]
+    assert any("commit" in c and "evidence" in c for c in joined)
+    assert any("push" in c for c in joined)
+    assert state.find_by_issue(issue_number=3).e2e_ran_fingerprint == "fp-new"
+
+
+def test_run_e2e_fingerprint_unchanged_reuses_without_executor(tmp_path, monkeypatch):
+    # Spec-0055/T5：源码指纹与上轮 PASS 一致 → 复用上轮证据、跳过 executor（不产生新 commit）。
     from openagents.spec.model import E2EPlan
 
     orch, backend, state = _make(tmp_path)
     monkeypatch.setattr(subprocess, "run", _GitRecorder())
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
-    plan = E2EPlan(
-        form="cli", intent="init 无 origin 必须报错", acceptance=["非零退出", "补 origin 成功"]
-    )
+    state.set_e2e_ran_fingerprint(issue_number=3, fingerprint="fp-same")
+    plan = E2EPlan(intent="x", method="m")
     group_path = _write_spec_group(path=tmp_path / "0040-e2e-gate.md", e2e=plan)
     monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
+    monkeypatch.setattr(orch_module.github, "code_fingerprint", lambda *, pr_number: "fp-same")
 
-    handle = orch.finalize_runbook(pr_number=5)
+    out = orch.run_e2e(pr_number=5)
 
-    assert handle is not None
-    assert handle.runbook_path.name == "runbook.md"
-    assert handle.evidence_dir.name == "5"
-    assert "e2e-results" in str(handle.evidence_dir)
-    assert "init 无 origin 必须报错" in handle.intent
-    assert "非零退出" in handle.intent and "补 origin 成功" in handle.intent
-    # 派了实现者定稿，任务模板含形态与 runbook 路径。
-    assert len(backend.calls) == 1
-    assert "cli" in backend.calls[0]["task"]
-    assert "runbook.md" in backend.calls[0]["task"]
-
-
-def test_commit_evidence_commits_and_pushes(tmp_path, monkeypatch):
-    orch, backend, state = _make(tmp_path)
-    recorder = _GitRecorder()
-    monkeypatch.setattr(subprocess, "run", recorder)
-    state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
-
-    orch.commit_evidence(pr_number=5)
-
-    commit_cmds = [c for c in recorder.commands if "commit" in c]
-    push_cmds = [c for c in recorder.commands if "push" in c]
-    assert commit_cmds and "evidence" in " ".join(commit_cmds[0])
-    assert push_cmds
+    assert out is not None and out.reused is True
+    assert out.result is None
+    assert backend.calls == []  # 跳过 executor
 
 
 # --------------------------------------------------------------------------- #

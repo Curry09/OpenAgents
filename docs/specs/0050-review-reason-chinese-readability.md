@@ -5,12 +5,11 @@ issue: 124
 slug: review-reason-chinese-readability
 summary: 在 reviewer 的 _RUBRIC_TAIL 输出格式规约里加一条硬要求——REASON/ISSUES/NEXT 等所有面向人类的裁决理由必须用一段简短的中文书写（直击要害、避免长篇英文堆砌），让人能在 GitHub 评审评论里直接读懂并处理；配套单测锚定该文本 + 浏览器成果 e2e（把真实评审评论渲染出来、截图并断言反馈摘要为简短中文）。
 e2e:
-  form: cli
   intent: 本改动是纯 prompt 文本硬化（reviewer 的 _RUBRIC_TAIL 加「理由必须简短中文」硬规约），无运行时行为变更、无浏览器可跑成果；「反馈摘要须为简短中文」这条约束的可验证成果，是离线确定性地跑通真实 render_decision 渲染路径 + 机器可验证的可读性判据（CJK 占比/长度），而非需要真 LLM 或浏览器交互的界面闭环。
-  acceptance:
-    - 跑 scripts/e2e-spec-0050-review-reason-chinese-readability.sh 离线段全绿：ruff check + ruff format --check + pytest -q 全套通过；grep 锚点断言 _RUBRIC_TAIL 含 T1 语言/长度硬规则关键字（简短 / 中文 / REASON·ISSUES·NEXT）。
-    - 用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown 并抽「反馈摘要」块，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值（「简短中文」的机器可验证操作化判据），渲染出的 GitHub 风格 HTML 页存 tracked docs/evidence/spec-0050/。
-    - RED 反证：同一判据喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照 HTML 一并存证，证明判据能区分、绿非恒真。（浏览器导航+截图闭环为可选增强，非门控红线：无浏览器可跑成果，判据本身已在离线段机器可验。）
+  method: |
+    1. 跑 scripts/e2e-spec-0050-review-reason-chinese-readability.sh 离线段全绿：ruff check + ruff format --check + pytest -q 全套通过；grep 锚点断言 _RUBRIC_TAIL 含 T1 语言/长度硬规则关键字（简短 / 中文 / REASON·ISSUES·NEXT）。
+    2. 用代表性简短中文 feedback fixture 喂真实 reviewer.render_decision(kind=code) 渲染出评论 markdown 并抽「反馈摘要」块，断言 CJK 字符占比 ≥ 阈值 且 总长度 ≤ 阈值，渲染出的 GitHub 风格 HTML 页存 tracked docs/evidence/spec-0050/。
+    3. RED 反证：同一判据喂「旧式长篇英文 feedback fixture」应判不通过（CJK 占比低/超长），对照 HTML 一并存证，证明判据能区分、绿非恒真。
 tasks:
   - id: T1
     title: _RUBRIC_TAIL 语言/长度硬化（理由必须一段简短中文）+ 单测

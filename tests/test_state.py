@@ -459,3 +459,58 @@ def test_record_run_multiple_runs(tmp_path):
     )
     runs = state.all_runs()
     assert {r.issue_number for r in runs} == {1, 2}
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0055/T1: ui_capable 顶层状态量 + e2e_ran_fingerprint per-run 字段
+# --------------------------------------------------------------------------- #
+
+
+def test_get_ui_capable_false_when_unset(tmp_path):
+    # 未设过（旧 state / 未启动固化）→ 保守回落 False。
+    state = _new_state(tmp_path)
+    assert state.get_ui_capable() is False
+
+
+def test_set_and_get_ui_capable_roundtrip(tmp_path):
+    state = _new_state(tmp_path)
+    state.set_ui_capable(value=True)
+    assert state.get_ui_capable() is True
+    state.set_ui_capable(value=False)
+    assert state.get_ui_capable() is False
+
+
+def test_set_ui_capable_preserves_runs_and_agent_id(tmp_path):
+    # 顶层键写入不影响 runs / agent_id（反之亦然）。
+    state = _new_state(tmp_path)
+    state.record_run(
+        issue_number=3,
+        branch="openagents/issue-3",
+        pr=PR(number=7, url="https://github.com/acme/widget/pull/7"),
+    )
+    state.set_agent_id(agent_id="abc")
+    state.set_ui_capable(value=True)
+    assert state.get_ui_capable() is True
+    assert state.get_agent_id() == "abc"
+    assert len(state.all_runs()) == 1
+
+
+def test_e2e_ran_fingerprint_defaults_empty(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(
+        issue_number=5,
+        branch="openagents/issue-5",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    assert state.find_by_issue(issue_number=5).e2e_ran_fingerprint == ""
+
+
+def test_set_e2e_ran_fingerprint_roundtrip(tmp_path):
+    state = _new_state(tmp_path)
+    state.record_run(
+        issue_number=5,
+        branch="openagents/issue-5",
+        pr=PR(number=5, url="https://github.com/acme/widget/pull/5"),
+    )
+    state.set_e2e_ran_fingerprint(issue_number=5, fingerprint="deadbeef")
+    assert state.find_by_issue(issue_number=5).e2e_ran_fingerprint == "deadbeef"

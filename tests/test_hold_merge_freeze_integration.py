@@ -43,6 +43,9 @@ class _CountingOrchestrator:
         self.review_code_calls += 1
         return ReviewDecision(passed=True, feedback="", verdicts=("PASS",))
 
+    def run_e2e(self, *, pr_number):
+        return None  # Spec-0055/T6：无 e2e 计划，直接进 review
+
     def iterate(self, *, pr_number, reason, detail):
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
         return "已据人类指导迭代代码摘要"

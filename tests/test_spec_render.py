@@ -134,9 +134,8 @@ def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
             slug="alpha",
             summary="alpha 人话",
             e2e=E2EPlan(
-                form="cli",
                 intent="init 无 origin 必须显式失败",
-                acceptance=["非零退出 + 提示", "补 origin 再跑成功"],
+                method="1. 无 origin 跑 init 断言非零退出 + 提示\n2. 补 origin 再跑成功",
             ),
         ),
         tasks=[_task(id="T1", files=["a.py"])],
@@ -144,10 +143,9 @@ def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
     path = model.group_path(specs_root=tmp_path, number="0001", slug="alpha")
     model.dump_group(group=group, path=path)
     text = render(specs_root=tmp_path)
-    assert "e2e 粗规划（cli）" in text
-    assert "init 无 origin 必须显式失败" in text
+    assert "e2e 意图：init 无 origin 必须显式失败" in text
+    assert "测法：" in text
     assert "非零退出 + 提示" in text
-    assert "补 origin 再跑成功" in text
 
 
 def test_no_e2e_plan_omits_block(tmp_path: Path) -> None:

@@ -202,8 +202,9 @@ def test_skip_code_passes_without_review_code(monkeypatch):
     assert any(e["reason"] == "merged" for e in events)
 
 
-def test_skip_evidence_bypasses_evidence_gate(monkeypatch):
-    # CI 绿 + skip code（PASS）+ skip evidence → 直接 merge，_evidence_gate 打成会抛的桩。
+def test_skip_evidence_bypasses_run_e2e(monkeypatch):
+    # Spec-0055/T6：证据闸退役为 orchestrator.run_e2e（在 review 前）。CI 绿 + skip code（PASS）+
+    # skip evidence → 直接 merge，run_e2e 打成会抛的桩验证被旁路。
     class _Status:
         state = "pass"
         failed_logs = []
@@ -215,17 +216,17 @@ def test_skip_evidence_bypasses_evidence_gate(monkeypatch):
         merge_pr=lambda *, pr_number: merged.append(pr_number),
     )
     orch = _RecordingOrchestrator()
+
+    def _boom_run_e2e(*, pr_number):
+        raise AssertionError("skip evidence 下不应调 run_e2e")
+
+    orch.run_e2e = _boom_run_e2e
     state = _FakeState(runs=[_coding_record()])
     msgs = Messages(orchestrator=orch, state=state, agent_id="agent-test")
 
-    def _boom_evidence(*, record):
-        raise AssertionError("skip evidence 下不应调 _evidence_gate")
-
-    monkeypatch.setattr(msgs, "_evidence_gate", _boom_evidence)
-
     events = msgs.poll(skip=parse_skip(raw="code,evidence"))
 
-    assert merged == [5], "skip evidence 应绕过证据闸直接 merge"
+    assert merged == [5], "skip evidence 应绕过 run_e2e 直接 merge"
     assert any(e["reason"] == "merged" for e in events)
 
 

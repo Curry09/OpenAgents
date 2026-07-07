@@ -136,16 +136,16 @@ class Overview:
 
 @dataclass(frozen=True)
 class E2EPlan:
-    """Spec-0040/T1：组级 e2e 粗规划——RFC 阶段声明的成果验证意图，代码之后据此定稿 runbook。
+    """Spec-0055/T2：组级 e2e 测法——RFC 阶段声明「验什么 + 怎么测」，executor 运行时直接照它跑。
 
-    承载「要不要验、验什么」：`form` 声明执行形态（ui/api/cli/backend，见 schema.E2E_FORM_VALUES），
-    `intent` 是一句话意图（RFC 闸批准后冻结，tautology guard 防线①的支点），`acceptance` 是若干条
-    可验证的验收行为。整块可选（Metadata.e2e 默认 None）——非交互 PR 不声明即零回归。
+    承载「要不要验、验什么、怎么测」：`intent` 一句话意图（RFC 闸批准后冻结，tautology guard 支点），
+    `method` 一段 prose 测法（怎么测的人话步骤，**不含精确命令**——命令由 executor 运行时自己敲）。
+    从 0040 的 {form,intent,acceptance[]} 瘦身而来：砍掉 form（executor 运行时自检工具选路）与
+    acceptance（并进 method）。整块可选（Metadata.e2e 默认 None）——非交互 PR 不声明即零回归。
     """
 
-    form: str
     intent: str = ""
-    acceptance: list[str] = field(default_factory=list)
+    method: str = ""
 
 
 @dataclass(frozen=True)
@@ -295,27 +295,25 @@ def task_from_mapping(*, data: object) -> Task:
 
 
 def e2e_from_mapping(*, data: object) -> E2EPlan | None:
-    """Spec-0040/T1：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
+    """Spec-0055/T2：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
 
-    宽松归一化（与 task_from_mapping 同风格）：form/intent 转 str、acceptance 转 list[str]；
-    合法性（form 枚举 / intent 非空 / acceptance≥1）交给 validate._e2e_checks，本函数不判空。
+    宽松归一化（与 task_from_mapping 同风格）：intent/method 转 str；非空由 validate._e2e_checks 强制，
+    本函数不判空。旧 {form,acceptance} 键被忽略（additionalProperties=False 会在 validate 报，迁移交 Spec-0056）。
     """
     if data is None:
         return None
     raw = data or {}
     return E2EPlan(
-        form=str(raw.get("form", "")),
         intent=str(raw.get("intent", "")),
-        acceptance=_str_list(value=raw.get("acceptance")),
+        method=str(raw.get("method", "")),
     )
 
 
 def _e2e_frontmatter(*, e2e: E2EPlan) -> CommentedMap:
-    """E2EPlan → frontmatter CommentedMap（固定键序 form/intent/acceptance）。"""
+    """E2EPlan → frontmatter CommentedMap（固定键序 intent/method）。"""
     out = CommentedMap()
-    out["form"] = e2e.form
     out["intent"] = e2e.intent
-    out["acceptance"] = list(e2e.acceptance)
+    out["method"] = e2e.method
     return out
 
 

@@ -128,3 +128,17 @@ def check() -> EnvReport:
         mcp=detect_browser_mcp(),
         permission_mode=effective_permission_mode(),
     )
+
+
+def ui_capable() -> bool:
+    """Spec-0055/T1: 本机是否具备「真跑前端 e2e」能力——browser MCP 在册 ∧ 权限全放行。
+
+    两道关卡缺一不可（见本模块 docstring 关卡 1/2）：(1) browser MCP（playwright/chrome-devtools）
+    注册在 ~/.claude.json，headless claude 才可见这些工具；(2) 权限模式 bypassPermissions，否则
+    headless `-p` 下 browser_* 调用被静默拒。二者皆真时 executor 派出的 agent 才可能真开浏览器截图。
+
+    纯函数、read-only、从不抛（复用 detect_browser_mcp / effective_permission_mode 的容错）：供 cli
+    在守夜/单步入口启动时调一次、把结果固化进 state（单一真相源），下游 RFC 起草/评审据它分流测法
+    要求（Spec-0055：能力只在「写测法」时读，executor 执行时自检工具、不读本状态量）。
+    """
+    return detect_browser_mcp().all_present and effective_permission_mode() == _FULL_ACCESS_MODE

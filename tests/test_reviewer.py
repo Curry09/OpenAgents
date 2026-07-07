@@ -144,44 +144,59 @@ def test_parse_verdict_none_when_absent():
 
 
 def test_task_for_rfc_and_code_differ():
-    rfc_task = _task_for(kind="rfc", pr_number=5)
-    code_task = _task_for(kind="code", pr_number=5)
+    rfc_task = _task_for(kind="rfc", pr_number=5, ui_capable=True)
+    code_task = _task_for(kind="code", pr_number=5, ui_capable=False)
     assert "spec" in rfc_task
     assert "git diff" in code_task
     assert "#5" in rfc_task and "#5" in code_task
 
 
-def test_code_review_task_defers_runtime_behavior_to_evidence_gate():
-    # Spec-0040/T4：职责收口——code rubric 不再含 browser-e2e 措辞，改为明写「运行时行为由证据闸
-    # 负责、你不判」，只留静态代码质量/安全/结构。
-    code_task = _task_for(kind="code", pr_number=7)
-    assert "浏览器工具" not in code_task
-    assert "运行时行为" in code_task and "证据闸" in code_task
-    assert "你不判" in code_task
+def test_code_review_task_now_judges_runtime_behavior():
+    # Spec-0055/T4：反转 0040/T4——code reviewer 现在**判运行时行为**（读 executor 证据 + 亲眼看截图），
+    # 不再「运行时行为由证据闸负责、你不判」。
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
+    assert "也判运行时行为" in code_task
+    assert "取消了独立证据闸" in code_task
+    # 明写读统一证据落点 + 亲眼看截图。
+    assert "docs/e2e-results/7/" in code_task
+    assert "Read" in code_task and "截图" in code_task
 
 
 def test_rfc_review_task_has_hard_e2e_rubric():
-    # Spec-0040/T4：「要不要有 e2e」上移到 RFC 闸——前端/交互类改动未声明 e2e 粗规划 → REWORK。
-    rfc_task = _task_for(kind="rfc", pr_number=5)
-    assert "e2e 粗规划" in rfc_task
+    # Spec-0055/T4：「要不要有 e2e」在 RFC 闸把关——前端/交互类改动未声明 e2e 测法 → REWORK。
+    rfc_task = _task_for(kind="rfc", pr_number=5, ui_capable=True)
+    assert "e2e 测法" in rfc_task
     assert "REWORK" in rfc_task
     assert "前端/交互类" in rfc_task
 
 
+def test_rfc_e2e_rubric_branches_on_ui_capable():
+    # Spec-0055/T4：起草/评审据固化的 ui_capable 分流——具备浏览器时 UI 改动 method 必须要求截图；
+    # 不具备时不得因缺截图 REWORK。两条规则互斥地进入 RFC 任务。
+    capable = _task_for(kind="rfc", pr_number=5, ui_capable=True)
+    incapable = _task_for(kind="rfc", pr_number=5, ui_capable=False)
+    assert "本机具备浏览器能力" in capable
+    assert "method 必须要求真实导航后的截图为证" in capable
+    assert "本机无浏览器能力" in incapable
+    assert "不得因 method 没要求真实截图就 REWORK" in incapable
+
+
 def test_code_review_task_has_evidence_rubric():
-    # Spec-0044/T2：code rubric 含「宣称验证过但无证据 → REWORK」结构化检查项，
-    # 且条件式触发（仅出现端到端/e2e/截图/已验证 UI 类措辞时才查，不误伤纯内部重构 PR）。
-    code_task = _task_for(kind="code", pr_number=7)
-    assert "宣称验证过但无证据 → REWORK" in code_task
-    # 条件式：措辞触发词齐全 + 明说纯内部重构不误伤。
-    assert "端到端" in code_task and "e2e" in code_task and "截图" in code_task
-    assert "纯内部重构" in code_task
+    # Spec-0055/T4：code rubric 含「读证据判运行时行为」+ 缺证据/证据对不上 → REWORK，
+    # 统一证据落点 docs/e2e-results/<pr>/（并入 0044 的 docs/evidence）。
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
+    assert "缺运行时证据" in code_task
+    assert "证据与意图对不上" in code_task
+    assert "docs/e2e-results/7/" in code_task
+    # 无浏览器时软判（不因缺截图 REWORK）。
+    assert "软判" in code_task
 
 
 def test_evidence_rubric_only_on_code_not_rfc():
-    # Spec-0044/T2：无证据检查项只挂代码 review（评实现/取证），不挂 spec 文档 review。
-    rfc_task = _task_for(kind="rfc", pr_number=7)
-    assert "宣称验证过但无证据 → REWORK" not in rfc_task
+    # Spec-0055/T4：运行时行为/证据检查只挂代码 review，不挂 spec 文档 review。
+    rfc_task = _task_for(kind="rfc", pr_number=7, ui_capable=True)
+    assert "docs/e2e-results/7/" not in rfc_task
+    assert "缺运行时证据" not in rfc_task
 
 
 # --------------------------------------------------------------------------- #
@@ -210,8 +225,8 @@ def test_rubric_tail_examples_are_short_chinese_samples():
 
 def test_short_chinese_constraint_on_both_code_and_rfc_gates():
     # Spec-0050/T1：共享 tail 使两道闸同时生效——code 与 rfc 生成的完整任务文本都含该语言/长度约束。
-    code_task = _task_for(kind="code", pr_number=9)
-    rfc_task = _task_for(kind="rfc", pr_number=9)
+    code_task = _task_for(kind="code", pr_number=9, ui_capable=False)
+    rfc_task = _task_for(kind="rfc", pr_number=9, ui_capable=True)
     for task in (code_task, rfc_task):
         assert "必须用一段简短的中文" in task
         assert "REASON / ISSUES / NEXT" in task
@@ -225,7 +240,7 @@ def test_short_chinese_constraint_on_both_code_and_rfc_gates():
 def test_code_review_task_has_automation_integrity_rubric():
     # Spec-0048/T1：code rubric 含「自动化完整性硬规则」，明列主流程触发点 / artifact 自动产生并
     # commit / 正例·反例 / 集成路径而非局部函数 五问，并写明判罚话术。
-    code_task = _task_for(kind="code", pr_number=7)
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "自动化完整性" in code_task
     assert "主流程触发点" in code_task
     assert "artifact 自动产生并 commit" in code_task
@@ -236,7 +251,7 @@ def test_code_review_task_has_automation_integrity_rubric():
 
 def test_automation_integrity_rubric_is_conditional_not_on_pure_refactor():
     # Spec-0048/T1：条件式触发——明说纯静态/重构/文档不查，避免误伤纯内部改动（与 _EVIDENCE_RUBRIC 同构）。
-    code_task = _task_for(kind="code", pr_number=7)
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "自动化执行链路" in code_task
     assert "纯静态" in code_task and "重构" in code_task
 
@@ -244,7 +259,7 @@ def test_automation_integrity_rubric_is_conditional_not_on_pure_refactor():
 def test_rfc_review_task_has_automation_overpromise_rubric():
     # Spec-0048/T1：rfc 闸多一条「自动化 spec 防过度承诺」——承诺自动化链路则 Reference-level 必须声明
     # 触发时机/调用方/artifact 落点/失败路径/正·反例验收。
-    rfc_task = _task_for(kind="rfc", pr_number=5)
+    rfc_task = _task_for(kind="rfc", pr_number=5, ui_capable=True)
     assert "自动化 spec 防过度承诺" in rfc_task
     for anchor in ("触发时机", "调用方", "artifact 落点", "失败路径", "正·反例验收"):
         assert anchor in rfc_task
@@ -252,7 +267,7 @@ def test_rfc_review_task_has_automation_overpromise_rubric():
 
 def test_rfc_automation_rubric_only_on_rfc_not_code():
     # Spec-0048/T1：闸别隔离——「自动化 spec 防过度承诺」只挂 rfc 闸，不出现在 code 闸（与无证据检查镜像）。
-    code_task = _task_for(kind="code", pr_number=7)
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "自动化 spec 防过度承诺" not in code_task
     assert "artifact 落点" not in code_task
 
@@ -260,10 +275,10 @@ def test_rfc_automation_rubric_only_on_rfc_not_code():
 def test_evidence_rubric_extended_to_automation_capability_claims():
     # Spec-0048/T1：无证据检查延伸到「宣称实现了自动化执行/门控能力…无真实产物或集成证据 → REWORK」，
     # 且仍只挂 code 闸、不挂 rfc 闸。
-    code_task = _task_for(kind="code", pr_number=7)
+    code_task = _task_for(kind="code", pr_number=7, ui_capable=False)
     assert "宣称实现了自动化执行/门控能力" in code_task
     assert "无真实产物或集成证据 → REWORK" in code_task
-    rfc_task = _task_for(kind="rfc", pr_number=7)
+    rfc_task = _task_for(kind="rfc", pr_number=7, ui_capable=True)
     assert "宣称实现了自动化执行/门控能力" not in rfc_task
 
 
@@ -272,7 +287,7 @@ def test_code_rubric_guides_skeleton_pr_toward_rework():
     # 模块、门控位置对、只有模块级单测、无主流程接线」的骨架冒充 PR（PR #105 复刻场景），断言 review 任务
     # 文本齐备五问要素，足以把 reviewer 导向 REWORK（受限于 reviewer 依赖真 backend 推理不可 hermetic，
     # 这里断言的是「引导文本齐备」而非真跑一个 agent，见 spec Drawbacks）。
-    code_task = _task_for(kind="code", pr_number=105)
+    code_task = _task_for(kind="code", pr_number=105, ui_capable=False)
     # 场景：PR 声称新增 executor/evidence_gate 自动化链路——触发条件命中。
     assert "executor" in code_task and "evidence gate" in code_task
     # 五问要素齐备，逐条对应该场景的每个缺口：
