@@ -470,7 +470,10 @@ def test_backfill_rfc_validate_error_does_not_open_pr(tmp_path, monkeypatch):
     assert captured["created"] is False
 
 
-def test_backfill_rfc_commit_message_is_docs(tmp_path, monkeypatch):
+def test_backfill_rfc_delivery_delegated_to_agent_no_harness_commit(tmp_path, monkeypatch):
+    # Spec-0056/T2：交付下放 agent——harness 不再自著 commit（删硬编码 `docs: backfill spec` 消息，
+    # 根因 4），改由反推 task prompt 的交付协议让 agent 语义化 commit + push；harness 只调 head 前移
+    # 硬闸（assert_delivered 跑 rev-parse origin/<branch> 与 HEAD 对比）兜底。
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -478,12 +481,17 @@ def test_backfill_rfc_commit_message_is_docs(tmp_path, monkeypatch):
 
     orch.backfill_rfc(path="openagents/release.py")
 
-    commit_cmds = [c for c in recorder.commands if "commit" in c]
-    assert commit_cmds and "docs" in " ".join(commit_cmds[0])
+    # harness 不再自著任何 commit（交付下放 agent）。
+    assert not any("commit" in c for c in recorder.commands)
+    # 交付协议进了反推 task prompt（agent 自负 commit + force-with-lease push）。
+    assert "--force-with-lease" in backend.calls[0]["task"]
+    # head 前移硬闸兜底：assert_delivered 跑了 rev-parse 对比远端与本地 HEAD。
+    assert any("rev-parse" in c for c in recorder.commands)
 
 
-def test_backfill_rfc_validate_error_skips_commit(tmp_path, monkeypatch):
-    # validate 门控未过 → 既不 commit 也不 push（在校验后才提交）。
+def test_backfill_rfc_validate_error_skips_delivery(tmp_path, monkeypatch):
+    # Spec-0056/T2：validate 硬门控保留——error 时先 raise 不开 PR，且**不触达**交付硬闸
+    # （harness 交付下放 agent 后自身本就不 commit；此处进一步锁 assert_delivered 的 rev-parse 未被跑）。
     orch, backend, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -493,6 +501,8 @@ def test_backfill_rfc_validate_error_skips_commit(tmp_path, monkeypatch):
         orch.backfill_rfc(path="openagents/release.py")
 
     assert not any("commit" in c for c in recorder.commands)
+    # validate error 拦在交付硬闸之前：assert_delivered 的 rev-parse 未被触达。
+    assert not any("rev-parse" in c for c in recorder.commands)
 
 
 def test_backfill_rfc_missing_path_raises_before_backend(tmp_path, monkeypatch):

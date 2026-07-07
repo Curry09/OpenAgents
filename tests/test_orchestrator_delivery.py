@@ -40,17 +40,18 @@ def test_delivery_protocol_contract_lock():
     assert "禁止裸" in p and "git push --force" in p
     # 完成判据：origin/<branch> == HEAD。
     assert "git rev-parse origin/<branch>" in p and "HEAD" in p
-    # force-with-lease 仅限本 issue 分支。
-    assert "仅限本 issue 分支" in p
+    # force-with-lease 仅限本工作分支（决策 7 修订：issue-<n> 派单/迭代 + backfill-<slug> 反向补全）。
+    assert "仅限本工作分支" in p
 
 
-def test_all_four_task_templates_embed_delivery_protocol():
-    # (3)：draft / refine / implement / iterate 四个交付 seam 的 task 模板都追加了交付协议。
+def test_all_five_task_templates_embed_delivery_protocol():
+    # (3)：draft / refine / implement / iterate + backfill 五个交付 seam 的 task 模板都追加了交付协议。
     for template in (
         orch_module._DRAFT_RFC_TASK,
         orch_module._REFINE_RFC_TASK,
         orch_module._IMPLEMENT_TASK,
         orch_module._ITERATE_TASK,
+        orch_module._BACKFILL_RFC_TASK,
     ):
         assert "--force-with-lease" in template
         assert "BASE=$(git rev-parse origin/<branch>)" in template
@@ -192,6 +193,97 @@ def test_implement_hard_gate_mismatch_blocks_pr_and_raises(tmp_path, monkeypatch
     assert (5, orch_module.github.BLOCKED_LABEL) in pr_labels
     assert pr_comments == [5]
     assert ready == []
+
+
+# --------------------------------------------------------------------------- #
+# (5) backfill 反向补全：交付下放 agent + 硬闸失败直接 raise（无 issue/PR 可路由 → 不打 github 标签）
+# --------------------------------------------------------------------------- #
+
+
+class _StubInventory:
+    def render(self):
+        return "module: x.py"
+
+
+def test_no_hardcoded_backfill_spec_commit_message():
+    # (5)/根因 4：删除硬编码 `docs: backfill spec for <path>`（backfill 交付亦下放 agent 语义化 commit）。
+    import inspect
+
+    # backfill_rfc 源码不再有 commit_and_push 硬编码的 backfill 提交消息（PR 标题仍可保留同措辞）。
+    src = inspect.getsource(Orchestrator.backfill_rfc)
+    assert "commit_and_push" not in src
+    assert 'message=f"docs: backfill spec' not in src
+
+
+def _mock_backfill_deps(*, monkeypatch, validate_ok):
+    """公用 mock：inventory / slug_for / validate（backfill 三处外部依赖），返回 spy 记录容器。"""
+    monkeypatch.setattr(orch_module.backfill, "inventory", lambda *, path: _StubInventory())
+    monkeypatch.setattr(orch_module.backfill, "slug_for", lambda *, path: "code")
+    from types import SimpleNamespace
+
+    issues = (
+        []
+        if validate_ok
+        else [SimpleNamespace(level="error", where="0056/overview", message="必填段空")]
+    )
+    monkeypatch.setattr(
+        orch_module.validate,
+        "validate",
+        lambda *, specs_root: SimpleNamespace(ok=validate_ok, issues=issues),
+    )
+    # backfill 无 issue/PR 路由——断言这些 github 出口一个都不该被调（否则说明误走 _fail_to_human）。
+    calls: dict[str, int] = {
+        "issue_add_label": 0,
+        "issue_comment": 0,
+        "add_label": 0,
+        "post_comment": 0,
+    }
+    for hook in calls:
+        monkeypatch.setattr(
+            orch_module.github, hook, lambda *a, _h=hook, **k: calls.__setitem__(_h, calls[_h] + 1)
+        )
+    return calls
+
+
+def test_backfill_hard_gate_mismatch_raises_without_github_routing(tmp_path, monkeypatch):
+    # (5)：backfill 交付硬闸 mismatch → raise OrchestratorError（from WorkspaceError），且**不**打任何
+    # github 标签/评论（无 originating issue/PR，人工介入面是 CLI 顶层的干净报错，非 needs-human 标签）。
+    calls = _mock_backfill_deps(monkeypatch=monkeypatch, validate_ok=True)
+    state = State(path=tmp_path / ".openagents" / "state.json")
+    orch = Orchestrator(backend=_StubBackend(), state=state, work_dir=tmp_path, agent_id="agent-x")
+    orch._workspace = _StallWorkspace(root=tmp_path)
+
+    with pytest.raises(OrchestratorError) as excinfo:
+        orch.backfill_rfc(path="openagents/foo.py")
+
+    # 是 OrchestratorError（vigil 无关，但仍保 CLI 顶层可捕）、from WorkspaceError 保根因链。
+    assert not isinstance(excinfo.value, WorkspaceError)
+    assert isinstance(excinfo.value.__cause__, WorkspaceError)
+    # 关键路由差异：一个 github 出口都没碰（不走 _fail_to_human）。
+    assert sum(calls.values()) == 0
+
+
+def test_backfill_validate_error_blocks_before_delivery(tmp_path, monkeypatch):
+    # (5)：validate 硬门控保留——error 时 raise 不开 PR，且**不到**交付硬闸（assert_delivered 不被调）。
+    _mock_backfill_deps(monkeypatch=monkeypatch, validate_ok=False)
+    state = State(path=tmp_path / ".openagents" / "state.json")
+    orch = Orchestrator(backend=_StubBackend(), state=state, work_dir=tmp_path, agent_id="agent-x")
+
+    delivered_called = {"n": 0}
+
+    class _SpyWorkspace(_StallWorkspace):
+        def assert_delivered(self, *, worktree, branch):
+            delivered_called["n"] += 1
+            super().assert_delivered(worktree=worktree, branch=branch)
+
+    orch._workspace = _SpyWorkspace(root=tmp_path)
+
+    with pytest.raises(OrchestratorError) as excinfo:
+        orch.backfill_rfc(path="openagents/foo.py")
+
+    # validate error 先拦（消息带 validate 语义），交付硬闸未触达。
+    assert "validate" in str(excinfo.value)
+    assert delivered_called["n"] == 0
 
 
 # --------------------------------------------------------------------------- #

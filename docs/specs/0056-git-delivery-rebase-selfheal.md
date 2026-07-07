@@ -19,7 +19,7 @@ tasks:
     scope: 新增只读硬闸 assert_delivered（fetch origin/<branch> 后断言 rev-parse origin/<branch>==HEAD，不等抛 WorkspaceError）；就地修订决策 7 docstring（workspace.py:9,65）为「绝不裸 force-push；允许 --force-with-lease 仅限本 issue 分支」；commit_and_push 普通 push 行为保持不变（零回归）。harness 自身不执行 force-with-lease。
     acceptance: 单测覆盖：origin/<branch>==HEAD 时 assert_delivered 放行、不等时抛 WorkspaceError（携双 SHA）、远端无分支时判未交付抛错；常态 commit_and_push 普通 push 行为逐字节不变；decision-7 docstring 已改为「绝不裸 force、允许 --force-with-lease 仅限本分支」。ruff+pytest 全绿。
   - id: T2
-    title: orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit
+    title: orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径）
     status: done
     priority: P0
     tags: []
@@ -30,8 +30,8 @@ tasks:
     files:
       - openagents/orchestrator.py
       - tests/test_orchestrator_delivery.py
-    scope: '把 git 交付协议常量 _GIT_DELIVERY_PROTOCOL（记 fetch 前 BASE→rebase 自解→push --force-with-lease=<branch>:BASE→完成判据 origin==HEAD→禁裸 force）追加进 _DRAFT/_REFINE/_IMPLEMENT/_ITERATE task；删除硬编码 docs: draft spec 消息、改用语义化（首稿 draft/迭代 refine）；backend.run 后改调 workspace.assert_delivered，抛 WorkspaceError→打 needs-human 标签+署名评论后 raise OrchestratorError from exc（同修根因 2 隔离，且 workspace 不反向依赖 orchestrator）。'
-    acceptance: '单测覆盖：(1) fork 场景用执行协议的 fake backend 一轮内 rebase 自愈+force-with-lease 推上、head 前移到本地 HEAD；(2) 硬闸 mismatch→issue_add_label(BLOCKED_LABEL)+署名评论+raise OrchestratorError（不再裸 WorkspaceError 逃逸 vigil 的 except 元组）；(3) 交付协议 prompt 契约锁：含 --force-with-lease、BASE 取 fetch 前次序、禁裸 --force、完成判据 origin==HEAD；(4) 不再出现固定 docs: draft spec 消息。ruff+pytest 全绿。'
+    scope: '把 git 交付协议常量 _GIT_DELIVERY_PROTOCOL（记 fetch 前 BASE→rebase 自解→push --force-with-lease=<branch>:BASE→完成判据 origin==HEAD→禁裸 force）追加进 _DRAFT/_REFINE/_IMPLEMENT/_ITERATE **及 _BACKFILL_RFC_TASK**；删除硬编码 docs: draft spec / docs: backfill spec 消息、改用语义化（首稿 draft/迭代 refine/反补 backfill）；agent turn（backend.run）后改调 workspace.assert_delivered。有 originating issue/PR 的四路（draft/refine/implement/iterate）抛 WorkspaceError→_fail_to_human 打 needs-human 标签+署名评论后 raise OrchestratorError from exc（同修根因 2 隔离，且 workspace 不反向依赖 orchestrator）；backfill 反向补全**无 originating issue/PR** 可路由，故硬闸失败直接 raise OrchestratorError（CLI 顶层转干净一行+非零退出即人工介入路径，不走 _fail_to_human 的 github 打标）；backfill 的 harness spec validate 硬门控保留、在硬闸前对本地 worktree 跑（validate error 仍不开 PR）。'
+    acceptance: '单测覆盖：(1) fork 场景用执行协议的 fake backend 一轮内 rebase 自愈+force-with-lease 推上、head 前移到本地 HEAD；(2) 硬闸 mismatch→issue_add_label(BLOCKED_LABEL)+署名评论+raise OrchestratorError（不再裸 WorkspaceError 逃逸 vigil 的 except 元组）；(3) 交付协议 prompt 契约锁：含 --force-with-lease、BASE 取 fetch 前次序、禁裸 --force、完成判据 origin==HEAD；(4) 不再出现固定 docs: draft spec / docs: backfill spec 消息；(5) backfill 交付走 agent 协议、硬闸 mismatch→raise OrchestratorError 且**无** github 打标副作用、validate error 仍拦不开 PR。ruff+pytest 全绿。'
   - id: T3
     title: e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）
     status: done
@@ -95,7 +95,9 @@ push -u origin <branch>`（普通 push，`check=True`）。全仓一条铁律写
 3. **交付判据错位。** 现设计把「工作区干净 / push 幂等空操作」当「已交付」，等同把「无未提交改动」
    偷换成「成果已到 PR head」——分叉场景下这两者恰恰背离（本地干净、远端没收到）。
 4. **同名 commit 掩盖重试。** `start_rfc` 每次硬编码提交 `docs: draft spec for issue #<n>`
-   （`orchestrator.py:283`），重跑堆同名 commit，无法从历史区分首稿与第 N 次重写。
+   （`orchestrator.py:283`），重跑堆同名 commit，无法从历史区分首稿与第 N 次重写；`backfill_rfc`
+   同病——硬编码 `docs: backfill spec for <path>`，且交付亦全由 harness `commit_and_push` 兜底
+   （与四条派单/迭代路径同构的「agent 被挡在 git 之外」，一并下放，见 Reference-level ②）。
 
 **为什么现在改。** 上述 4 条让「重新起草」这类**正常重试**在分叉后彻底空转，且失败无声无息。
 issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同时解冻 #127**。根子在职责划线：
@@ -162,9 +164,20 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
 
 **② `orchestrator.py`——接线交付协议 + 硬闸 + 隔离修复 + 语义化 commit。**
 - task prompt：把上面「交付协议」段作为常量 `_GIT_DELIVERY_PROTOCOL` 追加进 `_DRAFT_RFC_TASK` /
-  `_REFINE_RFC_TASK` / `_IMPLEMENT_TASK` / `_ITERATE_TASK`——含「BASE 取 fetch 前」「force-with-lease
-  仅限本分支」「禁止裸 force」「完成判据 origin==HEAD」；首稿要求语义化 commit（draft），迭代要求
-  refine 措辞，**删除**硬编码 `docs: draft spec for issue #<n>`（`orchestrator.py:283`）。
+  `_REFINE_RFC_TASK` / `_IMPLEMENT_TASK` / `_ITERATE_TASK` **及 `_BACKFILL_RFC_TASK`**——含「BASE 取
+  fetch 前」「force-with-lease 仅限自己的工作分支」「禁止裸 force」「完成判据 origin==HEAD」；首稿要求
+  语义化 commit（draft），迭代要求 refine 措辞，反向补全要求 backfill 措辞，**删除**硬编码
+  `docs: draft spec for issue #<n>`（`orchestrator.py:283`）与 `docs: backfill spec for <path>`
+  （backfill_rfc）。
+- **backfill 反向补全路径的路由差异（无 originating issue/PR）。** `backfill_rfc` 由 CLI
+  `oa backfill-rfc <path>` 触发（Spec-0025，**非** vigil 自主环），据代码路径派生 slug 分支
+  `openagents/backfill-<slug>`，且 draft PR 在交付**之后**才开——交付失败时既无 issue 也无 PR 可打
+  `needs-human`。故此路**不走** `_fail_to_human`：agent turn 后先跑既有 harness `spec validate` 硬门控
+  （读本地 worktree，agent 已 commit 也照读，validate error 仍 `raise OrchestratorError` 不开 PR），
+  再调 `assert_delivered`，抛 `WorkspaceError` 时**直接** `raise OrchestratorError(str(exc)) from exc`
+  ——CLI 顶层 `except (OrchestratorError, …)` 已把它转成 `✗ <消息>` 干净一行 + 非零退出，对一个人工
+  运行的 brownfield 引导命令，这**就是**它的 needs-human 面（人看到报错即介入，无需 github 打标）。
+  backfill 分叉风险近零（首推唯一新分支），硬闸主要兜「agent 自判完成却没 push」。
 - 交付后闸：agent turn（`backend.run`）返回后，在原 `commit_and_push` 位置改调
   `self._workspace.assert_delivered(worktree=..., branch=...)`。抛 `WorkspaceError` 时统一走
   `_fail_to_human(issue_number, branch, reason)`：`github.issue_add_label(BLOCKED_LABEL)` +
@@ -183,8 +196,9 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
   `BASE=$(git rev-parse origin/<branch>)` 在 `git fetch` **之前**求值。否则 `fetch` 刷新本地跟踪 ref
   后，lease 期望值会变成刚拉到的最新远端，保护退化为等价裸 `--force`（footgun）。此顺序是 prompt
   协议第 2/4 步的硬性次序，也是硬闸兜底的对象。
-- **force-with-lease 严格限本 issue 分支** `openagents/issue-<n>`；任何情况不得裸 `--force`；不得作用
-  main / 受保护 / 他人分支（决策 7 修订正文）。
+- **force-with-lease 严格限 agent 自己的工作分支** `openagents/issue-<n>`（派单/迭代）或
+  `openagents/backfill-<slug>`（反向补全）；任何情况不得裸 `--force`；不得作用 main / 受保护 / 他人分支
+  （决策 7 修订正文）。
 - **零回归**：远端无分支 / 可快进的常态路径，git 层结果逐字节等价于今天的普通 push；只有分叉路径
   行为改变（静默卡死 → 一轮内自愈）。
 
@@ -235,6 +249,13 @@ HTTP 前端/看板渲染）。故浏览器导航/截图式 e2e **不适用**（�
 - **fake-backend e2e 的保真度**：成果演练用「把协议执行成 git 命令」的 fake backend 而非真 LLM，
   验证的是**交付协议 + 硬闸的编排语义**，不验证「真 agent 会不会照 prompt 做」——后者靠线上守夜与
   PR 人审兜。此边界在脚本头显式声明（evidence 分层，理念 8）。
+- **backfill 交付下放后 validate 门控次序倒挂的孤儿分支**：交付下放 agent 后，backfill 的 `spec
+  validate` 硬门控只能在 agent 已 commit+push **之后**跑（读本地 worktree 文件，仍拦得住、validate
+  error 照旧 `raise` 不开 PR）；代价是——若 agent 推了个没过 validate 的 spec，远端会留一个**无 PR 的
+  孤儿分支**（旧流程 validate 在 push 前、失败则远端全无）。缓解：`_BACKFILL_RFC_TASK` 第 6 步要求
+  agent 先 `spec validate` 再按协议交付，孤儿分支只在 agent 违约（推了没过校验的稿）时出现，且对一个
+  人工运行的 CLI 命令可见可清理（`git push origin --delete`）。未取「拆两轮 backend turn（先写后交
+  付）彻底根除」是因 backfill 属稀有手动引导、不值为此加一整轮 agent 调用（理念 1 奥卡姆）。
 
 ## Rationale and alternatives
 

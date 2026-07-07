@@ -8,8 +8,9 @@ RFC-0003 的 worktree 隔离与基线锁定语义在此原样保留：每 issue 
 从 `origin/<base>` 拉分支；iterate/续写复用既有 worktree、缺失则重建。所有 git 操作走 subprocess。
 
 # Spec-0056/T1（决策 7 修订）：由「绝不 force-push」改为**绝不裸 force-push；允许
-`--force-with-lease`，且仅限 agent 自己的 issue 分支 `openagents/issue-<n>`，不得作用于
-main / 受保护分支 / 他人分支**。交付（含分叉后 rebase 解冲突 + `push --force-with-lease`）
+`--force-with-lease`，且仅限 agent 自己的工作分支（派单/迭代 `openagents/issue-<n>`、反向补全
+`openagents/backfill-<slug>`），不得作用于 main / 受保护分支 / 他人分支**。交付（含分叉后
+rebase 解冲突 + `push --force-with-lease`）
 下放给 agent（prompt 软约束，见 orchestrator._GIT_DELIVERY_PROTOCOL）；harness 自身
 **不执行** force-with-lease，只留一道只读硬闸 `assert_delivered`（断言成果真的推上远端）。
 `commit_and_push` 保留原样，仅供 harness 自著文件（证据/runbook 等无 agent turn 的收尾）

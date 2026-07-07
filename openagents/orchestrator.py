@@ -77,12 +77,13 @@ _E2E_EVIDENCE_DISCIPLINE = (
     "docs/skills/end-to-end-ui-screenshots/。是否适用由你自检自己改的是哪一类行为。"
 )
 # Spec-0056/T2：git 交付协议（软约束）——交付/冲突自愈下放 agent（唯一有语义能力读冲突、判意图、
-# 跑自测的一方），追加进 _DRAFT/_REFINE/_IMPLEMENT/_ITERATE task。硬性次序：BASE 取 **fetch 前**
-# 的远端基点（否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force——社区公认 footgun）；推送用
-# `--force-with-lease=<branch>:$BASE` 且**仅限本 issue 分支**、**绝不裸 --force**；完成判据 origin==HEAD。
-# harness 只保留 assert_delivered 一道死代码硬闸兜底（agent 没落地→head 不前移→拦下转人工）。
+# 跑自测的一方），追加进 _DRAFT/_REFINE/_IMPLEMENT/_ITERATE 及 _BACKFILL_RFC_TASK。硬性次序：BASE 取
+# **fetch 前**的远端基点（否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force——社区公认 footgun）；
+# 推送用 `--force-with-lease=<branch>:$BASE` 且**仅限本工作分支**（派单/迭代 issue-<n>、反向补全
+# backfill-<slug>）、**绝不裸 --force**；完成判据 origin==HEAD。harness 只保留 assert_delivered 一道
+# 死代码硬闸兜底（agent 没落地→head 不前移→拦下转人工）。
 _GIT_DELIVERY_PROTOCOL = (
-    "\n\n【交付协议——你负责把改动真正推上远端本 issue 分支 <branch>，直到成果落到 PR head】\n"
+    "\n\n【交付协议——你负责把改动真正推上远端本工作分支 <branch>，直到成果落到 PR head】\n"
     '1. `git add -A && git commit -m "<语义化信息>"`——首稿用 draft 措辞、后续迭代用 refine 等'
     "**不同**措辞，别再堆固定的 `docs: draft spec` 消息;\n"
     "2. **先**记下远端基点 `BASE=$(git rev-parse origin/<branch>)`，**再** `git fetch origin "
@@ -91,7 +92,7 @@ _GIT_DELIVERY_PROTOCOL = (
     "3. 与远端分叉就 `git rebase origin/<branch>`：有冲突你自己读 `<<<<<<<` 标记按双方意图语义"
     "解决、`git add -A && git rebase --continue`，直到 rebase 走完（不许中途 abort、不甩 needs-human）;\n"
     "4. `git push --force-with-lease=<branch>:$BASE origin <branch>`;\n"
-    "5. **禁止裸** `git push --force`（无 lease）；`--force-with-lease` 仅限本 issue 分支 <branch>，"
+    "5. **禁止裸** `git push --force`（无 lease）；`--force-with-lease` 仅限本工作分支 <branch>，"
     "绝不作用于 main / 受保护分支 / 他人分支;\n"
     "完成判据：`git rev-parse origin/<branch>` == 你的 `HEAD`，不相等就继续处理直到相等。"
 )
@@ -186,6 +187,10 @@ _BACKFILL_RFC_TASK = (
     "`spec graph`。只产出 spec（docs/specs/ 下），不要改实现代码。\n"
     + _BROWSER_E2E_GUIDANCE
     + "\n\n代码盘点：\n{inventory}"
+    # Spec-0056/T2：交付下放 agent——反向补全同样自负交付（commit 用 backfill 语义化措辞，再按协议
+    # push；BASE 取 fetch 前、force-with-lease 仅本工作分支 openagents/backfill-<slug>）。先过第 6 步
+    # 的 `spec validate` 再交付，避免推出没过校验的稿（见 spec Drawbacks 孤儿分支缓解）。
+    + _GIT_DELIVERY_PROTOCOL
 )
 
 
@@ -439,12 +444,16 @@ class Orchestrator:
                 else "反推草稿未过 spec validate，不开 PR"
             )
 
-        self._progress(message=f"▶ 提交并推送分支 {branch} …")
-        self._workspace.commit_and_push(
-            worktree=worktree,
-            branch=branch,
-            message=f"docs: backfill spec for {path}",
-        )
+        # Spec-0056/T2：交付下放 agent（_BACKFILL_RFC_TASK 已含 _GIT_DELIVERY_PROTOCOL：语义化 commit +
+        # 记 fetch 前 BASE + rebase 自愈 + force-with-lease 仅本工作分支）。删除原硬编码
+        # `docs: backfill spec for <path>` 同名消息（根因 4）。backfill 由 CLI 触发、**无** originating
+        # issue/PR 可路由 needs-human（draft PR 在交付后才开），故硬闸失败**不走** _fail_to_human，直接
+        # raise OrchestratorError——CLI 顶层转干净一行 + 非零退出即人工介入面（见 spec Reference-level ②）。
+        self._progress(message=f"▶ 校验分支 {branch} 交付（head 前移硬闸）…")
+        try:
+            self._workspace.assert_delivered(worktree=worktree, branch=branch)
+        except WorkspaceError as exc:
+            raise OrchestratorError(str(exc)) from exc
 
         # 复用 start_rfc 的指路牌抽取：从反推出的 spec 组抽 e2e 指路牌拼进 PR 正文（None 即回退）。
         spec_group = self._workspace.changed_spec_group(worktree=worktree, base=base)
