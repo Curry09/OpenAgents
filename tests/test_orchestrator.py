@@ -62,6 +62,12 @@ def test_implement_task_has_e2e_evidence_discipline():
     assert "docs/skills/end-to-end-ui-screenshots/" in template
     assert "由你自检" in template
     assert "检测到你有浏览器" not in template
+    # Spec-0055/T4（补写侧落点）：取证纪律的写侧落点统一到 docs/e2e-results/<pr>/（与 executor/reviewer
+    # 同一目录），不再指向旧的 docs/evidence/——消除裂脑（见 wind-palace PR #19 实证）。
+    assert "docs/e2e-results/{pr_number}/" in template
+    assert "docs/evidence/" not in template
+    # {pr_number} 由 _IMPLEMENT_TASK.format(pr_number=...) 在 implement 时填充（不残留占位）。
+    assert "docs/e2e-results/7/" in template.format(issue_number=3, pr_number=7)
 
 
 class _GitRecorder:

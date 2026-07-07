@@ -65,12 +65,18 @@ _BROWSER_E2E_GUIDANCE = (
 # + 反测试顶替 + 反「慢/flaky/投入产出比」借口 + 真跑不起来诚实报阻塞，并指路仓库内 skill 原文。
 # 措辞条件式、由 agent 自检（不宣告「OpenAgents 检测到你有浏览器」）；落 in-code 方法论面，不写
 # .claude/、不耦合具体 MCP 生态（理念 10 解耦；全局硬约束禁写 .claude/）。
+# Spec-0055/T4（补写侧落点）：原本这条纪律让实现者把截图/日志存进 `docs/evidence/`，但 Spec-0055/T4
+# 已把 reviewer 读侧、executor 写侧统一到 `docs/e2e-results/<pr>/`——读侧搬了、这条写侧没搬，成了裂脑
+# （实现者写 docs/evidence/、reviewer 去 docs/e2e-results/ 找，对不上，见 wind-palace PR #19 实证）。此处
+# 把写侧落点也统一到 `docs/e2e-results/{pr_number}/`，与 executor/reviewer 同一目录，消除两套证据目录。
 _E2E_EVIDENCE_DISCIPLINE = (
     "取证判断纪律：你改的行为若是**产品对外行为**，验证就要真 app 跑出来的证据，自检分三类——"
     "① UI 直接看得到（工具集 / 报错 / 状态 / 页面渲染…）→ 把真 app 跑起来、真操作到那个点、"
-    "**截下那个可视化结果**存进 tracked 证据目录（如 docs/evidence/）；"
-    "② UI 看不到但确实改变产品对外行为（如某配置真生效）→ 真 app 触发它、提交**真实运行日志文本 + "
-    "触发它的真 app 上下文**为证；③ 纯内部实现细节（重构等，不改对外行为）→ 用相称的自动化测试即可。"
+    "**截下那个可视化结果**存进 tracked 证据目录 `docs/e2e-results/{pr_number}/`"
+    "（与 executor / reviewer 同一落点，Spec-0055 统一）；"
+    "② UI 看不到但确实改变产品对外行为（如某配置真生效）→ 真 app 触发它、把**真实运行日志文本 + "
+    "触发它的真 app 上下文**同样存进 `docs/e2e-results/{pr_number}/` 为证；"
+    "③ 纯内部实现细节（重构等，不改对外行为）→ 用相称的自动化测试即可。"
     "纪律：自动化测试 / 后端日志**替代不了**真 app 证据；不许拿「LLM 慢 / flaky / 投入产出比差」当"
     "跳过借口；**真跑不起来就诚实报「因 X 未验证」的阻塞项，绝不假称已验证**。"
     "细则（反惰性 rationalization 表 / 通用流程 / 合格证据判据）见仓库内 "
