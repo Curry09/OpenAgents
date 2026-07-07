@@ -170,7 +170,7 @@ _BAD_CI_BLOCKER = (
 def _report_header(*, body: str) -> str | None:
     """Spec-0051/T5：取回执正文首个 `## ` 标题行（去重锚点）；无标题 → None（非回执评论）。
 
-    render_*（executor/evidence_gate/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
+    render_*（executor/worknote）恒把稳定抬头放首行；identity.sign 只在**末尾**追加
     隐藏签名，故 PR 上存量回执评论的首个 `## ` 行仍是原抬头，可作同类回执的分桶锚点。
     """
     for line in body.splitlines():

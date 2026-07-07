@@ -20,7 +20,6 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `conflict.py` | Spec-0028/T2：merge 冲突派 coding agent 语义解冲突。 |
 | `conflictdiag.py` | Spec-0034/T1：worktree-free 的合并冲突诊断采集 + 「卡在哪」段格式化（解耦新模块，理念 10）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
-| `evidence_gate.py` | Spec-0040/T3: 证据固化落点约定 + 证据闸 reviewer（拿 RFC 意图对照证据门控合并）。 |
 | `executor.py` | Spec-0055/T2·T3: executor —— 独立的运行时验证 agent（单一自主 agent，无 form 分派）。 |
 | `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
 | `fleet_config.py` | Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
@@ -83,7 +82,6 @@ graph LR
     nopenagents_conflict["openagents.conflict"]
     nopenagents_conflictdiag["openagents.conflictdiag"]
     nopenagents_envcheck["openagents.envcheck"]
-    nopenagents_evidence_gate["openagents.evidence_gate"]
     nopenagents_executor["openagents.executor"]
     nopenagents_fleet["openagents.fleet"]
     nopenagents_fleet_config["openagents.fleet_config"]
@@ -141,7 +139,6 @@ graph LR
     nopenagents_conflictdiag --> nopenagents
     nopenagents_conflictdiag --> nopenagents_github
     nopenagents_envcheck --> nopenagents_backends_claude_code
-    nopenagents_evidence_gate --> nopenagents_backends_base
     nopenagents_executor --> nopenagents_backends_base
     nopenagents_fleet --> nopenagents
     nopenagents_fleet --> nopenagents_cli
