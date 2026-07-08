@@ -113,6 +113,10 @@ _DRAFT_RFC_TASK = (
     "Rationale and alternatives（≥1 备选）/ Prior art / Unresolved questions / Future possibilities;\n"
     "3) **再**用 `spec add-task` 逐个加工作分解行（必填 `--files` 互斥 + `--acceptance`，含依赖、范围）;\n"
     "4) 最后 `spec validate`（必填段空/缺 acceptance/files 重叠 = error）+ `spec render` + `spec graph`。\n"
+    # Spec-0057/T1：起草侧软引导——e2e 块是 run_e2e 唯一读的东西，缺它 RFC 闸会确定性返工（门控在编排层，
+    # 不靠 LLM）。这里让起草 agent 一次到位、少一轮返工。
+    "**必须在组 frontmatter 声明 `e2e:` 测法块**（含 `intent`=一句话验什么 + `method`=一段 prose 测法步骤）；"
+    "**每个 spec 都要声明**——纯文档/重构/无运行时行为的改动也声明，`method` 写「无运行时行为可验」即可。\n"
     "只产出 spec（docs/specs/ 下），不要写实现代码。\n"
     + _BROWSER_E2E_GUIDANCE
     + "\n\nissue 正文：\n{body}"
@@ -196,6 +200,14 @@ _BACKFILL_RFC_TASK = (
 
 # Spec-0055/T5：证据落点相对路径约定（executor 写 result.md / 截图，reviewer 读；单一来源在此）。
 _EVIDENCE_ROOT = ("docs", "e2e-results")
+
+# Spec-0057/T1：RFC 闸缺 e2e 块时的**确定性**返工文案（不问 LLM 直接 refine_rfc 喂它）。
+_E2E_BLOCK_MISSING_MSG = (
+    "你的 spec 缺 e2e 测法块：请在组 frontmatter 声明 `e2e:`，含 `intent`（一句话验什么）+ `method`"
+    "（一段 prose 测法步骤，怎么测、看什么算过；不含精确命令）。**每个 spec 都要声明**——纯文档/重构/无"
+    "运行时行为的改动也声明，`method` 写「无运行时行为可验，纯文档/内部改动」即可。这个块是 run_e2e 唯一"
+    "读的东西：缺它，独立 executor 就永远不会真跑、e2e 验证等于没有。补上后再交评审。"
+)
 
 
 @dataclass(frozen=True)
@@ -741,6 +753,21 @@ class Orchestrator:
         except (OSError, ValueError):
             return None
         return group.metadata.e2e
+
+    def e2e_block_missing(self, *, pr_number: int) -> str | None:
+        """Spec-0057/T1：确定性检查——本分支改动的 spec 组是否声明了真实 e2e 测法块（intent+method 非空）。
+
+        缺（无 e2e 块 / intent 空 / method 空）→ 返回确定性返工文案 `_E2E_BLOCK_MISSING_MSG`；已声明 → None。
+        供 RFC 闸在调 LLM reviewer **之前**先跑这道机器检查——LLM 会被 spec 正文里的 e2e 讨论骗过、把「没声明
+        结构化 frontmatter e2e 块」放行（见 wind-palace PR #19），这道确定性检查骗不过，保证 run_e2e 永远有块可读。
+        纯读、不改状态（ensure worktree 幂等）。
+        """
+        record = self._require_run(pr_number=pr_number)
+        worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
+        plan = self._e2e_plan(worktree=worktree)
+        if plan is None or not plan.intent.strip() or not plan.method.strip():
+            return _E2E_BLOCK_MISSING_MSG
+        return None
 
     # --- 原子操作 4：coding 阶段迭代（CI/comment 反馈）------------------ #
     def iterate(self, *, pr_number: int, reason: str, detail: str) -> str:

@@ -58,6 +58,9 @@ class _RecordingOrchestrator:
         self.implement_calls = []
         self.iterate_calls = []
 
+    def e2e_block_missing(self, *, pr_number):
+        return None  # Spec-0057/T1：视 spec 已声明合法 e2e 块，确定性检查放行 → 进 LLM review_rfc
+
     def review_rfc(self, *, pr_number):
         self.review_rfc_calls.append(pr_number)
         raise AssertionError("skip spec 下不应触发 review_rfc")

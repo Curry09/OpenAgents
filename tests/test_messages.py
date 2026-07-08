@@ -61,6 +61,8 @@ class _FakeOrchestrator:
         # Spec-0055/T6：run_e2e 接线——返回预设 E2ERunResult（None = 无 e2e 计划，空过）。
         self._e2e_result = e2e_result
         self.run_e2e_calls = []
+        # Spec-0057/T1：RFC 闸确定性 e2e 块检查预设（None = 有块，照常评审）。
+        self._e2e_missing = None
 
     def implement(self, *, pr_number):
         # Spec-0051/T4：implement 返回本轮实现摘要（None→str），供 messages 渲「## 实现自述」回执。
@@ -74,6 +76,11 @@ class _FakeOrchestrator:
         # Spec-0040/T5：iterate 返回 result.summary；Spec-0051/T5：ci/review/e2e 收口点据此渲迭代自述。
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
         return f"据 {reason} 反馈改了代码"
+
+    def e2e_block_missing(self, *, pr_number):
+        # Spec-0057/T1：RFC 闸确定性 e2e 块检查。默认 None（有块 → 照常进 LLM 评审，既有用例零回归）；
+        # 需要测「缺块自动返工」的用例把 self._e2e_missing 设成返工文案。
+        return self._e2e_missing
 
     def review_rfc(self, *, pr_number):
         self.review_rfc_calls.append(pr_number)
@@ -375,13 +382,64 @@ def test_rfc_reviewer_fail_over_k_blocks(monkeypatch):
     )
     rec = _patch_github(monkeypatch, has_label=False)
 
-    events = msgs.poll()
+    msgs.poll()
 
     assert orch.refine_calls == []  # 超 K 不再 refine
     assert state.status_updates == [{"issue_number": 3, "status": STATUS_BLOCKED}]
     assert (5, BLOCKED_LABEL) in rec["labels"]
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0057/T1: RFC 闸确定性 e2e 块检查——缺块在调 LLM 前自动返工
+# --------------------------------------------------------------------------- #
+
+
+def test_rfc_missing_e2e_block_refines_before_llm(monkeypatch):
+    # 缺 e2e 块（e2e_block_missing 非 None）→ 不调 review_rfc（LLM），直接 refine_rfc 自动返工、rounds++。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)], rfc_decision=_PASS
+    )
+    orch._e2e_missing = "你的 spec 缺 e2e 测法块，请声明 intent+method"
+    _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll()
+
+    assert orch.review_rfc_calls == []  # 确定性检查在 LLM 之前短路
+    assert orch.refine_calls == [{"pr_number": 5, "detail": orch._e2e_missing}]
+    assert state.all_runs()[0].rounds == 1
+    assert any(e["reason"] == "refine-e2e-block" for e in events)
+
+
+def test_rfc_missing_e2e_block_over_k_blocks(monkeypatch):
+    monkeypatch.setattr(messages_module, "MAX_ROUNDS", 3)
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW, rounds=2)]
+    )
+    orch._e2e_missing = "缺 e2e 块"
+    rec = _patch_github(monkeypatch, has_label=False)
+
+    events = msgs.poll()
+
+    assert orch.review_rfc_calls == []
+    assert orch.refine_calls == []  # 超 K 不再 refine
+    assert state.status_updates[-1] == {"issue_number": 3, "status": STATUS_BLOCKED}
+    assert (5, BLOCKED_LABEL) in rec["labels"]
     blocked = next(e for e in events if e["reason"] == "blocked")
     assert blocked["gate"] == "rfc"
+
+
+def test_rfc_e2e_block_present_proceeds_to_llm_review(monkeypatch):
+    # 有 e2e 块（e2e_block_missing None）→ 照常进 LLM review_rfc（默认路径零回归）。
+    msgs, orch, state = _make(
+        runs=[_run(issue_number=3, pr_number=5, status=STATUS_RFC_REVIEW)], rfc_decision=_PASS
+    )
+    assert orch._e2e_missing is None  # 默认有块
+    _patch_github(monkeypatch, has_label=False)
+
+    msgs.poll()
+
+    assert orch.review_rfc_calls == [5]  # 确定性检查放行 → 进 LLM
+    assert orch.refine_calls == []
 
 
 # --------------------------------------------------------------------------- #
@@ -1117,6 +1175,9 @@ def test_integration_real_orchestrator_rfc_pass_implements(monkeypatch, tmp_path
     state.increment_rounds(issue_number=3)  # 预置一回合，验证 implement 会清零
     orch = Orchestrator(backend=_StubBackend(), state=state, work_dir=tmp_path, agent_id=agent_id)
     orch._workspace = _StubWorkspace()
+    # Spec-0057/T1：本用例只验「RFC PASS → implement」放行链路，视 spec 已声明合法 e2e 块（RFC 闸确定性
+    # e2e 块检查放行）——否则 changed_spec_group=None 会触发确定性返工、走不到 review_rfc。
+    monkeypatch.setattr(orch, "e2e_block_missing", lambda *, pr_number: None)
     msgs = Messages(orchestrator=orch, state=state, agent_id=agent_id)
 
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: False)

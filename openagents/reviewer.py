@@ -118,26 +118,34 @@ def _rfc_review_task(*, pr_number: int, ui_capable: bool) -> str:
     return (_RFC_REVIEW_HEAD + e2e_rubric + _RFC_REVIEW_TAIL).format(pr_number=pr_number)
 
 
-# Spec-0055/T4：证据/运行时行为 rubric（**反转 Spec-0040/T4**）。0040 曾让代码 reviewer「只判静态、
-# 运行时行为交独立证据闸」；Spec-0055 取消独立证据闸，把运行时行为验收**合并回 code review**——
-# reviewer 靠亲眼看 executor 产的证据（result.md + 用 Read 打开截图看画面）对照 spec 的 e2e intent 判。
-# 统一证据落点为 docs/e2e-results/<pr>/，并入 Spec-0044 原来指向 docs/evidence/** 的「无证据=REWORK」
-# （消除两套证据目录）。延伸自 Spec-0048/T1：宣称实现了自动化执行/门控却只交付骨架 → 同样 REWORK。
-# 条件式触发（前端/交互类才查），纯内部重构不误伤。只挂 code 闸（rfc 闸的把关在 _RFC_E2E_RUBRIC_*）。
+# Spec-0055/T4 + Spec-0057/T2：证据/运行时行为 rubric（**反转 Spec-0040/T4** + **两重测试交叉比对**）。
+# 0040 曾让代码 reviewer「只判静态、运行时行为交独立证据闸」；Spec-0055 取消独立证据闸、把运行时行为
+# 验收合并回 code review。Spec-0057/T2 进一步明确：运行时验证有**两重、信任级别不同、不可混为一谈**——
+# 第一重是**实现者自测**（docs/evidence/，自证/运动员，不单独构成放行）、第二重是**独立 executor**
+# （docs/e2e-results/<pr>/，裁判，门控依据）。两个目录**保持分开**（合并会让自证冒充独立验证，见
+# wind-palace PR #19）；reviewer 交叉比对、**独立证据缺失不得凭自测放行**。延伸自 Spec-0048/T1：宣称
+# 实现了自动化执行/门控却只交付骨架 → 同样 REWORK。条件式触发（前端/交互类才查），纯内部重构不误伤。
 _EVIDENCE_RUBRIC = (
-    "【运行时行为：读证据亲眼判】本 PR 若属前端/交互类改动，独立 executor 会照 spec 的 e2e 测法真跑"
-    "系统，把证据（result.md + 截图 / 日志）固化在 `docs/e2e-results/{pr_number}/`。请**读这些证据判"
-    "运行时行为是否达成 spec 的 e2e intent**：\n"
-    "- 用 `Read` 打开 `docs/e2e-results/{pr_number}/` 下的截图（PNG）**亲眼看画面**、读 result.md 声明；\n"
-    "- executor 声明达成（OUTCOME: PASSED）但截图/日志与 intent 对不上、或避重就轻（把「筛选生效」"
-    "换成「页面不崩」）→ 判 REWORK，写明「证据与意图对不上」；\n"
-    "- 证据目录缺 result.md、或 UI 改动却既无截图也无「环境不具备」的诚实说明 → 判 REWORK，写明"
-    "「缺运行时证据」；\n"
-    "- 若 executor 如实报告「本环境无浏览器工具、无法真跑 UI」→ **软判**：不因缺截图 REWORK，就着"
-    "拿得到的证据（离线断言 / 日志 / 代码）判即可。\n"
+    "【运行时行为：两重测试交叉比对】本 PR 若属前端/交互类改动，运行时验证有**两重**，你要**都看、"
+    "交叉比对**——别把这两重混为一谈（信任级别不同）：\n"
+    "- **第一重 = 写代码的人自己的测试（自证 / 运动员）**：作者写的单元测试、自己跑的截图（常在 "
+    "`docs/evidence/` 或 PR 评论/实现自述里）。这是**作者的声明**——「我测过了、我说它过了」——"
+    "**不单独构成放行理由**（运动员不能当自己的裁判）。\n"
+    "- **第二重 = 独立 executor 做的端到端测试（裁判）**：一个与作者不共享上下文的独立 executor 照 spec "
+    "的 e2e 测法真跑系统，把证据固化在 `docs/e2e-results/{pr_number}/`（result.md + 截图 / 日志）。"
+    "**这才是门控依据。**\n"
+    "交叉比对怎么判：\n"
+    "- 用 `Read` 打开 `docs/e2e-results/{pr_number}/` 下的截图（PNG）**亲眼看画面**、读 result.md；再"
+    "对照作者自测所**声称**的行为——独立证据**印证**了声称，才算达成；\n"
+    "- **独立证据缺失**（`docs/e2e-results/{pr_number}/` 无 result.md / 无截图），哪怕作者有一堆自测和"
+    "「自測全 green」也**不得凭自测放行** → 判 REWORK，写明「只有作者自测（自证），缺独立 e2e 证据」；\n"
+    "- 两者**矛盾**（作者说达成，独立证据显示没达成 / 避重就轻，如把「筛选生效」换成「页面不崩」）"
+    "→ **以独立证据为准**判 REWORK，写明「证据与意图对不上」；\n"
+    "- 若独立 executor 如实报告「本环境无浏览器工具、无法真跑 UI」→ **软判**：不因缺截图 REWORK，"
+    "就着拿得到的证据（离线断言 / 日志 / 代码 + 作者自测）判即可。\n"
     "延伸——宣称实现了自动化执行/门控能力（executor 真跑 / 自动提交证据 / UI 截图）却无真实产物或"
-    "集成证据 → REWORK：例如声称 executor 真跑却无 result.md、声称自动提交证据却无 commit 证据、"
-    "声称支持 UI 截图却无截图也无诚实说明——同样判 REWORK。\n"
+    "集成证据 → REWORK（声称 executor 真跑却无 result.md、声称自动提交证据却无 commit 证据、声称支持"
+    "UI 截图却无截图也无诚实说明）。\n"
 )
 # Spec-0048/T1：自动化完整性硬规则——专治「架构骨架/模块存在/门控位置对/单测绿」冒充完整实现。仅当
 # PR 声称新增/改造自动化执行链路时触发（条件式，与 _EVIDENCE_RUBRIC 同构，纯静态/重构不查、不误伤）；

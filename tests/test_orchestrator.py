@@ -706,6 +706,54 @@ def test_run_e2e_no_e2e_plan_returns_none(tmp_path, monkeypatch):
     assert backend.calls == []
 
 
+# --------------------------------------------------------------------------- #
+# Spec-0057/T1: e2e_block_missing 确定性检查 + 起草 prompt 强制声明 e2e 块
+# --------------------------------------------------------------------------- #
+
+
+def _wire_spec(orch, monkeypatch, tmp_path, *, e2e):
+    orch._state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/5"))
+    group_path = _write_spec_group(path=tmp_path / "0099-x.md", e2e=e2e)
+    monkeypatch.setattr(orch._workspace, "changed_spec_group", lambda *, worktree, base: group_path)
+
+
+def test_e2e_block_missing_none_when_no_block(tmp_path, monkeypatch):
+    # 无 e2e 块 → 返回确定性返工文案（非 None）。
+    orch, _, _ = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _wire_spec(orch, monkeypatch, tmp_path, e2e=None)
+    msg = orch.e2e_block_missing(pr_number=5)
+    assert msg is not None and "e2e 测法块" in msg
+
+
+def test_e2e_block_missing_none_when_intent_or_method_empty(tmp_path, monkeypatch):
+    from openagents.spec.model import E2EPlan
+
+    orch, _, _ = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _wire_spec(orch, monkeypatch, tmp_path, e2e=E2EPlan(intent="x", method="   "))
+    assert orch.e2e_block_missing(pr_number=5) is not None
+
+
+def test_e2e_block_present_returns_none(tmp_path, monkeypatch):
+    from openagents.spec.model import E2EPlan
+
+    orch, _, _ = _make(tmp_path)
+    monkeypatch.setattr(subprocess, "run", _GitRecorder())
+    _wire_spec(
+        orch, monkeypatch, tmp_path, e2e=E2EPlan(intent="验筛选生效", method="选 done 看列表")
+    )
+    assert orch.e2e_block_missing(pr_number=5) is None
+
+
+def test_draft_task_requires_e2e_block():
+    # Spec-0057/T1：起草 prompt 软引导「必须声明 e2e{intent,method} 块，每个 spec 都要」。
+    t = orch_module._DRAFT_RFC_TASK
+    assert "必须在组 frontmatter 声明" in t and "e2e:" in t
+    assert "每个 spec 都要声明" in t
+    assert "无运行时行为可验" in t
+
+
 def test_run_e2e_fingerprint_changed_runs_executor_and_delivers(tmp_path, monkeypatch):
     # Spec-0055/T5 + Spec-0056/T4：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）；
     # 证据交付（commit+push）下放 executor agent（注入交付协议），harness 不再自著 evidence commit，

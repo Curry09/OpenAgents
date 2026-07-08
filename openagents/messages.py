@@ -492,7 +492,7 @@ class Messages:
         锚，在 github.list_comments 里筛出同标题回执评论，按 created_at 取最近一条，正文规范化（逐行
         strip、丢空行、去 identity 签名尾巴）后与本轮相等即判重复。
 
-        同标题分桶使「迭代自述（CI 反馈）/（代码评审反馈）/（证据闸反馈）」天然互不抑制；「同标题、
+        同标题分桶使「迭代自述（CI 反馈）/（代码评审反馈）」天然互不抑制；「同标题、
         正文不同」（同 reason 连续两轮内容各异的迭代、连续两轮结论不同的判决）规范化后不相等 → 照发
         （与 _decision_already_posted「结论同+反馈不同则照发」一致）。只读 github.list_comments，不改状态。
         """
@@ -565,6 +565,17 @@ class Messages:
         # 标签、不 refine、不 block、不进 coding）——把这道闸完全交给人，复用既有 label 门控。
         if hold.at_spec:
             return {"pr_number": pr_number, "reason": "hold-spec"}
+        # Spec-0057/T1：调 LLM reviewer **之前**先做一道**确定性** e2e 块检查——改动的 spec 组必须声明真实
+        # e2e{intent,method} 块（run_e2e 唯一读的东西）。缺则不问 LLM 直接自动返工（LLM 会被 spec 正文的
+        # e2e 讨论骗过、把「没声明结构化块」放行，见 wind-palace PR #19）。走与 REWORK 同款的 rounds/refine/
+        # block，事件 reason="refine-e2e-block"。放在 has_label(2a)/skip.at_spec 之后——那两条是人工放行意图，仍尊重。
+        missing = self._orchestrator.e2e_block_missing(pr_number=pr_number)
+        if missing is not None:
+            rounds = self._state.increment_rounds(issue_number=record.issue_number)
+            if rounds >= MAX_ROUNDS:
+                return self._block(record=record, gate="rfc", blocker=missing)
+            self._orchestrator.refine_rfc(pr_number=pr_number, detail=missing)
+            return {"pr_number": pr_number, "reason": "refine-e2e-block"}
         # 2b. 主动调 reviewer 评审 RFC（决策 3：不再等人打标签）。
         decision = self._orchestrator.review_rfc(pr_number=pr_number)
         if decision.passed:
