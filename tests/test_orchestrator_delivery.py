@@ -164,34 +164,43 @@ def test_hard_gate_raises_orchestrator_error_not_bare_workspace_error(tmp_path, 
     assert isinstance(excinfo.value.__cause__, WorkspaceError)
 
 
-def test_implement_hard_gate_mismatch_blocks_pr_and_raises(tmp_path, monkeypatch):
-    # (2)：已开 PR 的 implement 段 mismatch → PR 级 add_label + post_comment + raise。
+def test_implement_hard_gate_mismatch_raises_delivery_stalled_without_github_routing(
+    tmp_path, monkeypatch
+):
+    # (2)（PR #141 review 必修）：有 record 的 implement 段 mismatch → 抛 DeliveryStalled，**不**在
+    # orchestrator 自打 PR 级标签/评论（收口交 messages 的 _block 以置 STATUS_BLOCKED 保 sticky），且拦在
+    # mark_ready 之前（PR 不转正）。携 branch/reason/pr_number 供 messages 定位与展示。
+    from openagents.orchestrator import DeliveryStalled
+
     state = State(path=tmp_path / ".openagents" / "state.json")
     state.record_run(issue_number=3, branch="openagents/issue-3", pr=PR(number=5, url="u/pull/5"))
     orch = Orchestrator(backend=_StubBackend(), state=state, work_dir=tmp_path, agent_id="agent-x")
     orch._workspace = _StallWorkspace(root=tmp_path)
 
-    pr_labels: list[tuple[int, str]] = []
-    pr_comments: list[int] = []
-    monkeypatch.setattr(
-        orch_module.github,
-        "add_label",
-        lambda *, pr_number, name: pr_labels.append((pr_number, name)),
-    )
-    monkeypatch.setattr(
-        orch_module.github, "post_comment", lambda *, pr_number, body: pr_comments.append(pr_number)
-    )
+    # 断言这些 github 出口一个都不该被 orchestrator 碰（打标签/贴评论已上移到 messages._block）。
+    routed: dict[str, int] = {"add_label": 0, "post_comment": 0}
+    for hook in routed:
+        monkeypatch.setattr(
+            orch_module.github,
+            hook,
+            lambda *a, _h=hook, **k: routed.__setitem__(_h, routed[_h] + 1),
+        )
     ready = []
     monkeypatch.setattr(
         orch_module.github, "mark_ready", lambda *, pr_number: ready.append(pr_number)
     )
 
-    with pytest.raises(OrchestratorError):
+    with pytest.raises(DeliveryStalled) as excinfo:
         orch.implement(pr_number=5)
 
-    # 走 PR 级出口（post_comment + add_label），且拦在 mark_ready 之前（PR 不转正）。
-    assert (5, orch_module.github.BLOCKED_LABEL) in pr_labels
-    assert pr_comments == [5]
+    # 类型化信号携定位信息；是 OrchestratorError 子类（漏 catch 也被 vigil/poll 兜住）；from WorkspaceError。
+    assert isinstance(excinfo.value, OrchestratorError)
+    assert excinfo.value.pr_number == 5
+    assert excinfo.value.branch == "openagents/issue-3"
+    assert "未前移" in excinfo.value.reason
+    assert isinstance(excinfo.value.__cause__, WorkspaceError)
+    # orchestrator 不再自打 PR 级标签/评论；且拦在 mark_ready 之前（PR 不转正）。
+    assert sum(routed.values()) == 0
     assert ready == []
 
 

@@ -235,6 +235,26 @@ class ClaimLost(OrchestratorError):
     """
 
 
+class DeliveryStalled(OrchestratorError):
+    """Spec-0056（PR #141 review 必修）：**有 record** 的交付路径 head 前移硬闸拦下时抛出的类型化信号。
+
+    背景：`_assert_delivered_or_fail` 原先在拦下时自行打 needs-human 标签 + 贴评论，但 messages 的
+    poll 挂起短路**只认 `record.status == STATUS_BLOCKED`、不认 label**（见 messages `_process_run` /
+    `_process_coding`）——只打标签而不置 status，下一轮 poll 仍进 coding，指纹未落盘 → **又派一次 agent
+    真跑 + 又贴一条一模一样的 needs-human 评论**，形成「有声但同样无界」的重烧 + 刷屏循环（恰是本 spec
+    要灭掉的病）。修法：有 record 的四条路径（refine/implement/iterate/run_e2e）**不在此自打标签/评论**，
+    改抛本异常，由 messages 用既有 `_block` 收口——一次把 status(BLOCKED)+gate+watermark+label+结构化
+    评论设齐、天然 sticky，且「回评论解挂」路径直接复用。携 branch/reason（双 SHA 诊断）/pr_number 供
+    messages 定位与展示。是 OrchestratorError 子类：即便某调用点漏 catch，vigil / poll 的既有 except 仍兜住。
+    """
+
+    def __init__(self, *, branch: str, reason: str, pr_number: int) -> None:
+        super().__init__(reason)
+        self.branch = branch
+        self.reason = reason
+        self.pr_number = pr_number
+
+
 class Orchestrator:
     """RFC-0005：四个原子操作的编排器，组合 workspace + backend + github + state。"""
 
@@ -811,33 +831,44 @@ class Orchestrator:
     def _assert_delivered_or_fail(
         self, *, worktree: Path, branch: str, issue_number: int, pr_number: int | None
     ) -> None:
-        """Spec-0056/T2：agent 交付后调 head 前移硬闸；未前移→needs-human+署名评论+raise OrchestratorError。
+        """Spec-0056/T2：agent 交付后调 head 前移硬闸；未前移→按有无 record 分流到人工介入面。
 
         交付（commit→记 fetch 前 BASE→rebase 解冲突→push --force-with-lease）下放给 agent（prompt
         软约束 _GIT_DELIVERY_PROTOCOL）；本方法是唯一死代码兜底：断言 origin/<branch> == 本地 HEAD。
-        断言失败（agent 自判完成却没推上去，正是 issue #140 复现）→ _fail_to_human 打 needs-human +
-        署名说明评论，再把 WorkspaceError **翻译**成 OrchestratorError 上抛——根因 2 隔离修复：让 vigil
-        的 `except (OrchestratorError, GithubError)`（vigil.py）兜住、不被裸 WorkspaceError 击穿整轮；
-        翻译落在 orchestrator 这个已同时持有 workspace/github 两侧的 seam，workspace 不反向依赖
+        断言失败（agent 自判完成却没推上去，正是 issue #140 复现）分两条路（PR #141 review 必修）：
+
+        - **有 record 的四条路径**（refine/implement/iterate/run_e2e，pr_number 非 None）：抛
+          `DeliveryStalled`（OrchestratorError 子类），**不在此打标签/贴评论**。因 messages 的 poll 挂起
+          短路只认 `record.status==STATUS_BLOCKED`、不认 label——只打标签而不置 status，下一轮 poll 仍会
+          重入 coding 无界重烧 agent + 刷屏评论。改由 messages catch 后用既有 `_block` 收口（一次把
+          status+gate+watermark+label+结构化评论设齐，天然 sticky、回评论解挂可复用）。
+        - **draft 路径**（start_rfc，pr_number 为 None，record 尚无 PR 号）：走 `_fail_to_human` 打 issue 级
+          needs-human + 署名评论——此路径靠 issue label + vigil 发现段过滤已 sticky（vigil 见 label 即跳过），
+          不经 messages poll 收口，故仍在此自打；再把 WorkspaceError 翻译成 OrchestratorError 上抛（根因 2
+          隔离修复：vigil 的 `except (OrchestratorError, GithubError)` 兜住、不被裸 WorkspaceError 击穿整轮）。
+
+        翻译/分流均落在 orchestrator 这个已同时持有 workspace/github 两侧的 seam，workspace 不反向依赖
         orchestrator（守解耦理念 10；见 spec 备选 3 否决理由）。
         """
         try:
             self._workspace.assert_delivered(worktree=worktree, branch=branch)
         except WorkspaceError as exc:
-            self._fail_to_human(
-                issue_number=issue_number, pr_number=pr_number, branch=branch, reason=str(exc)
-            )
-            raise OrchestratorError(str(exc)) from exc
+            if pr_number is None:
+                # draft 路径：issue label + vigil 发现段过滤已 sticky，在此自打 issue 级 needs-human。
+                self._fail_to_human(issue_number=issue_number, branch=branch, reason=str(exc))
+                raise OrchestratorError(str(exc)) from exc
+            # 有 record 的路径：抛类型化信号交 messages 用 _block 收口（置 STATUS_BLOCKED 天然 sticky），
+            # 不在此打标签/贴评论——否则 needs-human 不 sticky、下轮 poll 重入 coding 无界重烧 + 刷屏。
+            raise DeliveryStalled(branch=branch, reason=str(exc), pr_number=pr_number) from exc
 
-    def _fail_to_human(
-        self, *, issue_number: int, pr_number: int | None, branch: str, reason: str
-    ) -> None:
-        """Spec-0056/T2：head 前移硬闸拦下 → 打 needs-human 标签 + 一条署名说明评论（复用既有原语）。
+    def _fail_to_human(self, *, issue_number: int, branch: str, reason: str) -> None:
+        """Spec-0056/T2：draft 路径（无 record）head 前移硬闸拦下 → 打 issue 级 needs-human + 署名说明评论。
 
-        pr_number 已开出（refine/implement/iterate）走 PR 级 post_comment + add_label；尚未开 PR
-        （start_rfc draft 段，issue #140 复现路径）走 issue 级 issue_comment + issue_add_label。不新增
-        state 字段、复用 identity.sign + 既有 needs-human 原语（BLOCKED_LABEL）；评论附双 SHA 诊断
-        （reason 携本地 HEAD / 远端 head 摘要）便于人工定位（理念 8 可观测）。
+        仅 start_rfc draft 段（PR 尚未开、record 无 PR 号，issue #140 复现路径）用此出口：走 issue 级
+        issue_comment + issue_add_label。有 record 的四条路径**不**经此——它们抛 DeliveryStalled 交 messages
+        用 `_block` 收口（那里才能置 STATUS_BLOCKED 让挂起 sticky）。不新增 state 字段、复用 identity.sign +
+        既有 needs-human 原语（BLOCKED_LABEL）；评论附双 SHA 诊断（reason 携本地 HEAD / 远端 head 摘要）
+        便于人工定位（理念 8 可观测）。
         """
         self._progress(
             message=f"⏸ 分支 {branch} head 未前移、疑似未交付，打 {github.BLOCKED_LABEL} 待人工 …"
@@ -846,12 +877,8 @@ class Orchestrator:
             body=_DELIVERY_STALL_COMMENT.format(branch=branch, reason=reason),
             agent_id=self._agent_id,
         )
-        if pr_number is not None:
-            github.post_comment(pr_number=pr_number, body=body)
-            github.add_label(pr_number=pr_number, name=github.BLOCKED_LABEL)
-        else:
-            github.issue_comment(number=issue_number, body=body)
-            github.issue_add_label(number=issue_number, name=github.BLOCKED_LABEL)
+        github.issue_comment(number=issue_number, body=body)
+        github.issue_add_label(number=issue_number, name=github.BLOCKED_LABEL)
 
     def _require_run(self, *, pr_number: int) -> RunRecord:
         """按 PR number 定位 run；找不到则抛 OrchestratorError（refine/implement/iterate 复用）。"""

@@ -12,7 +12,10 @@
 #      「远端 PR 分支领先 base + 本地对同一文件重起草导致分叉」，用把交付协议**真正执行成 git
 #      命令**的 fake backend 驱动 orchestrator.implement，断言：
 #        (a) rebase 自愈 + force-with-lease 推上、origin/<branch> 前移到本地 HEAD（成果到达 PR head）;
-#        (b) 反例——fake backend「假装完成但不 push」→ assert_delivered 判未交付 → needs-human + raise;
+#        (b) 反例——fake backend「假装完成但不 push」→ assert_delivered 判未交付。PR #141 review 必修后
+#            分两层：(b1) implement 抛类型化 DeliveryStalled、orchestrator 不自打标签评论；(b2) messages
+#            catch → _block(gate=delivery) 置 STATUS_BLOCKED（天然 sticky）+ needs-human + 恰一条评论；
+#            (b3) 第二轮 poll 保持挂起、不再重入 coding、不再贴新评论（杀掉无界重烧 + 刷屏）;
 #        (c) 推送用的是 --force-with-lease=<branch>:<BASE> 且 BASE 为 fetch 前 SHA、**从不**裸 --force。
 #
 # 形态说明（evidence 分层，理念 8）：本 feature 是守夜人自主环内部的 **git 交付/编排管道**，无任何
@@ -162,30 +165,85 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "--force " not in joined and not joined.endswith("--force"), f"出现裸 --force：{joined}"
     print(f"  ✓ (c) 推送带 lease、BASE 为 fetch 前 SHA={backend.base[:12]}、无裸 --force")
 
-# --- 演练 (b) 反例：假装完成但不 push → assert_delivered 判未交付 → needs-human + raise --- #
+# --- 演练 (b) 反例：假装完成但不 push → assert_delivered 判未交付 → 交付硬闸兜底 --- #
+# PR #141 review 必修后分两层演示：
+#   (b1) orchestrator 层：有 record 的 implement 段抛类型化 DeliveryStalled，**不再自打**标签/评论
+#        （routing 上移到 messages，避免 needs-human 不 sticky）。
+#   (b2) messages 层：poll 的阶段路由外层 catch DeliveryStalled → _block(gate="delivery") 置
+#        STATUS_BLOCKED（天然 sticky）+ needs-human + 恰一条结构化评论；**第二轮 poll 不再重入 coding、
+#        不再贴新评论**（正面证明本 spec 初衷：杀掉「静默 / 有声但无界」两种重烧循环）。
+from openagents.messages import Messages  # noqa: E402
+from openagents.orchestrator import DeliveryStalled  # noqa: E402
+from openagents.hold import NONE as NO_HOLD  # noqa: E402
+from openagents.state import STATUS_BLOCKED, STATUS_PR_OPEN  # noqa: E402
+from openagents.github import Comment  # noqa: E402
+
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     setup_diverged(root=root)
     backend = ProtocolBackend(stall=True)  # commit 了但不 push
     orch = make_orch(root=root, backend=backend)
+    state = orch._state  # 复用同一 State（含 pr=5 的 coding record）
 
-    labels: list[tuple[int, str]] = []
-    comments: list[int] = []
+    # (b1)：orchestrator 层——implement 抛 DeliveryStalled，且**不**碰 add_label/post_comment。
+    routed = {"add_label": 0, "post_comment": 0}
     gh.mark_ready = lambda *, pr_number: None  # type: ignore[assignment]
-    gh.add_label = lambda *, pr_number, name: labels.append((pr_number, name))  # type: ignore[assignment]
-    gh.post_comment = lambda *, pr_number, body: comments.append(pr_number)  # type: ignore[assignment]
+    gh.add_label = lambda *, pr_number, name: routed.__setitem__("add_label", 1)  # type: ignore[assignment]
+    gh.post_comment = lambda *, pr_number, body: routed.__setitem__("post_comment", 1)  # type: ignore[assignment]
 
-    raised = False
+    stalled = None
     try:
         orch.implement(pr_number=5)
-    except OrchestratorError:
-        raised = True
-    assert raised, "反例未抛 OrchestratorError（硬闸应判未交付）"
-    assert (5, gh.BLOCKED_LABEL) in labels, f"未打 needs-human：{labels}"
-    assert comments == [5], f"未贴署名说明评论：{comments}"
-    print(f"  ✓ (b) 假装完成不 push → head 前移硬闸判未交付 → 打 {gh.BLOCKED_LABEL} + raise（不静默卡死）")
+    except DeliveryStalled as exc:
+        stalled = exc
+    assert stalled is not None, "反例未抛 DeliveryStalled（硬闸应判未交付）"
+    assert isinstance(stalled, OrchestratorError), "DeliveryStalled 须是 OrchestratorError 子类（漏 catch 也被兜住）"
+    assert stalled.pr_number == 5 and stalled.branch == BRANCH, "信号未携定位信息"
+    assert sum(routed.values()) == 0, f"orchestrator 不该自打标签/评论：{routed}"
+    print("  ✓ (b1) implement 抛 DeliveryStalled、携 branch/pr、orchestrator 不自打标签评论（routing 上移）")
 
-print("\n[Spec-0056/T3] 演练全绿：分叉→rebase 自愈→head 前移闭环；反例走 needs-human；推送始终带 lease、无裸 force。")
+    # (b2)：messages 层——poll 的路由外层 catch → _block(gate=delivery) 置 STATUS_BLOCKED（sticky）。
+    posted: list[str] = []
+    labels: list[str] = []
+    gh.is_merged = lambda *, pr_number: False  # type: ignore[assignment]
+    gh.is_closed = lambda *, pr_number: False  # type: ignore[assignment]
+    gh.add_label = lambda *, pr_number, name: labels.append(name)  # type: ignore[assignment]
+    gh.list_comments = lambda *, pr_number: []  # type: ignore[assignment]
+    # 让 coding 流水线读到 orchestrator 交付调用：CLEAN + CI 绿 + 无 sticky 指纹。
+    gh.mergeability = lambda *, pr_number: type(  # type: ignore[assignment]
+        "_M", (), {"merge_state_status": "CLEAN", "mergeable": "MERGEABLE"}
+    )()
+    gh.check_status = lambda *, pr_number: type(  # type: ignore[assignment]
+        "_S", (), {"state": "pass", "failed_logs": []}
+    )()
+    gh.code_fingerprint = lambda *, pr_number: ""  # type: ignore[assignment]
+    import openagents.identity as ident  # noqa: E402
+
+    ident.post_signed_comment = lambda *, pr_number, body, agent_id: posted.append(body)  # type: ignore[assignment]
+    ident.new_human_comments = lambda *, pr_number, since: []  # type: ignore[assignment]
+    # coding 阶段的 orchestrator 交付调用（run_e2e）同样抛 DeliveryStalled（模拟 executor 没推证据）。
+    orch.run_e2e = lambda *, pr_number: (_ for _ in ()).throw(  # type: ignore[assignment]
+        DeliveryStalled(branch=BRANCH, reason="head 未前移、疑似未交付", pr_number=pr_number)
+    )
+    msgs = Messages(orchestrator=orch, state=state, agent_id="agent-e2e")
+    rec = state.find_run(pr_number=5)
+    rec.status = STATUS_PR_OPEN
+    state.update_status(issue_number=3, status=STATUS_PR_OPEN)
+
+    ev1 = msgs._process_run(record=state.find_run(pr_number=5), hold=NO_HOLD)
+    assert ev1 == {"pr_number": 5, "reason": "blocked", "gate": "delivery"}, f"未收口成 blocked：{ev1}"
+    assert state.find_run(pr_number=5).status == STATUS_BLOCKED, "未置 STATUS_BLOCKED（sticky 的关键那半）"
+    assert gh.BLOCKED_LABEL in labels and len(posted) == 1, f"应恰一条挂起评论 + needs-human：{labels}/{len(posted)}"
+    print(f"  ✓ (b2) messages catch → _block(delivery) 置 STATUS_BLOCKED + {gh.BLOCKED_LABEL} + 恰一条评论")
+
+    # 第二轮 poll：blocked + needs-human 仍在 + 无新人类评论 → 不再重入 coding、不再贴新评论。
+    gh.has_label = lambda *, pr_number, name: True  # type: ignore[assignment]
+    ev2 = msgs._process_run(record=state.find_run(pr_number=5), hold=NO_HOLD)
+    assert ev2 is None, f"第二轮应保持挂起（不再重入 coding）：{ev2}"
+    assert len(posted) == 1, "第二轮不该再贴新评论（sticky 杀掉刷屏）"
+    print("  ✓ (b3) 第二轮 poll 保持挂起：不再派 agent、不再贴新评论（杀掉无界重烧 + 刷屏）")
+
+print("\n[Spec-0056/T3] 演练全绿：分叉→rebase 自愈→head 前移闭环；反例交付硬闸→sticky needs-human→无重入；推送始终带 lease、无裸 force。")
 PY
 
 echo

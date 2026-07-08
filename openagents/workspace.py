@@ -87,6 +87,10 @@ class Workspace:
 
         纯读，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
         agent force-push（决策 7），本闸只判「到没到」。routing（打 needs-human）留在 orchestrator。
+
+        版本假设（PR #141 review 次要项）：依赖 `git fetch origin <branch>` 会刷新本地
+        `origin/<branch>` 跟踪 ref，随后 `rev-parse origin/<branch>` 才读得到最新远端 head——该行为需
+        git ≥ 1.8.4（更早版本 fetch 不更新单分支跟踪 ref）。开发/CI 环境 git 均远超此版，故不做运行时探测。
         """
         self._git(args=["fetch", "origin", branch], cwd=worktree, check=False)
         remote = self._git(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)

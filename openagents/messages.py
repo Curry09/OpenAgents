@@ -50,7 +50,7 @@ from openagents import (
 from openagents.backends.base import AgentBackend
 from openagents.hold import NONE as NO_HOLD
 from openagents.hold import Hold
-from openagents.orchestrator import Orchestrator
+from openagents.orchestrator import DeliveryStalled, Orchestrator
 from openagents.skip import NONE as NO_SKIP
 from openagents.skip import Skip
 from openagents.state import (
@@ -156,6 +156,8 @@ _TRIED_BY_GATE = {
     "bad-ci-after-e2e": "源码已过 CI 且已产出 e2e 证据，但提交证据（纯 docs）后 CI 意外变红，非源码问题，需人排查",
     # Spec-0055/T6：run_e2e 连续多轮真跑仍未收敛——源码指纹每轮 churn（证据目录外有杂散改动被 add -A 提交）。
     "e2e": "独立 executor 已多轮真跑 e2e，但源码指纹每轮都在变（证据目录外有杂散改动）始终无法收敛",
+    # Spec-0056（PR #141 review 必修）：agent 自判交付完成但成果没推上远端（head 前移硬闸拦下）。
+    "delivery": "agent 已多轮迭代，但成果始终没推上远端分支（本地 HEAD 与 origin 不一致），疑似未真正交付",
 }
 _DEFAULT_TRIED = "已反复尝试，仍未通过"
 
@@ -338,13 +340,20 @@ class Messages:
         # 1c. issue #49 / Spec-0032/T5：blocked 不再是死胡同。PR 被合/被关已在上面统一 reconcile。
         # 仍 open 的 blocked run 走两层解挂：① 回评论解挂主路径（人在 block 之后回新评论 = 解挂信号，
         # 把评论当 detail 喂给对应闸）；② 兜底人手动摘 needs-human 标签（既有路径，保留）。
-        if record.status == STATUS_BLOCKED:
-            return self._process_blocked(record=record)
-
-        # 2. 按阶段路由（决策 5）。
-        if record.status == STATUS_RFC_REVIEW:
-            return self._process_rfc_review(record=record, hold=hold, skip=skip)
-        return self._process_coding(record=record, hold=hold, skip=skip)
+        # Spec-0056（PR #141 review 必修）：三条派 agent 交付的路由（blocked 解挂后重派 / rfc-review /
+        # coding）都可能触发 orchestrator 的 head 前移硬闸抛 DeliveryStalled。统一在此 catch 后用既有
+        # `_block(gate="delivery")` 收口——置 STATUS_BLOCKED 天然 sticky：下一轮 poll 经上面的 blocked 分支
+        # 短路进 _process_blocked，不再重入 coding 无界重烧 agent + 刷屏评论（对照 orchestrator
+        # ._assert_delivered_or_fail：有 record 的路径不自打标签、改抛类型化信号交这里收口）。
+        try:
+            if record.status == STATUS_BLOCKED:
+                return self._process_blocked(record=record)
+            # 2. 按阶段路由（决策 5）。
+            if record.status == STATUS_RFC_REVIEW:
+                return self._process_rfc_review(record=record, hold=hold, skip=skip)
+            return self._process_coding(record=record, hold=hold, skip=skip)
+        except DeliveryStalled as stalled:
+            return self._block(record=record, gate="delivery", blocker=stalled.reason)
 
     def _revive_eligible(self, *, record: RunRecord) -> bool:
         """Spec-0042/T3：该 record 是否为「复活候选」——closed 且 closed_at 在复活窗口内。
@@ -429,9 +438,12 @@ class Messages:
             )
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)
-        elif gate in ("code", "code-unparseable", "merge-hold"):
+        elif gate in ("code", "code-unparseable", "merge-hold", "delivery"):
             # Spec-0041/T1（决策 B）：merge-hold（hold-merge 夯住）与 code* 同款——人在这个已通过、
             # 健康的 PR 上回评论 = 想让写码 agent 据评论继续改，故 iterate(reason="human", detail)。
+            # Spec-0056（PR #141 review 必修）：delivery（交付硬闸挂起）同走此路——人回评论 = 想让 agent
+            # 据提示重新交付（把成果真正 push 上去）；iterate 内部又会过一遍 head 前移硬闸，仍没推上则
+            # 再抛 DeliveryStalled、再由 _process_run 收口成 blocked，永远 sticky（不会退化成无界重烧）。
             summary = self._orchestrator.iterate(pr_number=pr_number, reason="human", detail=detail)
             self._state.set_block_gate(issue_number=issue_number, gate="")
             self._post_comment_reply(pr_number=pr_number, original=detail, response=summary)

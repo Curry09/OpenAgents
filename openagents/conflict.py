@@ -150,6 +150,10 @@ def resolve_branch(
         run(args=["fetch", "origin", branch], cwd=worktree, check=False)
         remote = run(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)
         if remote.returncode != 0 or remote.stdout.strip() != post:
+            # commit 了却没 push（origin≠HEAD）：与上面「没 commit」降级分支对齐，同做一次 merge --abort
+            # 收尾（PR #141 review 次要项：两条紧邻失败分支不该一 abort 一不 abort）。此分支 agent 已 commit、
+            # 合并已完成，abort 通常是无操作（check=False，无 merge 可 abort 即静默忽略），纯为对齐兜底。
+            run(args=["merge", "--abort"], cwd=worktree, check=False)
             return ResolveOutcome(resolved=False)
         return ResolveOutcome(resolved=True, delivered=True)
     except Exception:  # noqa: BLE001 — 安全降级：任何异常都吞成 resolved=False，回落人工

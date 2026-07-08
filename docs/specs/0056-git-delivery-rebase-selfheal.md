@@ -212,14 +212,28 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
   运行的 brownfield 引导命令，这**就是**它的 needs-human 面（人看到报错即介入，无需 github 打标）。
   backfill 分叉风险近零（首推唯一新分支），硬闸主要兜「agent 自判完成却没 push」。
 - 交付后闸：agent turn（`backend.run`）返回后，在原 `commit_and_push` 位置改调
-  `self._workspace.assert_delivered(worktree=..., branch=...)`。抛 `WorkspaceError` 时统一走
-  `_fail_to_human(issue_number, branch, reason)`：`github.issue_add_label(BLOCKED_LABEL)` +
-  署名说明评论（复用 `identity.sign` + 既有 needs-human 原语，不新增 state 字段），再 `raise
-  OrchestratorError(...) from exc`。
-- 隔离修复（根因 2）：把 workspace 调用点的 `WorkspaceError` **包装成 `OrchestratorError` 上抛**
-  （`raise OrchestratorError(str(exc)) from exc`）。这样既修 vigil `except (OrchestratorError,
-  GithubError)`（`vigil.py:173`）不再被裸 `WorkspaceError` 击穿，又不让 `workspace.py` 反向依赖
-  `orchestrator`（守解耦，理念 10）——翻译发生在 orchestrator 这个已同时持有两侧的 seam。
+  `self._workspace.assert_delivered(worktree=..., branch=...)`。抛 `WorkspaceError` 时按**有无
+  originating record** 分两条路（见下「挂起必须 sticky」）。
+- 隔离修复（根因 2）：把 workspace 调用点的 `WorkspaceError` **包装成 `OrchestratorError`（或其子类
+  `DeliveryStalled`）上抛**。这样既修 vigil `except (OrchestratorError, GithubError)`（`vigil.py:173`）
+  不再被裸 `WorkspaceError` 击穿，又不让 `workspace.py` 反向依赖 `orchestrator`（守解耦，理念 10）
+  ——翻译发生在 orchestrator 这个已同时持有两侧的 seam。
+- **挂起必须 sticky（PR #141 review 必修）。** 初版 `_assert_delivered_or_fail` 对**所有**路径都调
+  `_fail_to_human` 打 needs-human 标签 + 贴评论后 raise。但 messages 的 poll 挂起短路**只认
+  `record.status == STATUS_BLOCKED`、不认 label**（`_process_run`/`_process_coding` 无 label 提前返回）
+  ——有 record 的四条路径（refine/implement/iterate/run_e2e）只打标签而不置 status，下一轮 poll 仍进
+  coding：`set_e2e_ran_fingerprint` 在 assert 之后、raise 让指纹没落盘 → **又派一次 executor 真跑
+  + 又贴一条一模一样的 needs-human 评论**，且 `MAX_ROUNDS` churn 兜底在 `run_e2e` 成功返回后才计数、
+  raise 走不到，故这个「有声但同样无界」的重烧 + 刷屏循环恰好是本 spec 要灭的病。**修法**：
+  - 有 record 的四条路径：`_assert_delivered_or_fail` **不再自打标签/评论**，改抛类型化
+    `DeliveryStalled(OrchestratorError)`（携 `branch`/`reason`/`pr_number`）。`messages._process_run`
+    在阶段路由外层 `except DeliveryStalled` → `self._block(record, gate="delivery", blocker=reason)`。
+    `_block` 一次把 `STATUS_BLOCKED`（不在 `_OPEN_STATUSES`，下一轮自动跳过）+ gate + watermark +
+    label + 结构化评论设齐、天然 sticky，且「回评论解挂」路径立即可用。`"delivery"` gate 补进
+    `_TRIED_BY_GATE` 与 `_unblock_with_comment` 的 code 同款路由（`iterate(reason="human")`）。
+  - draft 路径（`start_rfc`，`pr_number=None`、record 尚无 PR 号）保持 `_fail_to_human`：靠 issue label
+    + vigil 发现段（`vigil.py:195` 见 `BLOCKED_LABEL` 即跳过）已 sticky，不经 messages poll 收口。
+  - 权威留在 messages 状态机（`orchestrator` 不 import `messages`，单向依赖），orchestrator 只抛信号。
 
 **③ e2e 脚本**——见下「端到端验证」。
 
