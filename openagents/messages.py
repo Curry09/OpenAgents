@@ -169,8 +169,9 @@ _BAD_CI_BLOCKER = (
 )
 # Spec-0055/T6：run_e2e 真跑重跑的回合上限兜底文案——收敛靠「源码指纹（排除 docs/e2e-results/）未变即
 # reused 放行」，唯一依赖 executor 真跑后不在证据目录外留改动。若 executor 落下杂散文件（跑出的 log/db、
-# 被改的 lockfile、下载的依赖产物、存错位置的截图……），会被 workspace.commit_and_push 的 `git add -A`
-# 一并提交 → 源码指纹每轮 churn → run_e2e 永远 reused=False 无界重跑（每轮烧一个 agent + 一次 CI）。故给
+# 被改的 lockfile、下载的依赖产物、存错位置的截图……），会被 executor agent 交付时的 `git add -A`
+# 一并提交（Spec-0056/T4 证据交付下放 agent 后由 agent 自己 commit，不再走 harness commit_and_push）
+# → 源码指纹每轮 churn → run_e2e 永远 reused=False 无界重跑（每轮烧一个 agent + 一次 CI）。故给
 # 真跑分支加 MAX_ROUNDS 兜底（与 code 闸共用一份 K，对齐旧证据闸），超限即挂起等人排查。
 _E2E_CHURN_BLOCKER = (
     "独立 executor 已连续多轮真跑 e2e，但源码指纹（排除 `docs/e2e-results/` 后）每轮都在变、幂等短路无法"

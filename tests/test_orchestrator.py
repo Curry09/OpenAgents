@@ -93,9 +93,10 @@ class _GitRecorder:
 
 
 class _FakeWorkspace:
-    """记录 prepare / ensure / commit_and_push 调用的伪 Workspace（RFC-0007 T2）。
+    """记录 prepare / ensure 调用的伪 Workspace（RFC-0007 T2）。
 
     用于断言 fresh 走 prepare、resume 走 ensure，二者都不走对方的路径。
+    Spec-0056/T4：commit_and_push 已随交付下放 agent 删除，交付侧只剩 assert_delivered 只读硬闸。
     """
 
     def __init__(self, *, root):
@@ -110,9 +111,6 @@ class _FakeWorkspace:
     def ensure(self, *, issue_number, branch):
         self.ensure_calls.append({"issue_number": issue_number, "branch": branch})
         return self._root / f"issue-{issue_number}"
-
-    def commit_and_push(self, *, worktree, branch, message):
-        pass
 
     def assert_delivered(self, *, worktree, branch):
         # Spec-0056/T2：交付下放 agent 后，start_rfc 在原 commit_and_push 位置改调 head 前移硬闸。
@@ -708,8 +706,10 @@ def test_run_e2e_no_e2e_plan_returns_none(tmp_path, monkeypatch):
     assert backend.calls == []
 
 
-def test_run_e2e_fingerprint_changed_runs_executor_and_commits(tmp_path, monkeypatch):
-    # Spec-0055/T5：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）+ commit 证据 + 落盘指纹。
+def test_run_e2e_fingerprint_changed_runs_executor_and_delivers(tmp_path, monkeypatch):
+    # Spec-0055/T5 + Spec-0056/T4：源码指纹与上轮不同 → 派独立 executor 真跑（method 入 prompt）；
+    # 证据交付（commit+push）下放 executor agent（注入交付协议），harness 不再自著 evidence commit，
+    # 改由 assert_delivered head 前移硬闸兜底；新指纹落盘。
     from openagents.spec.model import E2EPlan
 
     orch, backend, state = _make(tmp_path)
@@ -726,14 +726,18 @@ def test_run_e2e_fingerprint_changed_runs_executor_and_commits(tmp_path, monkeyp
 
     assert out is not None and out.reused is False
     assert out.result.outcome == "passed"
-    # executor 真跑（method + intent 入 prompt）。
+    # executor 真跑（method + intent 入 prompt），且交付协议被注入其任务（交付下放 executor agent）。
     assert len(backend.calls) == 1
     assert "跑 init，断言非零退出" in backend.calls[0]["task"]
     assert "init 无 origin 必须报错" in backend.calls[0]["task"]
-    # 证据被 commit + push；新指纹落盘。
+    assert "交付协议——你负责把改动真正推上远端本工作分支" in backend.calls[0]["task"]
+    # Spec-0056/T4：harness 不再自著 evidence commit/push；改跑 head 前移硬闸（fetch + rev-parse 对比）。
     joined = [" ".join(c) for c in recorder.commands]
-    assert any("commit" in c and "evidence" in c for c in joined)
-    assert any("push" in c for c in joined)
+    assert not any("commit" in c and "evidence" in c for c in joined)
+    assert any("fetch origin openagents/issue-3" in c for c in joined)
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
+    # 新指纹落盘。
     assert state.find_by_issue(issue_number=3).e2e_ran_fingerprint == "fp-new"
 
 

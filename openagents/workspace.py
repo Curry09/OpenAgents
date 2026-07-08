@@ -13,8 +13,10 @@ RFC-0003 的 worktree 隔离与基线锁定语义在此原样保留：每 issue 
 rebase 解冲突 + `push --force-with-lease`）
 下放给 agent（prompt 软约束，见 orchestrator._GIT_DELIVERY_PROTOCOL）；harness 自身
 **不执行** force-with-lease，只留一道只读硬闸 `assert_delivered`（断言成果真的推上远端）。
-`commit_and_push` 保留原样，仅供 harness 自著文件（证据/runbook 等无 agent turn 的收尾）
-的普通 push 路径，其行为逐字节不变。
+# Spec-0056/T4：原 `commit_and_push`（harness 代 agent 提交推送）随 run_e2e 证据交付也下放 executor
+agent 后**已无生产调用方**，按理念 1（如无必要勿增实体）删除——本模块交付侧只剩 `assert_delivered`
+一道只读硬闸，harness 不再有任何「agent 执行完后代 commit/push」的死代码；worktree 建/拉/清等**编排**
+git（agent 无法自建沙箱）仍留本模块。
 """
 
 from __future__ import annotations
@@ -73,20 +75,6 @@ class Workspace:
         self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=False)
         self._git(args=["worktree", "add", str(path), branch], cwd=self._work_dir, check=True)
         return path
-
-    def commit_and_push(self, *, worktree: Path, branch: str, message: str) -> None:
-        """git add -A → commit → push（普通 push，绝不裸 force-push），均在 worktree 内。
-
-        无改动可提交（后端可能未改文件）则跳过 commit（check=False），仍执行 push 以
-        补推历史中尚未推送的 commit；远端已最新时 push 为幂等空操作。
-
-        # Spec-0056/T1：本方法仍是**普通 push**，只服务 harness 自著文件（证据/runbook 等
-        无 agent turn 的收尾）——分叉风险低。agent 自著路径的交付（含分叉后 rebase +
-        force-with-lease）改由 agent 按交付协议自负、harness 以 assert_delivered 硬闸兜底。
-        """
-        self._git(args=["add", "-A"], cwd=worktree, check=True)
-        self._git(args=["commit", "-m", message], cwd=worktree, check=False)
-        self._git(args=["push", "-u", "origin", branch], cwd=worktree, check=True)
 
     def assert_delivered(self, *, worktree: Path, branch: str) -> None:
         """# Spec-0056/T1：head 前移硬闸——断言 agent 的成果真的推上远端 <branch>，不等即抛。

@@ -8,9 +8,12 @@ base 并入，撞冲突时把冲突文件清单喂给注入的 coding 后端 age
 `merge --abort` 回落人工。
 
 纯决策 `resolve_branch` 与 IO 解耦（理念 10）——git 走注入的 `run`、语义解决走注入的
-`backend`，便于 hermetic 单测；IO 工厂 `make_resolver` 负责临时 detached worktree 的建/清理与
-push。安全降级（关键）：任何异常都吞成 False——解冲突只是优化，失败即退回「留言等人」的现状，
-绝不解错后静默 push、也绝不拖垮拉式同步流程。
+`backend`，便于 hermetic 单测；IO 工厂 `make_resolver` 负责临时 detached worktree 的建/清理。
+Spec-0056/T5：**交付（commit+push）下放 agent**——冲突路径由 agent 自己 `git add -A && commit`
+并 `git push` 上远端本分支，`resolve_branch` 只做只读校验（残留标记 + head 前移 + 推送落地）；
+唯有**干净自动合并**（无 agent turn、合并 commit 是 harness 自著）才由 `make_resolver` 普通 push。
+安全降级（关键）：任何异常都吞成 False——解冲突只是优化，失败即退回「留言等人」的现状，
+绝不解错后静默 push、也绝不「自判解决却没推上去」（同 issue #140 冻结类兜底）。
 """
 
 from __future__ import annotations
@@ -40,9 +43,16 @@ _RESOLVE_TASK = (
     "直接跑 `spec render` 按合并后的 spec 源重渲整张表以确定性消解，再 `git add` 该文件清除其冲突标记；\n"
     "2) 其余真实代码/文档冲突——逐个打开，读 `<<<<<<<` / `=======` / `>>>>>>>` 标记，**语义化**"
     "解决（保留双方真实意图，而非机械取一边），清除冲突标记；\n"
-    "全部清完后跑 `ruff check . && ruff format --check . && pytest -q` 自测。"
-    "若自测通过即完成（不要自行 commit，外层会统一提交）；若无法解决或自测不过，请保持文件"
-    "现状、不要清除冲突标记（外层会据残留标记回落人工）。\n\n冲突文件：\n{files}"
+    "全部清完后跑 `ruff check . && ruff format --check . && pytest -q` 自测。\n"
+    # Spec-0056/T5：解冲突的 git 交付也下放 agent（原「不要自行 commit，外层统一提交」翻转为「自己
+    # commit + push」）——本 merge 是把 base 快进叠加到本分支、结果是本分支 tip 的后代，**普通 push
+    # 即可、无需 force**（与四条派单/迭代路径的 force-with-lease 分叉场景不同）。外层只保留残留标记
+    # 检查 + head 前移/推送落地校验（宁可不解、不可解错，且不可自判解决却没推上去）。
+    "自测通过后**由你自己交付**：`git add -A && git commit --no-edit`（沿用 merge 默认信息），再 "
+    "`git push origin HEAD:refs/heads/{branch}` 把解冲突结果推上远端本分支 `{branch}`"
+    "（此 merge 为快进叠加，普通 push 即可、**无需** force）；`git rev-parse origin/{branch}` 等于本地 "
+    "`HEAD` 即交付完成。若无法解决或自测不过，请保持文件现状、**不要 commit / push**、不要清除冲突"
+    "标记（外层会据残留标记回落人工）。\n\n冲突文件：\n{files}"
 )
 
 # Spec-0036/T3：人类对本次解冲突的指导段（guidance 非空时拼到 _RESOLVE_TASK 之后）。人在被 merge
@@ -63,9 +73,16 @@ _REPLY_TOOL_SECTION = (
 
 @dataclass
 class ResolveOutcome:
-    """解冲突结果：是否解开。`__bool__` 返回 resolved，兼容既有 `if resolve(...)` 真值判断。"""
+    """解冲突结果：是否解开。`__bool__` 返回 resolved，兼容既有 `if resolve(...)` 真值判断。
+
+    Spec-0056/T5：`delivered` 标记「解冲突结果是否已由 agent 自己 commit+push 上远端」——
+    冲突路径由 agent 交付（resolve_branch 已校验 head 前移 + origin/<branch>==HEAD）→ delivered=True，
+    make_resolver 不再代 push；干净自动合并路径（无 agent turn）delivered=False，仍由 make_resolver
+    普通 push（harness 自著合并、非「agent 执行完的 git」，留 harness 合规）。
+    """
 
     resolved: bool
+    delivered: bool = False
 
     def __bool__(self) -> bool:
         return self.resolved
@@ -79,6 +96,7 @@ def resolve_branch(
     *,
     worktree: Path,
     base: str,
+    branch: str,
     backend: AgentBackend,
     run: Callable[..., subprocess.CompletedProcess[str]],
     guidance: str = "",
@@ -86,16 +104,19 @@ def resolve_branch(
 ) -> ResolveOutcome:
     """在 worktree 内把 `origin/<base>` 并入当前分支并尝试语义解冲突，返回 ResolveOutcome。
 
-    - 干净合并 → ResolveOutcome(resolved=True)（无需 agent）。
-    - 冲突 → 把冲突文件清单喂给 backend.run 让 agent 语义解决 + 自测；解完**无残留冲突标记**
-      → `git add -A` + `commit --no-edit` → resolved=True。
-    - 仍有残留冲突标记 / 自测失败 / 非冲突类失败 / 任何异常 → `merge --abort` → resolved=False。
+    - 干净合并 → ResolveOutcome(resolved=True, delivered=False)（无 agent turn，交付留 make_resolver 普通 push）。
+    - 冲突 → 把冲突文件清单喂给 backend.run 让 agent 语义解决 + 自测 + **自己 `git add -A && commit`
+      并 `push` 上远端本分支**（Spec-0056/T5 交付下放）；解完**无残留冲突标记**、且校验 head 前移
+      （HEAD ≠ 合并前的 pre）+ 推送落地（`origin/<branch>` == HEAD）→ ResolveOutcome(resolved=True, delivered=True)。
+    - 仍有残留冲突标记 / agent 没 commit（HEAD 未前移）/ 没 push 上去（origin≠HEAD）/ 自测失败 /
+      非冲突类失败 / 任何异常 → `merge --abort` → resolved=False（安全降级，回落人工）。
 
     Spec-0036/T3：guidance 为人类对本次解冲突的指导（merge 闸解挂时的评论正文）。非空时拼进
     「人类对本次解冲突的指导」段；再带 pr_number 时追加「回评论工具段」——让 agent 完事后**自己**用
     `openagents reply-comment` 回那条评论（带签名防自循环），框架不再代发（根治「牛头不对马嘴」）。
 
-    任何异常都吞成 resolved=False（安全降级）：解冲突是优化，失败即退回人工，绝不解错后静默 push。
+    任何异常都吞成 resolved=False（安全降级）：解冲突是优化，失败即退回人工，绝不解错后静默 push，
+    也绝不「自判解决却没推上去」（Spec-0056/T5 head 前移 + 推送落地双校验，同 issue #140 兜底精神）。
     """
     try:
         merged = run(args=["merge", f"origin/{base}", "--no-edit"], cwd=worktree, check=False)
@@ -106,17 +127,31 @@ def resolve_branch(
             # 合并失败但无 U 文件（非冲突类错误，如 base 不存在）：无从下手，abort 交人工。
             run(args=["merge", "--abort"], cwd=worktree, check=False)
             return ResolveOutcome(resolved=False)
+        # Spec-0056/T5：记合并前 HEAD（此刻 merge 冲突中、HEAD 仍在本分支 tip）——agent 交付后据它判 head 是否前移。
+        pre = run(args=["rev-parse", "HEAD"], cwd=worktree, check=False).stdout.strip()
         backend.run(
             work_dir=worktree,
-            task=_resolve_task(conflicts=conflicts, guidance=guidance, pr_number=pr_number),
+            task=_resolve_task(
+                conflicts=conflicts, guidance=guidance, branch=branch, pr_number=pr_number
+            ),
             context="\n".join(str(path) for path in conflicts),
         )
         if _has_residual_conflict(worktree=worktree, run=run, files=conflicts):
             run(args=["merge", "--abort"], cwd=worktree, check=False)
             return ResolveOutcome(resolved=False)
-        run(args=["add", "-A"], cwd=worktree, check=True)
-        run(args=["commit", "--no-edit"], cwd=worktree, check=True)
-        return ResolveOutcome(resolved=True)
+        # Spec-0056/T5：交付下放 agent 后，外层不再 `add -A`/`commit`/`push`，改为**校验** agent 真的交付了：
+        # ① head 前移（HEAD ≠ pre）——解了标记却没 commit（merge 半途）则 HEAD 未动，判未交付、abort 回落人工；
+        # ② 推送落地（fetch 后 origin/<branch> == HEAD）——commit 了却没 push（正是 issue #140 的冻结类）判未交付。
+        # 两道都是只读「检查」（符合用户「除检查外 git 全下放 agent」的划线），任一不过即安全降级 resolved=False。
+        post = run(args=["rev-parse", "HEAD"], cwd=worktree, check=False).stdout.strip()
+        if not post or post == pre:
+            run(args=["merge", "--abort"], cwd=worktree, check=False)
+            return ResolveOutcome(resolved=False)
+        run(args=["fetch", "origin", branch], cwd=worktree, check=False)
+        remote = run(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)
+        if remote.returncode != 0 or remote.stdout.strip() != post:
+            return ResolveOutcome(resolved=False)
+        return ResolveOutcome(resolved=True, delivered=True)
     except Exception:  # noqa: BLE001 — 安全降级：任何异常都吞成 resolved=False，回落人工
         # best-effort 收尾：尝试 abort 让 worktree 回到干净态（abort 自身异常也忽略）。
         try:
@@ -157,6 +192,7 @@ def make_resolver(
             outcome = resolve_branch(
                 worktree=path,
                 base=base,
+                branch=branch,
                 backend=backend,
                 run=_git,
                 guidance=guidance,
@@ -164,7 +200,11 @@ def make_resolver(
             )
             if not outcome.resolved:
                 return outcome
-            _git(args=["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=path, check=True)
+            # Spec-0056/T5：冲突路径（delivered=True）由 agent 自己 push 且 resolve_branch 已校验推送落地，
+            # harness 不再代 push（git 下放 agent）。仅**干净自动合并**路径（delivered=False、无 agent turn，
+            # 合并 commit 是 harness 自著）才由 harness 普通 push——它不是「agent 执行完的 git」，留 harness 合规。
+            if not outcome.delivered:
+                _git(args=["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=path, check=True)
             return outcome
         except ConflictResolveError:
             return ResolveOutcome(resolved=False)
@@ -174,14 +214,17 @@ def make_resolver(
     return resolve
 
 
-def _resolve_task(*, conflicts: list[Path], guidance: str, pr_number: int | None = None) -> str:
+def _resolve_task(
+    *, conflicts: list[Path], guidance: str, branch: str, pr_number: int | None = None
+) -> str:
     """拼解冲突任务 prompt——基础 _RESOLVE_TASK，guidance 非空时追加人类指导段 + 回评论工具段。
 
     guidance=""（缺省）即只返回基础模板；非空时追加「人类对本次解冲突的指导」段；再带 pr_number 时
     追加「回评论工具段」（要求 agent 用带签名的 `openagents reply-comment --pr <n>` 亲自回评论）。
-    私有纯函数，调用方显式传参。
+    Spec-0056/T5：`branch` 填进交付指令的 `git push origin HEAD:refs/heads/<branch>` 目标。私有纯函数，
+    调用方显式传参（缺省值仅 guidance/pr_number 两个可选项，branch 必传）。
     """
-    task = _RESOLVE_TASK.format(files="\n".join(str(path) for path in conflicts))
+    task = _RESOLVE_TASK.format(files="\n".join(str(path) for path in conflicts), branch=branch)
     if guidance.strip():
         task += _GUIDANCE_SECTION.format(guidance=guidance)
         if pr_number is not None:

@@ -57,6 +57,7 @@ def test_passed_feeds_method_and_writes_evidence(tmp_path):
         evidence_dir=evidence,
         pr_number=12,
         ui_intent="看板能按状态筛选。",
+        delivery_protocol="<<交付协议：真跑后自己 commit+push>>",
     )
     assert isinstance(result, ExecutorResult)
     assert result.outcome == OUTCOME_PASSED
@@ -66,6 +67,8 @@ def test_passed_feeds_method_and_writes_evidence(tmp_path):
     assert "选 done → 截图确认列表只剩 done" in task
     assert "看板能按状态筛选。" in task
     assert str(evidence) in task
+    # Spec-0056/T4：orchestrator 注入的交付协议被拼进任务（证据交付下放 executor agent 自己 commit+push）。
+    assert "<<交付协议：真跑后自己 commit+push>>" in task
     # 证据固化到 evidence_dir/result.md。
     evidence_file = evidence / RESULT_FILENAME
     assert evidence_file.is_file()
@@ -82,6 +85,7 @@ def test_failed_outcome_still_writes_evidence(tmp_path):
         evidence_dir=evidence,
         pr_number=1,
         ui_intent="筛选生效。",
+        delivery_protocol="d",
     )
     assert result.outcome == OUTCOME_FAILED
     assert (evidence / RESULT_FILENAME).is_file()
@@ -96,6 +100,7 @@ def test_backend_raises_maps_to_failed_without_raising(tmp_path):
         evidence_dir=evidence,
         pr_number=3,
         ui_intent="x",
+        delivery_protocol="d",
     )
     assert result.outcome == OUTCOME_FAILED
     assert "异常" in result.notes
@@ -114,6 +119,7 @@ def test_unparseable_outcome_is_failed(tmp_path):
         evidence_dir=evidence,
         pr_number=2,
         ui_intent="i",
+        delivery_protocol="d",
     )
     assert result.outcome == OUTCOME_FAILED
 
@@ -134,6 +140,7 @@ def test_evidence_write_failure_does_not_raise(tmp_path):
         evidence_dir=evidence,
         pr_number=7,
         ui_intent="i",
+        delivery_protocol="d",
     )
     assert result.outcome == OUTCOME_PASSED  # 写失败不改 outcome
     assert not evidence.exists()  # 确实没写成

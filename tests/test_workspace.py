@@ -2,7 +2,8 @@
 
 git 子进程全部 monkeypatch（记录命令、可按子命令注入返回码 / stdout），
 不真实操作 git。覆盖：prepare（fetch + 幂等清理 + worktree add）、ensure（复用/重建）、
-commit_and_push（无改动跳过 commit 仍 push）、remote_branch_exists、git 失败抛错。
+assert_delivered（head 前移硬闸：fetch + rev-parse origin/<branch> 与 HEAD 对比）、
+remote_branch_exists、git 失败抛错。（Spec-0056/T4：commit_and_push 随交付下放 agent 删除。）
 """
 
 import subprocess
@@ -94,40 +95,6 @@ def test_ensure_rebuilds_when_missing(tmp_path, monkeypatch):
     joined = _joined(recorder)
     assert any("fetch origin openagents/issue-3" in c for c in joined)
     assert any("worktree add" in c and "openagents/issue-3" in c for c in joined)
-
-
-def test_commit_and_push_sequence(tmp_path, monkeypatch):
-    recorder = _GitRecorder()
-    monkeypatch.setattr(subprocess, "run", recorder)
-    ws = Workspace(work_dir=tmp_path)
-
-    ws.commit_and_push(worktree=tmp_path, branch="openagents/issue-3", message="docs: x")
-
-    joined = _joined(recorder)
-    assert any("add -A" in c for c in joined)
-    assert any("commit -m" in c for c in joined)
-    assert any("push -u origin openagents/issue-3" in c for c in joined)
-    # 决策 7：绝不 force-push
-    assert not any("--force" in c or "-f" in c.split() for c in joined)
-
-
-def test_commit_and_push_no_changes_still_pushes(tmp_path, monkeypatch):
-    # commit 走 check=False：无改动（返回非零）也不抛，push 仍执行。
-    recorder = _GitRecorder(fail={"commit"})
-    monkeypatch.setattr(subprocess, "run", recorder)
-    ws = Workspace(work_dir=tmp_path)
-
-    ws.commit_and_push(worktree=tmp_path, branch="openagents/issue-3", message="docs: x")
-
-    assert any("push -u origin openagents/issue-3" in c for c in _joined(recorder))
-
-
-def test_commit_and_push_add_failure_raises(tmp_path, monkeypatch):
-    # add 走 check=True，失败应抛 WorkspaceError。
-    monkeypatch.setattr(subprocess, "run", _GitRecorder(fail={"add"}))
-    ws = Workspace(work_dir=tmp_path)
-    with pytest.raises(WorkspaceError):
-        ws.commit_and_push(worktree=tmp_path, branch="b", message="m")
 
 
 def test_remote_branch_exists_true_when_stdout(tmp_path, monkeypatch):

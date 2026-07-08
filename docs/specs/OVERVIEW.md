@@ -360,6 +360,8 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 | 0056 | 0056/T1 | workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界） | done | — | openagents/workspace.py<br>tests/test_workspace.py |
 | 0056 | 0056/T2 | orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径） | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator_delivery.py |
 | 0056 | 0056/T3 | e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git） | done | T2 | scripts/e2e-spec-0056-git-delivery-rebase-selfheal.sh |
+| 0056 | 0056/T4 | executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码） | done | T2 | openagents/executor.py<br>tests/test_executor.py<br>tests/test_orchestrator.py |
+| 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 
 ## 跨 feature 关系图
 
@@ -663,6 +665,8 @@ graph LR
         n0056_T1["T1 workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界）"]
         n0056_T2["T2 orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径）"]
         n0056_T3["T3 e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）"]
+        n0056_T4["T4 executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码）"]
+        n0056_T5["T5 conflict.py：解冲突结果交付（commit+push）也下放 resolve agent"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -843,6 +847,8 @@ graph LR
     n0055_T6 --> n0055_T5
     n0056_T2 --> n0056_T1
     n0056_T3 --> n0056_T2
+    n0056_T4 --> n0056_T2
+    n0056_T5 --> n0056_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -866,12 +872,12 @@ graph LR
 | openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
 | openagents/config.py | 0001, 0029, 0033 |
-| openagents/conflict.py | 0028, 0036, 0038, 0045 |
+| openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
 | openagents/evidence_gate.py | 0040, 0051 |
-| openagents/executor.py | 0040, 0051, 0055 |
+| openagents/executor.py | 0040, 0051, 0055, 0056 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
@@ -903,14 +909,14 @@ graph LR
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055 |
 | tests/test_config.py | 0001, 0029, 0033 |
-| tests/test_conflict.py | 0028, 0038 |
-| tests/test_conflict_guidance.py | 0036, 0038, 0045 |
+| tests/test_conflict.py | 0028, 0038, 0056 |
+| tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
-| tests/test_executor.py | 0040, 0051, 0055 |
+| tests/test_executor.py | 0040, 0051, 0055, 0056 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055 |
 | tests/test_github_claim_label.py | 0039, 0049 |
@@ -921,7 +927,7 @@ graph LR
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0056 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
@@ -2345,8 +2351,12 @@ graph LR
     nT1["T1 workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界）"]
     nT2["T2 orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径）"]
     nT3["T3 e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）"]
+    nT4["T4 executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码）"]
+    nT5["T5 conflict.py：解冲突结果交付（commit+push）也下放 resolve agent"]
     nT1 --> nT2
     nT2 --> nT3
+    nT2 --> nT4
+    nT2 --> nT5
 ```
 
 演化图：
@@ -2356,8 +2366,12 @@ graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```

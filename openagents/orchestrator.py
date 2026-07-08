@@ -682,8 +682,11 @@ class Orchestrator:
           比对：**一致 → 复用上轮证据、不重跑 executor**（返回 reused=True；证据 commit 不改源码指纹，
           故稳态不自我刷屏）；
         - **不一致（或指纹算不出 fail-open）→ 派独立 executor 真跑**（method + intent 直接入 prompt，
-          agent 运行时自检工具选路）→ commit+push 证据 → 落盘新指纹 → 返回 reused=False + result。
-        绝不抛错的收口在各下游（executor 契约绝不抛；本方法的 gh/commit 由既有通道保证）。
+          agent 运行时自检工具选路）→ **executor agent 自己 commit+push 证据**（Spec-0056/T4 交付下放）
+          → head 前移硬闸 assert_delivered → 落盘新指纹 → 返回 reused=False + result。
+        executor 契约绝不抛；但**交付硬闸**（_assert_delivered_or_fail）在 agent 没把证据推上去时会打
+        needs-human + `raise OrchestratorError`——与四条交付路径同款，由 messages poll 的 per-record 错误
+        隔离兜住（不掀翻整轮）。故本方法不再宣称「绝不抛错」：交付未落地即上抛转人工，是刻意的兜底面。
         """
         record = self._require_run(pr_number=pr_number)
         worktree = self._workspace.ensure(issue_number=record.issue_number, branch=record.branch)
@@ -708,11 +711,18 @@ class Orchestrator:
             evidence_dir=evidence_dir,
             pr_number=pr_number,
             ui_intent=plan.intent,
+            # Spec-0056/T4：证据交付也下放 executor agent（注入 _GIT_DELIVERY_PROTOCOL：commit + 记 fetch
+            # 前 BASE + rebase 自愈 + push --force-with-lease 仅本工作分支），harness 不再代 push。
+            delivery_protocol=_GIT_DELIVERY_PROTOCOL,
         )
-        self._workspace.commit_and_push(
+        # Spec-0056/T4：删原硬编码 `test: e2e evidence for PR #<n>` 的 commit_and_push（agent 后 harness
+        # 死写 git 的最后一处「漏网」）。改调 head 前移硬闸——executor agent 没把证据推上去→打 needs-human
+        # + raise OrchestratorError（messages poll 的 per-record 错误隔离兜住，与四条交付路径同款兜底）。
+        self._assert_delivered_or_fail(
             worktree=worktree,
             branch=record.branch,
-            message=f"test: e2e evidence for PR #{pr_number}",
+            issue_number=record.issue_number,
+            pr_number=pr_number,
         )
         # 只在指纹算得出时落盘（fail-open：算不出则不落、下轮照跑，sticky 永不基于「算不出」跳过）。
         if fingerprint:

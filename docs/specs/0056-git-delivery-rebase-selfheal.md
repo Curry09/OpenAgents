@@ -45,6 +45,36 @@ tasks:
       - scripts/e2e-spec-0056-git-delivery-rebase-selfheal.sh
     scope: 离线 e2e 脚本：段1 ruff+pytest 全套；段2 用真实本地 git（裸库当远端+worktree）构造「远端领先 base + 本地重起草分叉」，用执行协议的 fake backend 驱动交付，断言 (a) rebase 自愈+force-with-lease 推上、origin/<branch> 前移到本地 HEAD；(b) 假装完成不 push→assert_delivered 判未交付→needs-human；(c) 推送用 --force-with-lease=<branch>:<BASE>（BASE 为 fetch 前 SHA）且从不裸 --force。脚本头声明离线/无浏览器前端/evidence 分层。
     acceptance: bash scripts/e2e-spec-0056-git-delivery-rebase-selfheal.sh 退出码 0：ruff+pytest 全绿；演练段可观测断言分叉→rebase 自愈→head 前移闭环、反例走 needs-human、推送始终带 lease 且 BASE 为 fetch 前 SHA 无裸 force。spec validate/render/graph 全绿。
+  - id: T4
+    title: executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码）
+    status: done
+    priority: P0
+    tags: []
+    depends-on:
+      - T2
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/executor.py
+      - tests/test_executor.py
+      - tests/test_orchestrator.py
+    scope: '收口「除只读检查外，agent turn 后的 git 全下放 agent」的最后两处漏网之一——run_e2e 原在 executor 真跑后由 harness commit_and_push 提交证据（orchestrator.py:712 硬编码 test:e2e evidence 消息）。改：run_executor 新增必填形参 delivery_protocol（orchestrator 注入 _GIT_DELIVERY_PROTOCOL），拼进 executor 任务模板 OUTCOME 行之前——证据「固化」含交付，由 executor agent 自己 commit+push；executor 模块本身仍不 import git（协议当字符串注入，守解耦理念 10）。orchestrator.run_e2e 删原 commit_and_push、改调 _assert_delivered_or_fail head 前移硬闸兜底（此 orchestrator.py 编辑并入 T2 owner，避免同组 files 重叠 error）。commit_and_push 随 run_e2e/backfill/四路全部下放后已无生产调用方，按理念 1 从 workspace.py 删除（该删除并入 T1 owner）。'
+    acceptance: '单测覆盖：(1) run_executor 注入的 delivery_protocol 被拼进喂 backend 的任务模板（含「交付协议——你负责把改动真正推上远端本工作分支」锚点）；(2) run_e2e 指纹变→派 executor 真跑后 harness **不再**自著 evidence commit/push、改跑 assert_delivered（fetch+rev-parse origin/<branch> 与 HEAD 对比）、新指纹落盘；(3) 全仓 grep 无 commit_and_push 生产调用方（仅注释/docstring 历史引用）。ruff+pytest 全绿。'
+  - id: T5
+    title: conflict.py：解冲突结果交付（commit+push）也下放 resolve agent
+    status: done
+    priority: P1
+    tags: []
+    depends-on:
+      - T2
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/conflict.py
+      - tests/test_conflict.py
+      - tests/test_conflict_guidance.py
+    scope: 收口漏网之二——conflict.resolve_branch 原在 resolve agent 语义解冲突后由 harness `git add -A && commit --no-edit` + make_resolver `push` 兜底。改：_RESOLVE_TASK 翻转「不要自行 commit，外层统一提交」为「自测过后由你自己 `git add -A && git commit --no-edit` 再 `git push origin HEAD:refs/heads/<branch>`」（此 merge 为快进叠加、普通 push 即可、无需 force，与四条派单路径的 force-with-lease 分叉场景不同）；resolve_branch 新增 branch 形参 + 记合并前 pre-HEAD，agent turn 后只做只读校验：残留冲突标记 + head 前移（HEAD≠pre）+ 推送落地（fetch 后 origin/<branch>==HEAD），任一不过即 merge --abort 安全降级 resolved=False（宁可不解、不可解错，且不可自判解决却没推上去）；ResolveOutcome 新增 delivered 标记，make_resolver 仅在干净自动合并（delivered=False、无 agent turn、合并 commit 是 harness 自著）才普通 push，冲突路径（delivered=True）不再代 push。
+    acceptance: '单测覆盖：(1) agent 解冲突 + 自己 commit（head 前移）+ push（origin==HEAD）→ resolved=True/delivered=True 且 harness 无 add/commit（跑了 fetch+rev-parse 校验）；(2) 解了标记却没 commit（post==pre）→ abort、resolved=False；(3) commit 了却没 push（origin 缺/≠HEAD）→ resolved=False；(4) 残留冲突标记/仍 unmerged/非冲突失败/backend 抛异常 → abort、resolved=False（安全降级零回归）；(5) 干净自动合并 → resolved=True/delivered=False 仍由 make_resolver 普通 push。ruff+pytest 全绿。'
 ---
 
 # 0056 · vigil：git 交付/冲突下放 agent（rebase 自愈）+ harness head 前移硬闸（修订决策 7）
@@ -143,7 +173,8 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
 
 | git 动作 | 归属 | 理由 |
 |---|---|---|
-| commit / rebase / 解冲突 / `push --force-with-lease`（交付） | 🟢 **下放 agent**（prompt 软约束） | 分叉后 reconcile 要语义能力（读冲突标记、判意图、跑自测），只有 agent 有 |
+| commit / rebase / 解冲突 / `push --force-with-lease`（派单/迭代/backfill 交付） | 🟢 **下放 agent**（prompt 软约束） | 分叉后 reconcile 要语义能力（读冲突标记、判意图、跑自测），只有 agent 有 |
+| run_e2e 证据 commit + push（T4）、merge 闸解冲突结果 commit + push（T5） | 🟢 **下放 agent**（prompt 软约束） | 收口「除只读检查外，agent turn 后的 git 全下放 agent」的最后两处漏网；executor/resolve agent 才是「执行完这步 git」的人 |
 | worktree add/remove/prune、`branch -D`、`fetch`、`git init`、release tag/push（编排） | 🔴 留 harness | agent 在 worktree 内运行，无法创建自己将要运行的沙箱（先有鸡蛋） |
 | `changed_spec_group` 的 diff、`remote_branch_exists`、conflictdiag、backend `status --porcelain`（只读内省） | 🟠 留 harness | 结果是 harness 自己路由要用的 |
 | gh：PR/label/comment/merge/update-branch（`github.py`） | 🔵 留 harness | 编排层对外动作 |
@@ -159,8 +190,10 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
 - 决策 7 docstring 就地修订（`workspace.py:9,65`）：`绝不 force-push` → **`绝不裸 force-push；允许
   --force-with-lease，且仅限 agent 自己的 issue 分支 openagents/issue-<n>，不得作用于 main / 受保护
   分支 / 他人分支`**。harness 自身**不执行** force-with-lease（推送由 agent 做）；此约束以 prompt 协议
-  + 硬闸落地，docstring 记录其边界。`commit_and_push` 保留原样，仅供 harness 自著文件的提交路径
-  （证据/runbook 等无 agent turn 的收尾），其普通 push 行为逐字节不变（零回归）。
+  + 硬闸落地，docstring 记录其边界。（**T4 追加**：`commit_and_push` 原本仅供 harness 自著文件的提交
+  路径；待 run_e2e 证据交付（④）也下放 agent 后，它已**无生产调用方**，按理念 1 从 `workspace.py` 删除
+  ——交付侧只剩 `assert_delivered` 一道只读硬闸，harness 不再有任何「agent 执行完后代 commit/push」的
+  死代码。）
 
 **② `orchestrator.py`——接线交付协议 + 硬闸 + 隔离修复 + 语义化 commit。**
 - task prompt：把上面「交付协议」段作为常量 `_GIT_DELIVERY_PROTOCOL` 追加进 `_DRAFT_RFC_TASK` /
@@ -190,6 +223,37 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
 
 **③ e2e 脚本**——见下「端到端验证」。
 
+**④ `executor.py` / `run_e2e`——证据交付也下放 executor agent（T4，收口漏网之一）。** 原则「除只读
+检查外，agent turn 后的 git 全下放 agent」在初版（T1-T3）覆盖了 draft/refine/implement/iterate/backfill
+五条派单路径，却漏了 `run_e2e`：executor agent 真跑完系统后，证据仍由 harness 硬编码
+`commit_and_push(message="test: e2e evidence for PR #<n>")`（`orchestrator.py:712`）代交——同一个「agent
+执行完的 git 被 harness 代做」的病。修法与①②同构：
+- `executor.run_executor` 新增**必填形参** `delivery_protocol: str`，拼进 executor 任务模板、置于末行
+  `OUTCOME: PASSED|FAILED` 格式行**之前**（保证回复最后一行仍是 OUTCOME）——「把证据固化」自此含
+  「**交付**」：executor agent 写完证据后按协议自己 commit + push 上远端本工作分支。
+- 关键解耦（理念 10）：`executor.py` **仍不 import git**，交付协议由 `orchestrator.run_e2e` 注入
+  （`delivery_protocol=_GIT_DELIVERY_PROTOCOL`），executor 只把它当字符串拼进 prompt。既不新开一轮
+  「专门交付」的 backend turn（省一次 agent 调用，理念 1），又不让 executor 耦合 git。
+- `run_e2e` 删原 `commit_and_push`，改调 `_assert_delivered_or_fail`（head 前移硬闸，复用 T2 的
+  `_fail_to_human` 路由）。该 `orchestrator.py` 编辑并入 T2 owner、`workspace.py` 的 `commit_and_push`
+  删除并入 T1 owner，避免同组 files 重叠（validate D7：同组 files 重叠是 error）。
+
+**⑤ `conflict.py`——解冲突结果的交付也下放 resolve agent（T5，收口漏网之二）。** merge 闸撞冲突时派
+resolve agent 语义解冲突，解完原由 harness `git add -A && git commit --no-edit`（`resolve_branch`）+
+`push`（`make_resolver`）代交——又一处「agent 执行完的 git 被 harness 代做」。修法：
+- `_RESOLVE_TASK` 把「不要自行 commit，外层会统一提交」翻转为「自测过后**由你自己**
+  `git add -A && git commit --no-edit`（沿用 merge 默认信息），再 `git push origin HEAD:refs/heads/<branch>`」。
+  注意此 merge 是把 base **快进叠加**到本分支、结果是本分支 tip 的后代，**普通 push 即可、无需 force**
+  （与四条派单/迭代路径的 `force-with-lease` 分叉场景本质不同，不套同一协议）。
+- `resolve_branch` 新增 `branch` 形参 + 记「合并冲突中、agent turn 前」的 `pre`-HEAD；agent turn 后只做
+  **只读校验**（符合用户「除检查外 git 全下放」的划线）：① 残留冲突标记（既有）② head 前移（HEAD≠pre，
+  堵「解了标记却没 commit」）③ 推送落地（`fetch` 后 `origin/<branch>`==HEAD，堵「commit 了却没 push」，
+  正是 issue #140 冻结类）。任一不过 → `merge --abort` 安全降级 `resolved=False`（宁可不解、不可解错，
+  且不可自判解决却没推上去）。
+- `ResolveOutcome` 新增 `delivered` 标记：冲突路径 agent 已自交付（`delivered=True`）→ `make_resolver`
+  不再代 push；**唯干净自动合并**（无 agent turn、合并 commit 是 harness 自著、`delivered=False`）才由
+  `make_resolver` 普通 push——它不是「agent 执行完的 git」，留 harness 合规。
+
 ### 关键不变量（footgun 防线）
 
 - **force-with-lease 的期望 SHA 必须取 `fetch` 之前的远端基点** `--force-with-lease=<branch>:$BASE`，
@@ -208,6 +272,8 @@ issue #123 / PR #127 正是被这个 bug 卡在闭环外；修复本 issue **同
 graph LR
   T1["T1 workspace.py<br/>assert_delivered 硬闸 + 决策7修订"] --> T2["T2 orchestrator.py<br/>交付协议+硬闸接线+隔离+语义commit"]
   T2 --> T3["T3 e2e 脚本<br/>分叉→rebase自愈→交付闭环"]
+  T2 --> T4["T4 executor.py<br/>run_e2e 证据交付下放 agent（收口漏网①）"]
+  T2 --> T5["T5 conflict.py<br/>解冲突结果交付下放 agent（收口漏网②）"]
 ```
 
 | Task | 文件（单一 writer，互斥） | 依赖 |
@@ -215,6 +281,13 @@ graph LR
 | T1 | `openagents/workspace.py`, `tests/test_workspace.py` | — |
 | T2 | `openagents/orchestrator.py`, `tests/test_orchestrator_delivery.py` | T1 |
 | T3 | `scripts/e2e-spec-0056-git-delivery-rebase-selfheal.sh` | T2 |
+| T4 | `openagents/executor.py`, `tests/test_executor.py`, `tests/test_orchestrator.py` | T2 |
+| T5 | `openagents/conflict.py`, `tests/test_conflict.py`, `tests/test_conflict_guidance.py` | T2 |
+
+> T4 的 `orchestrator.run_e2e` 编辑并入 T2 owner、`commit_and_push` 删除并入 T1 owner（`workspace.py`）
+> ——避免同组 files 重叠（validate D7：同组重叠是 error）；T4 的 `files` 只列真正新增 writer 的
+> `executor.py` 及其测试。`messages.py` 一行注释、`tests/test_messages.py` / `tests/test_claim_dedup_integration.py`
+> 的伪替身随手清理（删已无对应产物的 `commit_and_push` stub），属 T4 连带、非独立 writer，不单列。
 
 ### 端到端验证（成果测试，理念 8）
 
@@ -299,9 +372,11 @@ force-with-lease + rebase 保持线性历史更干净。冲突仍要 agent，不
 
 ## Unresolved questions
 
-- **硬闸的适用范围**：本组明确覆盖 `start_rfc`（draft，复现路径）与 refine/implement/iterate 的交付
-  seam；finalize_runbook / 证据提交等 harness 自著文件路径暂仍走原 `commit_and_push`（低分叉风险）。
-  是否要把硬闸推广到**所有**交付点，留待实现时按调用点实际分叉风险定（倾向：先覆盖 agent 自著路径）。
+- **硬闸的适用范围**：初版（T1-T3）覆盖 `start_rfc`（draft，复现路径）与 refine/implement/iterate/backfill
+  的交付 seam；**T4/T5 收口最后两处 agent turn 后的 git**——`run_e2e` 证据交付（下放 executor agent）与
+  merge 闸解冲突结果交付（下放 resolve agent）。至此「除只读检查外，agent turn 后的 git 全下放 agent」
+  已全覆盖，`commit_and_push` 无生产调用方而删除；后续若新增 agent turn 交付点，按同一原则下放 + 只读
+  硬闸兜底即可。
 - **PR 评论钉旧 SHA**：rebase force-with-lease 改写历史后，若未来引入「把 review 评论钉在具体 commit/
   行」的机制，旧 SHA 失效需处理。当前无此依赖，暂不设计。
 - **硬闸失败的人工提示粒度**：needs-human 评论只说「head 未前移、疑似未交付」，还是要附本地 HEAD /
