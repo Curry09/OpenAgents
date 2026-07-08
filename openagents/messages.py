@@ -491,7 +491,7 @@ class Messages:
         锚，在 github.list_comments 里筛出同标题回执评论，按 created_at 取最近一条，正文规范化（逐行
         strip、丢空行、去 identity 签名尾巴）后与本轮相等即判重复。
 
-        同标题分桶使「迭代自述（CI 反馈）/（代码评审反馈）/（证据闸反馈）」天然互不抑制；「同标题、
+        同标题分桶使「迭代自述（CI 反馈）/（代码评审反馈）」天然互不抑制；「同标题、
         正文不同」（同 reason 连续两轮内容各异的迭代、连续两轮结论不同的判决）规范化后不相等 → 照发
         （与 _decision_already_posted「结论同+反馈不同则照发」一致）。只读 github.list_comments，不改状态。
         """
