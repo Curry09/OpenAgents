@@ -16,10 +16,6 @@ _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 STATUS_VALUES = ("pending", "in-progress", "done", "abandoned")
 PRIORITY_VALUES = ("P0", "P1", "P2", "P3")
 RELATES_TYPE_VALUES = ("extends", "supersedes", "note")
-# Spec-0040/T1（Spec-0055 退役中）：组级 e2e 执行形态枚举。**Spec-0055 已砍掉 form**——测法改为 prose
-# `method`（executor 运行时自检工具选路，见 Spec-0055 机制 3），本枚举不再被 schema/validate 使用。
-# executor.py 迁移完（Spec-0055/T3 删其 import）后本常量即成死码，最终删除交 Spec-0056 清扫组。
-E2E_FORM_VALUES = ("ui", "api", "cli", "backend")
 
 # issue #69：Task 退化为工作分解行，只保留两个一行短 prose（进 frontmatter）。
 # 重设计叙述上移到组级 Overview 9 段（正文，不进 frontmatter，故不在此 schema）。
