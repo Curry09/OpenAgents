@@ -14,7 +14,8 @@ evidence_dir，返回结构化 {outcome, notes}。角色结构仿 `reviewer.revi
 `evidence_dir/result.md`（证据落点，供 reviewer 读；截图等附件由 agent 自己落 evidence_dir）。
 
 解耦：本模块只依赖 `AgentBackend` 协议 + 文件系统，不碰 git / GitHub / 编排（便于 hermetic 单测打桩
-backend）。**Spec-0055 删掉了 form 枚举 / _parse_form / _run_by_form / ui-skipped 分支**——形态由 agent
+backend）。Spec-0056/T4：证据交付（commit+push）下放给 executor agent 自己做，但交付协议由
+orchestrator 以 `delivery_protocol` 字符串**注入**任务模板——本模块仍不 import git，解耦定位不变。**Spec-0055 删掉了 form 枚举 / _parse_form / _run_by_form / ui-skipped 分支**——形态由 agent
 运行时自检工具决定，不再在 Python 侧分派。
 """
 
@@ -65,6 +66,10 @@ _EXECUTOR_TASK = (
     "不要伪造证据、不要把意图偷换成更弱的检查（如把「筛选生效」换成「页面不崩」）。\n"
     "\n"
     "把**每一步的命令/操作、观察、输出、截图**写进证据目录：`{evidence_dir}`（durable，供 reviewer 亲眼看）。\n"
+    # Spec-0056/T4：证据「固化」含**交付**——写完证据后由本 agent 自己 commit + push 上远端本工作分支
+    # （git 下放 agent、harness 不再代 push；协议文本由 orchestrator 注入 delivery_protocol，executor
+    # 模块本身仍不 import git，守解耦理念 10）。交付步在 OUTCOME 格式行之前，保证回复最后一行仍是 OUTCOME。
+    "{delivery}\n"
     "\n"
     "【硬性格式】回复最后一行必须是 `OUTCOME: PASSED`（照 method 真跑通、意图达成）或 `OUTCOME: FAILED`"
     "（跑不通 / 意图未达成 / 环境不具备无法真跑），在此之前写清你跑了什么、看到了什么、截图叫什么名。\n"
@@ -92,12 +97,18 @@ def run_executor(
     evidence_dir: Path,
     pr_number: int,
     ui_intent: str,
+    delivery_protocol: str,
 ) -> ExecutorResult:
     """Spec-0055/T3：把 spec 的 prose 测法直接喂独立 agent 真跑系统 → 固化证据 → 返回结构化结果。
 
     绝不抛错（契约）：backend 抛错映射成 `failed`（+ notes）。无论何 outcome 都把结构化结果写进
     `evidence_dir/result.md`（证据落点，reviewer 据此 + 截图判达成）。agent 运行时自检工具选路
     （有 browser_* 就开前端截图、没有就命令行/HTTP、都不行就如实降级），executor 不在 Python 侧分派形态。
+
+    Spec-0056/T4：`delivery_protocol` 为 orchestrator 注入的 git 交付协议文本（`_GIT_DELIVERY_PROTOCOL`）
+    ——证据交付（commit + push 上远端本工作分支）下放本 agent、harness 不再代 push。executor 模块自身
+    仍不 import git（只把协议当字符串拼进任务），守解耦理念 10；push 是否落地由 harness 侧 assert_delivered
+    硬闸兜底（本函数绝不因交付失败抛错——契约不变，outcome 只反映测试真跑结论、不反映交付）。
     """
     try:
         task = _EXECUTOR_TASK.format(
@@ -105,6 +116,7 @@ def run_executor(
             intent=ui_intent,
             method=method,
             evidence_dir=evidence_dir,
+            delivery=delivery_protocol,
         )
         summary = backend.run(work_dir=work_dir, task=task, context="").summary
         result = ExecutorResult(outcome=_parse_outcome(summary=summary), notes=summary or "")

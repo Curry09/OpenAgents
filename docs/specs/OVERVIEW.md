@@ -152,6 +152,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0055 e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
 把 e2e 从 0040 的「form 分派 + runbook 定稿 + 独立证据闸」三层机械脚手架，重设计为「启动时固化浏览器能力状态量 → RFC 写 prose 测法（能力决定要不要求截图）→ 独立 executor agent 运行时自检工具真跑并把截图/声明写进 docs/e2e-results/<pr>/ → 现有 review 同时判代码+证据（reviewer 亲眼看图）」，砍掉 finalize_runbook/form 枚举/独立 evidence_gate；流水线在 CI 后跑 executor 再 review，配源码指纹（排除证据目录）幂等闸与 sticky 复用，证据 commit 意外弄红 CI 走 bad_ci_after_e2e 挂起。
 
+### 0056 vigil：git 交付/冲突下放 agent（rebase 自愈）+ harness head 前移硬闸（修订决策 7）
+把 git 交付/冲突自愈从 harness 死写下放给 agent（commit→记 fetch 前基点 BASE→rebase 解冲突→push --force-with-lease=<branch>:BASE），harness 只保留一道不可绕过的 head 前移硬闸（origin/<branch>≠本地 HEAD → needs-human）；修订决策 7 允许 --force-with-lease 但仅限本 issue 分支、绝不裸 force。
+
 ### 0057 e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
 wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸没逼出结构化 e2e 块（被 spec 正文的 e2e 讨论骗过）→ run_e2e 空过；代码 review 把实现者自测（docs/evidence/ 自证）当成放行依据、没要求独立 executor 证据（docs/e2e-results/）。本组把这两条从软 rubric 硬化：T1 RFC 闸在调 LLM 前加一道确定性检查——改动 spec 缺真实 e2e 块（intent+method 非空）直接自动返工，不问 LLM；T2 代码 review rubric 明说运行时验证有两重（实现者自测=声明 / 独立 executor=裁判），要求交叉比对、独立证据缺失不得凭自测放行。两个证据目录保持分开（自证 vs 独立）。
 
@@ -357,6 +360,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0055 | 0055/T4 | reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图 | done | T1 | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0055 | 0055/T5 | 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录 | done | T1, T2 | openagents/orchestrator.py<br>openagents/github.py<br>tests/test_orchestrator.py<br>tests/test_github.py |
 | 0055 | 0055/T6 | messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本 | done | T3, T4, T5 | openagents/messages.py<br>tests/test_messages.py<br>scripts/e2e-spec-0055-e2e-v2-capability-aware.sh |
+| 0056 | 0056/T1 | workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界） | done | — | openagents/workspace.py<br>tests/test_workspace.py |
+| 0056 | 0056/T2 | orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径） | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator_delivery.py |
+| 0056 | 0056/T3 | e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git） | done | T2 | scripts/e2e-spec-0056-git-delivery-rebase-selfheal.sh |
+| 0056 | 0056/T4 | executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码） | done | T2 | openagents/executor.py<br>tests/test_executor.py<br>tests/test_orchestrator.py |
+| 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 | 0057 | 0057/T1 | RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM | done | — | openagents/orchestrator.py<br>openagents/messages.py<br>tests/test_orchestrator.py<br>tests/test_messages.py |
 | 0057 | 0057/T2 | 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 
@@ -658,6 +666,13 @@ graph LR
         n0055_T5["T5 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录"]
         n0055_T6["T6 messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本"]
     end
+    subgraph G0056[0056 git-delivery-rebase-selfheal]
+        n0056_T1["T1 workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界）"]
+        n0056_T2["T2 orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径）"]
+        n0056_T3["T3 e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）"]
+        n0056_T4["T4 executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码）"]
+        n0056_T5["T5 conflict.py：解冲突结果交付（commit+push）也下放 resolve agent"]
+    end
     subgraph G0057[0057 e2e-gate-hardening]
         n0057_T1["T1 RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM"]
         n0057_T2["T2 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行"]
@@ -839,6 +854,10 @@ graph LR
     n0055_T6 --> n0055_T3
     n0055_T6 --> n0055_T4
     n0055_T6 --> n0055_T5
+    n0056_T2 --> n0056_T1
+    n0056_T3 --> n0056_T2
+    n0056_T4 --> n0056_T2
+    n0056_T5 --> n0056_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -862,17 +881,17 @@ graph LR
 | openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
 | openagents/config.py | 0001, 0029, 0033 |
-| openagents/conflict.py | 0028, 0036, 0038, 0045 |
+| openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
 | openagents/evidence_gate.py | 0040, 0051 |
-| openagents/executor.py | 0040, 0051, 0055 |
+| openagents/executor.py | 0040, 0051, 0055, 0056 |
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055, 0057 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0057 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -889,7 +908,7 @@ graph LR
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
-| openagents/workspace.py | 0005, 0008, 0029 |
+| openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
@@ -899,14 +918,14 @@ graph LR
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055 |
 | tests/test_config.py | 0001, 0029, 0033 |
-| tests/test_conflict.py | 0028, 0038 |
-| tests/test_conflict_guidance.py | 0036, 0038, 0045 |
+| tests/test_conflict.py | 0028, 0038, 0056 |
+| tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
 | tests/test_ensure_prerequisites.py | 0023, 0029 |
 | tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
-| tests/test_executor.py | 0040, 0051, 0055 |
+| tests/test_executor.py | 0040, 0051, 0055, 0056 |
 | tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055 |
 | tests/test_github_claim_label.py | 0039, 0049 |
@@ -917,7 +936,7 @@ graph LR
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0057 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0056, 0057 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
@@ -935,7 +954,7 @@ graph LR
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
 | tests/test_vigil_claim.py | 0039, 0049 |
-| tests/test_workspace.py | 0005, 0008, 0029 |
+| tests/test_workspace.py | 0005, 0008, 0029, 0056 |
 
 ## 各 feature 详情
 
@@ -2332,6 +2351,38 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0056 vigil：git 交付/冲突下放 agent（rebase 自愈）+ harness head 前移硬闸（修订决策 7）（issue #140）
+
+```mermaid
+graph LR
+    nT1["T1 workspace.py：assert_delivered head 前移硬闸 + 修订决策 7（force-with-lease 边界）"]
+    nT2["T2 orchestrator.py：交付协议 prompt + 硬闸接线 + WorkspaceError 隔离 + 语义化 commit（含 backfill 反向补全路径）"]
+    nT3["T3 e2e：分叉→rebase 自愈→force-with-lease 交付闭环（离线，真实本地 git）"]
+    nT4["T4 executor.py：run_e2e 证据交付也下放 executor agent（注入交付协议形参 + 删 commit_and_push 死代码）"]
+    nT5["T5 conflict.py：解冲突结果交付（commit+push）也下放 resolve agent"]
+    nT1 --> nT2
+    nT2 --> nT3
+    nT2 --> nT4
+    nT2 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
 
 ### 0057 e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对（issue #123）

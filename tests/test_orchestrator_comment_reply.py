@@ -42,7 +42,9 @@ class _GitRecorder:
 
         class _Proc:
             returncode = 0
-            stdout = ""
+            # Spec-0056/T2：交付后 harness 调 assert_delivered（rev-parse origin/<branch> 与 HEAD
+            # 对比）；两处 rev-parse 回同一 SHA → head 前移硬闸放行（模拟 agent 已推上）。
+            stdout = "deadbeefcafe" if "rev-parse" in args else ""
             stderr = ""
 
         return _Proc()
@@ -169,7 +171,8 @@ def test_iterate_human_prompt_differs_from_ci_and_review(tmp_path, monkeypatch):
 
 
 def test_iterate_ci_caller_ignoring_return_unaffected(tmp_path, monkeypatch):
-    # ci 闸既有调用方忽略返回值，行为不变：仍追加 commit + 置 iterating。
+    # ci 闸既有调用方忽略返回值，行为不变：置 iterating + 交付走 head 前移硬闸。
+    # Spec-0056/T2：交付下放 agent——harness 不再自著 commit/push，改调 assert_delivered（rev-parse 对比）。
     orch, _, state = _make(tmp_path)
     recorder = _GitRecorder()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -179,8 +182,8 @@ def test_iterate_ci_caller_ignoring_return_unaffected(tmp_path, monkeypatch):
 
     assert state.all_runs()[0].status == "iterating"
     joined = [" ".join(c) for c in recorder.commands]
-    assert any("commit" in c for c in joined)
-    assert any("push" in c for c in joined)
+    assert any("rev-parse origin/openagents/issue-3" in c for c in joined)
+    assert any("rev-parse HEAD" in c for c in joined)
 
 
 if __name__ == "__main__":

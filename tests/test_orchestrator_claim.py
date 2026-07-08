@@ -40,7 +40,9 @@ class _GitRecorder:
     def __call__(self, args, **kwargs):
         class _Proc:
             returncode = 0
-            stdout = ""
+            # Spec-0056/T2：交付后 harness 调 assert_delivered（rev-parse origin/<branch> 与 HEAD
+            # 对比）；两处 rev-parse 回同一 SHA → head 前移硬闸放行（模拟 agent 已推上）。
+            stdout = "deadbeefcafe" if "rev-parse" in args else ""
             stderr = ""
 
         return _Proc()
