@@ -7,7 +7,7 @@ summary: 承接 Spec-0062 两栈合一收尾：把旧 openagents/state.py 仍存
 tasks:
   - id: T1
     title: RuntimeState 扩容：agent_id/ui_capable 顶层存取 + 权威 STATUS_* 常量
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -20,7 +20,7 @@ tasks:
     acceptance: RuntimeState 提供 get/set_agent_id 与 get/set_ui_capable（hermetic 可测，落盘顶层键）；runtime 暴露公共 STATUS_*；现有 runs/cursors 测试不回归；ruff 绿。
   - id: T2
     title: identity 改接 RuntimeState（agent_id 存储）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -34,7 +34,7 @@ tasks:
     acceptance: identity 不再 import openagents.state；agent_id 幂等解析行为不变；test_identity 全绿；ruff 绿。
   - id: T3
     title: release + results/board 改接 RuntimeState + utils.github
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -50,7 +50,7 @@ tasks:
     acceptance: release/board 不再 import openagents.state；release 挂起阻断行为不变；board 渲染 RuntimeState 记录；test_release/test_results 全绿；ruff 绿。
   - id: T4
     title: CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -64,7 +64,7 @@ tasks:
     acceptance: oa 全命令解析并分发；cli 无 import openagents.state；ui_capable/agent_id 经 RuntimeState 存取；test_cli 全绿；ruff 绿。
   - id: T5
     title: 删 state.py + 收敛 state 测试 + docs 再生成
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

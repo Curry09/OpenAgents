@@ -399,11 +399,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0062 | 0062/T4 | CLI 全量改接新栈 + 删旧路由 | done | T3 | openagents/cli.py<br>tests/test_cli_new_stack.py |
 | 0062 | 0062/T5 | 物理搬迁 utils 原语 + 清空整个 flat 旧模块层 | done | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/blocknote.py<br>openagents/utils/replynote.py<br>openagents/utils/worknote.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py<br>openagents/utils/workspace.py<br>openagents/utils/github.py<br>openagents/utils/align.py |
 | 0062 | 0062/T6 | 测试收敛 + docs 再生成 | done | T5 | tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_vigil.py<br>tests/test_issuecheck.py<br>tests/test_ensure_prerequisites.py |
-| 0063 | 0063/T1 | RuntimeState 扩容：agent_id/ui_capable 顶层存取 + 权威 STATUS_* 常量 | pending | — | openagents/runtime/state.py<br>tests/test_runtime_state_converge.py |
-| 0063 | 0063/T2 | identity 改接 RuntimeState（agent_id 存储） | pending | T1 | openagents/utils/identity.py<br>tests/test_identity.py |
-| 0063 | 0063/T3 | release + results/board 改接 RuntimeState + utils.github | pending | T1 | openagents/utils/release.py<br>openagents/utils/results.py<br>tests/test_release.py<br>tests/test_results.py |
-| 0063 | 0063/T4 | CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState | pending | T3 | openagents/cli.py<br>tests/test_cli.py |
-| 0063 | 0063/T5 | 删 state.py + 收敛 state 测试 + docs 再生成 | pending | T4 | openagents/state.py<br>tests/test_state.py<br>tests/test_state_closed_at.py<br>tests/test_state_code_fingerprint.py |
+| 0063 | 0063/T1 | RuntimeState 扩容：agent_id/ui_capable 顶层存取 + 权威 STATUS_* 常量 | done | — | openagents/runtime/state.py<br>tests/test_runtime_state_converge.py |
+| 0063 | 0063/T2 | identity 改接 RuntimeState（agent_id 存储） | done | T1 | openagents/utils/identity.py<br>tests/test_identity.py |
+| 0063 | 0063/T3 | release + results/board 改接 RuntimeState + utils.github | done | T1 | openagents/utils/release.py<br>openagents/utils/results.py<br>tests/test_release.py<br>tests/test_results.py |
+| 0063 | 0063/T4 | CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState | done | T3 | openagents/cli.py<br>tests/test_cli.py |
+| 0063 | 0063/T5 | 删 state.py + 收敛 state 测试 + docs 再生成 | done | T4 | openagents/state.py<br>tests/test_state.py<br>tests/test_state_closed_at.py<br>tests/test_state_code_fingerprint.py |
 
 ## 跨 feature 关系图
 
@@ -2635,10 +2635,10 @@ graph LR
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
-    class v_T5_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
