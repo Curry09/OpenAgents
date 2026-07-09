@@ -6,8 +6,11 @@
 #   - 错误隔离：某子进程非零退出码 → 记一行，不影响其余。
 #   - 停止路径：KeyboardInterrupt → 逐个 terminate + join 后干净退出。
 #
-# 另对真实 worker `_run_repo` 做隔离单测：打桩 os.chdir / resolve_project / _vigil_for，
-# 验证它按 plan 参数构造并调用 vigil（仍不触达真实 git/gh）。
+# 另对真实 worker `_run_repo` 的失败路径做隔离单测（非仓库即抛、子进程入口把失败转干净一行）。
+# Spec-0062/T4：per-repo worker 已迁到**新栈** recipes.fleet._run_repo（经 cli._new_vigil_for 构造
+# 新栈 vigil），其 happy-path 由 tests/test_recipe_fleet.py::test_run_repo_chdirs_builds_new_vigil_and_runs
+# 覆盖。旧 fleet._run_repo（依赖已删的 cli._vigil_for）随两栈合一成为孤儿代码、待 Spec-0063 随旧栈删除，
+# 故此处移除其 happy-path 单测，仅保留不依赖 _vigil_for 的失败路径单测（Fleet 监管器本身仍被新栈复用）。
 
 import queue as _queue_mod
 from pathlib import Path
@@ -141,36 +144,6 @@ def test_keyboard_interrupt_terminates_all_and_exits_clean(capsys):
 # --------------------------------------------------------------------------- #
 # 真实 worker _run_repo 的隔离单测（打桩，不触达真实 git/gh/后端）
 # --------------------------------------------------------------------------- #
-
-
-def test_run_repo_chdirs_builds_vigil_and_runs(monkeypatch):
-    plan = _plan("r", interval=120, labels=["x"], base="dev", hold="spec")
-    chdir_to = {}
-    monkeypatch.setattr(fleet.os, "chdir", lambda p: chdir_to.update(path=p))
-
-    fake_ctx = object()
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: fake_ctx)
-
-    ran = {}
-
-    class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold):
-            ran.update(interval=interval, labels=labels, base=base, once=once, hold=hold)
-
-    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
-
-    fleet._run_repo(plan=plan, log_queue=_FakeQueue(), once=True)
-
-    assert chdir_to["path"] == plan.path
-    from openagents.hold import Hold
-
-    assert ran == {
-        "interval": 120,
-        "labels": ["x"],
-        "base": "dev",
-        "once": True,
-        "hold": Hold(at_spec=True, at_merge=False),
-    }
 
 
 def test_run_repo_raises_when_not_a_repo(monkeypatch):

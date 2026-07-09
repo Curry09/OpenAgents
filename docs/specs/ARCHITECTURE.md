@@ -218,28 +218,27 @@ graph LR
     nopenagents_cli --> nopenagents_backends_claude_code
     nopenagents_cli --> nopenagents_config
     nopenagents_cli --> nopenagents_envcheck
-    nopenagents_cli --> nopenagents_fleet
-    nopenagents_cli --> nopenagents_fleet_config
     nopenagents_cli --> nopenagents_github
-    nopenagents_cli --> nopenagents_hold
     nopenagents_cli --> nopenagents_identity
-    nopenagents_cli --> nopenagents_messages
-    nopenagents_cli --> nopenagents_orchestrator
+    nopenagents_cli --> nopenagents_recipes
     nopenagents_cli --> nopenagents_recipes_fleet
+    nopenagents_cli --> nopenagents_recipes_merge_pr
     nopenagents_cli --> nopenagents_recipes_poll_comments
+    nopenagents_cli --> nopenagents_recipes_rfc_lifecycle
     nopenagents_cli --> nopenagents_recipes_solve_issue
     nopenagents_cli --> nopenagents_recipes_vigil
     nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
     nopenagents_cli --> nopenagents_runtime_context
+    nopenagents_cli --> nopenagents_runtime_engine
+    nopenagents_cli --> nopenagents_runtime_gates
     nopenagents_cli --> nopenagents_runtime_state
-    nopenagents_cli --> nopenagents_skip
     nopenagents_cli --> nopenagents_state
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_fleet_config
     nopenagents_cli --> nopenagents_utils_git
-    nopenagents_cli --> nopenagents_vigil
-    nopenagents_cli --> nopenagents_workspace
+    nopenagents_cli --> nopenagents_utils_hold
+    nopenagents_cli --> nopenagents_utils_skip
     nopenagents_config --> nopenagents_github
     nopenagents_conflict --> nopenagents
     nopenagents_conflict --> nopenagents_backends_base

@@ -53,7 +53,7 @@ tasks:
     acceptance: vigil 守候段驱动合并推进；认领便签/过期回收 hermetic 可测；RuntimeState 提供 find_run(pr_number=)/issue_number/closed_at；ruff 绿。
   - id: T4
     title: CLI 全量改接新栈 + 删旧路由
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

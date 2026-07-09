@@ -161,32 +161,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="版本号递增位（默认 patch；从最新 vX.Y.Z tag 递增，无 tag 则起点 v0.1.0）",
     )
 
-    # Spec-0061/T4：新栈守候段 poll-comments —— 一次性扫所有 open PR 的新人类评论，派 replier
-    # agent 盖签名回应（additive；旧 poll 的阶段状态机路由不动，两栈并存）。
-    sub.add_parser("poll-comments", help="[新栈] 一次性回应所有 PR 的新人类评论（replier）")
-
-    # Spec-0061/T4：新栈守夜人 vigil-new —— 发现→分诊(triager)→派单(solve_issue)，每轮附带守候段
-    # poll-comments。与旧 vigil 并存（旧 vigil 走 orchestrator/messages 阶段状态机，新栈走 agent 裁决
-    # + recipe 控制流）；additive，不动旧 vigil 路由。
-    p_vigil_new = sub.add_parser(
-        "vigil-new", help="[新栈] 守夜人：发现→分诊→派单(solve_issue)+守候(poll-comments)"
-    )
-    p_vigil_new.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
-    p_vigil_new.add_argument(
-        "--label",
-        action="append",
-        default=None,
-        metavar="LABEL",
-        help="issue 发现的标签门控（可重复），默认 openagents",
-    )
-    p_vigil_new.add_argument("--base", default="main", help="派单求解改动的分支基线（默认 main）")
-    p_vigil_new.add_argument("--once", action="store_true", help="只跑一轮（发现+守候）后退出")
-
-    # Spec-0061/T4：新栈多仓库统管 fleet —— 读一份 YAML（同 vigil-all 格式），为每个仓库各起一隔离
-    # 子进程跑**新栈** vigil-new 并发守夜。与旧 vigil-all 并存（后者扇出旧 vigil）；additive。
-    p_fleet = sub.add_parser(
-        "fleet", help="[新栈] 多仓库统管：按配置并发守夜一组仓库（扇出 vigil-new）"
-    )
+    # Spec-0062/T4：新栈多仓库统管 fleet —— 读一份 YAML（同 vigil-all 格式），为每个仓库各起一隔离
+    # 子进程跑新栈 vigil 并发守夜。vigil-all 收编为本命令的别名（两栈合一后单一实现，见 _dispatch）。
+    p_fleet = sub.add_parser("fleet", help="多仓库统管：按配置并发守夜一组仓库（扇出新栈 vigil）")
     p_fleet.add_argument(
         "--config",
         default=".openagents/fleet.yml",
@@ -217,16 +194,17 @@ def _persist_ui_capable(*, ctx: ProjectContext) -> None:
     _state_for(repo_root=ctx.repo_root).set_ui_capable(value=envcheck.ui_capable())
 
 
-# RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（Orchestrator / Messages / reply-comment）。
+# RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（recipes / reply-comment）。
 # resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，保证 solve / poll / vigil
 # 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
+# Spec-0062/T4：身份解析仍读旧 State（state.py 本批暂留，归一随 Spec-0063），与新栈 recipe 编排解耦。
 def _agent_id_for(*, ctx: ProjectContext) -> str:
     from openagents import identity
 
     return identity.resolve_agent_id(state=_state_for(repo_root=ctx.repo_root))
 
 
-# Spec-0020/T4：单列 backend 工厂——issue 前门对齐（align）与 Orchestrator 共用同一个
+# Spec-0020/T4：单列 backend 工厂——issue 前门对齐（align）与各 recipe 共用同一个
 # ClaudeCodeBackend 抽象，延迟 import 保持 cli 顶层轻、测试可对工厂打桩（不触达真实 LLM）。
 def _backend_for():
     from openagents.backends.claude_code import ClaudeCodeBackend
@@ -234,55 +212,16 @@ def _backend_for():
     return ClaudeCodeBackend()
 
 
-def _orchestrator_for(*, ctx: ProjectContext):
-    from openagents.orchestrator import Orchestrator
-
-    return Orchestrator(
-        backend=_backend_for(),
-        state=_state_for(repo_root=ctx.repo_root),
-        work_dir=ctx.repo_root,
-        agent_id=_agent_id_for(ctx=ctx),
-    )
-
-
-def _messages_for(*, ctx: ProjectContext):
-    from openagents.messages import Messages
-    from openagents.orchestrator import DEFAULT_BASE
-
-    return Messages(
-        orchestrator=_orchestrator_for(ctx=ctx),
-        state=_state_for(repo_root=ctx.repo_root),
-        agent_id=_agent_id_for(ctx=ctx),
-        # 注入 work_dir + base，使 _process_coding 的 BEHIND 拉式同步能调 update_branch / 解冲突。
-        work_dir=str(ctx.repo_root),
-        base=DEFAULT_BASE,
-        # 注入 backend（复用既有工厂），使 merge 闸冲突时派 coding agent 语义解冲突（含 OVERVIEW.md
-        # 经 spec render 重渲）；缺 backend 则解冲突恒不启用，回落 needs-human。
-        backend=_backend_for(),
-    )
-
-
-# Spec-0027/T3：fleet 编排器工厂——注入起真子进程的 spawn / 真跨进程 queue。延迟 import
-# 保持 cli 顶层轻、测试可对本工厂打桩（返回假 Fleet，不真起子进程、不触达真实 gh/后端）。
-def _fleet_for():
-    from openagents.fleet import Fleet, default_queue, default_spawn
-
-    return Fleet(spawn=default_spawn, queue_factory=default_queue)
-
-
-# RFC-0004：守夜人——复用 orchestrator/messages/state 工厂，附 work_dir 供发现段去重。
-def _vigil_for(*, ctx: ProjectContext):
-    from openagents.vigil import Vigil
-
-    return Vigil(
-        orchestrator=_orchestrator_for(ctx=ctx),
-        messages=_messages_for(ctx=ctx),
-        state=_state_for(repo_root=ctx.repo_root),
-        work_dir=ctx.repo_root,
-        # Spec-0049/T3：注入本实例身份，使发现段认领闸能判「最近认领便签是不是别人的」（归属感知）。
-        # 与 orchestrator/messages 复用同一 _agent_id_for（幂等 env>state>生成），跨进程一致。
-        agent_id=_agent_id_for(ctx=ctx),
-    )
+# Spec-0062/T4：RFC 生命周期五 recipe（draft/backfill/refine/implement/iterate）共用的接线参数——
+# backend/state/work_dir/agent_id 一次构造。state 走新栈 RuntimeState（refine/implement/iterate 经
+# find_run(pr_number=) 落到真实 state），身份/后端复用既有幂等工厂，保证同进程一致。
+def _rfc_kwargs(*, ctx: ProjectContext) -> dict:
+    return {
+        "backend": _backend_for(),
+        "state": _new_runtime_state_for(ctx=ctx),
+        "work_dir": ctx.repo_root,
+        "agent_id": _agent_id_for(ctx=ctx),
+    }
 
 
 # Spec-0061/T4：新栈 RuntimeState 工厂——独立命名空间文件 runtime-state.json（与旧 state.json
@@ -317,6 +256,38 @@ def _new_vigil_for(*, ctx: ProjectContext):
     return vigil, poll
 
 
+# Spec-0062/T4：新栈守候段合并推进偏函数——merge_pr 绑定 backend/state/身份/work_dir/hold/skip，
+# 供 Vigil.run 每轮以 merge(runs=, now=) 调用推进 PR 合并。与 _new_vigil_for 分列（后者被 recipes.fleet
+# 直接解包 (vigil, poll)，签名不可变），本工厂按每次 vigil 调用注入本轮解析出的 hold/skip。
+def _new_merge_for(*, ctx: ProjectContext, hold, skip):
+    from functools import partial
+
+    from openagents.recipes.merge_pr import merge_pr
+
+    return partial(
+        merge_pr,
+        backend=_backend_for(),
+        state=_new_runtime_state_for(ctx=ctx),
+        agent_id=_agent_id_for(ctx=ctx),
+        work_dir=ctx.repo_root,
+        hold=hold,
+        skip=skip,
+    )
+
+
+# Spec-0062/T4：一轮守候一次性——先 poll_comments 回应 PR 上的新人类评论，再 merge_pr 推进合并
+# （runs=None → 默认扫所有 open PR 派生迭代源）。poll/watch 共用；backend/state/身份一次构造两段共享。
+def _poll_once(*, ctx: ProjectContext) -> list[dict]:
+    from openagents.recipes.merge_pr import merge_pr
+    from openagents.recipes.poll_comments import poll_comments
+
+    backend = _backend_for()
+    state = _new_runtime_state_for(ctx=ctx)
+    agent_id = _agent_id_for(ctx=ctx)
+    poll_comments(backend=backend, state=state, agent_id=agent_id, work_dir=ctx.repo_root)
+    return merge_pr(backend=backend, state=state, agent_id=agent_id, work_dir=ctx.repo_root)
+
+
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0015 / Spec-0023/T1：统一冷启动兜底——确保全部流程标签就位（幂等：已存在即 no-op），
     # 预建 openagents / rfc-approved / needs-human，消除后续 add_label 报 not found。test 分支
@@ -333,38 +304,47 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0005：起草 RFC 并开 draft PR（状态 rfc-review），等人评审。
+    # Spec-0062/T4：改接新栈 recipes.rfc_lifecycle.draft_rfc（判断在 drafter agent、控制流在 recipe）。
     # Spec-0039/T3：起草前自举一次结构性 prerequisite（流程标签，与 _cmd_vigil/_cmd_init/release
-    # 同源）——start_rfc 现走 _claim_issue 给 issue 打 DISPATCH_LABEL 认领标签，而
-    # `gh issue edit --add-label` 对仓库中不存在的标签报 not found 抛 GithubError。故 `oa rfc`
-    # 与 vigil 一样在入口幂等预建流程标签，恢复未 `oa init` 的仓库上单后端「今日一致」的可跑通。
+    # 同源）——draft_rfc 走 _claim 给 issue 打 DISPATCH_LABEL 认领标签，而 `gh issue edit --add-label`
+    # 对仓库中不存在的标签报 not found 抛 GithubError。故 `oa rfc` 与 vigil 一样在入口幂等预建流程标签。
+    from openagents.recipes import rfc_lifecycle
+
     github.ensure_prerequisites()
-    pr = _orchestrator_for(ctx=ctx).start_rfc(issue_number=args.issue, base=args.base)
-    print(f"✓ 已为 issue #{args.issue} 起草 RFC 并开 draft PR：{pr.url}")
+    result = rfc_lifecycle.draft_rfc(
+        issue_number=args.issue, base=args.base, **_rfc_kwargs(ctx=ctx)
+    )
+    print(f"✓ 已为 issue #{args.issue} 起草 RFC 并开 draft PR #{result['pr_number']}")
     return 0
 
 
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0025/T3：薄路由——把代码路径转发到 backfill_rfc，业务逻辑全在 orchestrator/backfill。
-    pr = _orchestrator_for(ctx=ctx).backfill_rfc(path=args.path, base=args.base)
-    print(f"✓ 已为 `{args.path}` 反向补全 spec 并开 draft PR：{pr.url}")
+    # Spec-0062/T4：改接新栈 recipes.rfc_lifecycle.backfill_rfc（据代码路径反推 spec 开 draft PR）。
+    from openagents.recipes import rfc_lifecycle
+
+    result = rfc_lifecycle.backfill_rfc(path=args.path, base=args.base, **_rfc_kwargs(ctx=ctx))
+    print(f"✓ 已为 `{args.path}` 反向补全 spec 并开 draft PR #{result['pr_number']}")
     return 0
 
 
 def _cmd_refine_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0005：取该 PR 最新评论作评审意见，精炼 RFC 并回贴说明。
+    # Spec-0062/T4：改接新栈 recipes.rfc_lifecycle.refine_rfc——取该 PR 最新评论作评审意见精炼 spec。
+    from openagents.recipes import rfc_lifecycle
+
     detail = _latest_comment_body(pr_number=args.pr)
     if detail is None:
         print(f"✗ PR #{args.pr} 暂无可用于精炼 RFC 的评论", file=sys.stderr)
         return 1
-    _orchestrator_for(ctx=ctx).refine_rfc(pr_number=args.pr, detail=detail)
+    rfc_lifecycle.refine_rfc(pr_number=args.pr, detail=detail, **_rfc_kwargs(ctx=ctx))
     print(f"✓ 已按评审意见精炼 PR #{args.pr} 的 RFC 并回贴说明")
     return 0
 
 
 def _cmd_implement(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0005：RFC 获批后按其实现代码并把 draft PR 转正（状态 pr-open）。
-    _orchestrator_for(ctx=ctx).implement(pr_number=args.pr)
+    # Spec-0062/T4：改接新栈 recipes.rfc_lifecycle.implement——按获批 spec 实现代码并把 draft PR 转正。
+    from openagents.recipes import rfc_lifecycle
+
+    rfc_lifecycle.implement(pr_number=args.pr, **_rfc_kwargs(ctx=ctx))
     print(f"✓ 已按 RFC 实现 PR #{args.pr} 的代码并转正")
     return 0
 
@@ -396,20 +376,24 @@ def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0005：coding 阶段就 comment/CI 反馈手动迭代（与 poll 自动驱动同一操作）。
+    # Spec-0062/T4：改接新栈 recipes.rfc_lifecycle.iterate——coding 阶段就 comment/CI 反馈手动迭代。
+    from openagents.recipes import rfc_lifecycle
+
     if args.reason == "ci":
         detail = "\n".join(github.check_status(pr_number=args.pr).failed_logs)
     else:
         detail = _latest_comment_body(pr_number=args.pr) or ""
-    _orchestrator_for(ctx=ctx).iterate(pr_number=args.pr, reason=args.reason, detail=detail)
+    rfc_lifecycle.iterate(
+        pr_number=args.pr, reason=args.reason, detail=detail, **_rfc_kwargs(ctx=ctx)
+    )
     print(f"✓ 已就 PR #{args.pr} 的 {args.reason} 反馈迭代")
     return 0
 
 
 def _latest_comment_body(*, pr_number: int) -> str | None:
     # RFC-0005 决策 6 / RFC-0019：仅供**手动** refine_rfc / iterate 取最近一条评论作上下文
-    # （人显式发起、无自循环风险，故不做任何过滤）。自动流转不走这里——它由 reviewer 闸驱动，
-    # messages.poll 不读 PR 评论（评论驱动读侧已退役，见 RFC-0012 / RFC-0019）。
+    # （人显式发起、无自循环风险，故不做任何过滤）。自动流转不走这里——PR 上的人机对话由新栈
+    # 守候段 recipes.poll_comments 驱动（Spec-0062/T4），评论驱动读侧已退役（见 RFC-0012 / RFC-0019）。
     comments = github.list_comments(pr_number=pr_number)
     if not comments:
         return None
@@ -456,94 +440,66 @@ def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_poll(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0001 T5: 一次性扫描所有 open PR 的 CI / 新评论并触发 iterate。
-    # Spec-0055/T1：进 poll 前固化一次 e2e 能力状态量（供本轮 orchestrator 起草/评审读）。
+    # Spec-0062/T4：一次性守候——poll_comments 回应新人类评论 + merge_pr 推进合并（收编旧 poll-comments）。
+    # Spec-0055/T1：进 poll 前固化一次 e2e 能力状态量（供本轮起草/评审读）。
     _persist_ui_capable(ctx=ctx)
-    events = _messages_for(ctx=ctx).poll()
+    events = _poll_once(ctx=ctx)
     print(f"✓ poll 完成，处理 {len(events)} 个事件")
     return 0
 
 
 def _cmd_watch(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0001 T5（决策 6）：按间隔循环 poll，自动化拉取直到无 open PR。
+    # Spec-0062/T4：按间隔循环守候一次性（poll_comments + merge_pr），无 open PR 或 Ctrl-C 时退出。
     # Spec-0055/T1：进循环前固化一次 e2e 能力状态量。
+    import time
+
     _persist_ui_capable(ctx=ctx)
-    _messages_for(ctx=ctx).watch(interval=args.interval)
+    try:
+        while github.list_open_prs():
+            _poll_once(ctx=ctx)
+            if not github.list_open_prs():
+                break
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        pass
     return 0
 
 
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0004：守夜人主循环。--label 缺省回落到发现标签（决策 2，与提 issue 同源 → DISCOVERY_LABEL）。
-    from openagents.hold import parse_hold
-    from openagents.skip import parse_skip, reconcile_hold_skip
+    # Spec-0062/T4：守夜人主循环全量改接新栈（收编旧 vigil-new）——发现→分诊(triager)→派单(solve_issue)，
+    # 每轮守候段回应评论(poll_comments) + 推进合并(merge_pr)。--label 缺省回落发现标签（决策 2）。
+    from openagents.utils.hold import parse_hold
+    from openagents.utils.skip import parse_skip, reconcile_hold_skip
 
     labels = args.label if args.label else [DISCOVERY_LABEL]
-    # Spec-0020/T4：把 --hold 原始串解析成 Hold（None → 默认全不停），传给 vigil.run；
-    # 非法值由 parse_hold 抛 ValueError，经 _run 的异常通道转干净一行提示（不 traceback）。
+    # Spec-0020/T4：把 --hold 原始串解析成 Hold（None → 默认全不停）；Spec-0054/T3：--skip 解析成 Skip
+    # （None → 全闸开启）再 reconcile 校验与 hold 对同一闸的矛盾意图。非法值 / 矛盾都抛 ValueError，
+    # 经 _run 的异常通道转干净一行提示（不 traceback）。hold/skip 经守候段 merge_pr 落地（对称短路）。
     hold = parse_hold(raw=args.hold)
-    # Spec-0054/T3：把 --skip 解析成 Skip（None → 默认全闸开启），再 reconcile_hold_skip 校验
-    # 与 hold 对同一闸的矛盾意图（如 --hold spec --skip spec）——非法值 / 矛盾都抛 ValueError，
-    # 经 _run 的既有异常通道转干净一行提示（不 traceback）。
     skip = parse_skip(raw=args.skip)
     reconcile_hold_skip(hold=hold, skip=skip)
     # RFC-0015 / Spec-0023/T1：进主循环前自举一次结构性 prerequisite（流程标签），使无人值守
-    # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段。test 分支门控退役后
-    # 日常 base 改回恒存在的 main，无需分支自举。只在进循环前一次，不进每轮（自恢复定位）。
+    # 的守夜进程自恢复——全新仓库直接 vigil（不先 init）也能跑通发现段。只在进循环前一次。
     github.ensure_prerequisites()
     # Spec-0055/T1：进主循环前固化一次 e2e 能力状态量（与 ensure_prerequisites 同为「进循环前一次」）。
     _persist_ui_capable(ctx=ctx)
-    _vigil_for(ctx=ctx).run(
+    vigil, poll = _new_vigil_for(ctx=ctx)
+    merge = _new_merge_for(ctx=ctx, hold=hold, skip=skip)
+    vigil.run(
         interval=args.interval,
         labels=labels,
         base=args.base,
         once=args.once,
-        hold=hold,
-        skip=skip,
+        poll=poll,
+        merge=merge,
     )
-    return 0
-
-
-def _cmd_vigil_all(args: argparse.Namespace) -> int:
-    # Spec-0027/T3：薄路由——读 fleet 配置（解析+校验+默认合并，T1）→ Fleet.run 并发守夜（T2）。
-    # 不取 cwd 项目 ctx：vigil-all 统管的是配置里列出的「别的仓库」，本身可在任意目录运行
-    # （配置路径相对 cwd 解析），故不像其它命令那样走 ensure_project preflight（见 _dispatch）。
-    from openagents.fleet_config import load_fleet_config
-
-    plans = load_fleet_config(path=Path(args.config))
-    _fleet_for().run(plans=plans, once=args.once)
-    return 0
-
-
-def _cmd_poll_comments(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0061/T4：新栈守候段薄接线——一次性跑 poll_comments recipe（业务判断在 replier agent、
-    # 控制流在 recipe）。work_dir 传 repo 根（本批 replier 在此运行做回应/答疑；深度改代码需 PR
-    # worktree 留后续批次，见 spec Unresolved）。
-    from openagents.recipes.poll_comments import poll_comments
-
-    events = poll_comments(
-        backend=_backend_for(),
-        state=_new_runtime_state_for(ctx=ctx),
-        agent_id=_agent_id_for(ctx=ctx),
-        work_dir=ctx.repo_root,
-    )
-    print(f"✓ [新栈] poll-comments 完成，处理 {len(events)} 个事件")
-    return 0
-
-
-def _cmd_vigil_new(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0061/T4：新栈守夜人薄接线。--label 缺省回落发现标签（与提 issue 同源 → DISCOVERY_LABEL）。
-    # 进主循环前自举流程标签（幂等），使全新仓库直接 vigil-new 也能跑通发现段（与旧 vigil 同源）。
-    github.ensure_prerequisites()
-    labels = args.label if args.label else [DISCOVERY_LABEL]
-    vigil, poll = _new_vigil_for(ctx=ctx)
-    vigil.run(interval=args.interval, labels=labels, base=args.base, once=args.once, poll=poll)
     return 0
 
 
 def _cmd_fleet(args: argparse.Namespace) -> int:
-    # Spec-0061/T4：新栈多仓库统管薄路由——读 fleet 配置（复用 utils.fleet_config 解析）→ run_fleet
-    # 扇出新栈 vigil-new（每仓一子进程）。同 vigil-all 不取 cwd 项目 ctx（统管的是配置里的别的仓库，
-    # 可在任意目录运行；preflight 由各子进程在自己仓库里做），故在 _dispatch 里同样跳过 cwd preflight。
+    # Spec-0062/T4：多仓库统管薄路由（vigil-all 收编为本命令别名）——读 fleet 配置（utils.fleet_config
+    # 解析）→ run_fleet 扇出新栈 vigil（每仓一子进程）。不取 cwd 项目 ctx（统管的是配置里的别的仓库，
+    # 可在任意目录运行；preflight 由各子进程在自己仓库里做），故在 _dispatch 里跳过 cwd preflight。
     from openagents.recipes.fleet import run_fleet
     from openagents.utils.fleet_config import load_fleet_config
 
@@ -581,11 +537,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "board":
         return _cmd_board(args)
 
-    # Spec-0027/T3 + Spec-0061/T4：vigil-all / fleet 统管的是配置里列出的别的仓库，cwd 不必是 git
+    # Spec-0027/T3 + Spec-0062/T4：vigil-all / fleet 统管的是配置里列出的别的仓库，cwd 不必是 git
     # 仓库——同 board 跳过 cwd 项目 preflight，直接读配置并扇出（preflight 由各子进程在自己的仓库里做）。
-    if args.command == "vigil-all":
-        return _cmd_vigil_all(args)
-    if args.command == "fleet":
+    # vigil-all 收编为 fleet 的别名，两栈合一后单一实现（同参 --config/--once，同走新栈 run_fleet）。
+    if args.command in ("vigil-all", "fleet"):
         return _cmd_fleet(args)
 
     ctx = ensure_project(interactive=True)
@@ -602,8 +557,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         "poll": _cmd_poll,
         "watch": _cmd_watch,
         "vigil": _cmd_vigil,
-        "poll-comments": _cmd_poll_comments,
-        "vigil-new": _cmd_vigil_new,
         "release": _cmd_release,
     }
     return handlers[args.command](args, ctx)
@@ -612,10 +565,15 @@ def _dispatch(args: argparse.Namespace) -> int:
 def _run(args: argparse.Namespace) -> int:
     # RFC-0003 决策 9：把已知的运行期错误转成干净的一行提示 + 非零退出，
     # 不再把 Python traceback 糊用户一脸（业务异常延迟 import）。
-    from openagents.fleet_config import FleetConfigError
+    # Spec-0062/T4：错误类型改接新栈——RFC 生命周期编排失败走 recipes.rfc_lifecycle.RfcLifecycleError
+    # + runtime 层的 GateError（head 未前移/证据戳不匹配）/ AgentOutputError（agent 结构化输出非法）；
+    # WorkspaceError/FleetConfigError 改从 utils 稳定面 import。
     from openagents.github import GithubError
-    from openagents.orchestrator import OrchestratorError
-    from openagents.workspace import WorkspaceError
+    from openagents.recipes.rfc_lifecycle import RfcLifecycleError
+    from openagents.runtime.engine import AgentOutputError
+    from openagents.runtime.gates import GateError
+    from openagents.utils.fleet_config import FleetConfigError
+    from openagents.utils.git import WorkspaceError
 
     try:
         return _dispatch(args)
@@ -633,7 +591,9 @@ def _run(args: argparse.Namespace) -> int:
         )
         return 1
     except (
-        OrchestratorError,
+        RfcLifecycleError,
+        GateError,
+        AgentOutputError,
         GithubError,
         WorkspaceError,
         FleetConfigError,

@@ -3,6 +3,10 @@
 RFC-0005：一站式 solve 已移除，旧栈改为 rfc / refine-rfc / implement / iterate 四个原子步骤。
 Spec-0060/T6：**新栈** additive 重新引入 `solve` 子命令——走 solve_issue recipe（plan→implement→
 review 循环→deliver），与旧四步原子命令并存（旧路由不动）。故不再断言「solve 不存在」。
+Spec-0062/T4：CLI 全量改接新栈——rfc/backfill-rfc/refine-rfc/implement/iterate 走 recipes.rfc_lifecycle，
+poll/watch 走 poll_comments+merge_pr 一次性，vigil 走新栈 _new_vigil_for + _new_merge_for（hold/skip
+经守候段 merge_pr 落地）。本文件路由用例随之打桩到新栈 recipe/工厂入口（旧 _orchestrator_for/
+_messages_for/_vigil_for 工厂已删）。
 """
 
 from pathlib import Path
@@ -90,8 +94,12 @@ def _patch_ensure(monkeypatch):
     return calls
 
 
-class _FakePR:
-    url = "https://github.com/x/y/pull/9"
+def _stub_rfc_factories(monkeypatch):
+    # Spec-0062/T4：RFC recipe 接线参数（_rfc_kwargs）会实构造 backend/身份/RuntimeState——打桩成
+    # sentinel 保持路由测试 hermetic（不触真实 ClaudeCodeBackend、不读写真实 state.json）。
+    monkeypatch.setattr("openagents.cli._backend_for", lambda: object())
+    monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
+    monkeypatch.setattr("openagents.cli._new_runtime_state_for", lambda *, ctx: object())
 
 
 # --------------------------------------------------------------------------- #
@@ -101,52 +109,52 @@ class _FakePR:
 
 def test_rfc_runs_preflight_then_opens_draft_pr(monkeypatch):
     calls = _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
 
-    class _FakeOrch:
-        def start_rfc(self, *, issue_number, base):
-            assert issue_number == 1
-            # Spec-0023/T4：rfc 默认基线为 main（test 门控退役）。
-            assert base == "main"
-            return _FakePR()
+    def _fake_draft(*, issue_number, base, backend, state, work_dir, agent_id):
+        assert issue_number == 1
+        # Spec-0023/T4：rfc 默认基线为 main（test 门控退役）。
+        assert base == "main"
+        return {"pr_number": 9}
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.draft_rfc", _fake_draft)
     code = main(["rfc", "1"])
     assert code == 0
     assert calls == [True]
 
 
-def test_rfc_bootstraps_prerequisites_before_start_rfc(monkeypatch):
-    # Spec-0039/T3：start_rfc 现走 _claim_issue 给 issue 打 DISPATCH_LABEL 认领标签，而
+def test_rfc_bootstraps_prerequisites_before_draft(monkeypatch):
+    # Spec-0039/T3：draft_rfc 现走 _claim 给 issue 打 DISPATCH_LABEL 认领标签，而
     # `gh issue edit --add-label` 对仓库中不存在的标签报 not found。故 `oa rfc` 必须像 vigil 一样
     # 在入口先幂等预建流程标签——否则未 `oa init` 的仓库上 rfc 首派单必抛 GithubError（回归）。
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     order = []
     monkeypatch.setattr(
         "openagents.github.ensure_prerequisites", lambda: order.append("prerequisites")
     )
 
-    class _FakeOrch:
-        def start_rfc(self, *, issue_number, base):
-            order.append("start_rfc")
-            return _FakePR()
+    def _fake_draft(*, issue_number, base, backend, state, work_dir, agent_id):
+        order.append("draft_rfc")
+        return {"pr_number": 9}
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.draft_rfc", _fake_draft)
     code = main(["rfc", "1"])
     assert code == 0
     # 预建流程标签必须发生在起草（→ 认领打标）之前，恰一次。
-    assert order == ["prerequisites", "start_rfc"]
+    assert order == ["prerequisites", "draft_rfc"]
 
 
 def test_rfc_passes_base_override(monkeypatch):
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def start_rfc(self, *, issue_number, base):
-            seen.update(issue_number=issue_number, base=base)
-            return _FakePR()
+    def _fake_draft(*, issue_number, base, backend, state, work_dir, agent_id):
+        seen.update(issue_number=issue_number, base=base)
+        return {"pr_number": 9}
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.draft_rfc", _fake_draft)
     code = main(["rfc", "7", "--base", "dev"])
     assert code == 0
     assert seen == {"issue_number": 7, "base": "dev"}
@@ -154,13 +162,13 @@ def test_rfc_passes_base_override(monkeypatch):
 
 def test_rfc_reports_error_cleanly_without_traceback(monkeypatch, capsys):
     _patch_ensure(monkeypatch)
-    from openagents.orchestrator import OrchestratorError
+    _stub_rfc_factories(monkeypatch)
+    from openagents.recipes.rfc_lifecycle import RfcLifecycleError
 
-    class _Boom:
-        def start_rfc(self, *, issue_number, base):
-            raise OrchestratorError("push 被拒：non-fast-forward")
+    def _boom(*, issue_number, base, backend, state, work_dir, agent_id):
+        raise RfcLifecycleError("push 被拒：non-fast-forward")
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _Boom())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.draft_rfc", _boom)
     code = main(["rfc", "3"])
 
     assert code == 1
@@ -205,14 +213,14 @@ def test_internal_module_error_still_raises_traceback(monkeypatch):
 
 def test_backfill_rfc_runs_preflight_then_forwards_path(monkeypatch):
     calls = _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def backfill_rfc(self, *, path, base):
-            seen.update(path=path, base=base)
-            return _FakePR()
+    def _fake_backfill(*, path, base, backend, state, work_dir, agent_id):
+        seen.update(path=path, base=base)
+        return {"pr_number": 9}
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.backfill_rfc", _fake_backfill)
     code = main(["backfill-rfc", "openagents/release.py"])
     assert code == 0
     assert calls == [True]
@@ -222,29 +230,30 @@ def test_backfill_rfc_runs_preflight_then_forwards_path(monkeypatch):
 
 def test_backfill_rfc_passes_base_override(monkeypatch):
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def backfill_rfc(self, *, path, base):
-            seen.update(path=path, base=base)
-            return _FakePR()
+    def _fake_backfill(*, path, base, backend, state, work_dir, agent_id):
+        seen.update(path=path, base=base)
+        return {"pr_number": 9}
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.backfill_rfc", _fake_backfill)
     code = main(["backfill-rfc", "openagents/backends", "--base", "dev"])
     assert code == 0
     assert seen == {"path": "openagents/backends", "base": "dev"}
 
 
 def test_backfill_rfc_reports_bad_path_cleanly(monkeypatch, capsys):
-    # BackfillError 继承 ValueError → cli._run 转干净一行提示 + 非零退出（无 traceback）。
+    # Spec-0062/T4：反推失败（如路径不存在）由 recipe 抛 RfcLifecycleError → cli._run 转干净一行
+    # 提示 + 非零退出（无 traceback）。
     _patch_ensure(monkeypatch)
-    from openagents.backfill import BackfillError
+    _stub_rfc_factories(monkeypatch)
+    from openagents.recipes.rfc_lifecycle import RfcLifecycleError
 
-    class _Boom:
-        def backfill_rfc(self, *, path, base):
-            raise BackfillError("路径不存在：nope")
+    def _boom(*, path, base, backend, state, work_dir, agent_id):
+        raise RfcLifecycleError("路径不存在：nope")
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _Boom())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.backfill_rfc", _boom)
     code = main(["backfill-rfc", "nope"])
     assert code == 1
     err = capsys.readouterr().err
@@ -257,16 +266,16 @@ def test_backfill_rfc_reports_bad_path_cleanly(monkeypatch, capsys):
 # --------------------------------------------------------------------------- #
 
 
-def test_refine_rfc_fetches_latest_comment_and_calls_orchestrator(monkeypatch):
+def test_refine_rfc_fetches_latest_comment_and_calls_recipe(monkeypatch):
     # RFC-0005 决策 6 / RFC-0011：取最新评论作 detail，不按作者过滤——人与 agent 共用账号时仍能触发。
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def refine_rfc(self, *, pr_number, detail):
-            seen.update(pr_number=pr_number, detail=detail)
+    def _fake_refine(*, pr_number, detail, backend, state, work_dir, agent_id):
+        seen.update(pr_number=pr_number, detail=detail)
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.refine_rfc", _fake_refine)
     monkeypatch.setattr(
         "openagents.github.list_comments",
         lambda *, pr_number: [
@@ -286,11 +295,10 @@ def test_refine_rfc_without_any_comment_returns_nonzero(monkeypatch, capsys):
     # RFC-0005 决策 6：不再按作者过滤；仅当 PR 上完全没有评论时才报错退出。
     _patch_ensure(monkeypatch)
 
-    class _FakeOrch:
-        def refine_rfc(self, *, pr_number, detail):
-            raise AssertionError("无评论时不应调用 refine_rfc")
+    def _fake_refine(*, pr_number, detail, backend, state, work_dir, agent_id):
+        raise AssertionError("无评论时不应调用 refine_rfc")
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.refine_rfc", _fake_refine)
     monkeypatch.setattr("openagents.github.list_comments", lambda *, pr_number: [])
 
     code = main(["refine-rfc", "9"])
@@ -303,15 +311,15 @@ def test_refine_rfc_without_any_comment_returns_nonzero(monkeypatch, capsys):
 # --------------------------------------------------------------------------- #
 
 
-def test_implement_calls_orchestrator(monkeypatch):
+def test_implement_calls_recipe(monkeypatch):
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def implement(self, *, pr_number):
-            seen.update(pr_number=pr_number)
+    def _fake_impl(*, pr_number, backend, state, work_dir, agent_id):
+        seen.update(pr_number=pr_number)
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.implement", _fake_impl)
     code = main(["implement", "9"])
     assert code == 0
     assert seen == {"pr_number": 9}
@@ -324,13 +332,13 @@ def test_implement_calls_orchestrator(monkeypatch):
 
 def test_iterate_comment_fetches_latest_human_comment(monkeypatch):
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def iterate(self, *, pr_number, reason, detail):
-            seen.update(pr_number=pr_number, reason=reason, detail=detail)
+    def _fake_iter(*, pr_number, reason, detail, backend, state, work_dir, agent_id):
+        seen.update(pr_number=pr_number, reason=reason, detail=detail)
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.iterate", _fake_iter)
     monkeypatch.setattr(
         "openagents.github.list_comments",
         lambda *, pr_number: [
@@ -347,13 +355,13 @@ def test_iterate_ci_uses_check_status(monkeypatch):
     from openagents.github import CheckStatus
 
     _patch_ensure(monkeypatch)
+    _stub_rfc_factories(monkeypatch)
     seen = {}
 
-    class _FakeOrch:
-        def iterate(self, *, pr_number, reason, detail):
-            seen.update(pr_number=pr_number, reason=reason, detail=detail)
+    def _fake_iter(*, pr_number, reason, detail, backend, state, work_dir, agent_id):
+        seen.update(pr_number=pr_number, reason=reason, detail=detail)
 
-    monkeypatch.setattr("openagents.cli._orchestrator_for", lambda *, ctx: _FakeOrch())
+    monkeypatch.setattr("openagents.recipes.rfc_lifecycle.iterate", _fake_iter)
     monkeypatch.setattr(
         "openagents.github.check_status",
         lambda *, pr_number: CheckStatus(state="fail", failed_logs=["lint [FAILURE] http://x"]),
@@ -519,15 +527,23 @@ def test_issue_yes_skips_alignment(monkeypatch):
 
 
 def _patch_vigil_capture(monkeypatch):
+    # Spec-0062/T4：vigil 全量改接新栈——发现/守候 poll 走 _new_vigil_for（返回 (Vigil, poll) 二元组），
+    # 守候合并走 _new_merge_for（本轮解析出的 hold/skip 经此注入 merge_pr，新 Vigil.run 不再收 hold/skip）。
     monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold, skip=None):
-            seen["hold"] = hold
-            seen["skip"] = skip
+        def run(self, *, interval, labels, base, once, poll, merge):
+            seen.update(interval=interval, labels=labels, base=base, once=once)
 
-    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    monkeypatch.setattr("openagents.cli._new_vigil_for", lambda *, ctx: (_FakeVigil(), object()))
+
+    def _fake_merge_for(*, ctx, hold, skip):
+        seen["hold"] = hold
+        seen["skip"] = skip
+        return object()
+
+    monkeypatch.setattr("openagents.cli._new_merge_for", _fake_merge_for)
     return seen
 
 
@@ -566,13 +582,11 @@ def test_vigil_invalid_hold_errors_cleanly(monkeypatch, capsys):
 
 
 def test_poll_runs_preflight_then_polls(monkeypatch):
+    # Spec-0062/T4：poll 一次性守候——收编旧 poll-comments，走 _poll_once（poll_comments + merge_pr）。
     calls = _patch_ensure(monkeypatch)
-
-    class _FakeMessages:
-        def poll(self):
-            return [{"pr_number": 9, "reason": "comment"}]
-
-    monkeypatch.setattr("openagents.cli._messages_for", lambda *, ctx: _FakeMessages())
+    monkeypatch.setattr(
+        "openagents.cli._poll_once", lambda *, ctx: [{"pr_number": 9, "reason": "merged"}]
+    )
     code = main(["poll"])
     assert code == 0
     assert calls == [True]
@@ -603,12 +617,16 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold, skip=None):
-            seen.update(
-                interval=interval, labels=labels, base=base, once=once, hold=hold, skip=skip
-            )
+        def run(self, *, interval, labels, base, once, poll, merge):
+            seen.update(interval=interval, labels=labels, base=base, once=once)
 
-    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    monkeypatch.setattr("openagents.cli._new_vigil_for", lambda *, ctx: (_FakeVigil(), object()))
+
+    def _fake_merge_for(*, ctx, hold, skip):
+        seen.update(hold=hold, skip=skip)
+        return object()
+
+    monkeypatch.setattr("openagents.cli._new_merge_for", _fake_merge_for)
     code = main(["vigil"])
     assert code == 0
     assert calls == [True]
@@ -633,12 +651,16 @@ def test_vigil_passes_all_overrides(monkeypatch):
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold, skip=None):
-            seen.update(
-                interval=interval, labels=labels, base=base, once=once, hold=hold, skip=skip
-            )
+        def run(self, *, interval, labels, base, once, poll, merge):
+            seen.update(interval=interval, labels=labels, base=base, once=once)
 
-    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    monkeypatch.setattr("openagents.cli._new_vigil_for", lambda *, ctx: (_FakeVigil(), object()))
+
+    def _fake_merge_for(*, ctx, hold, skip):
+        seen.update(hold=hold, skip=skip)
+        return object()
+
+    monkeypatch.setattr("openagents.cli._new_merge_for", _fake_merge_for)
     code = main(
         ["vigil", "--once", "--interval", "5", "--label", "a", "--label", "b", "--base", "dev"]
     )
@@ -815,28 +837,10 @@ def test_agent_id_for_honors_env_override(monkeypatch, tmp_path):
     assert _agent_id_for(ctx=ctx) == "alice"
 
 
-def test_orchestrator_and_messages_share_resolved_agent_id(monkeypatch, tmp_path):
-    # RFC-0011 决策 7：Orchestrator / Messages 经接线拿到同一个 agent_id（poll 与其内部
-    # orchestrator 行为一致）。打桩 backend 工厂避免触达真实 ClaudeCodeBackend。
-    from openagents.cli import _messages_for, _orchestrator_for
-    from openagents.config import ProjectContext
-
-    monkeypatch.delenv("OPENAGENTS_AGENT_ID", raising=False)
-
-    class _StubBackend:
-        name = "stub"
-
-        def run(self, *, work_dir, task, context):
-            raise AssertionError("不应在接线测试中真正调用 backend")
-
-    monkeypatch.setattr("openagents.backends.claude_code.ClaudeCodeBackend", _StubBackend)
-    ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
-
-    orch = _orchestrator_for(ctx=ctx)
-    msgs = _messages_for(ctx=ctx)
-
-    assert orch._agent_id
-    assert orch._agent_id == msgs._agent_id == msgs._orchestrator._agent_id
+# Spec-0062/T4：旧 test_orchestrator_and_messages_share_resolved_agent_id 已删除——Orchestrator/
+# Messages 工厂随两栈合一移除，「同进程解析出同一 agent_id」的不变量现由 _agent_id_for 幂等性
+# 单独保证（见 test_agent_id_for_resolves_and_is_stable），新栈各 recipe 经 _rfc_kwargs/_poll_once
+# 复用同一 _agent_id_for，无需再跨两个已删对象断言身份一致。
 
 
 # --------------------------------------------------------------------------- #
@@ -858,7 +862,7 @@ def _capture_persist(monkeypatch):
 def test_poll_persists_ui_capable(monkeypatch):
     _patch_ensure(monkeypatch)
     seen = _capture_persist(monkeypatch)
-    monkeypatch.setattr("openagents.cli._messages_for", lambda *, ctx: _FakeMessagesNoop())
+    monkeypatch.setattr("openagents.cli._poll_once", lambda *, ctx: [])
     code = main(["poll"])
     assert code == 0
     assert seen["called"] == 1
@@ -871,8 +875,3 @@ def test_vigil_persists_ui_capable(monkeypatch):
     code = main(["vigil", "--once"])
     assert code == 0
     assert seen["called"] == 1
-
-
-class _FakeMessagesNoop:
-    def poll(self):
-        return []
