@@ -24,7 +24,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from openagents.fleet_config import RepoPlan
+from openagents.utils.fleet_config import RepoPlan
 
 # Spec-0027/T2：父进程轮询日志队列的阻塞窗口（秒）。短超时让父进程在「无新日志」与
 # 「检查子进程是否都已退出」之间快速轮转，既不忙等也不错过停止时机。
@@ -69,8 +69,9 @@ def _run_repo(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
     import」惯例，避免与 cli 形成顶层循环依赖。
     """
     os.chdir(plan.path)
-    from openagents import cli, config
-    from openagents.hold import parse_hold
+    from openagents import cli
+    from openagents.utils import config
+    from openagents.utils.hold import parse_hold
 
     ctx = config.resolve_project()
     if ctx is None:

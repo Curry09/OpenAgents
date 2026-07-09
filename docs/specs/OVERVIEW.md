@@ -168,6 +168,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 - e2e 意图：证明批次二架构契约在离线确定性链路上成立——vigil recipe 只按 triager 结构化裁决路由（actionable→dispatch / 否→_park）、去重三闸确定性滤新；poll_comments 只做拉新人类评论→replier→签名回帖→游标推进纯控制流、单 PR 失败错误隔离；fleet 复用旧 Fleet 监管器扇出新栈 vigil；triager/replier 零逻辑、三 recipe 不直调 gh/git/subprocess。
   - 测法：形态：纯后端编排，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法： 1. 契约路由 + 各层针对性 pytest（假 backend 喂 canned 结构化裁决，不触真实 LLM/网络/仓库）：    vigil 分诊路由 + 去重三闸；poll_comments 游标推进/错误隔离；fleet 扇出 + worker；CLI 三命令解析转发。 2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：triager/replier 只含 Template( + OUTPUT_SCHEMA 且无    def/subprocess；三 recipe 无 subprocess、不直接 import 原始 openagents.github/workspace（只经 utils）。 3. 真实多仓守夜冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil-new / oa fleet    跑通、PR CI 全绿——作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0061-agents-recipes-flows.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0062 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
+承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再把 15 个原语(含 fleet/align)物理搬迁进 utils 并删掉 10 个纯编排/判断旧模块(orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag)、收敛其测试桩，flat 层收敛为 cli/__init__/state 三文件，实现两栈合一。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -387,6 +390,12 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0061 | 0061/T2 | triager + replier agent（零逻辑 Template 提示词） | done | T1 | openagents/agents/triager.py<br>openagents/agents/replier.py |
 | 0061 | 0061/T3 | vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装 | done | T1, T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/fleet.py<br>openagents/runtime/context.py |
 | 0061 | 0061/T4 | CLI additive 接线新栈守候/守夜/舰队三命令 | done | T3 | openagents/cli.py<br>tests/test_agents_triager_replier.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py<br>tests/test_recipe_fleet.py<br>tests/test_cli_new_stack.py<br>scripts/e2e-spec-0061-agents-recipes-flows.sh |
+| 0062 | 0062/T1 | RFC 生命周期 recipes + drafter agent（additive） | done | — | openagents/recipes/rfc_lifecycle.py<br>openagents/agents/drafter.py<br>tests/test_recipe_rfc_lifecycle.py<br>tests/test_agents_drafter.py |
+| 0062 | 0062/T2 | merge_pr recipe + 合并流水线 gates（additive） | done | — | openagents/recipes/merge_pr.py<br>openagents/runtime/gates.py<br>tests/test_recipe_merge_pr.py |
+| 0062 | 0062/T3 | vigil 认领归属+过期回收 + 守候段接 merge_pr | done | T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>openagents/runtime/state.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py |
+| 0062 | 0062/T4 | CLI 全量改接新栈 + 删旧路由 | done | T3 | openagents/cli.py<br>tests/test_cli_new_stack.py |
+| 0062 | 0062/T5 | 物理搬迁 utils 原语 + 清空整个 flat 旧模块层 | done | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/blocknote.py<br>openagents/utils/replynote.py<br>openagents/utils/worknote.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py<br>openagents/utils/workspace.py<br>openagents/utils/github.py<br>openagents/utils/align.py |
+| 0062 | 0062/T6 | 测试收敛 + docs 再生成 | done | T5 | tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_vigil.py<br>tests/test_issuecheck.py<br>tests/test_ensure_prerequisites.py |
 
 ## 跨 feature 关系图
 
@@ -711,6 +720,14 @@ graph LR
         n0061_T3["T3 vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装"]
         n0061_T4["T4 CLI additive 接线新栈守候/守夜/舰队三命令"]
     end
+    subgraph G0062[0062 agents-recipes-converge]
+        n0062_T1["T1 RFC 生命周期 recipes + drafter agent（additive）"]
+        n0062_T2["T2 merge_pr recipe + 合并流水线 gates（additive）"]
+        n0062_T3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
+        n0062_T4["T4 CLI 全量改接新栈 + 删旧路由"]
+        n0062_T5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
+        n0062_T6["T6 测试收敛 + docs 再生成"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -902,6 +919,10 @@ graph LR
     n0061_T3 --> n0061_T1
     n0061_T3 --> n0061_T2
     n0061_T4 --> n0061_T3
+    n0062_T3 --> n0062_T2
+    n0062_T4 --> n0062_T3
+    n0062_T5 --> n0062_T4
+    n0062_T6 --> n0062_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -923,7 +944,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -938,11 +959,15 @@ graph LR
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
+| openagents/recipes/poll_comments.py | 0061, 0062 |
+| openagents/recipes/vigil.py | 0061, 0062 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/runtime/context.py | 0060, 0061 |
+| openagents/runtime/gates.py | 0060, 0062 |
+| openagents/runtime/state.py | 0060, 0062 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/spec/mutate.py | 0014, 0015 |
@@ -952,8 +977,17 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
+| openagents/utils/config.py | 0061, 0062 |
+| openagents/utils/envcheck.py | 0061, 0062 |
+| openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/git.py | 0060, 0061 |
-| openagents/utils/github.py | 0060, 0061 |
+| openagents/utils/github.py | 0060, 0061, 0062 |
+| openagents/utils/hold.py | 0061, 0062 |
+| openagents/utils/identity.py | 0061, 0062 |
+| openagents/utils/notes.py | 0061, 0062 |
+| openagents/utils/release.py | 0061, 0062 |
+| openagents/utils/results.py | 0061, 0062 |
+| openagents/utils/skip.py | 0061, 0062 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014 |
@@ -964,12 +998,13 @@ graph LR
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055 |
+| tests/test_cli_new_stack.py | 0061, 0062 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
 | tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
-| tests/test_ensure_prerequisites.py | 0023, 0029 |
+| tests/test_ensure_prerequisites.py | 0023, 0029, 0062 |
 | tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
 | tests/test_executor.py | 0040, 0051, 0055, 0056 |
@@ -977,17 +1012,20 @@ graph LR
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055 |
 | tests/test_github_claim_label.py | 0039, 0049 |
 | tests/test_identity.py | 0011, 0029 |
-| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051, 0055, 0057 |
+| tests/test_issuecheck.py | 0043, 0062 |
+| tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051, 0055, 0057, 0062 |
 | tests/test_messages_comment_reply.py | 0036, 0038 |
 | tests/test_messages_conflict_diag.py | 0034, 0038 |
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
-| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0056, 0057 |
+| tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0056, 0057, 0062 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
+| tests/test_recipe_poll_comments.py | 0061, 0062 |
+| tests/test_recipe_vigil.py | 0061, 0062 |
 | tests/test_release.py | 0023, 0029 |
 | tests/test_results.py | 0001, 0029 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
@@ -999,7 +1037,7 @@ graph LR
 | tests/test_spec_signpost.py | 0024, 0055 |
 | tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055 |
-| tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029 |
+| tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029, 0062 |
 | tests/test_vigil_claim.py | 0039, 0049 |
 | tests/test_workspace.py | 0005, 0008, 0029, 0056 |
 
@@ -2515,4 +2553,39 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0062 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一（issue #145）
+
+```mermaid
+graph LR
+    nT1["T1 RFC 生命周期 recipes + drafter agent（additive）"]
+    nT2["T2 merge_pr recipe + 合并流水线 gates（additive）"]
+    nT3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
+    nT4["T4 CLI 全量改接新栈 + 删旧路由"]
+    nT5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
+    nT6["T6 测试收敛 + docs 再生成"]
+    nT2 --> nT3
+    nT3 --> nT4
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

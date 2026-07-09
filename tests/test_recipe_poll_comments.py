@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 
 from openagents.backends.base import AgentResult
-from openagents.github import PR, Comment
 from openagents.recipes import poll_comments as pc_module
 from openagents.recipes.poll_comments import poll_comments
 from openagents.runtime.state import RuntimeState
+from openagents.utils.github import PR, Comment
 
 
 class _ReplierBackend:

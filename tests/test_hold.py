@@ -8,7 +8,7 @@ import dataclasses
 
 import pytest
 
-from openagents.hold import NONE, Hold, parse_hold
+from openagents.utils.hold import NONE, Hold, parse_hold
 
 
 def test_empty_and_none_default_to_no_hold():

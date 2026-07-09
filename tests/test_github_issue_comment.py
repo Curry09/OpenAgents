@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from openagents import github
-from openagents.github import GithubError, issue_comment, post_comment
+from openagents.utils import github
+from openagents.utils.github import GithubError, issue_comment, post_comment
 
 
 @dataclass

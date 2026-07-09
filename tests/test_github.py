@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from openagents import github as ghmod
-from openagents.github import (
+from openagents.utils import github as ghmod
+from openagents.utils.github import (
     _GH_RETRY_BACKOFF_BASE,
     _GH_RETRY_MAX_ATTEMPTS,
     PR,
@@ -746,7 +746,7 @@ def test_has_label_error_raises(monkeypatch):
 
 
 def test_current_login_removed_from_github_module():
-    from openagents import github as ghmod
+    from openagents.utils import github as ghmod
 
     assert not hasattr(ghmod, "current_login")
 
@@ -1165,7 +1165,7 @@ _EVID_BLOCK_B = _EVID_BLOCK_A.replace("passed A", "passed B totally different")
 
 
 def test_strip_diff_file_blocks_drops_evidence_keeps_source():
-    from openagents.github import _strip_diff_file_blocks
+    from openagents.utils.github import _strip_diff_file_blocks
 
     stripped = _strip_diff_file_blocks(
         diff=_SRC_BLOCK + _EVID_BLOCK_A, exclude_paths=("docs/e2e-results/",)
@@ -1175,14 +1175,14 @@ def test_strip_diff_file_blocks_drops_evidence_keeps_source():
 
 
 def _patch_diff(monkeypatch, diff):
-    from openagents import github as gh
+    from openagents.utils import github as gh
 
     monkeypatch.setattr(gh, "_run_gh", lambda args, *, allow_returncodes: _FakeProc(stdout=diff))
 
 
 def test_code_fingerprint_ignores_evidence_only_changes(monkeypatch):
     # 两个 diff 仅证据块不同、源码块相同 → 指纹相等（证据 commit 不改源码指纹，收敛的关键）。
-    from openagents.github import code_fingerprint
+    from openagents.utils.github import code_fingerprint
 
     _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_A)
     fp1 = code_fingerprint(pr_number=5)
@@ -1192,7 +1192,7 @@ def test_code_fingerprint_ignores_evidence_only_changes(monkeypatch):
 
 
 def test_code_fingerprint_source_change_flips(monkeypatch):
-    from openagents.github import code_fingerprint
+    from openagents.utils.github import code_fingerprint
 
     _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_A)
     fp1 = code_fingerprint(pr_number=5)
@@ -1203,7 +1203,7 @@ def test_code_fingerprint_source_change_flips(monkeypatch):
 
 def test_code_fingerprint_evidence_only_diff_is_empty(monkeypatch):
     # 整个 diff 只有证据块 → 剔除后为空 → 返回 ""（fail-open，sticky 不基于此跳过）。
-    from openagents.github import code_fingerprint
+    from openagents.utils.github import code_fingerprint
 
     _patch_diff(monkeypatch, _EVID_BLOCK_A)
     assert code_fingerprint(pr_number=5) == ""

@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from openagents.fleet_config import RepoPlan
 from openagents.recipes import fleet as fleet_recipe
 from openagents.recipes.fleet import run_fleet
+from openagents.utils.fleet_config import RepoPlan
 
 
 def _plan(name, **over):
@@ -81,7 +81,7 @@ def test_run_repo_chdirs_builds_new_vigil_and_runs(monkeypatch):
     monkeypatch.setattr(fleet_recipe.os, "chdir", lambda p: chdir_to.update(path=p))
 
     fake_ctx = object()
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: fake_ctx)
+    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: fake_ctx)
 
     ran = {}
     poll_sentinel = object()
@@ -111,7 +111,7 @@ def test_run_repo_chdirs_builds_new_vigil_and_runs(monkeypatch):
 def test_run_repo_raises_when_not_a_repo(monkeypatch):
     plan = _plan("r")
     monkeypatch.setattr(fleet_recipe.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: None)
+    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
 
     with pytest.raises(RuntimeError):
         fleet_recipe._run_repo(plan=plan, log_queue=_FakeQueue(), once=True)
@@ -120,7 +120,7 @@ def test_run_repo_raises_when_not_a_repo(monkeypatch):
 def test_run_repo_entry_turns_failure_into_clean_line_and_nonzero_exit(monkeypatch):
     plan = _plan("r")
     monkeypatch.setattr(fleet_recipe.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: None)
+    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
     q = _FakeQueue()
 
     with pytest.raises(SystemExit) as exc:

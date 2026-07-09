@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 
-from openagents import envcheck
 from openagents.backends.claude_code import PERMISSION_MODE_ENV
+from openagents.utils import envcheck
 
 
 def _write_claude_json(home, payload):

@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openagents.github import Comment, Issue
 from openagents.runtime import context as context_module
 from openagents.runtime.context import Context
 from openagents.runtime.state import RUNTIME_STATE_FILENAME, RuntimeState
+from openagents.utils.github import Comment, Issue
 
 
 def _stub_github(monkeypatch, *, issue, comments):

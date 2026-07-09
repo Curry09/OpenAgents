@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from openagents.config import ProjectContext, ProjectNotReady, ensure_project, resolve_project
+from openagents.utils.config import ProjectContext, ProjectNotReady, ensure_project, resolve_project
 
 
 def _git(*args, cwd):
@@ -111,7 +111,7 @@ def test_ensure_project_interactive_cold_start_writes_remote_origin(tmp_path, mo
     # 同意 git init、同意新建远端、仓库名、设为私有
     answers = iter(["y", "y", "acme/widget", "y"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
-    monkeypatch.setattr("openagents.github.create_repo", lambda *, name, private: url)
+    monkeypatch.setattr("openagents.utils.github.create_repo", lambda *, name, private: url)
 
     ctx = ensure_project(interactive=True)
 

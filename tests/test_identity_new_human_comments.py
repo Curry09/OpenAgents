@@ -9,9 +9,9 @@ github.list_comments 注入（monkeypatch 为返回固定 Comment 列表的 fake
 
 import pytest
 
-from openagents import identity as identity_module
-from openagents.github import Comment
-from openagents.identity import new_human_comments, sign
+from openagents.utils import identity as identity_module
+from openagents.utils.github import Comment
+from openagents.utils.identity import new_human_comments, sign
 
 
 def _patch_comments(monkeypatch, *, comments):

@@ -7,7 +7,7 @@
 cwd 隔离 + 崩溃隔离 + 真并行（对齐旧 fleet 的 Reference-level 论证）。
 
 进程监管（fan-out / 日志前缀聚合 / 崩溃隔离 / 停止路径）是**与新旧栈无关的纯机制**，故按理念 1
-（如无必要勿增实体）**直接复用**旧 `openagents.fleet.Fleet` 监管器 + `default_queue` + `_QueueWriter`
+（如无必要勿增实体）**直接复用**`openagents.utils.fleet.Fleet` 监管器 + `default_queue` + `_QueueWriter`
 子进程 stderr 替身，不重写一行。本模块只提供**新栈专属的一件事**：per-repo 子进程目标 `_run_repo`
 ——它构造并跑**新栈** vigil（经 `cli._new_vigil_for`），取代旧 fleet 里构造旧 `Vigil` 的 `_run_repo`。
 子进程内延迟 import cli/config（沿用旧栈「命令体内延迟 import」惯例，避免与 cli 顶层循环依赖）。
@@ -21,7 +21,7 @@ from collections.abc import Callable
 from typing import Any
 
 # Spec-0061/T3: 复用旧 fleet 的进程监管纯机制（Fleet 监管器 + 真队列工厂 + 子进程 stderr 替身）。
-from openagents.fleet import Fleet, _QueueWriter, default_queue
+from openagents.utils.fleet import Fleet, _QueueWriter, default_queue
 from openagents.utils.fleet_config import RepoPlan
 
 
@@ -35,7 +35,8 @@ def _run_repo(*, plan: RepoPlan, log_queue: Any, once: bool) -> None:
     延迟 import cli/config，沿用本仓「命令体内延迟 import」惯例，避免顶层循环依赖。
     """
     os.chdir(plan.path)
-    from openagents import cli, config
+    from openagents import cli
+    from openagents.utils import config
 
     ctx = config.resolve_project()
     if ctx is None:

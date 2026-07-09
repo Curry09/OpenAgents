@@ -11,7 +11,7 @@ import hashlib
 import subprocess
 from dataclasses import dataclass
 
-from openagents.github import code_fingerprint
+from openagents.utils.github import code_fingerprint
 
 
 @dataclass

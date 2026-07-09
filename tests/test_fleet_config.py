@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from openagents.fleet_config import FleetConfigError, RepoPlan, load_fleet_config
+from openagents.utils.fleet_config import FleetConfigError, RepoPlan, load_fleet_config
 
 
 def _write(tmp_path: Path, text: str) -> Path:

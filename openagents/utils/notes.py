@@ -12,10 +12,10 @@ worknote.render_* 原样透传（名字本已含区分）。
 from __future__ import annotations
 
 # Spec-0061/T1: 再导出三个便签渲染纯函数（前缀化消歧），不改源模块。
-from openagents.blocknote import build as build_block
-from openagents.blocknote import build_hold_merge_pass
-from openagents.replynote import build as build_reply
-from openagents.worknote import render_implement, render_iterate
+from openagents.utils.blocknote import build as build_block
+from openagents.utils.blocknote import build_hold_merge_pass
+from openagents.utils.replynote import build as build_reply
+from openagents.utils.worknote import render_implement, render_iterate
 
 __all__ = [
     "build_block",

@@ -10,10 +10,10 @@ import subprocess
 
 import pytest
 
-from openagents import release as release_module
-from openagents.github import PR
-from openagents.release import ReleaseResult, _next_version, release
 from openagents.state import STATUS_BLOCKED, STATUS_PR_OPEN, State
+from openagents.utils import release as release_module
+from openagents.utils.github import PR
+from openagents.utils.release import ReleaseResult, _next_version, release
 
 
 def _state(tmp_path, *, runs=()):

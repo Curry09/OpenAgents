@@ -4,15 +4,17 @@
   - ensure_prerequisites 对 PROCESS_LABELS 逐个 ensure_label 各一次（Spec-0023/T1：test 分支
     门控退役后不再建 test 分支，收敛为只预建流程标签）；
   - 重复调用对已存在标签 no-op（subprocess 层模拟「标签 already exists」，不抛错）；
-  - 标签单一来源：cli/messages/state 的既有公共名均别名引用 github 的常量（is 同一对象）。
+  - 标签单一来源：cli/state 的既有公共名均别名引用 github 的常量（is 同一对象）。
+    Spec-0062/T6：messages 旧栈已删，其 APPROVAL_LABEL 别名断言随之退役。
 所有 gh 子进程一律 mock，不真实调用 gh。
 """
 
 import subprocess
 from dataclasses import dataclass
 
-from openagents import cli, github, messages, state
-from openagents.github import (
+from openagents import cli, state
+from openagents.utils import github
+from openagents.utils.github import (
     APPROVAL_LABEL,
     BLOCKED_LABEL,
     DISCOVERY_LABEL,
@@ -74,7 +76,6 @@ def test_ensure_prerequisites_idempotent_when_all_exist(monkeypatch):
 
 def test_label_constants_are_aliases_of_github():
     assert cli.DISCOVERY_LABEL is github.DISCOVERY_LABEL
-    assert messages.APPROVAL_LABEL is github.APPROVAL_LABEL
     assert state.BLOCKED_LABEL is github.BLOCKED_LABEL
 
 

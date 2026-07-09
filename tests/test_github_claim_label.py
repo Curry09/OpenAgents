@@ -15,8 +15,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from openagents import github
-from openagents.github import (
+from openagents.utils import github
+from openagents.utils.github import (
     DISPATCH_LABEL,
     PROCESS_LABELS,
     Comment,

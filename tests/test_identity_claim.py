@@ -11,8 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from openagents.github import Comment
-from openagents.identity import build_claim_note, latest_claim, parse_agent_id, sign
+from openagents.utils.github import Comment
+from openagents.utils.identity import build_claim_note, latest_claim, parse_agent_id, sign
 
 
 def _comment(*, body, created_at, author="bot", cid="IC"):

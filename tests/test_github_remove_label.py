@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from openagents.github import GithubError, remove_label
+from openagents.utils.github import GithubError, remove_label
 
 
 @dataclass

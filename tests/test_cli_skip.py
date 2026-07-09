@@ -5,23 +5,33 @@
 """
 
 from openagents.cli import main
-from openagents.skip import NONE, Skip
+from openagents.utils.skip import NONE, Skip
 
 
 def _patch_ensure(monkeypatch):
     # vigil 入口会调 github.ensure_prerequisites——打成 no-op，隔离真实 gh。
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
 
 
 def _patch_vigil_capture(monkeypatch):
+    # Spec-0062/T4：vigil 全量改接新栈——hold/skip 解析后经 _new_merge_for 注入守候段 merge_pr
+    # （新 Vigil.run 不再收 hold/skip）。故在 _new_merge_for 处捕获本轮解析出的 hold/skip；
+    # _persist_ui_capable 同时打成 no-op，隔离真实 state/envcheck。
+    monkeypatch.setattr("openagents.cli._persist_ui_capable", lambda *, ctx: None)
     seen = {}
 
     class _FakeVigil:
-        def run(self, *, interval, labels, base, once, hold, skip=None):
-            seen["hold"] = hold
-            seen["skip"] = skip
+        def run(self, *, interval, labels, base, once, poll, merge):
+            pass
 
-    monkeypatch.setattr("openagents.cli._vigil_for", lambda *, ctx: _FakeVigil())
+    monkeypatch.setattr("openagents.cli._new_vigil_for", lambda *, ctx: (_FakeVigil(), object()))
+
+    def _fake_merge_for(*, ctx, hold, skip):
+        seen["hold"] = hold
+        seen["skip"] = skip
+        return object()
+
+    monkeypatch.setattr("openagents.cli._new_merge_for", _fake_merge_for)
     return seen
 
 
