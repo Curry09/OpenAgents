@@ -158,6 +158,9 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0057 e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
 wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸没逼出结构化 e2e 块（被 spec 正文的 e2e 讨论骗过）→ run_e2e 空过；代码 review 把实现者自测（docs/evidence/ 自证）当成放行依据、没要求独立 executor 证据（docs/e2e-results/）。本组把这两条从软 rubric 硬化：T1 RFC 闸在调 LLM 前加一道确定性检查——改动 spec 缺真实 e2e 块（intent+method 非空）直接自动返工，不问 LLM；T2 代码 review rubric 明说运行时验证有两重（实现者自测=声明 / 独立 executor=裁判），要求交叉比对、独立证据缺失不得凭自测放行。两个证据目录保持分开（自证 vs 独立）。
 
+### 0058 跨 issue 调度：调度 agent 语义排两类依赖（逻辑序 + 文件冲突序）→ blocked-by 标签 + 本地 DAG 拓扑图 + 实现门控
+派一个提示词可控的调度 agent 读所有「已出 RFC」的 open issue（标题/正文 + 其 spec 的文件分配与设计），语义判两类依赖边（逻辑前提 + 文件冲突），把每条「下游←上游」落成下游的 blocked-by:#N 标签、无未满足上游者派生 sched-ready；标签即 DAG 的持久唯一真值，据此渲本地 graphviz DAG 拓扑图（graphviz 缺失降级为 DOT）、在 messages 派 implement 前查未满足 blocked-by（只挡写码不挡 RFC 起草）、vigil 每轮发现段后调一次保鲜自动剪边解封；分层为一个调度 agent + 一层确定性 utils（解析 spec 文件分配 / 落标签 / 渲图），决策下放 agent、代码留最小硬闸（对齐 #145、沿 Spec-0043/0034 注入 backend 纯逻辑 + 渲染降级形态）。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -367,6 +370,12 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 | 0057 | 0057/T1 | RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM | done | — | openagents/orchestrator.py<br>openagents/messages.py<br>tests/test_orchestrator.py<br>tests/test_messages.py |
 | 0057 | 0057/T2 | 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0058 | 0058/T1 | 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配） | pending | — | openagents/scheduler.py<br>tests/test_scheduler.py |
+| 0058 | 0058/T2 | 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账） | pending | — | openagents/schedlabels.py<br>tests/test_schedlabels.py |
+| 0058 | 0058/T3 | DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot） | pending | — | openagents/schedgraph.py<br>tests/test_schedgraph.py |
+| 0058 | 0058/T4 | IO 编排 orchestrator.schedule + openagents schedule 命令 | pending | T1, T2, T3 | openagents/orchestrator.py<br>openagents/cli.py<br>tests/test_orchestrator_schedule.py<br>tests/test_cli_schedule.py |
+| 0058 | 0058/T5 | 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜 | pending | T2, T4 | openagents/messages.py<br>openagents/vigil.py<br>tests/test_messages_blocked_by_gate.py<br>tests/test_vigil_schedule_refresh.py |
+| 0058 | 0058/T6 | 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级） | pending | T5 | scripts/e2e-spec-0058-issue-scheduler.sh<br>tests/test_scheduler_integration.py |
 
 ## 跨 feature 关系图
 
@@ -677,6 +686,14 @@ graph LR
         n0057_T1["T1 RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM"]
         n0057_T2["T2 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行"]
     end
+    subgraph G0058[0058 issue-scheduler]
+        n0058_T1["T1 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配）"]
+        n0058_T2["T2 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账）"]
+        n0058_T3["T3 DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot）"]
+        n0058_T4["T4 IO 编排 orchestrator.schedule + openagents schedule 命令"]
+        n0058_T5["T5 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜"]
+        n0058_T6["T6 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -858,6 +875,12 @@ graph LR
     n0056_T3 --> n0056_T2
     n0056_T4 --> n0056_T2
     n0056_T5 --> n0056_T2
+    n0058_T4 --> n0058_T1
+    n0058_T4 --> n0058_T2
+    n0058_T4 --> n0058_T3
+    n0058_T5 --> n0058_T2
+    n0058_T5 --> n0058_T4
+    n0058_T6 --> n0058_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -879,7 +902,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0058 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -890,8 +913,8 @@ graph LR
 | openagents/fleet.py | 0027, 0029 |
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
-| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055, 0057 |
-| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
+| openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055, 0057, 0058 |
+| openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057, 0058 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
 | openagents/release.py | 0023, 0029 |
@@ -907,7 +930,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
+| openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054, 0058 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
@@ -2402,4 +2425,41 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0058 跨 issue 调度：调度 agent 语义排两类依赖（逻辑序 + 文件冲突序）→ blocked-by 标签 + 本地 DAG 拓扑图 + 实现门控（issue #150）
+
+```mermaid
+graph LR
+    nT1["T1 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配）"]
+    nT2["T2 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账）"]
+    nT3["T3 DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot）"]
+    nT4["T4 IO 编排 orchestrator.schedule + openagents schedule 命令"]
+    nT5["T5 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜"]
+    nT6["T6 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级）"]
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+    nT2 --> nT5
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
+    class v_T6_1 st_pending;
 ```
