@@ -49,8 +49,10 @@ _# Spec-0060/T4: agents —— 提示词层：每个 agent 一个模块，仅含
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
 | `implementer.py` | # Spec-0060/T4: agents.implementer —— 按 RFC 实现 / 按反馈迭代的提示词（零逻辑）。 |
 | `planner.py` | # Spec-0060/T4: agents.planner —— 起草/精炼 RFC 的提示词（零逻辑）。 |
+| `replier.py` | # Spec-0061/T2: agents.replier —— 回应 PR 上的人类评论 → 结构化回复（零逻辑）。 |
 | `reviewer.py` | # Spec-0060/T4: agents.reviewer —— 评审 → 结构化裁决的提示词（零逻辑）。 |
 | `tester.py` | # Spec-0060/T4: agents.tester —— 独立 e2e 执行 + 判读的提示词（零逻辑）。 |
+| `triager.py` | # Spec-0061/T2: agents.triager —— issue 分诊：对齐 + 冲突自检 → 结构化裁决（零逻辑）。 |
 
 ### openagents.backends
 
@@ -69,7 +71,10 @@ _# Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtim
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent 调用， |
+| `fleet.py` | # Spec-0061/T3: recipes.fleet —— 多仓库并发守夜（每仓库一子进程跑新栈 vigil，纯控制流）。 |
+| `poll_comments.py` | # Spec-0061/T3: recipes.poll_comments —— 守候段：回应 PR 上的新人类评论（纯控制流，零业务判断）。 |
 | `solve_issue.py` | # Spec-0060/T6: recipes.solve_issue —— 求解一个 issue 的编排（纯控制流，零业务判断）。 |
+| `vigil.py` | # Spec-0061/T3: recipes.vigil —— 发现→分诊→派单 循环（纯控制流，零业务判断）。 |
 
 ### openagents.runtime
 
@@ -106,8 +111,17 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包。 |
+| `config.py` | # Spec-0061/T1: utils.config —— 项目绑定 preflight 的稳定 import 面。 |
+| `envcheck.py` | # Spec-0061/T1: utils.envcheck —— 前端 e2e 环境体检的稳定 import 面（只读、不抛、非阻塞）。 |
+| `fleet_config.py` | # Spec-0061/T1: utils.fleet_config —— 多仓库统管配置解析的稳定 import 面（纯解析/校验）。 |
 | `git.py` | # Spec-0060/T1: utils.git —— 新栈的确定性 git 稳定 import 面。 |
-| `github.py` | # Spec-0060/T1: utils.github —— 新栈的 gh 读 + 机器评论写稳定 import 面。 |
+| `github.py` | # Spec-0060/T1 + Spec-0061/T1: utils.github —— 新栈的 gh 读写完整稳定 import 面。 |
+| `hold.py` | # Spec-0061/T1: utils.hold —— --hold 分级监督闸意图解析的稳定 import 面（纯逻辑、零 IO）。 |
+| `identity.py` | # Spec-0061/T1: utils.identity —— 本实例身份 + 评论签名的稳定 import 面。 |
+| `notes.py` | # Spec-0061/T1: utils.notes —— PR/issue 评论正文渲染的稳定 import 面（纯函数、零 IO）。 |
+| `release.py` | # Spec-0061/T1: utils.release —— 发版确定性原语的稳定 import 面。 |
+| `results.py` | # Spec-0061/T1: utils.results —— 成果看板渲染的稳定 import 面。 |
+| `skip.py` | # Spec-0061/T1: utils.skip —— --skip 逐闸旁路意图解析的稳定 import 面（纯逻辑、零 IO）。 |
 
 ## 依赖关系图（import）
 
@@ -119,8 +133,10 @@ graph LR
     nopenagents_agents_deliver["agents.deliver"]
     nopenagents_agents_implementer["agents.implementer"]
     nopenagents_agents_planner["agents.planner"]
+    nopenagents_agents_replier["agents.replier"]
     nopenagents_agents_reviewer["agents.reviewer"]
     nopenagents_agents_tester["agents.tester"]
+    nopenagents_agents_triager["agents.triager"]
     nopenagents_align["openagents.align"]
     nopenagents_backends["openagents.backends"]
     nopenagents_backends_base["backends.base"]
@@ -142,7 +158,10 @@ graph LR
     nopenagents_messages["openagents.messages"]
     nopenagents_orchestrator["openagents.orchestrator"]
     nopenagents_recipes["openagents.recipes"]
+    nopenagents_recipes_fleet["recipes.fleet"]
+    nopenagents_recipes_poll_comments["recipes.poll_comments"]
     nopenagents_recipes_solve_issue["recipes.solve_issue"]
+    nopenagents_recipes_vigil["recipes.vigil"]
     nopenagents_release["openagents.release"]
     nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
@@ -164,8 +183,17 @@ graph LR
     nopenagents_spec_validate["spec.validate"]
     nopenagents_state["openagents.state"]
     nopenagents_utils["openagents.utils"]
+    nopenagents_utils_config["utils.config"]
+    nopenagents_utils_envcheck["utils.envcheck"]
+    nopenagents_utils_fleet_config["utils.fleet_config"]
     nopenagents_utils_git["utils.git"]
     nopenagents_utils_github["utils.github"]
+    nopenagents_utils_hold["utils.hold"]
+    nopenagents_utils_identity["utils.identity"]
+    nopenagents_utils_notes["utils.notes"]
+    nopenagents_utils_release["utils.release"]
+    nopenagents_utils_results["utils.results"]
+    nopenagents_utils_skip["utils.skip"]
     nopenagents_vigil["openagents.vigil"]
     nopenagents_worknote["openagents.worknote"]
     nopenagents_workspace["openagents.workspace"]
@@ -191,13 +219,18 @@ graph LR
     nopenagents_cli --> nopenagents_identity
     nopenagents_cli --> nopenagents_messages
     nopenagents_cli --> nopenagents_orchestrator
+    nopenagents_cli --> nopenagents_recipes_fleet
+    nopenagents_cli --> nopenagents_recipes_poll_comments
     nopenagents_cli --> nopenagents_recipes_solve_issue
+    nopenagents_cli --> nopenagents_recipes_vigil
     nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
     nopenagents_cli --> nopenagents_runtime_context
+    nopenagents_cli --> nopenagents_runtime_state
     nopenagents_cli --> nopenagents_skip
     nopenagents_cli --> nopenagents_state
     nopenagents_cli --> nopenagents_utils
+    nopenagents_cli --> nopenagents_utils_fleet_config
     nopenagents_cli --> nopenagents_utils_git
     nopenagents_cli --> nopenagents_vigil
     nopenagents_cli --> nopenagents_workspace
@@ -249,6 +282,20 @@ graph LR
     nopenagents_orchestrator --> nopenagents_spec_validate
     nopenagents_orchestrator --> nopenagents_state
     nopenagents_orchestrator --> nopenagents_workspace
+    nopenagents_recipes_fleet --> nopenagents
+    nopenagents_recipes_fleet --> nopenagents_cli
+    nopenagents_recipes_fleet --> nopenagents_config
+    nopenagents_recipes_fleet --> nopenagents_fleet
+    nopenagents_recipes_fleet --> nopenagents_utils_fleet_config
+    nopenagents_recipes_poll_comments --> nopenagents_agents
+    nopenagents_recipes_poll_comments --> nopenagents_agents_replier
+    nopenagents_recipes_poll_comments --> nopenagents_runtime
+    nopenagents_recipes_poll_comments --> nopenagents_runtime_context
+    nopenagents_recipes_poll_comments --> nopenagents_runtime_engine
+    nopenagents_recipes_poll_comments --> nopenagents_runtime_state
+    nopenagents_recipes_poll_comments --> nopenagents_utils
+    nopenagents_recipes_poll_comments --> nopenagents_utils_github
+    nopenagents_recipes_poll_comments --> nopenagents_utils_identity
     nopenagents_recipes_solve_issue --> nopenagents_agents
     nopenagents_recipes_solve_issue --> nopenagents_agents_deliver
     nopenagents_recipes_solve_issue --> nopenagents_agents_implementer
@@ -257,6 +304,16 @@ graph LR
     nopenagents_recipes_solve_issue --> nopenagents_runtime
     nopenagents_recipes_solve_issue --> nopenagents_runtime_engine
     nopenagents_recipes_solve_issue --> nopenagents_runtime_gates
+    nopenagents_recipes_vigil --> nopenagents_agents
+    nopenagents_recipes_vigil --> nopenagents_agents_triager
+    nopenagents_recipes_vigil --> nopenagents_recipes_solve_issue
+    nopenagents_recipes_vigil --> nopenagents_runtime
+    nopenagents_recipes_vigil --> nopenagents_runtime_context
+    nopenagents_recipes_vigil --> nopenagents_runtime_engine
+    nopenagents_recipes_vigil --> nopenagents_runtime_state
+    nopenagents_recipes_vigil --> nopenagents_utils
+    nopenagents_recipes_vigil --> nopenagents_utils_git
+    nopenagents_recipes_vigil --> nopenagents_utils_github
     nopenagents_release --> nopenagents
     nopenagents_release --> nopenagents_github
     nopenagents_release --> nopenagents_state
@@ -285,8 +342,19 @@ graph LR
     nopenagents_spec_validate --> nopenagents_spec_model
     nopenagents_spec_validate --> nopenagents_spec_schema
     nopenagents_state --> nopenagents_github
+    nopenagents_utils_config --> nopenagents_config
+    nopenagents_utils_envcheck --> nopenagents_envcheck
+    nopenagents_utils_fleet_config --> nopenagents_fleet_config
     nopenagents_utils_git --> nopenagents_workspace
     nopenagents_utils_github --> nopenagents_github
+    nopenagents_utils_hold --> nopenagents_hold
+    nopenagents_utils_identity --> nopenagents_identity
+    nopenagents_utils_notes --> nopenagents_blocknote
+    nopenagents_utils_notes --> nopenagents_replynote
+    nopenagents_utils_notes --> nopenagents_worknote
+    nopenagents_utils_release --> nopenagents_release
+    nopenagents_utils_results --> nopenagents_results
+    nopenagents_utils_skip --> nopenagents_skip
     nopenagents_vigil --> nopenagents
     nopenagents_vigil --> nopenagents_github
     nopenagents_vigil --> nopenagents_hold

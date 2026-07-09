@@ -163,6 +163,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 - e2e 意图：证明架构契约在真实链路上成立——solve_issue recipe 只按 agent 的结构化裁决路由（PASS→next / REWORK→loop）、自身零业务判断；最小硬闸真能兜底（head 未前移 / 超轮次 → raise）；agents/* 确无逻辑、recipes/* 确无 git/gh/subprocess 直接调用。
   - 测法：本组是纯后端编排，无前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法： 1. 契约路由单测（tests/test_recipe_solve_issue.py，假 backend 喂 canned 结构化输出）：    reviewer 连回两次 {'verdict':'REWORK'} 再一次 {'verdict':'PASS'} → 断言 implementer    被迭代调用 2 次、循环在 PASS 后 next；deliver 报告 head 未前移 → assert_head_advanced    raise；reviewer 恒 REWORK → round_cap 到上限 raise。 2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：agents/*.py 只含 Template( + OUTPUT_SCHEMA 且无    def / import subprocess / gh / git 调用；recipes/solve_issue.py 无 subprocess / 'gh' /    'git' / 直接 import github\|workspace（只经 runtime.run_agent + gates）。 3. 真实 issue 冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa solve <真实 issue>    走新栈跑通、PR CI 全绿——issue 第 5 条验收，作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0060-agents-recipes-core.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0061 架构重构（批次二）：立起 vigil/poll_comments/fleet 三条 recipe + triager/replier agent + utils 全量稳定面
+承接 Spec-0060 批次一的架构契约（一切需判断的操作走 agent、recipe 只按结构化裁决路由、runtime 留最小硬闸、utils 归确定性原语），把留给后续批次的三条 recipe（vigil 发现→分诊→派单循环 / poll_comments PR 新人类评论回应 / fleet 多仓库并发）与两个 agent（triager 吸收 align+issuecheck 的 issue 对齐/冲突自检判断、replier 吸收评论回复判断）additive 立起，并把 utils 从批次一的 git/github 两个薄再导出扩成覆盖 release/notes/hold/skip/results/identity/config/envcheck/fleet_config 的完整稳定 import 面——让新栈能自足编排一个 issue 从发现到交付的全生命周期，不再直接 import 旧模块。仍 additive、不删旧 orchestrator/vigil/messages/fleet 及其测试桩（其删除与旧 spec 作废留最终收敛批次）。
+- e2e 意图：证明批次二架构契约在离线确定性链路上成立——vigil recipe 只按 triager 结构化裁决路由（actionable→dispatch / 否→_park）、去重三闸确定性滤新；poll_comments 只做拉新人类评论→replier→签名回帖→游标推进纯控制流、单 PR 失败错误隔离；fleet 复用旧 Fleet 监管器扇出新栈 vigil；triager/replier 零逻辑、三 recipe 不直调 gh/git/subprocess。
+  - 测法：形态：纯后端编排，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法： 1. 契约路由 + 各层针对性 pytest（假 backend 喂 canned 结构化裁决，不触真实 LLM/网络/仓库）：    vigil 分诊路由 + 去重三闸；poll_comments 游标推进/错误隔离；fleet 扇出 + worker；CLI 三命令解析转发。 2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：triager/replier 只含 Template( + OUTPUT_SCHEMA 且无    def/subprocess；三 recipe 无 subprocess、不直接 import 原始 openagents.github/workspace（只经 utils）。 3. 真实多仓守夜冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil-new / oa fleet    跑通、PR CI 全绿——作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0061-agents-recipes-flows.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -378,6 +383,10 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0060 | 0060/T4 | agents 提示词 5 个：planner/implementer/reviewer/deliver/tester（零逻辑） | done | — | openagents/agents/__init__.py<br>openagents/agents/planner.py<br>openagents/agents/implementer.py<br>openagents/agents/reviewer.py<br>openagents/agents/deliver.py<br>openagents/agents/tester.py<br>tests/test_agents_prompts.py |
 | 0060 | 0060/T5 | runtime.context + runtime.state：占位符组装 + 新栈 run 状态 | done | T1 | openagents/runtime/context.py<br>openagents/runtime/state.py<br>tests/test_runtime_context.py |
 | 0060 | 0060/T6 | recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端） | done | T2, T3, T4, T5 | openagents/recipes/__init__.py<br>openagents/recipes/solve_issue.py<br>openagents/cli.py<br>tests/test_recipe_solve_issue.py<br>scripts/e2e-spec-0060-agents-recipes-core.sh |
+| 0061 | 0061/T1 | utils 全量稳定 import 面（薄再导出确定性原语） | done | — | openagents/utils/github.py<br>openagents/utils/git.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/identity.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py |
+| 0061 | 0061/T2 | triager + replier agent（零逻辑 Template 提示词） | done | T1 | openagents/agents/triager.py<br>openagents/agents/replier.py |
+| 0061 | 0061/T3 | vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装 | done | T1, T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/fleet.py<br>openagents/runtime/context.py |
+| 0061 | 0061/T4 | CLI additive 接线新栈守候/守夜/舰队三命令 | done | T3 | openagents/cli.py<br>tests/test_agents_triager_replier.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py<br>tests/test_recipe_fleet.py<br>tests/test_cli_new_stack.py<br>scripts/e2e-spec-0061-agents-recipes-flows.sh |
 
 ## 跨 feature 关系图
 
@@ -696,6 +705,12 @@ graph LR
         n0060_T5["T5 runtime.context + runtime.state：占位符组装 + 新栈 run 状态"]
         n0060_T6["T6 recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端）"]
     end
+    subgraph G0061[0061 agents-recipes-flows]
+        n0061_T1["T1 utils 全量稳定 import 面（薄再导出确定性原语）"]
+        n0061_T2["T2 triager + replier agent（零逻辑 Template 提示词）"]
+        n0061_T3["T3 vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装"]
+        n0061_T4["T4 CLI additive 接线新栈守候/守夜/舰队三命令"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -883,6 +898,10 @@ graph LR
     n0060_T6 --> n0060_T3
     n0060_T6 --> n0060_T4
     n0060_T6 --> n0060_T5
+    n0061_T2 --> n0061_T1
+    n0061_T3 --> n0061_T1
+    n0061_T3 --> n0061_T2
+    n0061_T4 --> n0061_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -904,7 +923,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -923,6 +942,7 @@ graph LR
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
+| openagents/runtime/context.py | 0060, 0061 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/spec/mutate.py | 0014, 0015 |
@@ -932,6 +952,8 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055 |
 | openagents/templates/board.html | 0001, 0029 |
+| openagents/utils/git.py | 0060, 0061 |
+| openagents/utils/github.py | 0060, 0061 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014 |
@@ -2464,4 +2486,33 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0061 架构重构（批次二）：立起 vigil/poll_comments/fleet 三条 recipe + triager/replier agent + utils 全量稳定面（issue #145）
+
+```mermaid
+graph LR
+    nT1["T1 utils 全量稳定 import 面（薄再导出确定性原语）"]
+    nT2["T2 triager + replier agent（零逻辑 Template 提示词）"]
+    nT3["T3 vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装"]
+    nT4["T4 CLI additive 接线新栈守候/守夜/舰队三命令"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```
