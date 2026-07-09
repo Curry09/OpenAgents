@@ -177,31 +177,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-# RFC-0001 T1: 业务对象工厂，延迟 import 各子任务模块；测试可对这些工厂打桩，
-# 保持 cli 测试 hermetic（不触达真实 gh / claude / 浏览器）。
-def _state_for(*, repo_root: Path):
-    from openagents.state import State
-
-    return State(path=repo_root / ".openagents" / "state.json")
-
-
 # Spec-0055/T1：守夜/单步入口启动时把「前端 e2e 能力」固化进 state（单一真相源）。每次启动重写——
 # 环境（装/删 browser MCP、切权限模式）变了下次启动即更新。下游 RFC 起草/评审据它分流测法要求；
-# executor 执行时自检工具、不读本状态量。延迟 import + 走工厂 _state_for，保持 cli 测试可打桩、不触真实 ~/.claude.json。
+# executor 执行时自检工具、不读本状态量。
+# Spec-0063/T4：state 归一——固化走新栈 RuntimeState（落 runtime-state.json 顶层 ui_capable 键），
+# 延迟 import + 走工厂 _new_runtime_state_for，保持 cli 测试可打桩、不触真实 ~/.claude.json。
 def _persist_ui_capable(*, ctx: ProjectContext) -> None:
     from openagents.utils import envcheck
 
-    _state_for(repo_root=ctx.repo_root).set_ui_capable(value=envcheck.ui_capable())
+    _new_runtime_state_for(ctx=ctx).set_ui_capable(value=envcheck.ui_capable())
 
 
 # RFC-0011 决策 7：在接线处解析一次本实例身份，注入下游（recipes / reply-comment）。
 # resolve_agent_id 幂等（env > state > 首次生成落盘），多处调用得同一 id，保证 solve / poll / vigil
 # 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
-# Spec-0062/T4：身份解析仍读旧 State（state.py 本批暂留，归一随 Spec-0063），与新栈 recipe 编排解耦。
+# Spec-0063/T4：身份解析已归一走新栈 RuntimeState（agent_id 落 runtime-state.json 顶层键，
+# 旧 State 退役），与新栈 recipe 编排同源单一 state 模型。
 def _agent_id_for(*, ctx: ProjectContext) -> str:
     from openagents.utils import identity
 
-    return identity.resolve_agent_id(state=_state_for(repo_root=ctx.repo_root))
+    return identity.resolve_agent_id(state=_new_runtime_state_for(ctx=ctx))
 
 
 # Spec-0020/T4：单列 backend 工厂——issue 前门对齐（align）与各 recipe 共用同一个
@@ -513,7 +508,7 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # 把 main 当前 HEAD 物化为 release/vX.Y.Z 分支 + tag。失败按预检原因设非零退出码，不发布。
     from openagents.utils.release import release
 
-    result = release(state=_state_for(repo_root=ctx.repo_root), bump=args.bump)
+    result = release(state=_new_runtime_state_for(ctx=ctx), bump=args.bump)
     if result.released:
         print(f"✓ 已发布 {result.version}（release/{result.version} 分支 + tag）")
         return 0
@@ -523,11 +518,15 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
+    # Spec-0063/T4：state 归一——board 读新栈 RuntimeState（runtime-state.json）。resolve_project
+    # 取不到项目（非 git 仓库）时兜底以 cwd 造一个仅本地 ProjectContext（remote=None），使
+    # _new_runtime_state_for 仍能定位状态文件（board 本就不要求 remote）。
     from openagents.utils.results import board
 
     ctx = resolve_project()
-    repo_root = ctx.repo_root if ctx is not None else Path.cwd()
-    path = board(state=_state_for(repo_root=repo_root))
+    if ctx is None:
+        ctx = ProjectContext(repo_root=Path.cwd(), remote=None)
+    path = board(state=_new_runtime_state_for(ctx=ctx))
     print(f"✓ 成果看板：{path}")
     return 0
 
