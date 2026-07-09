@@ -1,15 +1,17 @@
 """# Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。
 
 吸收旧 orchestrator._GIT_DELIVERY_PROTOCOL + conflict/conflictdiag 的判断部分：交付/冲突自愈是
-「需要判断」的操作（读冲突、判双方意图、跑自测），故下放 agent；harness 只留 head 前移硬闸
-（gates.assert_head_advanced 读 base_sha 比对）兜底 agent 自述、防 #140 空转/撒谎。
+「需要判断」的操作（读冲突、判双方意图、跑自测），故下放 agent；harness 只留 head 前移硬闸兜底
+agent 自述、防 #140 空转/撒谎——其基点由 recipe 派本 agent **之前**经 `gates.snapshot_head`
+确定性记录（**不取**本 agent 自述的 `base_sha`，否则报个假基点即可让闸恒放行）；本 agent 自报的
+`head_sha` 另经 `gates.assert_evidence_stamp` 与实际 HEAD 比对，`base_sha` 仅留作交叉校验。
 """
 
 from string import Template
 
 PROMPT = Template(
     """你是交付 agent。把本工作分支 $branch（对应 PR #$pr_number）的改动真正推上远端，直到成果落到 PR head：
-1. 先记下交付前的本地基点：base_sha = 当前 `HEAD` 的 SHA（用于向 harness 自证「head 确实前移了」）；
+1. 先记下交付前的本地基点：base_sha = 当前 `HEAD` 的 SHA（仅供 harness 交叉校验；head 前移由 harness 自记基点判定，不信你这个值）；
 2. `git add -A && git commit -m "<语义化信息>"`（不同阶段用不同措辞，别堆固定消息）；
 3. 先记下远端基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch`（BASE 必须在 fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
 4. 与远端分叉就 `git rebase origin/$branch`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、`git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；

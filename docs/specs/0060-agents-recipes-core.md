@@ -269,10 +269,14 @@ recipe 迁移并删除对应旧模块 + 作废其 spec。
   → `Template.substitute(**placeholders)` → `backend.run(work_dir, task=prompt, context=...)` → 解析 agent
   输出末尾那行 JSON、按 `agent_module.OUTPUT_SCHEMA` 校验键与类型 → 返回 dict。**engine 不认识任何具体流程**
   （换套 agent/recipe 零改动，理念 10 解耦）。
-- **`runtime.gates`**：`assert_head_advanced(*, before, workspace)`（head 未前移 → raise，兜底 #140 空转）、
+- **`runtime.gates`**：`snapshot_head(*, workspace)`（**由 recipe 在派 deliver 前调用**，确定性记录客观
+  基点 `before`——绝不取 agent 自述的 `base_sha`，否则 agent 报个假基点即可让闸恒放行，见 #140）、
+  `assert_head_advanced(*, before, workspace)`（head 未前移 → raise，兜底 #140 空转；返回实际 after）、
   `round_cap(*, max_rounds)`（生成器/计数器，超限 → raise，防死循环）、`assert_pr_exists(*, pr_number)`、
   `assert_evidence_stamp(*, head_sha, claimed)`（证据溯源戳不匹配 → raise，Spec-0055）。**只验客观事实，不含
-  业务判断**——这是「兜底 agent 自述、防撒谎/死循环」的最后一道确定性防线。
+  业务判断**——这是「兜底 agent 自述、防撒谎/死循环」的最后一道确定性防线。solve_issue 本组接线三闸
+  （`round_cap` + `assert_head_advanced` + `assert_evidence_stamp`，`before` 经 `snapshot_head` 确定性取）；
+  `assert_pr_exists` 待「开 PR 环节」批次接线（见本组交付边界的「无开 PR 环节」条与 Unresolved）。
 - **`runtime.context` / `runtime.state`**：`context` 组装占位符的值（PR 历史/issue 正文注入，读侧调 `utils.github`）；
   `state` 持久化 issue→run 状态 + comment 游标。为不碰旧 `state.py`（439 行、被多测试桩打），新 `runtime/state.py`
   用**独立的状态文件命名空间**（新栈自成一套），旧 `state.py` 原地不动。
@@ -284,7 +288,15 @@ recipe 迁移并删除对应旧模块 + 作废其 spec。
   给新栈一个稳定 import 面而**不复制** 870 行 github.py（奥卡姆，理念 1）；旧模块整体搬进 utils/ 及 release/notes/
   spec/ 归位留后续批次。
 - **`recipes/solve_issue.py`**：`plan → implement → review(loop while REWORK, round_cap 兜底) → deliver
-  (assert_head_advanced 兜底)`，只有控制流 + `run_agent` 调用，**零 git/gh/subprocess 直接调用**。
+  (snapshot_head 确定性记 before → assert_head_advanced + assert_evidence_stamp 兜底)`，只有控制流 +
+  `run_agent`/`gates` 调用，**零 git/gh/subprocess 直接调用**（`before` 亦经 `gates.snapshot_head` 取，不在
+  recipe 里碰 git）。
+- **本组交付假定：无「开 PR」环节，PR 号可缺（`pr_number=0` 兜底）**：本组竖切聚焦 `plan→…→deliver` 的裁决
+  路由与硬闸，**不含 `gh pr create`**——planner/implementer 只 commit+push，deliver 只推分支。故对**已有 PR**
+  的 issue（如本 issue #145）端到端成立；对**全新、尚无 PR** 的 issue，reviewer/deliver 面对 `pr_number=0`、
+  context 退化为「仅 issue 正文」，需承接「开 PR」的批次补齐（故 `assert_pr_exists` 本组先不接线）。这也是三处
+  推分支（planner/implementer/deliver）与「deliver 才是收口交付」注释的张力来源——**单一交付点收敛**同样留后续
+  批次（见 Unresolved / Future possibilities）。
 - **`cli.py`**：加一个走新栈 `solve_issue` 的子命令（additive；旧子命令路由不动）。
 
 ### DAG 与文件分配
@@ -386,6 +398,11 @@ agent 分工：客观机械留代码，需判断下放 agent。
 - **`runtime/state` 与旧 `state.py` 的最终合并方式**：本组用独立命名空间并存；两套状态最终如何统一（迁移还是
   弃旧）留承接 `vigil` 迁移的批次决定。
 - **子命令命名**：走新栈的入口叫 `oa solve` 还是复用 `oa run`？由用户在评审时定；不影响本组文件分配。
+- **「开 PR」环节 + `assert_pr_exists` 接线**（评审 #2/#3）：本组 solve_issue 不含 `gh pr create`，故 `pr_number`
+  可为 0、`assert_pr_exists` 定义并单测但**未接进 recipe**（对全新无 PR 的 issue，接了反而恒 raise）。承接「开 PR」
+  的批次补上 `gh pr create` 后再把 `assert_pr_exists` 接进 deliver 前置闸。
+- **单一交付点收敛**（评审 #4）：现 planner/implementer/deliver 三处都 commit+push，与「deliver 收口交付」有张力；
+  后续批次把中途推分支收敛到唯一交付点（deliver），planner/implementer 只落本地提交。
 
 ## Future possibilities
 

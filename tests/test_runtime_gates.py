@@ -12,9 +12,16 @@ from openagents.runtime.gates import GateError
 from openagents.utils import github as ugithub
 
 
+def test_snapshot_head_reads_current_head(monkeypatch):
+    # 确定性基点读取：直接透传 utils.git.head_sha 的客观值（供 recipe 交付前自记 before）。
+    monkeypatch.setattr(gates.git, "head_sha", lambda *, work_dir: "cursha00000")
+    assert gates.snapshot_head(workspace="/tmp/wt") == "cursha00000"
+
+
 def test_head_advanced_passes_when_moved(monkeypatch):
     monkeypatch.setattr(gates.git, "head_sha", lambda *, work_dir: "newsha00000")
-    gates.assert_head_advanced(before="oldsha00000", workspace="/tmp/wt")  # 不抛即通过
+    # 前移即通过，并返回实际 after（供上层接证据溯源戳复用）。
+    assert gates.assert_head_advanced(before="oldsha00000", workspace="/tmp/wt") == "newsha00000"
 
 
 def test_head_advanced_raises_when_unmoved(monkeypatch):

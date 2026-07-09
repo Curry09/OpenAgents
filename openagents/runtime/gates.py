@@ -27,12 +27,24 @@ class GateError(Exception):
     """# Spec-0060/T3: 最小硬闸判定客观事实不成立（未交付 / 死循环 / PR 不存在 / 戳不匹配）时抛出。"""
 
 
-def assert_head_advanced(*, before: str, workspace: Path) -> None:
-    """head 前移硬闸：断言交付后 worktree 的 HEAD 已越过交付前基点 `before`，不动即抛。
+def snapshot_head(*, workspace: Path) -> str:
+    """确定性记录 worktree 当前 HEAD SHA——**由 harness 侧调用**，作交付前的客观基点。
 
-    兜底 #140 空转（干净工作区被 agent 当成「已交付」而 head 其实没动）：deliver agent 报告它
-    交付前记录的基点 SHA（`before`），本闸读**当前** HEAD（经 utils.git.head_sha）比对——相等 /
-    读不到 HEAD → 判「未交付/空转」→ raise GateError。纯读客观事实，不判交付内容对不对（那归 reviewer）。
+    #140 的教训：head 前移硬闸的「基点」绝不能取自 agent 自述（`report["base_sha"]` 由 agent 掌控
+    事实源，报一个 ≠ 当前 HEAD 的值就能让闸恒放行、哪怕一个 commit 都没落地）。故派 deliver **之前**
+    由 recipe 经本函数确定性记下 `before`，交给 `assert_head_advanced` 比对——与 `assert_delivered`
+    「harness 派 agent 前自记基点」同源。经 utils.git 读，recipe 自身不碰 git/subprocess。
+    """
+    return git.head_sha(work_dir=Path(workspace))
+
+
+def assert_head_advanced(*, before: str, workspace: Path) -> str:
+    """head 前移硬闸：断言交付后 worktree 的 HEAD 已越过交付前基点 `before`，不动即抛；返回实际 after。
+
+    兜底 #140 空转（干净工作区被 agent 当成「已交付」而 head 其实没动）：`before` 是 harness 侧经
+    `snapshot_head` 确定性记录的基点（**不信 agent 自述**），本闸读**当前** HEAD（经 utils.git.head_sha）
+    比对——相等 / 读不到 HEAD → 判「未交付/空转」→ raise GateError。纯读客观事实，不判交付内容对不对
+    （那归 reviewer）。返回实际 after SHA，供上层接证据溯源戳（`assert_evidence_stamp`）复用、免二次读。
     """
     after = git.head_sha(work_dir=Path(workspace))
     if not after:
@@ -42,6 +54,7 @@ def assert_head_advanced(*, before: str, workspace: Path) -> None:
             f"head 未前移、疑似未交付：交付前后 HEAD 同为 {after[:12]}"
             f"（agent 自判完成却没落地新提交）"
         )
+    return after
 
 
 def round_cap(*, max_rounds: int | None = None) -> Iterator[int]:

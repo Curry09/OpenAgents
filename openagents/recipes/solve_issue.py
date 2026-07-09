@@ -5,9 +5,12 @@
 「代码对不对/评审过没/冲突怎么解」，也不含任何版本控制/远端/子进程直接调用（那些是 agent
 或 utils 的活）。分支条件只来自 reviewer agent 的 `verdict`，这正是「recipe 零业务判断」的技术支点。
 
-两道最小硬闸兜底 agent 自述（防死循环 / 防空转撒谎）：
+三道最小硬闸兜底 agent 自述（防死循环 / 防空转撒谎 / 防证据陈旧）：
 - `gates.round_cap`：评审循环轮次上限——reviewer 恒 REWORK 时兜底 raise；
-- `gates.assert_head_advanced`：交付后断言 head 真前移——deliver agent 自判完成却没落地时兜底 raise。
+- `gates.assert_head_advanced`：交付后断言 head 真前移——交付前基点由 recipe 经 `gates.snapshot_head`
+  **确定性记录**（不取 agent 自述 `base_sha`，否则 agent 报个假基点即可让闸恒放行、见 #140），
+  deliver agent 自判完成却没落地时兜底 raise；
+- `gates.assert_evidence_stamp`：证据溯源戳——deliver 自述的交付后 `head_sha` 与实际 HEAD 不符即 raise。
 """
 
 from __future__ import annotations
@@ -40,9 +43,13 @@ def solve_issue(*, issue_number: int, backend: object, ctx: object) -> dict:
             **ctx.for_iterate(issue_number=issue_number, feedback=verdict["reason"]),
         )
 
-    # 交付（下放 agent）→ head 前移硬闸兜底：deliver 自报交付前基点 base_sha，硬闸读实际 head 比对。
+    # 交付前先由 recipe 确定性记录客观基点（**不信 agent 自述** base_sha——见 #140 空转/撒谎教训）。
+    before = gates.snapshot_head(workspace=ctx.workspace)
+    # 交付（下放 agent）→ head 前移硬闸兜底：拿确定性 before 比对实际 head，返回实际 after。
     report = engine.run_agent(
         deliver, backend=backend, **ctx.for_deliver(issue_number=issue_number)
     )
-    gates.assert_head_advanced(before=report["base_sha"], workspace=ctx.workspace)
+    after = gates.assert_head_advanced(before=before, workspace=ctx.workspace)
+    # 证据溯源戳：deliver 自述的交付后 head_sha 须与实际 HEAD 一致，防「报了个别处的 SHA」张冠李戴。
+    gates.assert_evidence_stamp(head_sha=after, claimed=report["head_sha"])
     return report
