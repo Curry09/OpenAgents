@@ -4,6 +4,15 @@ title: 跨 issue 调度：调度 agent 语义排两类依赖（逻辑序 + 文�
 issue: 150
 slug: issue-scheduler
 summary: '派一个提示词可控的调度 agent 读所有「已出 RFC」的 open issue（标题/正文 + 其 spec 的文件分配与设计），语义判两类依赖边（逻辑前提 + 文件冲突），把每条「下游←上游」落成下游的 blocked-by:#N 标签、无未满足上游者派生 sched-ready；标签即 DAG 的持久唯一真值，据此渲本地 graphviz DAG 拓扑图（graphviz 缺失降级为 DOT）、在 messages 派 implement 前查未满足 blocked-by（只挡写码不挡 RFC 起草）、vigil 每轮发现段后调一次保鲜自动剪边解封；分层为一个调度 agent + 一层确定性 utils（解析 spec 文件分配 / 落标签 / 渲图），决策下放 agent、代码留最小硬闸（对齐 #145、沿 Spec-0043/0034 注入 backend 纯逻辑 + 渲染降级形态）。'
+e2e:
+  intent: 验证跨 issue 调度全链闭环——调度 agent 语义判边 → 确定性 utils 落 blocked-by:#N / sched-ready 标签 → messages 实现门控挡下游写码不挡 RFC 起草 → 上游合并（issue closed）后保鲜轮自动剪边、下游转 sched-ready 解封 → DAG 拓扑图出图（无 graphviz 降级 .dot）。
+  method: |
+    用内存 GitHub 世界 + 桩 backend 驱动一次完整 schedule。构造一批 fixture issue：两个 spec 的文件分配有交集、一条正文声明的逻辑依赖、一个与谁都无关的独立 issue。
+    1. 跑一次 schedule，看下游 issue 是否被打上 blocked-by:#<上游>、独立 issue 是否被打上 sched-ready、上游是否未被打 blocked；再跑一次同一世界，看标签 add/remove 是否稳定无抖动（幂等）算过。
+    2. 让 messages 守候段推进一个仍挂 blocked-by 的 issue，看它是否停在 rfc-review、implement 是否未被调用；摘掉 blocked-by 后再推，看是否照常评审并派 implement（零回归）算过。
+    3. 把上游 issue 置为 closed 后再跑一次保鲜 schedule，看下游的 blocked-by:#<上游> 是否被自动摘除、是否转为 sched-ready——这是自动解封的铁证。
+    4. 调 schedgraph.render，看是否产出 DAG 图产物（本机有 graphviz 出 dag.png，无则降级 dag.dot），产物存在且 DOT 文本含预期的下游←上游有向边与波次分层算过。
+    能力降级：本环境实测无浏览器 MCP、无 graphviz dot，按能力自检降级为「产物存在性 + DOT 文本边/波次断言」，不跳过；未来前端排程面板落地后再补真实浏览器导航截图。
 tasks:
   - id: T1
     title: 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配）
