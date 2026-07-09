@@ -14,7 +14,7 @@ github.list_comments 读评论，用 `parse_agent_id` 滤掉一切带 OpenAgents
 「block 之后的无签名人类评论」，专供 messages 的 blocked 解挂判定（自动流转主路径仍由 reviewer
 闸驱动，不读评论）。两道硬约束（仅新评论 + 仅人类签名）精确化解 RFC-0019 的自循环顾虑。
 
-身份解析优先级（决策 2）：env OPENAGENTS_AGENT_ID > state 已存值 > 首次自动生成并落盘。
+身份解析优先级（决策 2）：env OPENAGENTS_AGENT_ID > RuntimeState 已存值 > 首次自动生成并落盘。
 盖章逻辑收口在本模块（决策 4）：所有「agent 主动发评论」的调用方走 post_signed_comment，
 github.post_comment 维持「对 gh pr comment 的薄封装、不含业务逻辑」的定位（理念 10：解耦）。
 """
@@ -26,7 +26,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
-from openagents.state import State
+from openagents.runtime.state import RuntimeState
 from openagents.utils import github
 
 # RFC-0011 决策 2：显式命名实例的环境变量；多 agent 协同时给运维一个可读的命名入口。
@@ -49,12 +49,15 @@ _SIGNATURE_TEMPLATE = "<!-- openagents:agent={agent_id} -->"
 _SIGNATURE_RE = re.compile(rf"<!-- openagents:agent=([{_AGENT_ID_CHARS}]+) -->")
 
 
-def resolve_agent_id(*, state: State) -> str:
-    """RFC-0011 决策 2：解析本实例 agent_id（env > state > 自动生成并落盘）。
+def resolve_agent_id(*, state: RuntimeState) -> str:
+    """RFC-0011 决策 2：解析本实例 agent_id（env > RuntimeState > 自动生成并落盘）。
+
+    # Spec-0063/T2: 改接新栈——存取从旧 State 迁到 runtime.RuntimeState，落盘从 state.json 顶层
+    # 键改为 runtime-state.json 顶层键（get/set_agent_id 签名不变，行为完全等价）。
 
     - env OPENAGENTS_AGENT_ID 非空白：直接用，不写 state（不污染落盘值，env 是临时覆盖）。
-    - 否则 state 已有值：复用，保证跨进程/重启稳定。
-    - 都没有：uuid4 生成短串，立即 state.set_agent_id 落盘，使后续进程拿到同一 id。
+    - 否则 RuntimeState 已有值：复用，保证跨进程/重启稳定。
+    - 都没有：uuid4 生成短串，立即 state.set_agent_id 落盘（runtime-state.json），使后续进程拿到同一 id。
 
     返回非空、字符集受限（[A-Za-z0-9_-]）的稳定 id。
     """

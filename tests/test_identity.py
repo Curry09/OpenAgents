@@ -2,16 +2,18 @@
 
 外部副作用全部 mock/注入：
 - env：monkeypatch os.environ（OPENAGENTS_AGENT_ID）。
-- state：用真实 State（tmp_path）或伪 State 控制 get/set_agent_id。
+- state：用真实 RuntimeState（tmp_path）或伪 state 控制 get/set_agent_id。
 - github.post_comment：monkeypatch，断言盖章后的正文下发。
 
 覆盖：sign/parse 往返；无签名/真人正文解析为 None；resolve_agent_id 的
-env > state > 自动生成三级优先级与落盘稳定性；post_signed_comment 盖章并下发。
+env > RuntimeState > 自动生成三级优先级与落盘稳定性；post_signed_comment 盖章并下发。
+
+# Spec-0063/T2: identity 改接 runtime.RuntimeState，测试随之从旧 State 迁到 RuntimeState。
 """
 
 import pytest
 
-from openagents.state import State
+from openagents.runtime.state import RuntimeState
 from openagents.utils import identity as identity_module
 from openagents.utils.identity import (
     AGENT_ID_ENV,
@@ -23,7 +25,7 @@ from openagents.utils.identity import (
 
 
 class _FakeState:
-    """伪 State：内存维护 agent_id，记录 set 调用次数。"""
+    """伪 RuntimeState：内存维护 agent_id，记录 set 调用次数。"""
 
     def __init__(self, *, agent_id=None):
         self._agent_id = agent_id
@@ -111,12 +113,12 @@ def test_resolve_generates_and_persists_when_missing(monkeypatch):
 
 
 def test_resolve_generated_id_is_stable_across_calls(monkeypatch, tmp_path):
-    # 用真实 State：首次生成落盘，第二次（新 State 实例，模拟新进程）复用同值。
+    # 用真实 RuntimeState：首次生成落盘，第二次（新 RuntimeState 实例，模拟新进程）复用同值。
     monkeypatch.delenv(AGENT_ID_ENV, raising=False)
-    path = tmp_path / ".openagents" / "state.json"
+    path = tmp_path / ".openagents" / "runtime-state.json"
 
-    first = resolve_agent_id(state=State(path=path))
-    second = resolve_agent_id(state=State(path=path))
+    first = resolve_agent_id(state=RuntimeState(path=path))
+    second = resolve_agent_id(state=RuntimeState(path=path))
 
     assert first == second
 
