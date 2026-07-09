@@ -333,6 +333,7 @@ graph LR
     nopenagents_recipes_solve_issue --> nopenagents_runtime_gates
     nopenagents_recipes_vigil --> nopenagents_agents
     nopenagents_recipes_vigil --> nopenagents_agents_triager
+    nopenagents_recipes_vigil --> nopenagents_recipes_merge_pr
     nopenagents_recipes_vigil --> nopenagents_recipes_solve_issue
     nopenagents_recipes_vigil --> nopenagents_runtime
     nopenagents_recipes_vigil --> nopenagents_runtime_context
@@ -341,6 +342,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils
     nopenagents_recipes_vigil --> nopenagents_utils_git
     nopenagents_recipes_vigil --> nopenagents_utils_github
+    nopenagents_recipes_vigil --> nopenagents_utils_identity
     nopenagents_release --> nopenagents
     nopenagents_release --> nopenagents_github
     nopenagents_release --> nopenagents_state

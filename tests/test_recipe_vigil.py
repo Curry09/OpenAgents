@@ -8,11 +8,13 @@ backend + 打桩 github/git，不触真实 LLM/网络/仓库；派单动作走�
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 from openagents.backends.base import AgentResult
-from openagents.github import Issue
+from openagents.github import Comment, Issue
+from openagents.identity import build_claim_note
 from openagents.recipes import vigil as vigil_module
-from openagents.recipes.vigil import Vigil
+from openagents.recipes.vigil import CLAIM_EXPIRY_SECONDS, Vigil
 from openagents.runtime.state import RuntimeState
 
 
@@ -177,3 +179,234 @@ def test_run_once_none_poll_only_discovers(monkeypatch, tmp_path):
     vigil.run(interval=1, labels=["openagents"], base="main", once=True, poll=None)
 
     assert calls == [{"issue_number": 145, "base": "main"}]
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0062/T3: 认领归属闸④——他人未过期 → 跳过；他人过期 / 无便签 / 自己残留 → 「新」
+# --------------------------------------------------------------------------- #
+
+SELF_ID = "agent-self"
+_NOW = datetime(2026, 7, 9, 12, 0, 0, tzinfo=UTC)
+
+
+def _iso(*, ago_seconds):
+    """构造相对 _NOW 早 ago_seconds 秒的 ISO 8601 UTC 时戳（now 注入 → 判定确定性、不读墙钟）。"""
+    return (_NOW - timedelta(seconds=ago_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _claim_comment(*, owner, ago_seconds):
+    """owner 在 ago_seconds 秒前贴的一条署名认领便签评论。"""
+    return Comment(
+        id="IC",
+        author=owner,
+        body=build_claim_note(agent_id=owner),
+        created_at=_iso(ago_seconds=ago_seconds),
+    )
+
+
+def _patch_comments(monkeypatch, comments):
+    monkeypatch.setattr(
+        vigil_module.github, "list_issue_comments", lambda *, number: list(comments)
+    )
+
+
+def _claim_vigil(tmp_path, *, agent_id=SELF_ID, claim_expiry_seconds=CLAIM_EXPIRY_SECONDS):
+    state = RuntimeState(path=tmp_path / "runtime-state.json")
+    return Vigil(
+        backend=_TriagerBackend(),
+        state=state,
+        work_dir=tmp_path,
+        agent_id=agent_id,
+        dispatch=lambda **kw: None,
+        claim_expiry_seconds=claim_expiry_seconds,
+    )
+
+
+def _dispatch_labeled_issue():
+    return Issue(number=9, title="t", body="b 正常", labels=(vigil_module.github.DISPATCH_LABEL,))
+
+
+def test_claim_other_fresh_is_skipped(monkeypatch, tmp_path):
+    # 他人未过期认领 → 判非新，不派单、triager 不被调。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=5)])
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == []
+    assert vigil._backend.tasks == []
+
+
+def test_claim_other_expired_is_reclaimed_as_fresh(monkeypatch, tmp_path):
+    # 他人过期认领（僵尸）→ 回收视同新 → 正常派单。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(
+        monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=CLAIM_EXPIRY_SECONDS + 60)]
+    )
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == [9]
+
+
+def test_claim_own_residue_is_reclaimed_as_fresh(monkeypatch, tmp_path):
+    # 最近便签是自己的残留 → 重认领、不跳过。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(monkeypatch, [_claim_comment(owner=SELF_ID, ago_seconds=5)])
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == [9]
+
+
+def test_claim_no_valid_note_is_fresh(monkeypatch, tmp_path):
+    # 带认领标签但无有效认领便签（只有粗标签、无归属凭证）→ 可认领。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(
+        monkeypatch, [Comment(id="IC", author="human", body="+1", created_at=_iso(ago_seconds=1))]
+    )
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == [9]
+
+
+def test_claim_latest_note_wins_other_newer_over_own_older(monkeypatch, tmp_path):
+    # 自己旧便签 + 他人更晚便签 → 最近是他人且未过期 → 跳过（末位 created_at 定胜负）。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(
+        monkeypatch,
+        [
+            _claim_comment(owner=SELF_ID, ago_seconds=100),
+            _claim_comment(owner="agent-other", ago_seconds=5),
+        ],
+    )
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == []
+
+
+def test_claim_comments_query_error_is_conservative_skip(monkeypatch, tmp_path):
+    # 读评论失败 → 不上抛、保守判「他人活认领」→ 跳过（不拖垮整轮）。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+
+    def _boom(*, number):
+        raise vigil_module.github.GithubError("gh issue view failed")
+
+    monkeypatch.setattr(vigil_module.github, "list_issue_comments", _boom)
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == []
+
+
+def test_claim_gate_skipped_without_dispatch_label(monkeypatch, tmp_path):
+    # 无 DISPATCH_LABEL → 认领闸罕见路径不触发、不读评论（常态扫描不拖慢）。
+    issue = Issue(number=9, title="t", body="b 正常", labels=("openagents",))
+    _patch(monkeypatch, issues=[issue])
+
+    def _boom(*, number):
+        raise AssertionError("无认领标签时不应读评论")
+
+    monkeypatch.setattr(vigil_module.github, "list_issue_comments", _boom)
+    vigil = _claim_vigil(tmp_path)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == [9]
+
+
+def test_claim_expiry_threshold_is_injectable(monkeypatch, tmp_path):
+    # 调大阈值后，原本超时的他人认领龄变为未超时 → 从回收翻转为跳过（阈值参与判定）。
+    _patch(monkeypatch, issues=[_dispatch_labeled_issue()])
+    _patch_comments(
+        monkeypatch, [_claim_comment(owner="agent-other", ago_seconds=CLAIM_EXPIRY_SECONDS + 100)]
+    )
+    vigil = _claim_vigil(tmp_path, claim_expiry_seconds=CLAIM_EXPIRY_SECONDS + 1000)
+
+    dispatched = vigil.discover_and_dispatch(labels=["openagents"], base="main", now=_NOW)
+
+    assert dispatched == []
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0062/T3: 守候段——先回应评论（poll）再推进合并（merge），merge 收到携 issue 归属的 runs
+# --------------------------------------------------------------------------- #
+
+
+def test_watch_runs_poll_then_merge_with_issue_runs(monkeypatch, tmp_path):
+    _patch(monkeypatch, issues=[])  # 无新 issue，专测守候段
+    state = RuntimeState(path=tmp_path / "runtime-state.json")
+    state.set_run(issue_number=145, status="done", branch="openagents/issue-145", pr_number=154)
+    vigil = Vigil(
+        backend=_TriagerBackend(), state=state, work_dir=tmp_path, dispatch=lambda **kw: None
+    )
+
+    order: list[str] = []
+    seen: dict = {}
+
+    def _poll():
+        order.append("poll")
+
+    def _merge(*, runs, now):
+        order.append("merge")
+        seen["runs"] = runs
+        seen["now"] = now
+
+    vigil.run(interval=1, labels=["openagents"], base="main", once=True, poll=_poll, merge=_merge)
+
+    # 次序固定：先回应评论，再推进合并。
+    assert order == ["poll", "merge"]
+    # merge 收到据本地 run 投影出的、携 issue 归属的 runs。
+    assert len(seen["runs"]) == 1
+    run = seen["runs"][0]
+    assert run.pr_number == 154
+    assert run.issue_number == 145
+    assert run.branch == "openagents/issue-145"
+    assert run.status == "open"  # done → open（喂 merge_pr 推进合并）
+    assert isinstance(seen["now"], datetime)
+
+
+def test_watch_merge_skips_runs_without_pr(monkeypatch, tmp_path):
+    # 无 pr_number（求解中、尚无 PR）→ 不投影进 merge 的 runs。
+    _patch(monkeypatch, issues=[])
+    state = RuntimeState(path=tmp_path / "runtime-state.json")
+    state.set_run(issue_number=145, status="solving", branch="openagents/issue-145", pr_number=None)
+    vigil = Vigil(
+        backend=_TriagerBackend(), state=state, work_dir=tmp_path, dispatch=lambda **kw: None
+    )
+
+    seen: dict = {}
+
+    def _merge(*, runs, now):
+        seen["runs"] = runs
+
+    vigil.run(interval=1, labels=["openagents"], base="main", once=True, poll=None, merge=_merge)
+
+    assert seen["runs"] == []
+
+
+def test_watch_blocked_run_maps_to_blocked_status(monkeypatch, tmp_path):
+    # blocked run → merge Run 状态 blocked（短路），不当 open 重跑闸。
+    _patch(monkeypatch, issues=[])
+    state = RuntimeState(path=tmp_path / "runtime-state.json")
+    state.set_run(issue_number=9, status="blocked", branch="openagents/issue-9", pr_number=77)
+    vigil = Vigil(
+        backend=_TriagerBackend(), state=state, work_dir=tmp_path, dispatch=lambda **kw: None
+    )
+
+    seen: dict = {}
+
+    def _merge(*, runs, now):
+        seen["runs"] = runs
+
+    vigil.run(interval=1, labels=["openagents"], base="main", once=True, poll=None, merge=_merge)
+
+    assert seen["runs"][0].status == "blocked"

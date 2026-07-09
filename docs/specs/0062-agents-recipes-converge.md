@@ -36,7 +36,7 @@ tasks:
     acceptance: merge_pr hermetic 可测，覆盖 merged/blocked/ci/review/e2e/reopened/error 全路由；hold/skip 对称短路；ruff 绿。
   - id: T3
     title: vigil 认领归属+过期回收 + 守候段接 merge_pr
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -46,10 +46,11 @@ tasks:
     files:
       - openagents/recipes/vigil.py
       - openagents/recipes/poll_comments.py
+      - openagents/runtime/state.py
       - tests/test_recipe_vigil.py
       - tests/test_recipe_poll_comments.py
-    scope: vigil 去重闸加署名认领便签 + 过期回收（identity.latest_claim + 阈值，多后端跨进程认领）；vigil 每轮守候段从 poll_comments 扩为「poll_comments 回应评论 + merge_pr 推进合并」，闭合发现→求解→回应→合并全环。
-    acceptance: vigil 守候段驱动合并推进；认领便签/过期回收 hermetic 可测；ruff 绿。
+    scope: vigil 去重闸加署名认领便签 + 过期回收（identity.latest_claim + 阈值，多后端跨进程认领）；vigil 每轮守候段从 poll_comments 扩为「poll_comments 回应评论 + merge_pr 推进合并」，闭合发现→求解→回应→合并全环。并给 runtime.RuntimeState 补 merge/rfc 流水线接线所需字段：按 PR 号查 run（find_run(pr_number=)）、run 记录带 issue_number 与 closed_at——让 T1/T2 的 fake-state seam 落到真实 state。跨轮 rounds 预算 blocked（旧 MAX_ROUNDS）本批不搬，作已知简化留 Unresolved。
+    acceptance: vigil 守候段驱动合并推进；认领便签/过期回收 hermetic 可测；RuntimeState 提供 find_run(pr_number=)/issue_number/closed_at；ruff 绿。
   - id: T4
     title: CLI 全量改接新栈 + 删旧路由
     status: pending
