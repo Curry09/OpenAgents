@@ -15,12 +15,21 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 from openagents.utils import git, github
 
 # Spec-0060/T3: 评审循环默认轮次上限——超此仍未 PASS 视作死循环，兜底 raise（可由调用方覆盖）。
 DEFAULT_MAX_ROUNDS = 10
+
+# Spec-0062/T2: 合并流水线（recipes.merge_pr）的确定性判读原语——只**读客观事实分类**、不判「能不能合」。
+# 复活窗口默认阈值：对齐旧 messages.REOPEN_REVIVE_WINDOW_SECONDS（7 天）——closed run 超此即硬化真终态。
+REVIVE_WINDOW_SECONDS = 7 * 24 * 3600
+
+# Spec-0062/T2: hold/skip 两组闸名白名单——对称短路判读只认这些闸名，未知闸名判 GateError（防拼写漂移）。
+_HOLD_GATES = ("spec", "merge")
+_SKIP_GATES = ("ci", "code", "evidence", "spec")
 
 
 class GateError(Exception):
@@ -93,3 +102,85 @@ def assert_evidence_stamp(*, head_sha: str, claimed: str) -> None:
             f"证据溯源戳不匹配：实际 head={head_sha[:12] or '（空）'} ≠ "
             f"证据自述 head={claimed[:12] or '（空）'}（证据陈旧或张冠李戴）"
         )
+
+
+# --------------------------------------------------------------------------------------------------
+# Spec-0062/T2: 合并流水线判读闸——把旧 messages.poll 里散落的「读 GitHub 客观事实做分类」抽成纯函数。
+# 全部**读客观事实、返布尔/分类**，绝不判「这版能不能合」（那是 reviewer agent 的活）、也不判「冲突怎么
+# 解」（那是 git delivery agent 的活）。recipes.merge_pr 据这些判读路由。均为纯逻辑，零 IO、hermetic 可测
+# （入参是调用方已从 utils.github 读到手的 Mergeability / CheckStatus 快照，本层不再触网）。
+# --------------------------------------------------------------------------------------------------
+
+
+def is_conflicting(*, mergeability: github.Mergeability) -> bool:
+    """可合并性预检：DIRTY 或 CONFLICTING 即判有文本冲突（取「或」更稳，对齐旧 messages.poll）。
+
+    冲突场景 DIRTY 与 CONFLICTING 常同时出现（旧 poll 实例 PR #61），任一命中即需 git delivery
+    agent 去 rebase 解——本函数只读 GitHub 给的两个原值判「有没有冲突」，不判「怎么解」。
+    """
+    return mergeability.merge_state_status == "DIRTY" or mergeability.mergeable == "CONFLICTING"
+
+
+def is_mergeable_unknown(*, mergeability: github.Mergeability) -> bool:
+    """GitHub 异步尚未算完（刚 push 常见）——UNKNOWN 是合法中间态：本轮不推进、下轮重查。"""
+    return mergeability.mergeable == "UNKNOWN"
+
+
+def is_behind(*, mergeability: github.Mergeability) -> bool:
+    """落后 base 但无文本冲突——BEHIND：需拉最新 base 进来触发 CI 在集成态重跑（拉式同步）。"""
+    return mergeability.merge_state_status == "BEHIND"
+
+
+def ci_failed(*, check_status: github.CheckStatus) -> bool:
+    """CI 结论判读：任一 check 失败（对齐旧 poll 的 `status.state == "fail"`）。"""
+    return check_status.state == "fail"
+
+
+def ci_pending(*, check_status: github.CheckStatus) -> bool:
+    """CI 结论判读：仍有 check 进行中（本轮不评审、下轮重查）。"""
+    return check_status.state == "pending"
+
+
+def evidence_stamp_ok(*, head_sha: str, claimed: str) -> bool:
+    """e2e 证据溯源戳判读——`assert_evidence_stamp` 的**布尔版**（不 raise，供 merge_pr 路由）。
+
+    与 `assert_evidence_stamp` 同口径：claimed 非空且 == 实际 head → 证据对得上当前 head、放行；
+    否则（缺证据 / 陈旧 / 张冠李戴）→ 未就绪。区别在于——solve_issue 里证据戳不符是「agent 撒谎」
+    硬 raise，而 merge_pr 里只表示「本轮该回去补 e2e」（返 "e2e" 事件、非硬失败），故用布尔判读。
+    """
+    return bool(claimed) and claimed == head_sha
+
+
+def revive_eligible(*, closed_at: str, now: datetime, window_seconds: int | None = None) -> bool:
+    """closed-run 复活窗口判读（对齐旧 messages._revive_eligible）：closed_at 在窗口内 → 复活候选。
+
+    只有候选才值得每轮花一次 gh 查 PR 是否被 reopen；空 closed_at / 无法解析 / 超窗口 → False
+    （硬化成真终态、不再发 gh，成本有界）。`now` 由调用方传入（**不读系统时钟**，hermetic 可测）；
+    window_seconds=None 时用模块级 `REVIVE_WINDOW_SECONDS`（而非绑死默认参数，便于按需覆盖/测试）。
+    """
+    if not closed_at:
+        return False
+    try:
+        closed = datetime.fromisoformat(closed_at)
+    except ValueError:
+        return False
+    window = REVIVE_WINDOW_SECONDS if window_seconds is None else window_seconds
+    return (now - closed).total_seconds() <= window
+
+
+def hold_hits(*, hold: object, gate: str) -> bool:
+    """hold 短路判读：`gate` 闸是否被 `--hold` 夯住（停在闸门等人批）。gate ∈ _HOLD_GATES。
+
+    读 Hold 值对象的 `at_<gate>` 布尔位——纯读意图、零判断。与 `skip_hits` 对称（hold=停下等人、
+    skip=当 PASS 放行，语义相反）。未知闸名 raise GateError，防调用方拼错闸名静默漏短路。
+    """
+    if gate not in _HOLD_GATES:
+        raise GateError(f"未知 hold 闸名 {gate!r}（合法：{_HOLD_GATES}）")
+    return bool(getattr(hold, f"at_{gate}"))
+
+
+def skip_hits(*, skip: object, gate: str) -> bool:
+    """skip 短路判读（与 `hold_hits` 对称）：`gate` 闸是否被 `--skip` 当 PASS 放行。gate ∈ _SKIP_GATES。"""
+    if gate not in _SKIP_GATES:
+        raise GateError(f"未知 skip 闸名 {gate!r}（合法：{_SKIP_GATES}）")
+    return bool(getattr(skip, f"at_{gate}"))

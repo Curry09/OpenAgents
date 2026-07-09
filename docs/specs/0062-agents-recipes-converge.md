@@ -7,7 +7,7 @@ summary: 承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，�
 tasks:
   - id: T1
     title: RFC 生命周期 recipes + drafter agent（additive）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -22,7 +22,7 @@ tasks:
     acceptance: 五个 recipe 入口 hermetic 可测（假 backend 喂 canned 裁决，不触真实 LLM/网络/仓库）；drafter 零 def/subprocess；ruff 绿。
   - id: T2
     title: merge_pr recipe + 合并流水线 gates（additive）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -65,7 +65,7 @@ tasks:
     scope: rfc/backfill-rfc/refine-rfc/implement/iterate/poll/watch/vigil/vigil-all 九条命令全部改接 recipes.*；删 _orchestrator_for 工厂、messages.Messages import、旧阶段机路由；合并新旧命令名（vigil-new 收编为 vigil、poll-comments 收编为 poll 的评论段）。
     acceptance: 所有 CLI 命令走新栈 recipe；oa 全命令解析并分发；无 import openagents.orchestrator/messages；ruff 绿。
   - id: T5
-    title: 物理搬迁 utils 原语 + 删旧六模块
+    title: 物理搬迁 utils 原语 + 清空整个 flat 旧模块层
     status: pending
     priority: P1
     tags: []
@@ -84,8 +84,9 @@ tasks:
       - openagents/utils/envcheck.py
       - openagents/utils/fleet_config.py
       - openagents/utils/fleet.py
-    scope: 把 identity/release/notes/hold/skip/results/config/envcheck/fleet_config 的实现从旧模块物理搬迁进 openagents/utils/*（不再是薄再导出）；Fleet 进程监管器搬进 utils.fleet；随后删 orchestrator/messages/vigil/fleet/align/issuecheck 六个旧模块并让 recipes.fleet 改 import utils.fleet。
-    acceptance: 无任何模块 import openagents.orchestrator/messages/vigil/fleet/align/issuecheck（grep 零命中）；六模块文件删除；ruff 绿。
+      - openagents/utils/workspace.py
+    scope: 把 identity/release/notes(blocknote/replynote/worknote)/hold/skip/results/config/envcheck/fleet_config/workspace 的实现从旧顶层模块物理搬迁进 openagents/utils/*（不再是薄再导出）；Fleet 进程监管器搬进 utils.fleet 且 recipes.fleet 改 import utils.fleet。随后清空整个 flat 旧模块层——删两类：①纯编排/判断类（已被 recipe/agent 取代，现多已 0 引用）orchestrator/messages/vigil/reviewer/align/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag；②被 utils 吸收后的原语文件 github/config/envcheck/hold/skip/release/results/identity/fleet/fleet_config/blocknote/replynote/worknote/workspace。**保留 cli.py + __init__.py；state.py 因新旧 state 未归一暂留**（其删除随 state 归一另开 Spec-0063，本组已满 6 Task）。
+    acceptance: flat 层仅剩 openagents/{cli.py,__init__.py,state.py}；全库 grep 对上述所有已删模块的 import 零命中；ruff 绿。
   - id: T6
     title: 测试收敛 + 旧 spec 作废 + docs 再生成
     status: pending
@@ -102,7 +103,7 @@ tasks:
       - tests/test_fleet.py
       - tests/test_align.py
       - tests/test_issuecheck.py
-    scope: 删/重写直测旧六模块的 ~29 个测试桩（行为已被新栈 recipe 测试覆盖的直接删，仍有价值的迁到对应 recipe 测试）；作废旧 spec（0004/0007/0012/0027/0032/0039/0049 等，spec abandon）；spec render/graph 再生成 OVERVIEW/ARCHITECTURE 无漂移。
+    scope: 删/重写直测已删旧模块的 ~29 个测试桩（行为已被新栈 recipe/agent 测试覆盖的直接删，仍有独立价值的迁到对应 recipe 测试）；作废对应旧 spec（0004/0007/0012/0027/0032/0039/0049 等，spec abandon）；spec render/graph 再生成 OVERVIEW/ARCHITECTURE 无漂移。
     acceptance: 全量 pytest 绿；无对已删模块的 import；spec validate + drift + graph --check 全绿。
 ---
 
@@ -130,7 +131,7 @@ tasks:
 - **`recipes.merge_pr`（T2）**：把 messages.poll 的阶段状态机重立为一条 recipe。deterministic 闸（可合并性预检、CI 结论读取、e2e 证据溯源戳校验、hold/skip 对称短路、closed-run 复活水位线）留 recipe/`runtime.gates`——它们都是**读客观事实**非判断；评审「这版能不能合」的判断走既有 `reviewer` agent，冲突「怎么 rebase 解」走既有 git delivery agent。返回与旧 poll 同构的事件列表（`merged/blocked/ci/review/e2e/reopened/error` 等 reason）以便日志与断言。
 - **vigil 收口（T3）**：给 `recipes.vigil` 去重闸补上旧栈的**署名认领便签 + 过期回收**（多后端跨进程认领归属），并把每轮守候段从「只回应评论」扩为「回应评论（poll_comments）+ 推进合并（merge_pr）」，闭合**发现→求解→回应→合并**全环。
 - **CLI 全量改接（T4）**：九条命令改接 `recipes.*`，删 `_orchestrator_for` 工厂与 `messages.Messages` import，合并新旧命令名（`vigil-new`→`vigil`、`poll-comments` 收编进 `poll` 的评论段）。
-- **物理搬迁删旧（T5）**：utils 从薄再导出升级为真实实现搬迁，`Fleet` 监管器搬进 `utils.fleet`，然后删 `orchestrator/messages/vigil/fleet/align/issuecheck` 六模块、让 `recipes.fleet` 改 import `utils.fleet`。
+- **清空 flat 层（T5）**：utils 从薄再导出升级为真实实现搬迁（含 workspace 与 note 家族），`Fleet` 监管器搬进 `utils.fleet`，然后**删掉整个 flat 旧模块层**——编排/判断类（orchestrator/messages/vigil/reviewer/align/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag）+ 被 utils 吸收的原语文件（github/config/envcheck/hold/skip/release/results/identity/fleet/fleet_config/blocknote/replynote/worknote/workspace）。flat 层收敛到仅剩 `cli.py`+`__init__.py`+`state.py`（`state.py` 因 state 未归一暂留，其删除随 state 归一另开 Spec-0063）。
 - **测试与文档收敛（T6）**：删/迁 ~29 个直测旧模块的测试桩，作废旧 spec，再生成 OVERVIEW/ARCHITECTURE。
 
 ## Reference-level explanation
@@ -145,7 +146,7 @@ tasks:
 | **T2** | — | `recipes/merge_pr.py`, `runtime/gates.py`, `tests/test_recipe_merge_pr.py` | 合并流水线 recipe + gates（additive） |
 | **T3** | T1, T2 | `recipes/vigil.py`, `recipes/poll_comments.py`, `tests/test_recipe_vigil.py`, `tests/test_recipe_poll_comments.py` | vigil 认领回收 + 守候段接 merge_pr |
 | **T4** | T1, T2, T3 | `cli.py`, `tests/test_cli_new_stack.py` | 九命令全量改接新栈、删旧路由 |
-| **T5** | T4 | `utils/{identity,release,notes,hold,skip,results,config,envcheck,fleet_config,fleet}.py` | 物理搬迁 + 删旧六模块 |
+| **T5** | T4 | `utils/{identity,release,notes,hold,skip,results,config,envcheck,fleet_config,fleet,workspace}.py` | 物理搬迁 + 清空整个 flat 层（仅剩 cli/__init__/state） |
 | **T6** | T5 | `tests/test_{orchestrator,messages,vigil,fleet,align,issuecheck}.py` | 测试收敛 + 作废旧 spec + docs 再生成 |
 
 DAG 形状：T1 ∥ T2 无依赖可并行 → T3 汇合 → T4 改接 → T5 删旧 → T6 收敛。additive 的 T1/T2 先行且 hermetic 可测（假 backend 喂 canned 裁决，不触真实 LLM/网络/仓库），destructive 的 T4→T5→T6 严格串行，且每步跑全量 pytest + ruff 作硬闸，任一红即停不推进。

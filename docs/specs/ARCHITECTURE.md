@@ -47,6 +47,7 @@ _# Spec-0060/T4: agents —— 提示词层：每个 agent 一个模块，仅含
 |----|----|
 | `__init__.py` | # Spec-0060/T4: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT（string.Template）+ |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
+| `drafter.py` | # Spec-0062/T1: agents.drafter —— RFC 生命周期起草判断 → 结构化交付报告的提示词（零逻辑）。 |
 | `implementer.py` | # Spec-0060/T4: agents.implementer —— 按 RFC 实现 / 按反馈迭代的提示词（零逻辑）。 |
 | `planner.py` | # Spec-0060/T4: agents.planner —— 起草/精炼 RFC 的提示词（零逻辑）。 |
 | `replier.py` | # Spec-0061/T2: agents.replier —— 回应 PR 上的人类评论 → 结构化回复（零逻辑）。 |
@@ -72,7 +73,9 @@ _# Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtim
 |----|----|
 | `__init__.py` | # Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent 调用， |
 | `fleet.py` | # Spec-0061/T3: recipes.fleet —— 多仓库并发守夜（每仓库一子进程跑新栈 vigil，纯控制流）。 |
+| `merge_pr.py` | # Spec-0062/T2: recipes.merge_pr —— PR 合并流水线（纯控制流，零业务判断）。 |
 | `poll_comments.py` | # Spec-0061/T3: recipes.poll_comments —— 守候段：回应 PR 上的新人类评论（纯控制流，零业务判断）。 |
+| `rfc_lifecycle.py` | # Spec-0062/T1: recipes.rfc_lifecycle —— RFC 生命周期五入口（纯控制流，零业务判断）。 |
 | `solve_issue.py` | # Spec-0060/T6: recipes.solve_issue —— 求解一个 issue 的编排（纯控制流，零业务判断）。 |
 | `vigil.py` | # Spec-0061/T3: recipes.vigil —— 发现→分诊→派单 循环（纯控制流，零业务判断）。 |
 
@@ -131,6 +134,7 @@ graph LR
     nopenagents_agentcontext["openagents.agentcontext"]
     nopenagents_agents["openagents.agents"]
     nopenagents_agents_deliver["agents.deliver"]
+    nopenagents_agents_drafter["agents.drafter"]
     nopenagents_agents_implementer["agents.implementer"]
     nopenagents_agents_planner["agents.planner"]
     nopenagents_agents_replier["agents.replier"]
@@ -159,7 +163,9 @@ graph LR
     nopenagents_orchestrator["openagents.orchestrator"]
     nopenagents_recipes["openagents.recipes"]
     nopenagents_recipes_fleet["recipes.fleet"]
+    nopenagents_recipes_merge_pr["recipes.merge_pr"]
     nopenagents_recipes_poll_comments["recipes.poll_comments"]
+    nopenagents_recipes_rfc_lifecycle["recipes.rfc_lifecycle"]
     nopenagents_recipes_solve_issue["recipes.solve_issue"]
     nopenagents_recipes_vigil["recipes.vigil"]
     nopenagents_release["openagents.release"]
@@ -287,6 +293,18 @@ graph LR
     nopenagents_recipes_fleet --> nopenagents_config
     nopenagents_recipes_fleet --> nopenagents_fleet
     nopenagents_recipes_fleet --> nopenagents_utils_fleet_config
+    nopenagents_recipes_merge_pr --> nopenagents_agents
+    nopenagents_recipes_merge_pr --> nopenagents_agents_deliver
+    nopenagents_recipes_merge_pr --> nopenagents_agents_reviewer
+    nopenagents_recipes_merge_pr --> nopenagents_runtime
+    nopenagents_recipes_merge_pr --> nopenagents_runtime_context
+    nopenagents_recipes_merge_pr --> nopenagents_runtime_engine
+    nopenagents_recipes_merge_pr --> nopenagents_runtime_gates
+    nopenagents_recipes_merge_pr --> nopenagents_runtime_state
+    nopenagents_recipes_merge_pr --> nopenagents_utils
+    nopenagents_recipes_merge_pr --> nopenagents_utils_github
+    nopenagents_recipes_merge_pr --> nopenagents_utils_hold
+    nopenagents_recipes_merge_pr --> nopenagents_utils_skip
     nopenagents_recipes_poll_comments --> nopenagents_agents
     nopenagents_recipes_poll_comments --> nopenagents_agents_replier
     nopenagents_recipes_poll_comments --> nopenagents_runtime
@@ -296,6 +314,15 @@ graph LR
     nopenagents_recipes_poll_comments --> nopenagents_utils
     nopenagents_recipes_poll_comments --> nopenagents_utils_github
     nopenagents_recipes_poll_comments --> nopenagents_utils_identity
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_agents
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_agents_drafter
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_runtime
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_runtime_engine
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_runtime_gates
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_utils
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_utils_git
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_utils_github
+    nopenagents_recipes_rfc_lifecycle --> nopenagents_utils_identity
     nopenagents_recipes_solve_issue --> nopenagents_agents
     nopenagents_recipes_solve_issue --> nopenagents_agents_deliver
     nopenagents_recipes_solve_issue --> nopenagents_agents_implementer

@@ -390,11 +390,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0061 | 0061/T2 | triager + replier agent（零逻辑 Template 提示词） | done | T1 | openagents/agents/triager.py<br>openagents/agents/replier.py |
 | 0061 | 0061/T3 | vigil + poll_comments + fleet recipe（纯控制流）+ 循环上下文组装 | done | T1, T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/fleet.py<br>openagents/runtime/context.py |
 | 0061 | 0061/T4 | CLI additive 接线新栈守候/守夜/舰队三命令 | done | T3 | openagents/cli.py<br>tests/test_agents_triager_replier.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py<br>tests/test_recipe_fleet.py<br>tests/test_cli_new_stack.py<br>scripts/e2e-spec-0061-agents-recipes-flows.sh |
-| 0062 | 0062/T1 | RFC 生命周期 recipes + drafter agent（additive） | pending | — | openagents/recipes/rfc_lifecycle.py<br>openagents/agents/drafter.py<br>tests/test_recipe_rfc_lifecycle.py<br>tests/test_agents_drafter.py |
-| 0062 | 0062/T2 | merge_pr recipe + 合并流水线 gates（additive） | pending | — | openagents/recipes/merge_pr.py<br>openagents/runtime/gates.py<br>tests/test_recipe_merge_pr.py |
+| 0062 | 0062/T1 | RFC 生命周期 recipes + drafter agent（additive） | done | — | openagents/recipes/rfc_lifecycle.py<br>openagents/agents/drafter.py<br>tests/test_recipe_rfc_lifecycle.py<br>tests/test_agents_drafter.py |
+| 0062 | 0062/T2 | merge_pr recipe + 合并流水线 gates（additive） | done | — | openagents/recipes/merge_pr.py<br>openagents/runtime/gates.py<br>tests/test_recipe_merge_pr.py |
 | 0062 | 0062/T3 | vigil 认领归属+过期回收 + 守候段接 merge_pr | pending | T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py |
 | 0062 | 0062/T4 | CLI 全量改接新栈 + 删旧路由 | pending | T3 | openagents/cli.py<br>tests/test_cli_new_stack.py |
-| 0062 | 0062/T5 | 物理搬迁 utils 原语 + 删旧六模块 | pending | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py |
+| 0062 | 0062/T5 | 物理搬迁 utils 原语 + 清空整个 flat 旧模块层 | pending | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py<br>openagents/utils/workspace.py |
 | 0062 | 0062/T6 | 测试收敛 + 旧 spec 作废 + docs 再生成 | pending | T5 | tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_vigil.py<br>tests/test_fleet.py<br>tests/test_align.py<br>tests/test_issuecheck.py |
 
 ## 跨 feature 关系图
@@ -725,7 +725,7 @@ graph LR
         n0062_T2["T2 merge_pr recipe + 合并流水线 gates（additive）"]
         n0062_T3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
         n0062_T4["T4 CLI 全量改接新栈 + 删旧路由"]
-        n0062_T5["T5 物理搬迁 utils 原语 + 删旧六模块"]
+        n0062_T5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
         n0062_T6["T6 测试收敛 + 旧 spec 作废 + docs 再生成"]
     end
     n0001_T2 --> n0001_T1
@@ -2563,7 +2563,7 @@ graph LR
     nT2["T2 merge_pr recipe + 合并流水线 gates（additive）"]
     nT3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
     nT4["T4 CLI 全量改接新栈 + 删旧路由"]
-    nT5["T5 物理搬迁 utils 原语 + 删旧六模块"]
+    nT5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
     nT6["T6 测试收敛 + 旧 spec 作废 + docs 再生成"]
     nT2 --> nT3
     nT3 --> nT4
@@ -2581,9 +2581,10 @@ graph LR
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
     v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
     classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
     class v_T3_1 st_pending;
     class v_T4_1 st_pending;
     class v_T5_1 st_pending;
