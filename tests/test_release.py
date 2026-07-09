@@ -10,19 +10,21 @@ import subprocess
 
 import pytest
 
-from openagents.state import STATUS_BLOCKED, STATUS_PR_OPEN, State
+# Spec-0063/T3: STATUS_* 从 runtime 权威词表、State→RuntimeState（set_run 写 dict 记录）。
+from openagents.runtime.state import STATUS_BLOCKED, STATUS_PR_OPEN, RuntimeState
 from openagents.utils import release as release_module
 from openagents.utils.github import PR
 from openagents.utils.release import ReleaseResult, _next_version, release
 
 
 def _state(tmp_path, *, runs=()):
-    state = State(path=tmp_path / ".openagents" / "state.json")
+    # Spec-0063/T3: 用 RuntimeState.set_run 写 run 记录（status/branch/pr_number）。
+    state = RuntimeState(path=tmp_path / ".openagents" / "runtime-state.json")
     for issue_number, status in runs:
-        state.record_run(
+        state.set_run(
             issue_number=issue_number,
             branch=f"openagents/issue-{issue_number}",
-            pr=PR(number=issue_number * 10, url=f"u/pull/{issue_number * 10}"),
+            pr_number=issue_number * 10,
             status=status,
         )
     return state
