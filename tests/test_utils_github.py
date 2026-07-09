@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from openagents import github
+from openagents.utils import github
 from openagents.utils import github as ugithub
 
 

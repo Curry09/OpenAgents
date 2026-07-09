@@ -14,12 +14,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from openagents.align import Alignment
 from openagents.cli import build_parser, main
-from openagents.config import ProjectContext
-from openagents.github import Comment, Issue
-from openagents.hold import Hold
-from openagents.skip import NONE as NO_SKIP
+from openagents.utils.align import Alignment
+from openagents.utils.config import ProjectContext
+from openagents.utils.github import Comment, Issue
+from openagents.utils.hold import Hold
+from openagents.utils.skip import NONE as NO_SKIP
 
 COMMANDS = [
     "init",
@@ -87,7 +87,7 @@ def _patch_ensure(monkeypatch):
     monkeypatch.setattr("openagents.cli.ensure_project", fake_ensure)
     # Spec-0039/T3：rfc/vigil 入口现会自举 ensure_prerequisites（预建流程标签）——默认打成 no-op
     # 保持 CLI 单测不触达真实 gh；需要观测调用的用例（如 rfc/vigil preflight）再各自 re-patch 记录。
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     # Spec-0055/T1：poll/watch/vigil 入口现会固化 e2e 能力状态量——默认打成 no-op 保持 CLI 单测
     # 不触真实 ~/.claude.json / 不写真实 state；需要观测该调用的用例再各自 re-patch 记录。
     monkeypatch.setattr("openagents.cli._persist_ui_capable", lambda *, ctx: None)
@@ -131,7 +131,7 @@ def test_rfc_bootstraps_prerequisites_before_draft(monkeypatch):
     _stub_rfc_factories(monkeypatch)
     order = []
     monkeypatch.setattr(
-        "openagents.github.ensure_prerequisites", lambda: order.append("prerequisites")
+        "openagents.utils.github.ensure_prerequisites", lambda: order.append("prerequisites")
     )
 
     def _fake_draft(*, issue_number, base, backend, state, work_dir, agent_id):
@@ -277,7 +277,7 @@ def test_refine_rfc_fetches_latest_comment_and_calls_recipe(monkeypatch):
 
     monkeypatch.setattr("openagents.recipes.rfc_lifecycle.refine_rfc", _fake_refine)
     monkeypatch.setattr(
-        "openagents.github.list_comments",
+        "openagents.utils.github.list_comments",
         lambda *, pr_number: [
             Comment(id="1", author="alice", body="旧评论", created_at="2026-06-03T01:00:00Z"),
             Comment(
@@ -299,7 +299,7 @@ def test_refine_rfc_without_any_comment_returns_nonzero(monkeypatch, capsys):
         raise AssertionError("无评论时不应调用 refine_rfc")
 
     monkeypatch.setattr("openagents.recipes.rfc_lifecycle.refine_rfc", _fake_refine)
-    monkeypatch.setattr("openagents.github.list_comments", lambda *, pr_number: [])
+    monkeypatch.setattr("openagents.utils.github.list_comments", lambda *, pr_number: [])
 
     code = main(["refine-rfc", "9"])
     assert code == 1
@@ -340,7 +340,7 @@ def test_iterate_comment_fetches_latest_human_comment(monkeypatch):
 
     monkeypatch.setattr("openagents.recipes.rfc_lifecycle.iterate", _fake_iter)
     monkeypatch.setattr(
-        "openagents.github.list_comments",
+        "openagents.utils.github.list_comments",
         lambda *, pr_number: [
             Comment(id="2", author="alice", body="修一下", created_at="2026-06-03T02:00:00Z")
         ],
@@ -352,7 +352,7 @@ def test_iterate_comment_fetches_latest_human_comment(monkeypatch):
 
 
 def test_iterate_ci_uses_check_status(monkeypatch):
-    from openagents.github import CheckStatus
+    from openagents.utils.github import CheckStatus
 
     _patch_ensure(monkeypatch)
     _stub_rfc_factories(monkeypatch)
@@ -363,7 +363,7 @@ def test_iterate_ci_uses_check_status(monkeypatch):
 
     monkeypatch.setattr("openagents.recipes.rfc_lifecycle.iterate", _fake_iter)
     monkeypatch.setattr(
-        "openagents.github.check_status",
+        "openagents.utils.github.check_status",
         lambda *, pr_number: CheckStatus(state="fail", failed_logs=["lint [FAILURE] http://x"]),
     )
 
@@ -387,8 +387,8 @@ def test_issue_runs_preflight_then_creates_issue(monkeypatch):
         seen.update(title=title, body=body, labels=labels)
         return Issue(number=13, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     # Spec-0020/T4：--yes 跳过前门对齐，专注断言既有 label/发现标签行为（hermetic）。
     code = main(
         ["issue", "Login broken", "--body", "repro", "--label", "bug", "--label", "p1", "--yes"]
@@ -408,8 +408,8 @@ def test_issue_defaults_empty_body_and_attaches_discovery_label(monkeypatch):
         seen.update(title=title, body=body, labels=labels)
         return Issue(number=1, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     code = main(["issue", "Just a title", "--yes"])
     assert code == 0
     assert seen == {"title": "Just a title", "body": "", "labels": ["openagents"]}
@@ -424,8 +424,8 @@ def test_issue_does_not_duplicate_discovery_label(monkeypatch):
         seen.update(labels=labels)
         return Issue(number=2, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     code = main(["issue", "T", "--label", "openagents", "--label", "bug", "--yes"])
     assert code == 0
     assert seen == {"labels": ["openagents", "bug"]}
@@ -437,14 +437,14 @@ def test_issue_ensures_discovery_label_before_create(monkeypatch):
     order = []
 
     monkeypatch.setattr(
-        "openagents.github.ensure_label", lambda *, name: order.append(("ensure", name))
+        "openagents.utils.github.ensure_label", lambda *, name: order.append(("ensure", name))
     )
 
     def fake_create_issue(*, title, body, labels):
         order.append(("create", labels))
         return Issue(number=5, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     code = main(["issue", "测试", "--yes"])
     assert code == 0
     # ensure 必须发生在 create 之前，且确保的是发现标签。
@@ -464,7 +464,7 @@ def _patch_align(monkeypatch):
         seen["draft"] = draft
         return Alignment(want="X", boundary="Y", non_goals="Z")
 
-    monkeypatch.setattr("openagents.align.restate", fake_restate)
+    monkeypatch.setattr("openagents.utils.align.restate", fake_restate)
     monkeypatch.setattr("openagents.cli._backend_for", lambda: object())
     return seen
 
@@ -473,14 +473,14 @@ def test_issue_default_path_aligns_then_creates_on_yes(monkeypatch):
     _patch_ensure(monkeypatch)
     seen = _patch_align(monkeypatch)
     monkeypatch.setattr("builtins.input", lambda _prompt: "y")
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
     created = []
 
     def fake_create_issue(*, title, body, labels):
         created.append((title, labels))
         return Issue(number=21, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     code = main(["issue", "登录功能", "--body", "想登录"])
     assert code == 0
     # 建 issue 前先复述对齐（restate 被调用），确认 y 后才 create。
@@ -493,9 +493,9 @@ def test_issue_default_path_declined_does_not_create(monkeypatch):
     _patch_align(monkeypatch)
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
     created = []
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
     monkeypatch.setattr(
-        "openagents.github.create_issue",
+        "openagents.utils.github.create_issue",
         lambda *, title, body, labels: created.append(title),
     )
     code = main(["issue", "登录功能"])
@@ -508,17 +508,17 @@ def test_issue_yes_skips_alignment(monkeypatch):
     _patch_ensure(monkeypatch)
     restate_calls = []
     monkeypatch.setattr(
-        "openagents.align.restate",
+        "openagents.utils.align.restate",
         lambda *, draft, backend: restate_calls.append(draft),
     )
-    monkeypatch.setattr("openagents.github.ensure_label", lambda *, name: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_label", lambda *, name: None)
     created = []
 
     def fake_create_issue(*, title, body, labels):
         created.append(title)
         return Issue(number=22, title=title, body=body)
 
-    monkeypatch.setattr("openagents.github.create_issue", fake_create_issue)
+    monkeypatch.setattr("openagents.utils.github.create_issue", fake_create_issue)
     code = main(["issue", "自动化建的", "--yes"])
     assert code == 0
     # --yes 跳过复述：restate 不被调用，直接 create。
@@ -529,7 +529,7 @@ def test_issue_yes_skips_alignment(monkeypatch):
 def _patch_vigil_capture(monkeypatch):
     # Spec-0062/T4：vigil 全量改接新栈——发现/守候 poll 走 _new_vigil_for（返回 (Vigil, poll) 二元组），
     # 守候合并走 _new_merge_for（本轮解析出的 hold/skip 经此注入 merge_pr，新 Vigil.run 不再收 hold/skip）。
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     seen = {}
 
     class _FakeVigil:
@@ -598,7 +598,7 @@ def test_reply_comment_posts_signed_comment(monkeypatch):
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     seen = {}
     monkeypatch.setattr(
-        "openagents.identity.post_signed_comment",
+        "openagents.utils.identity.post_signed_comment",
         lambda *, pr_number, body, agent_id: seen.update(
             pr_number=pr_number, body=body, agent_id=agent_id
         ),
@@ -613,7 +613,9 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
     calls = _patch_ensure(monkeypatch)
     # RFC-0015：vigil 进主循环前自举一次 prerequisite——打桩避免触达真实 gh。
     bootstrapped = []
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: bootstrapped.append(True))
+    monkeypatch.setattr(
+        "openagents.utils.github.ensure_prerequisites", lambda: bootstrapped.append(True)
+    )
     seen = {}
 
     class _FakeVigil:
@@ -647,7 +649,7 @@ def test_vigil_runs_preflight_with_defaults(monkeypatch):
 def test_vigil_passes_all_overrides(monkeypatch):
     _patch_ensure(monkeypatch)
     # RFC-0015：打桩 vigil 进循环前的自举，避免触达真实 gh。
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     seen = {}
 
     class _FakeVigil:
@@ -681,12 +683,12 @@ def test_init_runs_interactive_preflight(monkeypatch):
     # 调用次数避免触达真实 gh（取代原先对 ensure_branch 的打桩）。
     bootstrapped = []
     monkeypatch.setattr(
-        "openagents.github.ensure_prerequisites",
+        "openagents.utils.github.ensure_prerequisites",
         lambda: bootstrapped.append(True),
     )
     # Spec-0030/T3：init 末尾接了 envcheck 体检——打桩 envcheck.check 避免触达真实 ~/.claude.json。
     monkeypatch.setattr(
-        "openagents.envcheck.check",
+        "openagents.utils.envcheck.check",
         lambda: SimpleNamespace(text="▶ 体检", all_ok=True),
     )
     code = main(["init"])
@@ -698,7 +700,7 @@ def test_init_runs_interactive_preflight(monkeypatch):
 def test_init_prints_envcheck_report_and_stays_zero_on_missing(monkeypatch, capsys):
     # Spec-0030/T3：缺 browser MCP / 非全放行时，init 打印含安装命令与设置方式的体检段且仍 return 0。
     _patch_ensure(monkeypatch)
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     report_text = (
         "▶ 前端 e2e 环境体检（非阻塞，仅 claude-code 后端）\n"
         "  ⚠ 未检测到 browser MCP\n"
@@ -706,7 +708,7 @@ def test_init_prints_envcheck_report_and_stays_zero_on_missing(monkeypatch, caps
         "      export OPENAGENTS_PERMISSION_MODE=bypassPermissions"
     )
     monkeypatch.setattr(
-        "openagents.envcheck.check",
+        "openagents.utils.envcheck.check",
         lambda: SimpleNamespace(text=report_text, all_ok=False),
     )
     code = main(["init"])
@@ -721,9 +723,9 @@ def test_init_envcheck_failure_does_not_break_init(monkeypatch):
     # Spec-0030/T3：即便 envcheck 内部出错也不该改变 init 退出码——但体检设计为从不抛，
     # 这里断言正常态 return 0（体检不抛、不改 init 退出码）。
     _patch_ensure(monkeypatch)
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     monkeypatch.setattr(
-        "openagents.envcheck.check",
+        "openagents.utils.envcheck.check",
         lambda: SimpleNamespace(text="▶ 体检 ✓", all_ok=True),
     )
     assert main(["init"]) == 0
@@ -735,7 +737,7 @@ def test_init_envcheck_failure_does_not_break_init(monkeypatch):
 
 
 def test_release_success_returns_zero(monkeypatch):
-    from openagents.release import ReleaseResult
+    from openagents.utils.release import ReleaseResult
 
     _patch_ensure(monkeypatch)
     seen = {}
@@ -745,7 +747,7 @@ def test_release_success_returns_zero(monkeypatch):
         seen["bump"] = bump
         return ReleaseResult(released=True, version="v1.2.4", reason="ok")
 
-    monkeypatch.setattr("openagents.release.release", fake_release)
+    monkeypatch.setattr("openagents.utils.release.release", fake_release)
     code = main(["release"])
     assert code == 0
     assert seen["called"] is True
@@ -754,7 +756,7 @@ def test_release_success_returns_zero(monkeypatch):
 
 
 def test_release_passes_bump_override(monkeypatch):
-    from openagents.release import ReleaseResult
+    from openagents.utils.release import ReleaseResult
 
     _patch_ensure(monkeypatch)
     seen = {}
@@ -763,18 +765,18 @@ def test_release_passes_bump_override(monkeypatch):
         seen["bump"] = bump
         return ReleaseResult(released=True, version="v2.0.0", reason="ok")
 
-    monkeypatch.setattr("openagents.release.release", fake_release)
+    monkeypatch.setattr("openagents.utils.release.release", fake_release)
     code = main(["release", "--bump", "major"])
     assert code == 0
     assert seen["bump"] == "major"
 
 
 def test_release_precheck_fail_returns_nonzero(monkeypatch, capsys):
-    from openagents.release import ReleaseResult
+    from openagents.utils.release import ReleaseResult
 
     _patch_ensure(monkeypatch)
     monkeypatch.setattr(
-        "openagents.release.release",
+        "openagents.utils.release.release",
         lambda *, state, bump: ReleaseResult(
             released=False, version="", reason="main 分支 CI 未全绿"
         ),
@@ -792,7 +794,7 @@ def test_release_reports_runtime_error_cleanly(monkeypatch, capsys):
     def boom(*, state, bump):
         raise RuntimeError("物化发布分支 release/v1.2.4 失败：protected branch")
 
-    monkeypatch.setattr("openagents.release.release", boom)
+    monkeypatch.setattr("openagents.utils.release.release", boom)
     code = main(["release"])
     assert code == 1
     assert "✗" in capsys.readouterr().err
@@ -800,7 +802,7 @@ def test_release_reports_runtime_error_cleanly(monkeypatch, capsys):
 
 def test_board_skips_preflight(monkeypatch):
     calls = _patch_ensure(monkeypatch)
-    monkeypatch.setattr("openagents.results.board", lambda *, state: Path("/tmp/board.html"))
+    monkeypatch.setattr("openagents.utils.results.board", lambda *, state: Path("/tmp/board.html"))
     code = main(["board"])
     assert code == 0
     assert calls == []
@@ -814,7 +816,7 @@ def test_board_skips_preflight(monkeypatch):
 def test_agent_id_for_resolves_and_is_stable(monkeypatch, tmp_path):
     # RFC-0011 决策 7：_agent_id_for 解析（并首次落盘）一个稳定 id，多次调用得同一值。
     from openagents.cli import _agent_id_for
-    from openagents.config import ProjectContext
+    from openagents.utils.config import ProjectContext
 
     monkeypatch.delenv("OPENAGENTS_AGENT_ID", raising=False)
     ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
@@ -829,7 +831,7 @@ def test_agent_id_for_resolves_and_is_stable(monkeypatch, tmp_path):
 def test_agent_id_for_honors_env_override(monkeypatch, tmp_path):
     # RFC-0011 决策 2：env OPENAGENTS_AGENT_ID 优先于 state。
     from openagents.cli import _agent_id_for
-    from openagents.config import ProjectContext
+    from openagents.utils.config import ProjectContext
 
     monkeypatch.setenv("OPENAGENTS_AGENT_ID", "alice")
     ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")

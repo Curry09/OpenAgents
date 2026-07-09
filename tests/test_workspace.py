@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from openagents import workspace as ws_module
-from openagents.workspace import Workspace, WorkspaceError
+from openagents.utils import workspace as ws_module
+from openagents.utils.workspace import Workspace, WorkspaceError
 
 
 class _GitRecorder:

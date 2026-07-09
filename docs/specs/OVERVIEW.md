@@ -169,7 +169,7 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
   - 测法：形态：纯后端编排，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法： 1. 契约路由 + 各层针对性 pytest（假 backend 喂 canned 结构化裁决，不触真实 LLM/网络/仓库）：    vigil 分诊路由 + 去重三闸；poll_comments 游标推进/错误隔离；fleet 扇出 + worker；CLI 三命令解析转发。 2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：triager/replier 只含 Template( + OUTPUT_SCHEMA 且无    def/subprocess；三 recipe 无 subprocess、不直接 import 原始 openagents.github/workspace（只经 utils）。 3. 真实多仓守夜冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil-new / oa fleet    跑通、PR CI 全绿——作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0061-agents-recipes-flows.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
 ### 0062 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
-承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再物理搬迁 utils 原语并删掉 orchestrator/messages/vigil/fleet/align/issuecheck 六个旧模块、重写其测试桩、作废旧 spec，实现两栈合一。
+承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再把 15 个原语(含 fleet/align)物理搬迁进 utils 并删掉 10 个纯编排/判断旧模块(orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag)、收敛其测试桩，flat 层收敛为 cli/__init__/state 三文件，实现两栈合一。
 
 ## 全局看板
 
@@ -394,8 +394,8 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0062 | 0062/T2 | merge_pr recipe + 合并流水线 gates（additive） | done | — | openagents/recipes/merge_pr.py<br>openagents/runtime/gates.py<br>tests/test_recipe_merge_pr.py |
 | 0062 | 0062/T3 | vigil 认领归属+过期回收 + 守候段接 merge_pr | done | T2 | openagents/recipes/vigil.py<br>openagents/recipes/poll_comments.py<br>openagents/runtime/state.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_poll_comments.py |
 | 0062 | 0062/T4 | CLI 全量改接新栈 + 删旧路由 | done | T3 | openagents/cli.py<br>tests/test_cli_new_stack.py |
-| 0062 | 0062/T5 | 物理搬迁 utils 原语 + 清空整个 flat 旧模块层 | pending | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py<br>openagents/utils/workspace.py |
-| 0062 | 0062/T6 | 测试收敛 + 旧 spec 作废 + docs 再生成 | pending | T5 | tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_vigil.py<br>tests/test_fleet.py<br>tests/test_align.py<br>tests/test_issuecheck.py |
+| 0062 | 0062/T5 | 物理搬迁 utils 原语 + 清空整个 flat 旧模块层 | done | T4 | openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/utils/notes.py<br>openagents/utils/blocknote.py<br>openagents/utils/replynote.py<br>openagents/utils/worknote.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>openagents/utils/results.py<br>openagents/utils/config.py<br>openagents/utils/envcheck.py<br>openagents/utils/fleet_config.py<br>openagents/utils/fleet.py<br>openagents/utils/workspace.py<br>openagents/utils/github.py<br>openagents/utils/align.py |
+| 0062 | 0062/T6 | 测试收敛 + docs 再生成 | done | T5 | tests/test_orchestrator.py<br>tests/test_messages.py<br>tests/test_vigil.py<br>tests/test_issuecheck.py<br>tests/test_ensure_prerequisites.py |
 
 ## 跨 feature 关系图
 
@@ -726,7 +726,7 @@ graph LR
         n0062_T3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
         n0062_T4["T4 CLI 全量改接新栈 + 删旧路由"]
         n0062_T5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
-        n0062_T6["T6 测试收敛 + 旧 spec 作废 + docs 再生成"]
+        n0062_T6["T6 测试收敛 + docs 再生成"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -981,7 +981,7 @@ graph LR
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/git.py | 0060, 0061 |
-| openagents/utils/github.py | 0060, 0061 |
+| openagents/utils/github.py | 0060, 0061, 0062 |
 | openagents/utils/hold.py | 0061, 0062 |
 | openagents/utils/identity.py | 0061, 0062 |
 | openagents/utils/notes.py | 0061, 0062 |
@@ -993,7 +993,6 @@ graph LR
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
-| tests/test_align.py | 0020, 0062 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
@@ -1005,11 +1004,11 @@ graph LR
 | tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
 | tests/test_conflictdiag.py | 0034, 0038 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
-| tests/test_ensure_prerequisites.py | 0023, 0029 |
+| tests/test_ensure_prerequisites.py | 0023, 0029, 0062 |
 | tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
 | tests/test_executor.py | 0040, 0051, 0055, 0056 |
-| tests/test_fleet.py | 0027, 0029, 0062 |
+| tests/test_fleet.py | 0027, 0029 |
 | tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055 |
 | tests/test_github_claim_label.py | 0039, 0049 |
 | tests/test_identity.py | 0011, 0029 |
@@ -2565,7 +2564,7 @@ graph LR
     nT3["T3 vigil 认领归属+过期回收 + 守候段接 merge_pr"]
     nT4["T4 CLI 全量改接新栈 + 删旧路由"]
     nT5["T5 物理搬迁 utils 原语 + 清空整个 flat 旧模块层"]
-    nT6["T6 测试收敛 + 旧 spec 作废 + docs 再生成"]
+    nT6["T6 测试收敛 + docs 再生成"]
     nT2 --> nT3
     nT3 --> nT4
     nT4 --> nT5
@@ -2583,11 +2582,10 @@ graph LR
     v_T5_1["T5 v1"]
     v_T6_1["T6 v1"]
     classDef st_done fill:#b7e4c7;
-    classDef st_pending fill:#eeeeee;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
-    class v_T5_1 st_pending;
-    class v_T6_1 st_pending;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

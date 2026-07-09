@@ -5,7 +5,7 @@ worknote 是纯字符串模块（仿 blocknote/replynote），只吃基元 str�
 纯函数确定性；无外部 import 副作用（不反向 import orchestrator）。
 """
 
-from openagents import worknote
+from openagents.utils import worknote
 
 
 def test_render_implement_header_and_summary():
@@ -47,7 +47,7 @@ def test_worknote_does_not_import_orchestrator():
 
     只查**import 语句行**（而非正文/docstring 里的字样），避免注释提到模块名就误判。
     """
-    import openagents.worknote as mod
+    import openagents.utils.worknote as mod
 
     with open(mod.__file__, encoding="utf-8") as fh:
         import_lines = [line for line in fh if line.startswith(("import ", "from "))]

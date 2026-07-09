@@ -10,7 +10,7 @@
 
 import pytest
 
-from openagents import blocknote
+from openagents.utils import blocknote
 
 _FOUR_SECTIONS = ("**原因**", "**我试过**", "**卡在哪**", "**你可以怎么做**")
 

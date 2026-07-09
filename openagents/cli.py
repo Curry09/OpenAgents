@@ -17,8 +17,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from openagents import github
-from openagents.config import ProjectContext, ensure_project, resolve_project
+from openagents.utils import github
+from openagents.utils.config import ProjectContext, ensure_project, resolve_project
 
 # RFC-0002 决策 5 / RFC-0004 决策 2：发现标签——单一真源。
 # `openagents issue` 提 issue 时自动附加它（使 issue 可被发现），vigil 发现段默认按它门控；
@@ -189,7 +189,7 @@ def _state_for(*, repo_root: Path):
 # 环境（装/删 browser MCP、切权限模式）变了下次启动即更新。下游 RFC 起草/评审据它分流测法要求；
 # executor 执行时自检工具、不读本状态量。延迟 import + 走工厂 _state_for，保持 cli 测试可打桩、不触真实 ~/.claude.json。
 def _persist_ui_capable(*, ctx: ProjectContext) -> None:
-    from openagents import envcheck
+    from openagents.utils import envcheck
 
     _state_for(repo_root=ctx.repo_root).set_ui_capable(value=envcheck.ui_capable())
 
@@ -199,7 +199,7 @@ def _persist_ui_capable(*, ctx: ProjectContext) -> None:
 # 跨进程一致。单列为工厂，便于测试打桩、不触达真实 state。
 # Spec-0062/T4：身份解析仍读旧 State（state.py 本批暂留，归一随 Spec-0063），与新栈 recipe 编排解耦。
 def _agent_id_for(*, ctx: ProjectContext) -> str:
-    from openagents import identity
+    from openagents.utils import identity
 
     return identity.resolve_agent_id(state=_state_for(repo_root=ctx.repo_root))
 
@@ -296,7 +296,7 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
     # Spec-0030/T3：项目就绪后追加一段非阻塞前端 e2e 环境体检（检测 browser MCP + 权限模式），
     # 缺失只打印告知与设置方式、不改退出码（恒 return 0）。仅此一处接线，编排核心不感知体检。
-    from openagents import envcheck
+    from openagents.utils import envcheck
 
     print()
     print(envcheck.check().text)
@@ -420,7 +420,7 @@ def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _confirm_issue_alignment(*, title: str, body: str) -> bool:
     # Spec-0020/T4：建 issue 前的前门对齐——复述给人看，读应答判定是否放行。
-    from openagents import align
+    from openagents.utils import align
 
     alignment = align.restate(draft=align.Draft(title=title, body=body), backend=_backend_for())
     print("提 issue 前先对齐一下范围：")
@@ -432,7 +432,7 @@ def _confirm_issue_alignment(*, title: str, body: str) -> bool:
 def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # coding agent 回评论的唯一出口：post_signed_comment 盖本实例签名（agent_id 幂等解析，与
     # poll/vigil 一致）→ 回复带签名 → 不被下一轮 poll 的 new_human_comments 当成新人类评论（防自循环）。
-    from openagents import identity
+    from openagents.utils import identity
 
     identity.post_signed_comment(pr_number=args.pr, body=args.body, agent_id=_agent_id_for(ctx=ctx))
     print(f"✓ 已以本 agent 身份回复 PR #{args.pr} 的评论")
@@ -511,7 +511,7 @@ def _cmd_fleet(args: argparse.Namespace) -> int:
 def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0023/T4：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + main CI 绿）通过则
     # 把 main 当前 HEAD 物化为 release/vX.Y.Z 分支 + tag。失败按预检原因设非零退出码，不发布。
-    from openagents.release import release
+    from openagents.utils.release import release
 
     result = release(state=_state_for(repo_root=ctx.repo_root), bump=args.bump)
     if result.released:
@@ -523,7 +523,7 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
-    from openagents.results import board
+    from openagents.utils.results import board
 
     ctx = resolve_project()
     repo_root = ctx.repo_root if ctx is not None else Path.cwd()
@@ -568,12 +568,12 @@ def _run(args: argparse.Namespace) -> int:
     # Spec-0062/T4：错误类型改接新栈——RFC 生命周期编排失败走 recipes.rfc_lifecycle.RfcLifecycleError
     # + runtime 层的 GateError（head 未前移/证据戳不匹配）/ AgentOutputError（agent 结构化输出非法）；
     # WorkspaceError/FleetConfigError 改从 utils 稳定面 import。
-    from openagents.github import GithubError
     from openagents.recipes.rfc_lifecycle import RfcLifecycleError
     from openagents.runtime.engine import AgentOutputError
     from openagents.runtime.gates import GateError
     from openagents.utils.fleet_config import FleetConfigError
     from openagents.utils.git import WorkspaceError
+    from openagents.utils.github import GithubError
 
     try:
         return _dispatch(args)

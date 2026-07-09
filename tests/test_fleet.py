@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from openagents import fleet
-from openagents.fleet import Fleet
-from openagents.fleet_config import RepoPlan
+from openagents.utils import fleet
+from openagents.utils.fleet import Fleet
+from openagents.utils.fleet_config import RepoPlan
 
 
 def _plan(name, **over):
@@ -149,7 +149,7 @@ def test_keyboard_interrupt_terminates_all_and_exits_clean(capsys):
 def test_run_repo_raises_when_not_a_repo(monkeypatch):
     plan = _plan("r")
     monkeypatch.setattr(fleet.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: None)
+    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
 
     with pytest.raises(RuntimeError):
         fleet._run_repo(plan=plan, log_queue=_FakeQueue(), once=True)
@@ -160,7 +160,7 @@ def test_run_repo_entry_turns_failure_into_clean_line_and_nonzero_exit(monkeypat
     # 不向用户糊 multiprocessing 默认 traceback（对齐单仓库 vigil 的 RFC-0003 决策 9）。
     plan = _plan("r")
     monkeypatch.setattr(fleet.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.config.resolve_project", lambda: None)
+    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
     queue = _FakeQueue()
 
     with pytest.raises(SystemExit) as exc:

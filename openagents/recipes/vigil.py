@@ -60,7 +60,7 @@ _MERGE_OPEN = "open"
 # 「足够大于最坏起草时长」的保守值。模块级常量，可 monkeypatch 覆盖，或按实例注入 claim_expiry_seconds。
 CLAIM_EXPIRY_SECONDS = 3600
 
-# Spec-0062/T3: 已知简化 —— 认领便签的隐藏标记，镜像 openagents.identity._CLAIM_MARKER（未经 utils
+# Spec-0062/T3: 已知简化 —— 认领便签的隐藏标记，镜像 openagents.utils.identity._CLAIM_MARKER（未经 utils
 # 再导出）。此处复制为字面量以走**可注入 now** 的确定性过期判定（不消费 identity.latest_claim 内置的
 # 墙钟 age）；T5 把 identity 物理搬进 utils.identity 后应改为从单一常量复用，消除这份字面量重复。
 _CLAIM_MARKER = "<!-- openagents:claim -->"

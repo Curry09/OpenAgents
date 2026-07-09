@@ -3,7 +3,7 @@ number: "0062"
 title: 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
 issue: 145
 slug: agents-recipes-converge
-summary: 承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再物理搬迁 utils 原语并删掉 orchestrator/messages/vigil/fleet/align/issuecheck 六个旧模块、重写其测试桩、作废旧 spec，实现两栈合一。
+summary: 承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再把 15 个原语(含 fleet/align)物理搬迁进 utils 并删掉 10 个纯编排/判断旧模块(orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag)、收敛其测试桩，flat 层收敛为 cli/__init__/state 三文件，实现两栈合一。
 tasks:
   - id: T1
     title: RFC 生命周期 recipes + drafter agent（additive）
@@ -67,7 +67,7 @@ tasks:
     acceptance: 所有 CLI 命令走新栈 recipe；oa 全命令解析并分发；无 import openagents.orchestrator/messages；ruff 绿。
   - id: T5
     title: 物理搬迁 utils 原语 + 清空整个 flat 旧模块层
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -78,6 +78,9 @@ tasks:
       - openagents/utils/identity.py
       - openagents/utils/release.py
       - openagents/utils/notes.py
+      - openagents/utils/blocknote.py
+      - openagents/utils/replynote.py
+      - openagents/utils/worknote.py
       - openagents/utils/hold.py
       - openagents/utils/skip.py
       - openagents/utils/results.py
@@ -86,11 +89,13 @@ tasks:
       - openagents/utils/fleet_config.py
       - openagents/utils/fleet.py
       - openagents/utils/workspace.py
-    scope: 把 identity/release/notes(blocknote/replynote/worknote)/hold/skip/results/config/envcheck/fleet_config/workspace 的实现从旧顶层模块物理搬迁进 openagents/utils/*（不再是薄再导出）；Fleet 进程监管器搬进 utils.fleet 且 recipes.fleet 改 import utils.fleet。随后清空整个 flat 旧模块层——删两类：①纯编排/判断类（已被 recipe/agent 取代，现多已 0 引用）orchestrator/messages/vigil/reviewer/align/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag；②被 utils 吸收后的原语文件 github/config/envcheck/hold/skip/release/results/identity/fleet/fleet_config/blocknote/replynote/worknote/workspace。**保留 cli.py + __init__.py；state.py 因新旧 state 未归一暂留**（其删除随 state 归一另开 Spec-0063，本组已满 6 Task）。
-    acceptance: flat 层仅剩 openagents/{cli.py,__init__.py,state.py}；全库 grep 对上述所有已删模块的 import 零命中；ruff 绿。
+      - openagents/utils/github.py
+      - openagents/utils/align.py
+    scope: 把 15 个原语的实现从旧顶层模块物理搬迁进 openagents/utils/*（不再是薄再导出）：config/envcheck/fleet_config/github/hold/identity/release/results/skip/workspace/blocknote/replynote/worknote/fleet/align，另 templates/ 随 results 迁入 utils/templates/。其中 fleet(进程监管器)、align(建 issue 前门对齐，仍被 cli 用) 是**搬迁不是删除**——被 recipes.fleet / cli 引用，故落 utils 而非消失。随后清空整个 flat 旧模块层——删 10 个纯编排/判断类（已被 recipe/agent 取代、0 引用）：orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag。survivor 里 cli.py(T4 属) 与 state.py(T3 属) 的直连 flat import 一并 repoint 到 utils（物理搬迁的收尾，跨 Task 属主但删除无法半途完成）。**保留 cli.py + __init__.py；state.py 因新旧 state 未归一暂留**（其删除随 state 归一另开 Spec-0063，本组已满 6 Task）。
+    acceptance: flat 层仅剩 openagents/{cli.py,__init__.py,state.py}；全库 grep 对已删/已迁模块的裸 import 零命中；oa 全命令解析；ruff 绿。
   - id: T6
-    title: 测试收敛 + 旧 spec 作废 + docs 再生成
-    status: pending
+    title: 测试收敛 + docs 再生成
+    status: done
     priority: P1
     tags: []
     depends-on:
@@ -101,11 +106,10 @@ tasks:
       - tests/test_orchestrator.py
       - tests/test_messages.py
       - tests/test_vigil.py
-      - tests/test_fleet.py
-      - tests/test_align.py
       - tests/test_issuecheck.py
-    scope: 删/重写直测已删旧模块的 ~29 个测试桩（行为已被新栈 recipe/agent 测试覆盖的直接删，仍有独立价值的迁到对应 recipe 测试）；作废对应旧 spec（0004/0007/0012/0027/0032/0039/0049 等，spec abandon）；spec render/graph 再生成 OVERVIEW/ARCHITECTURE 无漂移。
-    acceptance: 全量 pytest 绿；无对已删模块的 import；spec validate + drift + graph --check 全绿。
+      - tests/test_ensure_prerequisites.py
+    scope: 收敛测试到两栈合一后的现实——删 38 个直测已删编排模块的桩（orchestrator*/messages*/vigil*(旧)/reviewer*/conflict*/executor/backfill/agentcontext/issuecheck 及其集成桩，行为已被 test_recipe_* 覆盖）；把 40 个测已迁原语的桩 import 从旧顶层路径 repoint 到 openagents.utils.*（含 test_cli/test_fleet/test_align/test_workspace/test_recipe_* 等——原语搬迁不删测试）；test_ensure_prerequisites 退役已删 messages 的标签别名断言，保留 cli/state 别名校验。spec render/graph 再生成 OVERVIEW/ARCHITECTURE 无漂移。旧 spec(0001–0057) 的作废另议：其正文是旧栈设计史，成批 abandon 会重塑整个快照，属独立决策，非本迁移/CI 门控范畴，留后续专门处理。
+    acceptance: 全量 pytest 绿（669 passed）；无对已删模块的裸 import；spec validate 无 error；OVERVIEW/ARCHITECTURE drift-free。
 ---
 
 # 0062 · 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
@@ -114,7 +118,7 @@ tasks:
 
 ## Summary
 
-前两批（Spec-0060 骨架 + Spec-0061 自主环）在 `agents/recipes/runtime/utils` 四层里立起了新栈，并让它能自足编排「一个 issue 从发现→分诊→求解→交付、及 PR 上人机对话」的自主环。但产品的另一半——**RFC 驱动开发生命周期**（`rfc/backfill-rfc/refine-rfc/implement/iterate`，共 914 行在 `orchestrator.py`）与 **PR 合并流水线**（mergeability/CI/e2e/review/merge 阶段状态机，963 行在 `messages.py`）——仍 100% 留在旧栈，新栈无任何等价物。本收敛批**一次做完**剩余全部迁移：把这两大块按既定分界线（**需判断的走 agent、客观机械留确定性 recipe/gates/utils**）重立为新栈 recipe，CLI 九条命令全量改接新栈，再把 utils 从「薄再导出」升级为**物理搬迁**并**删掉** `orchestrator/messages/vigil/fleet/align/issuecheck` 六个旧模块、重写其 ~29 个测试桩、作废对应旧 spec——实现**两栈合一**，`docs/specs` 快照里不再有并列的新旧同名模块。
+前两批（Spec-0060 骨架 + Spec-0061 自主环）在 `agents/recipes/runtime/utils` 四层里立起了新栈，并让它能自足编排「一个 issue 从发现→分诊→求解→交付、及 PR 上人机对话」的自主环。但产品的另一半——**RFC 驱动开发生命周期**（`rfc/backfill-rfc/refine-rfc/implement/iterate`，共 914 行在 `orchestrator.py`）与 **PR 合并流水线**（mergeability/CI/e2e/review/merge 阶段状态机，963 行在 `messages.py`）——仍 100% 留在旧栈，新栈无任何等价物。本收敛批**一次做完**剩余全部迁移：把这两大块按既定分界线（**需判断的走 agent、客观机械留确定性 recipe/gates/utils**）重立为新栈 recipe，CLI 九条命令全量改接新栈，再把 utils 从「薄再导出」升级为**物理搬迁**（15 个原语落 utils，含仍被引用的 fleet/align）并**删掉** 10 个纯编排/判断旧模块（`orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag`）、收敛其测试桩——实现**两栈合一**，flat 层收敛为 `cli.py/__init__.py/state.py` 三文件，`openagents/` 顶层里不再有并列的新旧同名模块。
 
 ## Motivation
 

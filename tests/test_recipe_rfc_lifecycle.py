@@ -13,9 +13,9 @@ import json
 import pytest
 
 from openagents.backends.base import AgentResult
-from openagents.github import PR, Issue
 from openagents.recipes import rfc_lifecycle as rl
 from openagents.runtime.gates import GateError
+from openagents.utils.github import PR, Issue
 
 
 class _DrafterBackend:

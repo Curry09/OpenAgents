@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from openagents.github import GithubError, is_draft, is_open
+from openagents.utils.github import GithubError, is_draft, is_open
 
 
 @dataclass

@@ -11,11 +11,11 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from openagents.backends.base import AgentResult
-from openagents.github import Comment, Issue
-from openagents.identity import build_claim_note
 from openagents.recipes import vigil as vigil_module
 from openagents.recipes.vigil import CLAIM_EXPIRY_SECONDS, Vigil
 from openagents.runtime.state import RuntimeState
+from openagents.utils.github import Comment, Issue
+from openagents.utils.identity import build_claim_note
 
 
 class _TriagerBackend:

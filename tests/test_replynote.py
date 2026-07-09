@@ -11,7 +11,7 @@
 
 import pytest
 
-from openagents import replynote
+from openagents.utils import replynote
 
 
 def test_build_has_quote_and_response():

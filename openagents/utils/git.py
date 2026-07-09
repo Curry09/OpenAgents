@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 
 # Spec-0060/T1: 薄再导出 worktree 生命周期原语（不改 workspace.py 任何一行）。
-from openagents.workspace import Workspace, WorkspaceError
+from openagents.utils.workspace import Workspace, WorkspaceError
 
 __all__ = ["Workspace", "WorkspaceError", "head_sha", "porcelain", "remote_branch_exists"]
 

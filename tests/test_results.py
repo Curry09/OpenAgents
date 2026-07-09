@@ -5,7 +5,7 @@
 调用 webbrowser.open（被 monkeypatch，不真开浏览器）并返回文件路径。
 """
 
-import openagents.results as results
+import openagents.utils.results as results
 from openagents.state import RunRecord, State
 
 
@@ -134,6 +134,6 @@ def test_board_does_not_open_real_browser(tmp_path, monkeypatch):
 
 def _pr(*, number, url):
     """构造 PR（State.record_run 需要 pr.number / pr.url）。"""
-    from openagents.github import PR
+    from openagents.utils.github import PR
 
     return PR(number=number, url=url)

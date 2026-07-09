@@ -12,10 +12,10 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from openagents.backends.base import AgentResult
-from openagents.github import PR, CheckStatus, GithubError, Issue, Mergeability
 from openagents.recipes import merge_pr as mp
 from openagents.recipes.merge_pr import Run, merge_pr
 from openagents.runtime.state import RuntimeState
+from openagents.utils.github import PR, CheckStatus, GithubError, Issue, Mergeability
 from openagents.utils.hold import Hold
 from openagents.utils.skip import Skip
 

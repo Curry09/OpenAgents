@@ -9,8 +9,8 @@ import dataclasses
 
 import pytest
 
-from openagents.hold import parse_hold
-from openagents.skip import NONE, Skip, parse_skip, reconcile_hold_skip
+from openagents.utils.hold import parse_hold
+from openagents.utils.skip import NONE, Skip, parse_skip, reconcile_hold_skip
 
 
 def test_empty_and_none_default_to_no_skip():

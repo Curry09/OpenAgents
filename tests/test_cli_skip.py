@@ -5,12 +5,12 @@
 """
 
 from openagents.cli import main
-from openagents.skip import NONE, Skip
+from openagents.utils.skip import NONE, Skip
 
 
 def _patch_ensure(monkeypatch):
     # vigil 入口会调 github.ensure_prerequisites——打成 no-op，隔离真实 gh。
-    monkeypatch.setattr("openagents.github.ensure_prerequisites", lambda: None)
+    monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
 
 
 def _patch_vigil_capture(monkeypatch):

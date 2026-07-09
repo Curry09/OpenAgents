@@ -7,7 +7,7 @@
 - 既有 build 输出逐字节不变（零回归）。
 """
 
-from openagents import blocknote
+from openagents.utils import blocknote
 
 
 def test_hold_merge_pass_has_success_wording():

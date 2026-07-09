@@ -8,8 +8,8 @@
 
 import json
 
-from openagents.github import PR
 from openagents.state import RunRecord, State
+from openagents.utils.github import PR
 
 
 def _new_state(tmp_path):

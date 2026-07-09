@@ -22,8 +22,8 @@ from pathlib import Path
 # RFC-0015：BLOCKED_LABEL 从 github re-import（标签单一来源），保留 state.BLOCKED_LABEL
 # 公共名向后兼容；github 是叶子模块，此 import 无循环依赖风险。`as BLOCKED_LABEL` 的显式
 # 再导出形式让 ruff 不把它当未使用（state 内不引用，仅供 release 等外部模块经 state 访问）。
-from openagents.github import BLOCKED_LABEL as BLOCKED_LABEL
-from openagents.github import PR
+from openagents.utils.github import BLOCKED_LABEL as BLOCKED_LABEL
+from openagents.utils.github import PR
 
 # 状态机取值（决策 8：PR 被 merge 时置 done）。
 STATUS_SOLVING = "solving"

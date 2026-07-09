@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openagents import workspace as workspace_module
 from openagents.utils import git
+from openagents.utils import workspace as workspace_module
 
 
 class _FakeProc:

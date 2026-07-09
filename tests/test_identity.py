@@ -11,15 +11,15 @@ env > state > 自动生成三级优先级与落盘稳定性；post_signed_commen
 
 import pytest
 
-from openagents import identity as identity_module
-from openagents.identity import (
+from openagents.state import State
+from openagents.utils import identity as identity_module
+from openagents.utils.identity import (
     AGENT_ID_ENV,
     parse_agent_id,
     post_signed_comment,
     resolve_agent_id,
     sign,
 )
-from openagents.state import State
 
 
 class _FakeState:

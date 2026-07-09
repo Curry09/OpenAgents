@@ -7,9 +7,9 @@ backend 被以关键字参数注入且只调用一次、返回值被正确拆段
 
 from pathlib import Path
 
-from openagents import align
-from openagents.align import Alignment, Draft, is_confirmed, restate
 from openagents.backends.base import AgentResult
+from openagents.utils import align
+from openagents.utils.align import Alignment, Draft, is_confirmed, restate
 
 
 class _StubBackend:
@@ -88,5 +88,5 @@ def test_is_confirmed_negative_or_empty_does_not_pass():
 
 def test_is_confirmed_does_not_touch_backend():
     # 确认判定是纯谓词——与复述生成解耦，不依赖任何 backend / I/O。
-    assert align.is_confirmed.__module__ == "openagents.align"
+    assert align.is_confirmed.__module__ == "openagents.utils.align"
     assert is_confirmed(answer="random") is False
