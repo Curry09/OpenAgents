@@ -56,6 +56,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_impl = sub.add_parser("implement", help="RFC 获批后按 RFC 实现代码并转正 PR")
     p_impl.add_argument("pr", type=int, help="PR 编号")
 
+    # Spec-0060/T6：走**新栈** solve_issue recipe 的 additive 子命令（旧子命令路由不动）。
+    # plan → implement → review(loop while REWORK) → deliver，只按 agent 结构化裁决路由 + 最小硬闸兜底。
+    p_solve = sub.add_parser("solve", help="[新栈] 用 solve_issue recipe 端到端求解一个 issue")
+    p_solve.add_argument("issue", type=int, help="issue 编号")
+    p_solve.add_argument("--base", default="main", help="分支基线（默认 main）")
+    p_solve.add_argument(
+        "--pr", type=int, default=None, help="已有 PR 编号（用于注入评审历史；缺省自动按分支查找）"
+    )
+
     p_iter = sub.add_parser("iterate", help="就 PR 的 comment/CI 反馈迭代代码")
     p_iter.add_argument("pr", type=int, help="PR 编号")
     p_iter.add_argument(
@@ -292,6 +301,32 @@ def _cmd_implement(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_solve(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0060/T6：走新栈 solve_issue recipe 的薄接线（additive；旧路由不动）。cli 只做「立沙箱 +
+    # 组装上下文 + 调 recipe」的编排 glue，业务判断全在 agent、控制流在 recipe、硬闸在 runtime。
+    # worktree 建/拉是 agent 无法自建沙箱的编排 git，仍由 utils.git.Workspace（薄再导出 workspace.py）承担。
+    from openagents.recipes.solve_issue import solve_issue
+    from openagents.runtime.context import Context
+    from openagents.utils import git as gitutils
+
+    github.ensure_prerequisites()
+    branch = f"openagents/issue-{args.issue}"
+    worktree = gitutils.Workspace(work_dir=ctx.repo_root).prepare(
+        issue_number=args.issue, branch=branch, base=args.base
+    )
+    # PR 号缺省则按分支查找（无则 None——首轮起草尚未开 PR，评审历史注入自动降级为仅 issue 上下文）。
+    pr_number = args.pr
+    if pr_number is None:
+        pr = github.find_pr_by_branch(branch=branch)
+        pr_number = pr.number if pr is not None else None
+    context = Context(
+        work_dir=worktree, issue_number=args.issue, branch=branch, pr_number=pr_number
+    )
+    report = solve_issue(issue_number=args.issue, backend=_backend_for(), ctx=context)
+    print(f"✓ 新栈 solve_issue 完成 issue #{args.issue}：{report.get('summary', '（无摘要）')}")
+    return 0
+
+
 def _cmd_iterate(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # RFC-0005：coding 阶段就 comment/CI 反馈手动迭代（与 poll 自动驱动同一操作）。
     if args.reason == "ci":
@@ -452,6 +487,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "backfill-rfc": _cmd_backfill_rfc,
         "refine-rfc": _cmd_refine_rfc,
         "implement": _cmd_implement,
+        "solve": _cmd_solve,
         "iterate": _cmd_iterate,
         "issue": _cmd_issue,
         "reply-comment": _cmd_reply_comment,

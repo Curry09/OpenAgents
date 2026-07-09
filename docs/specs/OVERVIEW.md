@@ -158,6 +158,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0057 e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
 wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸没逼出结构化 e2e 块（被 spec 正文的 e2e 讨论骗过）→ run_e2e 空过；代码 review 把实现者自测（docs/evidence/ 自证）当成放行依据、没要求独立 executor 证据（docs/e2e-results/）。本组把这两条从软 rubric 硬化：T1 RFC 闸在调 LLM 前加一道确定性检查——改动 spec 缺真实 e2e 块（intent+method 非空）直接自动返工，不问 LLM；T2 代码 review rubric 明说运行时验证有两重（实现者自测=声明 / 独立 executor=裁判），要求交叉比对、独立证据缺失不得凭自测放行。两个证据目录保持分开（自证 vs 独立）。
 
+### 0060 架构重构（批次一）：核心收敛为 agents（提示词）+ recipes（编排），操作下放 agent，仅留最小硬闸 + runtime/utils 确定性层
+把「一切需判断的操作走 agent、人只做宏观」的初心从 #140 的 git 特例上升为架构总原则：核心只留 agents（string.Template 提示词，零逻辑）+ recipes（纯控制流编排）；agent 返回结构化裁决，recipe 只按裁决路由（顺序/循环/分支），自己不做任何业务判断；runtime 是唯一机制层（run_agent 引擎 + 最小硬闸：head 前移断言/轮次上限/PR 存在性/证据溯源戳），确定性非 agent 操作归 utils。本组是分批交付的批次一：additive 立起新栈（runtime/agents/recipes/utils 骨架）并让 solve_issue recipe（plan→implement→review 循环 while REWORK→deliver）端到端跑通一个真实 issue 验证契约成立，不动旧 orchestrator/messages/vigil（其删除与旧 spec 作废留后续批次）。
+- e2e 意图：证明架构契约在真实链路上成立——solve_issue recipe 只按 agent 的结构化裁决路由（PASS→next / REWORK→loop）、自身零业务判断；最小硬闸真能兜底（head 未前移 / 超轮次 → raise）；agents/* 确无逻辑、recipes/* 确无 git/gh/subprocess 直接调用。
+  - 测法：本组是纯后端编排，无前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法： 1. 契约路由单测（tests/test_recipe_solve_issue.py，假 backend 喂 canned 结构化输出）：    reviewer 连回两次 {'verdict':'REWORK'} 再一次 {'verdict':'PASS'} → 断言 implementer    被迭代调用 2 次、循环在 PASS 后 next；deliver 报告 head 未前移 → assert_head_advanced    raise；reviewer 恒 REWORK → round_cap 到上限 raise。 2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：agents/*.py 只含 Template( + OUTPUT_SCHEMA 且无    def / import subprocess / gh / git 调用；recipes/solve_issue.py 无 subprocess / 'gh' /    'git' / 直接 import github\|workspace（只经 runtime.run_agent + gates）。 3. 真实 issue 冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa solve <真实 issue>    走新栈跑通、PR CI 全绿——issue 第 5 条验收，作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0060-agents-recipes-core.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -367,6 +372,12 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 | 0057 | 0057/T1 | RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM | done | — | openagents/orchestrator.py<br>openagents/messages.py<br>tests/test_orchestrator.py<br>tests/test_messages.py |
 | 0057 | 0057/T2 | 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0060 | 0060/T1 | utils 确定性最小面：git + github 薄再导出 | done | — | openagents/utils/__init__.py<br>openagents/utils/git.py<br>openagents/utils/github.py<br>tests/test_utils_git.py<br>tests/test_utils_github.py |
+| 0060 | 0060/T2 | runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出） | done | — | openagents/runtime/__init__.py<br>openagents/runtime/engine.py<br>tests/test_runtime_engine.py |
+| 0060 | 0060/T3 | runtime.gates：最小硬闸（head 前移/轮次上限/PR 存在/证据溯源戳） | done | T1 | openagents/runtime/gates.py<br>tests/test_runtime_gates.py |
+| 0060 | 0060/T4 | agents 提示词 5 个：planner/implementer/reviewer/deliver/tester（零逻辑） | done | — | openagents/agents/__init__.py<br>openagents/agents/planner.py<br>openagents/agents/implementer.py<br>openagents/agents/reviewer.py<br>openagents/agents/deliver.py<br>openagents/agents/tester.py<br>tests/test_agents_prompts.py |
+| 0060 | 0060/T5 | runtime.context + runtime.state：占位符组装 + 新栈 run 状态 | done | T1 | openagents/runtime/context.py<br>openagents/runtime/state.py<br>tests/test_runtime_context.py |
+| 0060 | 0060/T6 | recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端） | done | T2, T3, T4, T5 | openagents/recipes/__init__.py<br>openagents/recipes/solve_issue.py<br>openagents/cli.py<br>tests/test_recipe_solve_issue.py<br>scripts/e2e-spec-0060-agents-recipes-core.sh |
 
 ## 跨 feature 关系图
 
@@ -677,6 +688,14 @@ graph LR
         n0057_T1["T1 RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM"]
         n0057_T2["T2 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行"]
     end
+    subgraph G0060[0060 agents-recipes-core]
+        n0060_T1["T1 utils 确定性最小面：git + github 薄再导出"]
+        n0060_T2["T2 runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出）"]
+        n0060_T3["T3 runtime.gates：最小硬闸（head 前移/轮次上限/PR 存在/证据溯源戳）"]
+        n0060_T4["T4 agents 提示词 5 个：planner/implementer/reviewer/deliver/tester（零逻辑）"]
+        n0060_T5["T5 runtime.context + runtime.state：占位符组装 + 新栈 run 状态"]
+        n0060_T6["T6 recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -858,6 +877,12 @@ graph LR
     n0056_T3 --> n0056_T2
     n0056_T4 --> n0056_T2
     n0056_T5 --> n0056_T2
+    n0060_T3 --> n0060_T1
+    n0060_T5 --> n0060_T1
+    n0060_T6 --> n0060_T2
+    n0060_T6 --> n0060_T3
+    n0060_T6 --> n0060_T4
+    n0060_T6 --> n0060_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -879,7 +904,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -2402,4 +2427,41 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0060 架构重构（批次一）：核心收敛为 agents（提示词）+ recipes（编排），操作下放 agent，仅留最小硬闸 + runtime/utils 确定性层（issue #145）
+
+```mermaid
+graph LR
+    nT1["T1 utils 确定性最小面：git + github 薄再导出"]
+    nT2["T2 runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出）"]
+    nT3["T3 runtime.gates：最小硬闸（head 前移/轮次上限/PR 存在/证据溯源戳）"]
+    nT4["T4 agents 提示词 5 个：planner/implementer/reviewer/deliver/tester（零逻辑）"]
+    nT5["T5 runtime.context + runtime.state：占位符组装 + 新栈 run 状态"]
+    nT6["T6 recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端）"]
+    nT1 --> nT3
+    nT1 --> nT5
+    nT2 --> nT6
+    nT3 --> nT6
+    nT4 --> nT6
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

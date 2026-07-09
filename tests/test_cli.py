@@ -1,6 +1,8 @@
 """RFC-0001 T1 + RFC-0005: CLI 子命令注册与分发的契约测试。
 
-RFC-0005：solve 已移除，改为 rfc / refine-rfc / implement / iterate 四个原子步骤。
+RFC-0005：一站式 solve 已移除，旧栈改为 rfc / refine-rfc / implement / iterate 四个原子步骤。
+Spec-0060/T6：**新栈** additive 重新引入 `solve` 子命令——走 solve_issue recipe（plan→implement→
+review 循环→deliver），与旧四步原子命令并存（旧路由不动）。故不再断言「solve 不存在」。
 """
 
 from pathlib import Path
@@ -21,6 +23,7 @@ COMMANDS = [
     "backfill-rfc",
     "refine-rfc",
     "implement",
+    "solve",
     "iterate",
     "issue",
     "reply-comment",
@@ -39,10 +42,14 @@ def test_parser_registers_all_subcommands():
         assert cmd in subparsers.choices
 
 
-def test_solve_command_removed():
+def test_solve_is_new_stack_additive_subcommand():
+    # Spec-0060/T6：新栈 solve 子命令 additive 存在（取 issue 号 + --base/--pr），与旧四步并存。
     parser = build_parser()
-    subparsers = next(a for a in parser._actions if getattr(a, "choices", None))
-    assert "solve" not in subparsers.choices
+    args = parser.parse_args(["solve", "145"])
+    assert args.command == "solve"
+    assert args.issue == 145
+    assert args.base == "main"
+    assert args.pr is None
 
 
 def test_help_exits_zero_and_lists_commands(capsys):
