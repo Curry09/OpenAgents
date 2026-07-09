@@ -39,6 +39,19 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
 
+### openagents.agents
+
+_# Spec-0060/T4: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT（string.Template）+_
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | # Spec-0060/T4: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT（string.Template）+ |
+| `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
+| `implementer.py` | # Spec-0060/T4: agents.implementer —— 按 RFC 实现 / 按反馈迭代的提示词（零逻辑）。 |
+| `planner.py` | # Spec-0060/T4: agents.planner —— 起草/精炼 RFC 的提示词（零逻辑）。 |
+| `reviewer.py` | # Spec-0060/T4: agents.reviewer —— 评审 → 结构化裁决的提示词（零逻辑）。 |
+| `tester.py` | # Spec-0060/T4: agents.tester —— 独立 e2e 执行 + 判读的提示词（零逻辑）。 |
+
 ### openagents.backends
 
 _RFC-0001 T1: 后端适配层。_
@@ -48,6 +61,27 @@ _RFC-0001 T1: 后端适配层。_
 | `__init__.py` | RFC-0001 T1: 后端适配层。 |
 | `base.py` | RFC-0001 T1: 后端抽象层 —— AgentBackend 协议与 AgentResult。 |
 | `claude_code.py` | RFC-0001 T2 + RFC-0003: Claude Code 后端适配器。 |
+
+### openagents.recipes
+
+_# Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent 调用，_
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | # Spec-0060/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent 调用， |
+| `solve_issue.py` | # Spec-0060/T6: recipes.solve_issue —— 求解一个 issue 的编排（纯控制流，零业务判断）。 |
+
+### openagents.runtime
+
+_# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 最小硬闸 + 上下文/状态）。_
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | # Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 最小硬闸 + 上下文/状态）。 |
+| `context.py` | # Spec-0060/T5: runtime.context —— 组装占位符的值，供 recipe 传给 engine.run_agent。 |
+| `engine.py` | # Spec-0060/T2: runtime.engine —— run_agent 引擎（填占位符 → 派 backend → 收结构化输出）。 |
+| `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
+| `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
 
 ### openagents.spec
 
@@ -65,12 +99,28 @@ _spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态�
 | `signpost.py` | spec 端到端验证指路牌：从一个 spec 组的组级 Overview 抽取 e2e 脚本并渲染指路牌。 |
 | `validate.py` | spec 校验：JSON Schema + 语义规则（files 重叠 / DAG 无环 / 血缘引用）。 |
 
+### openagents.utils
+
+_# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包。_
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | # Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包。 |
+| `git.py` | # Spec-0060/T1: utils.git —— 新栈的确定性 git 稳定 import 面。 |
+| `github.py` | # Spec-0060/T1: utils.github —— 新栈的 gh 读 + 机器评论写稳定 import 面。 |
+
 ## 依赖关系图（import）
 
 ```mermaid
 graph LR
     nopenagents["openagents"]
     nopenagents_agentcontext["openagents.agentcontext"]
+    nopenagents_agents["openagents.agents"]
+    nopenagents_agents_deliver["agents.deliver"]
+    nopenagents_agents_implementer["agents.implementer"]
+    nopenagents_agents_planner["agents.planner"]
+    nopenagents_agents_reviewer["agents.reviewer"]
+    nopenagents_agents_tester["agents.tester"]
     nopenagents_align["openagents.align"]
     nopenagents_backends["openagents.backends"]
     nopenagents_backends_base["backends.base"]
@@ -91,10 +141,17 @@ graph LR
     nopenagents_issuecheck["openagents.issuecheck"]
     nopenagents_messages["openagents.messages"]
     nopenagents_orchestrator["openagents.orchestrator"]
+    nopenagents_recipes["openagents.recipes"]
+    nopenagents_recipes_solve_issue["recipes.solve_issue"]
     nopenagents_release["openagents.release"]
     nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
     nopenagents_reviewer["openagents.reviewer"]
+    nopenagents_runtime["openagents.runtime"]
+    nopenagents_runtime_context["runtime.context"]
+    nopenagents_runtime_engine["runtime.engine"]
+    nopenagents_runtime_gates["runtime.gates"]
+    nopenagents_runtime_state["runtime.state"]
     nopenagents_skip["openagents.skip"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
@@ -106,12 +163,20 @@ graph LR
     nopenagents_spec_signpost["spec.signpost"]
     nopenagents_spec_validate["spec.validate"]
     nopenagents_state["openagents.state"]
+    nopenagents_utils["openagents.utils"]
+    nopenagents_utils_git["utils.git"]
+    nopenagents_utils_github["utils.github"]
     nopenagents_vigil["openagents.vigil"]
     nopenagents_worknote["openagents.worknote"]
     nopenagents_workspace["openagents.workspace"]
     nopenagents_agentcontext --> nopenagents
     nopenagents_agentcontext --> nopenagents_github
     nopenagents_agentcontext --> nopenagents_identity
+    nopenagents_agents --> nopenagents_agents_deliver
+    nopenagents_agents --> nopenagents_agents_implementer
+    nopenagents_agents --> nopenagents_agents_planner
+    nopenagents_agents --> nopenagents_agents_reviewer
+    nopenagents_agents --> nopenagents_agents_tester
     nopenagents_align --> nopenagents_backends_base
     nopenagents_backends_claude_code --> nopenagents_backends_base
     nopenagents_cli --> nopenagents
@@ -126,10 +191,14 @@ graph LR
     nopenagents_cli --> nopenagents_identity
     nopenagents_cli --> nopenagents_messages
     nopenagents_cli --> nopenagents_orchestrator
+    nopenagents_cli --> nopenagents_recipes_solve_issue
     nopenagents_cli --> nopenagents_release
     nopenagents_cli --> nopenagents_results
+    nopenagents_cli --> nopenagents_runtime_context
     nopenagents_cli --> nopenagents_skip
     nopenagents_cli --> nopenagents_state
+    nopenagents_cli --> nopenagents_utils
+    nopenagents_cli --> nopenagents_utils_git
     nopenagents_cli --> nopenagents_vigil
     nopenagents_cli --> nopenagents_workspace
     nopenagents_config --> nopenagents_github
@@ -180,11 +249,24 @@ graph LR
     nopenagents_orchestrator --> nopenagents_spec_validate
     nopenagents_orchestrator --> nopenagents_state
     nopenagents_orchestrator --> nopenagents_workspace
+    nopenagents_recipes_solve_issue --> nopenagents_agents
+    nopenagents_recipes_solve_issue --> nopenagents_agents_deliver
+    nopenagents_recipes_solve_issue --> nopenagents_agents_implementer
+    nopenagents_recipes_solve_issue --> nopenagents_agents_planner
+    nopenagents_recipes_solve_issue --> nopenagents_agents_reviewer
+    nopenagents_recipes_solve_issue --> nopenagents_runtime
+    nopenagents_recipes_solve_issue --> nopenagents_runtime_engine
+    nopenagents_recipes_solve_issue --> nopenagents_runtime_gates
     nopenagents_release --> nopenagents
     nopenagents_release --> nopenagents_github
     nopenagents_release --> nopenagents_state
     nopenagents_results --> nopenagents_state
     nopenagents_reviewer --> nopenagents_backends_base
+    nopenagents_runtime_context --> nopenagents_utils
+    nopenagents_runtime_context --> nopenagents_utils_github
+    nopenagents_runtime_gates --> nopenagents_utils
+    nopenagents_runtime_gates --> nopenagents_utils_git
+    nopenagents_runtime_gates --> nopenagents_utils_github
     nopenagents_skip --> nopenagents_hold
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph
@@ -203,6 +285,8 @@ graph LR
     nopenagents_spec_validate --> nopenagents_spec_model
     nopenagents_spec_validate --> nopenagents_spec_schema
     nopenagents_state --> nopenagents_github
+    nopenagents_utils_git --> nopenagents_workspace
+    nopenagents_utils_github --> nopenagents_github
     nopenagents_vigil --> nopenagents
     nopenagents_vigil --> nopenagents_github
     nopenagents_vigil --> nopenagents_hold
