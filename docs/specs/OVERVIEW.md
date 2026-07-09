@@ -372,12 +372,12 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 | 0057 | 0057/T1 | RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM | done | — | openagents/orchestrator.py<br>openagents/messages.py<br>tests/test_orchestrator.py<br>tests/test_messages.py |
 | 0057 | 0057/T2 | 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
-| 0058 | 0058/T1 | 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配） | pending | — | openagents/scheduler.py<br>tests/test_scheduler.py |
-| 0058 | 0058/T2 | 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账） | pending | — | openagents/schedlabels.py<br>tests/test_schedlabels.py |
-| 0058 | 0058/T3 | DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot） | pending | — | openagents/schedgraph.py<br>tests/test_schedgraph.py |
-| 0058 | 0058/T4 | IO 编排 orchestrator.schedule + openagents schedule 命令 | pending | T1, T2, T3 | openagents/orchestrator.py<br>openagents/cli.py<br>tests/test_orchestrator_schedule.py<br>tests/test_cli_schedule.py |
-| 0058 | 0058/T5 | 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜 | pending | T2, T4 | openagents/messages.py<br>openagents/vigil.py<br>tests/test_messages_blocked_by_gate.py<br>tests/test_vigil_schedule_refresh.py |
-| 0058 | 0058/T6 | 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级） | pending | T5 | scripts/e2e-spec-0058-issue-scheduler.sh<br>tests/test_scheduler_integration.py |
+| 0058 | 0058/T1 | 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配） | done | — | openagents/scheduler.py<br>tests/test_scheduler.py |
+| 0058 | 0058/T2 | 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账） | done | — | openagents/schedlabels.py<br>tests/test_schedlabels.py |
+| 0058 | 0058/T3 | DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot） | done | — | openagents/schedgraph.py<br>tests/test_schedgraph.py |
+| 0058 | 0058/T4 | IO 编排 orchestrator.schedule + openagents schedule 命令 | done | T1, T2, T3 | openagents/orchestrator.py<br>openagents/cli.py<br>tests/test_orchestrator_schedule.py<br>tests/test_cli_schedule.py |
+| 0058 | 0058/T5 | 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜 | done | T2, T4 | openagents/messages.py<br>openagents/vigil.py<br>tests/test_messages_blocked_by_gate.py<br>tests/test_vigil_schedule_refresh.py |
+| 0058 | 0058/T6 | 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级） | done | T5 | scripts/e2e-spec-0058-issue-scheduler.sh<br>tests/test_scheduler_integration.py |
 
 ## 跨 feature 关系图
 
@@ -2457,11 +2457,11 @@ graph LR
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
     v_T6_1["T6 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
-    class v_T5_1 st_pending;
-    class v_T6_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

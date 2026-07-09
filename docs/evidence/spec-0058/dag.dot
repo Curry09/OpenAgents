@@ -1,0 +1,11 @@
+digraph schedule {
+  rankdir=LR;
+  node [shape=box, style=filled];
+  "#137" [label="#137\n(wave 1)", fillcolor="#e6f4ea"];
+  "#150" [label="#150\n(wave 0)", fillcolor="#e8f0fe"];
+  "#170" [label="#170\n(wave 1)", fillcolor="#e6f4ea"];
+  "#200" [label="#200\n(wave 2)", fillcolor="#fef7e0"];
+  "#150" -> "#137" [label="file-conflict"];
+  "#150" -> "#170" [label="logical"];
+  "#137" -> "#200" [label="logical"];
+}

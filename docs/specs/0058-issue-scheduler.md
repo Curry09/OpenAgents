@@ -16,7 +16,7 @@ e2e:
 tasks:
   - id: T1
     title: 调度 agent 判边模块 scheduler.py（语义判两类依赖边 + 解析 spec 文件分配）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -29,7 +29,7 @@ tasks:
     acceptance: '喂两个 owned_files 有交集的 issue + 返回一条 file-conflict 边的 backend 桩→schedule 返回含该 DepEdge(kind=file-conflict,方向/理由齐)；喂正文声明「复用 #N 接口」+返回 logical 边的桩→得 kind=logical 边；返回空/格式跑偏的桩→空边集(fail-open)；parse_owned_files 对真实 spec markdown 解出 tasks[].files 并集、对无 frontmatter 容错空集；模块不做任何 IO(不 import github/argparse)；ruff+pytest 全绿。'
   - id: T2
     title: 标签代数 schedlabels.py（blocked-by 解析 / sched-ready 派生 / 边→标签动作对账）
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -42,7 +42,7 @@ tasks:
     acceptance: parse_blocked_by 从 ['blocked-by:#150','openagents'] 解出 {150}；has_unsatisfied_block 挂任一 blocked-by→True、仅 sched-ready/openagents→False；plan_labels 对上游已不在 open 集的边把该 blocked-by 放 removes、无剩余 blocked-by 的 issue adds sched-ready、有则 removes sched-ready；同一世界重复调 plan_labels 产出 add/remove 相同(幂等无抖动)；模块不做任何 IO；ruff+pytest 全绿。
   - id: T3
     title: DAG 渲图 schedgraph.py（标签→DAG→graphviz PNG，无 dot 降级 .dot）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -55,7 +55,7 @@ tasks:
     acceptance: build_dot 对边集产出含各 issue 节点+下游←上游有向边+波次分层的合法 DOT、closed 上游不出现；render 在注入 run 成功时产出 dag.png 返回其路径；注入 run 抛 FileNotFoundError/非0/异常时降级写 dag.dot 返回其路径且不上抛(本机无 graphviz 为常态路径)；hermetic(fake run) 由 tests/test_schedgraph.py 覆盖；ruff+pytest 全绿。
   - id: T4
     title: IO 编排 orchestrator.schedule + openagents schedule 命令
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -73,7 +73,7 @@ tasks:
     acceptance: orchestrator.schedule 对含一条文件交集边+一个独立 issue 的内存 GitHub 世界：下游 issue_add_label('blocked-by:#<上游>') 恰一次、独立 issue_add_label('sched-ready')、上游不被打 blocked、幂等重跑标签 add/remove 稳定；无 spec 组的 issue 容错跳过；schedgraph.render 被调产出图路径；cli 'openagents schedule' 路由到 _cmd_schedule 且退出码 0；hermetic(注入 github/backend/scheduler) 覆盖；ruff+pytest 全绿。
   - id: T5
     title: 实现门控（messages 派 implement 前查 blocked-by）+ vigil 每轮保鲜
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -90,7 +90,7 @@ tasks:
     acceptance: 挂 blocked-by:#N 的 issue 经 _process_rfc_review 本轮 implement 未被调、无 rfc-approved 标签、返回 reason=blocked-by、停在 rfc-review；摘除 blocked-by 后同一 PR 照常评审/implement(零回归)；已带 rfc-approved(2a)/skip.at_spec 的强放行意图仍放行(门控不覆盖人工放行)；vigil 一轮在 discover 后 poll 前恰调一次 orchestrator.schedule、schedule 抛异常时本轮记日志续跑不上抛；hermetic(fake github/state/orchestrator) 覆盖；ruff+pytest 全绿。
   - id: T6
     title: 端到端成果测试（schedule 全链闭环 + DAG 出图 + 门控解封 + 浏览器能力降级）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

@@ -33,6 +33,9 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `reviewer.py` | RFC-0012 T1: reviewer 编排模块 —— N 并行评审 + 裁决聚合。 |
+| `schedgraph.py` | Spec-0058/T3：跨 issue DAG 渲图（best-effort，注入 run + 安全降级）——标签真值 → DOT → graphviz PNG。 |
+| `schedlabels.py` | Spec-0058/T2：跨 issue 调度的标签代数（纯函数，无 IO）——blocked-by 解析 / sched-ready 派生 / 对账。 |
+| `scheduler.py` | Spec-0058/T1：跨 issue 调度 agent 判边 + 解析 spec 文件分配（纯逻辑，backend 注入，无 IO）。 |
 | `skip.py` | Spec-0054/T1: vigil --skip 逐闸旁路开关配置模型（与 hold.py 对称）。 |
 | `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
 | `vigil.py` | RFC-0004: openagents vigil —— 守夜人模式（自主 issue→PR 全流程循环）。 |
@@ -95,6 +98,9 @@ graph LR
     nopenagents_replynote["openagents.replynote"]
     nopenagents_results["openagents.results"]
     nopenagents_reviewer["openagents.reviewer"]
+    nopenagents_schedgraph["openagents.schedgraph"]
+    nopenagents_schedlabels["openagents.schedlabels"]
+    nopenagents_scheduler["openagents.scheduler"]
     nopenagents_skip["openagents.skip"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
@@ -162,6 +168,7 @@ graph LR
     nopenagents_messages --> nopenagents_identity
     nopenagents_messages --> nopenagents_orchestrator
     nopenagents_messages --> nopenagents_replynote
+    nopenagents_messages --> nopenagents_schedlabels
     nopenagents_messages --> nopenagents_skip
     nopenagents_messages --> nopenagents_state
     nopenagents_messages --> nopenagents_worknote
@@ -174,6 +181,9 @@ graph LR
     nopenagents_orchestrator --> nopenagents_identity
     nopenagents_orchestrator --> nopenagents_issuecheck
     nopenagents_orchestrator --> nopenagents_reviewer
+    nopenagents_orchestrator --> nopenagents_schedgraph
+    nopenagents_orchestrator --> nopenagents_schedlabels
+    nopenagents_orchestrator --> nopenagents_scheduler
     nopenagents_orchestrator --> nopenagents_spec
     nopenagents_orchestrator --> nopenagents_spec_model
     nopenagents_orchestrator --> nopenagents_spec_signpost
@@ -185,6 +195,9 @@ graph LR
     nopenagents_release --> nopenagents_state
     nopenagents_results --> nopenagents_state
     nopenagents_reviewer --> nopenagents_backends_base
+    nopenagents_schedgraph --> nopenagents_scheduler
+    nopenagents_schedlabels --> nopenagents_scheduler
+    nopenagents_scheduler --> nopenagents_backends_base
     nopenagents_skip --> nopenagents_hold
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph

@@ -45,6 +45,7 @@ from openagents import (
     github,
     identity,
     replynote,
+    schedlabels,
     worknote,
 )
 from openagents.backends.base import AgentBackend
@@ -572,6 +573,23 @@ class Messages:
             github.add_label(pr_number=pr_number, name=APPROVAL_LABEL)
             self._report_implement(pr_number=pr_number)
             return {"pr_number": pr_number, "reason": "skip-spec"}
+        # Spec-0058/T5：实现门控——派 implement 写代码之前查该 issue 是否还挂 blocked-by:#N。挂着就本轮
+        # 停在 rfc-review（不评审 / 不打 rfc-approved / 不 implement），等上游合并后由 schedule 保鲜剪边解封。
+        # **只挡写代码、不挡 RFC 起草**（起草在 vigil 发现段 start_rfc，本闸完全不碰）。放在 2a / skip.at_spec
+        # 两条人工放行意图**之后**——人显式放行仍尊重（与 hold/skip 既有优先级一致）；门控本身只**读**标签、
+        # 不发网络判 open（满足由 schedule 保鲜据 open 集剪除后体现，读时自愈，见 Spec-0058 标签契约）。
+        # fail-open：读 issue 标签失败（gh 故障）→ 不挡（宁可漏挡也不误挡本可推进的 RFC，与调度
+        # agent「宁漏排不乱连」同向；漏挡侧最坏是提前一轮写码、后续 merge 闸仍兜底）。
+        try:
+            issue_labels = github.get_issue(number=record.issue_number).labels
+        except github.GithubError:
+            issue_labels = ()
+        if schedlabels.has_unsatisfied_block(labels=issue_labels):
+            upstreams = sorted(schedlabels.parse_blocked_by(labels=issue_labels))
+            self._progress(
+                message=f"⏸ issue #{record.issue_number}：仍挂 blocked-by:{upstreams}，等上游合并（停在 rfc-review）"
+            )
+            return {"pr_number": pr_number, "reason": "blocked-by"}
         # Spec-0020/T3：spec 闸 hold——跳过下面的自动 reviewer（2b），只认上面 2a 的人工
         # rfc-approved label。无 label 即本轮什么都不做、停在 spec 闸等人批（不评审、不打
         # 标签、不 refine、不 block、不进 coding）——把这道闸完全交给人，复用既有 label 门控。

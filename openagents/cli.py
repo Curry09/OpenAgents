@@ -94,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     # 拉式同步重构后移除了 push 扇出（含手动 sync-prs）：合并后其余 open PR 各自轮到时在守夜人
     # _process_coding 的 BEHIND 分支由 update_branch 跟上，无需独立的手动扇出入口（理念 1 奥卡姆）。
 
+    # Spec-0058/T4：跨 issue 调度——判两类依赖边、落 blocked-by/sched-ready 标签、渲 DAG 拓扑图。
+    # 人 / cron 按需跑一次；vigil 每轮发现段后也调一次保鲜（自动剪边解封）。
+    sub.add_parser(
+        "schedule", help="跨 issue 调度：判依赖边 → 落 blocked-by/sched-ready 标签 → 渲 DAG 图"
+    )
+
     sub.add_parser("board", help="启动本地成果看板")
 
     # RFC-0004：守夜人模式——自主发现新 issue 派单 + 守候 PR（comment/CI），人只审 PR。
@@ -424,6 +430,15 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 1
 
 
+def _cmd_schedule(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0058/T4：薄路由——跨 issue 调度一轮（判边 → 落标签 → 渲图），业务全在 orchestrator.schedule。
+    # 与 vigil/rfc 同源，先自举一次流程标签（issue_add_label 对不存在标签报 not found）。
+    github.ensure_prerequisites()
+    _orchestrator_for(ctx=ctx).schedule()
+    print("✓ 跨 issue 调度完成：已更新 blocked-by/sched-ready 标签并渲出 DAG 图（docs/schedule/）")
+    return 0
+
+
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），尽力解析 repo 根定位 state。
     from openagents.results import board
@@ -459,6 +474,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "watch": _cmd_watch,
         "vigil": _cmd_vigil,
         "release": _cmd_release,
+        "schedule": _cmd_schedule,
     }
     return handlers[args.command](args, ctx)
 

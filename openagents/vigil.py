@@ -128,6 +128,13 @@ class Vigil:
         守候段 messages.poll 消费 spec / code / ci / evidence 四道闸的 skip 短路。
         """
         self.discover_and_dispatch(labels=labels, base=base, skip=skip)
+        # Spec-0058/T5：发现段之后、守候段之前调一次跨 issue 调度保鲜——每轮可能新增 issue / 上游可能
+        # 刚合并，保鲜一次即让标签真值（blocked-by / sched-ready）追上现实、自动剪边解封。best-effort：
+        # 保鲜失败只记日志、不掀翻整轮（含 once 模式也不上抛），故守候段（poll）永远照常推进。
+        try:
+            self._orchestrator.schedule()
+        except Exception as exc:  # noqa: BLE001 — 保鲜是旁路优化，失败绝不阻断本轮守候段
+            self._log(message=f"⚠ 跨 issue 调度保鲜失败（已忽略，标签下轮再追）：{exc}")
         self._messages.poll(hold=hold, skip=skip)
 
     def discover_and_dispatch(

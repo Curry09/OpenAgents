@@ -29,6 +29,7 @@ COMMANDS = [
     "board",
     "vigil",
     "release",
+    "schedule",
 ]
 
 

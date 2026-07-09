@@ -21,7 +21,7 @@ import pytest
 
 from openagents import blocknote
 from openagents import messages as messages_module
-from openagents.github import CheckStatus, GithubError, Mergeability
+from openagents.github import CheckStatus, GithubError, Issue, Mergeability
 from openagents.hold import Hold
 from openagents.messages import APPROVAL_LABEL, Messages, _configured_max_rounds
 from openagents.reviewer import ReviewDecision
@@ -235,6 +235,13 @@ def _patch_github(
     monkeypatch.setattr(messages_module.github, "is_merged", lambda *, pr_number: merged)
     monkeypatch.setattr(messages_module.github, "is_closed", lambda *, pr_number: closed)
     monkeypatch.setattr(messages_module.github, "has_label", lambda *, pr_number, name: has_label)
+    # Spec-0058/T5：RFC 闸的实现门控读 issue 标签查 blocked-by。默认桩返回无 blocked-by 的 issue，
+    # 使既有 rfc-review 用例零回归（门控放行）；blocked-by 专项断言见 test_messages_blocked_by_gate。
+    monkeypatch.setattr(
+        messages_module.github,
+        "get_issue",
+        lambda *, number: Issue(number=number, title="t", body="b", labels=("openagents",)),
+    )
     # Spec-0032/T5：_block 落水位线要读最新评论 createdAt；blocked 解挂主路径要读新人类评论。
     # 默认桩为空（无评论 / 无新人类评论），使既有 block / blocked 用例零回归（走标签兜底路径）。
     monkeypatch.setattr(messages_module.github, "list_comments", lambda *, pr_number: [])

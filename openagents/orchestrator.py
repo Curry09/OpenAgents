@@ -18,11 +18,23 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from openagents import agentcontext, backfill, executor, github, identity, issuecheck, reviewer
+from openagents import (
+    agentcontext,
+    backfill,
+    executor,
+    github,
+    identity,
+    issuecheck,
+    reviewer,
+    schedgraph,
+    schedlabels,
+    scheduler,
+)
 from openagents.backends.base import AgentBackend
 from openagents.reviewer import ReviewDecision
 from openagents.spec import model, signpost, validate
@@ -200,6 +212,15 @@ _BACKFILL_RFC_TASK = (
 
 # Spec-0055/T5：证据落点相对路径约定（executor 写 result.md / 截图，reviewer 读；单一来源在此）。
 _EVIDENCE_ROOT = ("docs", "e2e-results")
+
+# Spec-0058/T4：跨 issue DAG 拓扑图产物落点（schedule 渲图写 dag.png / 降级 dag.dot；单一来源在此）。
+_SCHEDULE_DIR = ("docs", "schedule")
+
+
+def _run_dot(*, args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Spec-0058/T4：schedgraph.render 的注入 run——直跑 `dot`（best-effort，缺失/失败由 render 降级吞掉）。"""
+    return subprocess.run(args, capture_output=True, text=True)
+
 
 # Spec-0057/T1：RFC 闸缺 e2e 块时的**确定性**返工文案（不问 LLM 直接 refine_rfc 喂它）。
 _E2E_BLOCK_MISSING_MSG = (
@@ -432,6 +453,100 @@ class Orchestrator:
             github.issue_remove_label(number=issue_number, name=github.DISPATCH_LABEL)
         except github.GithubError as error:
             self._progress(message=f"⚠ 摘认领标签失败（已忽略，残留标签无害）：{error}")
+
+    # --- 跨 issue 调度：判边 → 落标签 → 渲图（Spec-0058/T4）--------------- #
+    def schedule(self) -> None:
+        """Spec-0058/T4：跨 issue 调度一轮——拉已出 RFC 的 open issue → 判边 → 幂等落标签 → 渲 DAG 图。
+
+        流程（IO 编排层，语义判断全下放 scheduler agent、其余是确定性最小硬闸）：
+        1. github.list_issues(state=open, labels=[openagents]) 取已出 RFC 的 issue；
+        2. 读各自 spec 组 markdown 经 scheduler.parse_owned_files 得 owned_files（无 spec 组的 issue
+           容错跳过——RFC 尚未合入 main、跨分支不可见，本组明确不处理，见 spec Drawbacks）；
+        3. 组 IssueContext → scheduler.schedule(backend=注入) 得边集（fail-open）；
+        4. schedlabels.plan_labels 把边集 + 当前标签对账成**幂等** add/remove；
+        5. 按 LabelPlan 用既有 github.issue_add_label / issue_remove_label 落 blocked-by / sched-ready；
+        6. schedgraph.render 出 docs/schedule/dag.png（无 graphviz 降级 dag.dot，绝不硬失败）。
+        复用既有 github 标签出口、不新增 github 函数（避免碰共享 prod 文件的 fake 连带回归）。
+        """
+        self._progress(message="▶ 跨 issue 调度：拉取已出 RFC 的 open issue …")
+        issues = github.list_issues(labels=[github.DISCOVERY_LABEL], state="open")
+        owned_by_issue = self._owned_files_by_issue()
+        contexts = [
+            scheduler.IssueContext(
+                number=issue.number,
+                title=issue.title,
+                body=issue.body,
+                owned_files=owned_by_issue[issue.number],
+            )
+            for issue in issues
+            if issue.number in owned_by_issue  # 无 spec 组的 issue 容错跳过
+        ]
+        if not contexts:
+            self._progress(message="▶ 无已出 RFC（无 spec 组）的可排 issue，跳过调度")
+            return
+
+        self._progress(message=f"▶ 调度 agent 判 {len(contexts)} 个 issue 的依赖边 …")
+        verdict = scheduler.schedule(issues=contexts, backend=self._backend)
+        open_issue_numbers = {issue.number for issue in issues}
+        # 只对有 spec 组（进 contexts）的 issue 对账；current_labels 直接取 list_issues 已带回的 labels。
+        current_labels = {
+            issue.number: set(issue.labels) for issue in issues if issue.number in owned_by_issue
+        }
+        plan = schedlabels.plan_labels(
+            verdict=verdict,
+            open_issue_numbers=open_issue_numbers,
+            current_labels=current_labels,
+        )
+        self._apply_label_plan(plan=plan)
+        self._render_schedule_graph(edges=verdict.edges, open_issue_numbers=open_issue_numbers)
+
+    def _owned_files_by_issue(self) -> dict[int, frozenset[str]]:
+        """Spec-0058/T4：扫 docs/specs/*.md，按 frontmatter issue 号映射到其 owned_files（并集）。
+
+        经 scheduler.parse_owned_files 解析（单一 parser 出口）；组不可读 → 跳过该组（容错）。
+        """
+        specs_root = self._work_dir / "docs" / "specs"
+        owned: dict[int, frozenset[str]] = {}
+        if not specs_root.is_dir():
+            return owned
+        for group in model.load_all(specs_root=specs_root):
+            path = model.group_path(
+                specs_root=specs_root, number=group.number, slug=group.metadata.slug
+            )
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            owned[group.metadata.issue] = scheduler.parse_owned_files(spec_markdown=text)
+        return owned
+
+    def _apply_label_plan(self, *, plan: schedlabels.LabelPlan) -> None:
+        """Spec-0058/T4：按 LabelPlan 幂等落标签——add/remove 都走既有 issue 级 github 出口。
+
+        issue_add_label 对已带标签是 no-op、issue_remove_label 自带「标签本不在」幂等；plan 已只含
+        与当前有差异的动作，故这里直接逐条落即可（幂等无抖动的保证在 plan_labels 侧）。
+        """
+        for number, names in plan.adds.items():
+            for name in sorted(names):
+                github.issue_add_label(number=number, name=name)
+                self._progress(message=f"  + issue #{number} add {name}")
+        for number, names in plan.removes.items():
+            for name in sorted(names):
+                github.issue_remove_label(number=number, name=name)
+                self._progress(message=f"  - issue #{number} remove {name}")
+
+    def _render_schedule_graph(
+        self, *, edges: tuple[scheduler.DepEdge, ...], open_issue_numbers: set[int]
+    ) -> None:
+        """Spec-0058/T4：把边集渲成 docs/schedule/dag.png（无 graphviz 降级 dag.dot，绝不硬失败）。"""
+        out_dir = self._work_dir.joinpath(*_SCHEDULE_DIR)
+        out = schedgraph.render(
+            edges=edges,
+            open_issue_numbers=open_issue_numbers,
+            out_dir=out_dir,
+            run=_run_dot,
+        )
+        self._progress(message=f"▶ DAG 拓扑图已产出：{out}")
 
     # --- 原子操作 1bis：brownfield 反向补全 RFC（Spec-0025/T2）----------- #
     def backfill_rfc(self, *, path: str, base: str = DEFAULT_BASE) -> github.PR:

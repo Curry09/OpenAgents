@@ -118,6 +118,10 @@ def _stub_github(monkeypatch, **overrides):
         "merge_pr": lambda *, pr_number: None,
         "close_issue": lambda *, number: None,
         "code_fingerprint": lambda *, pr_number: "",
+        # Spec-0058/T5：RFC 闸实现门控读 issue 标签查 blocked-by——默认无 blocked-by（门控放行、零回归）。
+        "get_issue": lambda *, number: Issue(
+            number=number, title="t", body="b", labels=("openagents",)
+        ),
     }
     defaults.update(overrides)
     for name, fn in defaults.items():
