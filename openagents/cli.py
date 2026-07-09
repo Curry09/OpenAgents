@@ -161,6 +161,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="版本号递增位（默认 patch；从最新 vX.Y.Z tag 递增，无 tag 则起点 v0.1.0）",
     )
 
+    # Spec-0061/T4：新栈守候段 poll-comments —— 一次性扫所有 open PR 的新人类评论，派 replier
+    # agent 盖签名回应（additive；旧 poll 的阶段状态机路由不动，两栈并存）。
+    sub.add_parser("poll-comments", help="[新栈] 一次性回应所有 PR 的新人类评论（replier）")
+
+    # Spec-0061/T4：新栈守夜人 vigil-new —— 发现→分诊(triager)→派单(solve_issue)，每轮附带守候段
+    # poll-comments。与旧 vigil 并存（旧 vigil 走 orchestrator/messages 阶段状态机，新栈走 agent 裁决
+    # + recipe 控制流）；additive，不动旧 vigil 路由。
+    p_vigil_new = sub.add_parser(
+        "vigil-new", help="[新栈] 守夜人：发现→分诊→派单(solve_issue)+守候(poll-comments)"
+    )
+    p_vigil_new.add_argument("--interval", type=int, default=60, help="轮询间隔（秒），默认 60")
+    p_vigil_new.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help="issue 发现的标签门控（可重复），默认 openagents",
+    )
+    p_vigil_new.add_argument("--base", default="main", help="派单求解改动的分支基线（默认 main）")
+    p_vigil_new.add_argument("--once", action="store_true", help="只跑一轮（发现+守候）后退出")
+
+    # Spec-0061/T4：新栈多仓库统管 fleet —— 读一份 YAML（同 vigil-all 格式），为每个仓库各起一隔离
+    # 子进程跑**新栈** vigil-new 并发守夜。与旧 vigil-all 并存（后者扇出旧 vigil）；additive。
+    p_fleet = sub.add_parser(
+        "fleet", help="[新栈] 多仓库统管：按配置并发守夜一组仓库（扇出 vigil-new）"
+    )
+    p_fleet.add_argument(
+        "--config",
+        default=".openagents/fleet.yml",
+        metavar="PATH",
+        help="fleet 配置文件路径（默认 .openagents/fleet.yml）",
+    )
+    p_fleet.add_argument(
+        "--once", action="store_true", help="每个仓库各跑一轮后退出（cron/CI/e2e 用）"
+    )
+
     return parser
 
 
@@ -247,6 +283,38 @@ def _vigil_for(*, ctx: ProjectContext):
         # 与 orchestrator/messages 复用同一 _agent_id_for（幂等 env>state>生成），跨进程一致。
         agent_id=_agent_id_for(ctx=ctx),
     )
+
+
+# Spec-0061/T4：新栈 RuntimeState 工厂——独立命名空间文件 runtime-state.json（与旧 state.json
+# 文件级零冲突，见 runtime.state）。延迟 import 保持 cli 顶层轻、测试可打桩。
+def _new_runtime_state_for(*, ctx: ProjectContext):
+    from openagents.runtime.state import RUNTIME_STATE_FILENAME, RuntimeState
+
+    return RuntimeState(path=ctx.repo_root / ".openagents" / RUNTIME_STATE_FILENAME)
+
+
+# Spec-0061/T4：新栈守夜人工厂——返回 (Vigil, poll)：Vigil 跑发现→分诊→派单，poll 是守候段
+# poll_comments 的零参偏函数（供 Vigil.run 每轮调）。backend/state/agent_id 一次构造、两段共享，
+# 保证同一守夜进程内身份与状态一致。recipes.fleet 的子进程目标 `_run_repo` 也调本工厂（与 CLI
+# `vigil-new` 同源），故本工厂是新栈守夜的单一接线点。
+def _new_vigil_for(*, ctx: ProjectContext):
+    from functools import partial
+
+    from openagents.recipes.poll_comments import poll_comments
+    from openagents.recipes.vigil import Vigil
+
+    backend = _backend_for()
+    rstate = _new_runtime_state_for(ctx=ctx)
+    agent_id = _agent_id_for(ctx=ctx)
+    vigil = Vigil(backend=backend, state=rstate, work_dir=ctx.repo_root, agent_id=agent_id)
+    poll = partial(
+        poll_comments,
+        backend=backend,
+        state=rstate,
+        agent_id=agent_id,
+        work_dir=ctx.repo_root,
+    )
+    return vigil, poll
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
@@ -446,6 +514,44 @@ def _cmd_vigil_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_poll_comments(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0061/T4：新栈守候段薄接线——一次性跑 poll_comments recipe（业务判断在 replier agent、
+    # 控制流在 recipe）。work_dir 传 repo 根（本批 replier 在此运行做回应/答疑；深度改代码需 PR
+    # worktree 留后续批次，见 spec Unresolved）。
+    from openagents.recipes.poll_comments import poll_comments
+
+    events = poll_comments(
+        backend=_backend_for(),
+        state=_new_runtime_state_for(ctx=ctx),
+        agent_id=_agent_id_for(ctx=ctx),
+        work_dir=ctx.repo_root,
+    )
+    print(f"✓ [新栈] poll-comments 完成，处理 {len(events)} 个事件")
+    return 0
+
+
+def _cmd_vigil_new(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0061/T4：新栈守夜人薄接线。--label 缺省回落发现标签（与提 issue 同源 → DISCOVERY_LABEL）。
+    # 进主循环前自举流程标签（幂等），使全新仓库直接 vigil-new 也能跑通发现段（与旧 vigil 同源）。
+    github.ensure_prerequisites()
+    labels = args.label if args.label else [DISCOVERY_LABEL]
+    vigil, poll = _new_vigil_for(ctx=ctx)
+    vigil.run(interval=args.interval, labels=labels, base=args.base, once=args.once, poll=poll)
+    return 0
+
+
+def _cmd_fleet(args: argparse.Namespace) -> int:
+    # Spec-0061/T4：新栈多仓库统管薄路由——读 fleet 配置（复用 utils.fleet_config 解析）→ run_fleet
+    # 扇出新栈 vigil-new（每仓一子进程）。同 vigil-all 不取 cwd 项目 ctx（统管的是配置里的别的仓库，
+    # 可在任意目录运行；preflight 由各子进程在自己仓库里做），故在 _dispatch 里同样跳过 cwd preflight。
+    from openagents.recipes.fleet import run_fleet
+    from openagents.utils.fleet_config import load_fleet_config
+
+    plans = load_fleet_config(path=Path(args.config))
+    run_fleet(plans=plans, once=args.once)
+    return 0
+
+
 def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0023/T4：人唯一的宏观决策点——预检（无 BLOCKED/needs-human + main CI 绿）通过则
     # 把 main 当前 HEAD 物化为 release/vX.Y.Z 分支 + tag。失败按预检原因设非零退出码，不发布。
@@ -475,10 +581,12 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "board":
         return _cmd_board(args)
 
-    # Spec-0027/T3：vigil-all 统管的是配置里列出的别的仓库，cwd 不必是 git 仓库——同 board
-    # 跳过 cwd 项目 preflight，直接读配置并扇出（preflight 由各子进程在自己的仓库里做）。
+    # Spec-0027/T3 + Spec-0061/T4：vigil-all / fleet 统管的是配置里列出的别的仓库，cwd 不必是 git
+    # 仓库——同 board 跳过 cwd 项目 preflight，直接读配置并扇出（preflight 由各子进程在自己的仓库里做）。
     if args.command == "vigil-all":
         return _cmd_vigil_all(args)
+    if args.command == "fleet":
+        return _cmd_fleet(args)
 
     ctx = ensure_project(interactive=True)
     handlers = {
@@ -494,6 +602,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         "poll": _cmd_poll,
         "watch": _cmd_watch,
         "vigil": _cmd_vigil,
+        "poll-comments": _cmd_poll_comments,
+        "vigil-new": _cmd_vigil_new,
         "release": _cmd_release,
     }
     return handlers[args.command](args, ctx)

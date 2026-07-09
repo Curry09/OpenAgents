@@ -22,7 +22,7 @@ from pathlib import Path
 # Spec-0060/T1: 薄再导出 worktree 生命周期原语（不改 workspace.py 任何一行）。
 from openagents.workspace import Workspace, WorkspaceError
 
-__all__ = ["Workspace", "WorkspaceError", "head_sha", "porcelain"]
+__all__ = ["Workspace", "WorkspaceError", "head_sha", "porcelain", "remote_branch_exists"]
 
 
 def head_sha(*, work_dir: Path) -> str:
@@ -42,6 +42,18 @@ def porcelain(*, work_dir: Path) -> str:
     """
     result = _git(args=["status", "--porcelain"], cwd=Path(work_dir))
     return result.stdout.strip()
+
+
+# Spec-0061/T1: 只读远端分支存在性探针——新栈 vigil recipe 的确定性去重闸（分支已存在=已在飞行中）
+# 所需，旧 workspace.py 的同名方法绑在 Workspace 实例上，此处以最薄封装提供免实例的自由函数。
+def remote_branch_exists(*, work_dir: Path, branch: str) -> bool:
+    """远端是否已有该分支（`git ls-remote --heads origin <branch>` 有输出即存在）。
+
+    vigil recipe 派单前的去重闸：远端分支已存在说明该 issue 已被某后端认领在飞行中，
+    recipe 据此跳过、不重复派单。纯读客观事实（远端 ref），不含业务判断。
+    """
+    result = _git(args=["ls-remote", "--heads", "origin", branch], cwd=Path(work_dir))
+    return bool(result.stdout.strip())
 
 
 def _git(*, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
