@@ -27,6 +27,16 @@ from pathlib import Path
 # Spec-0060/T5: 新栈状态文件名——与旧 state.json 独立命名空间，避免文件级冲突。
 RUNTIME_STATE_FILENAME = "runtime-state.json"
 
+# Spec-0063/T1: 权威状态词表——从旧 state.py 迁入，作为 release 及后续消费方的唯一状态词表来源
+# （字面量与旧 state.py 完全一致；旧 STATUS_* 副本随 state.py 删除而退役）。
+STATUS_SOLVING = "solving"
+STATUS_RFC_REVIEW = "rfc-review"
+STATUS_PR_OPEN = "pr-open"
+STATUS_ITERATING = "iterating"
+STATUS_DONE = "done"
+STATUS_CLOSED = "closed"
+STATUS_BLOCKED = "blocked"
+
 
 class RuntimeState:
     """# Spec-0060/T5: 新栈状态读写器（按状态文件路径构造，独立命名空间）。"""
@@ -95,6 +105,44 @@ class RuntimeState:
         """写某 PR 的 comment 游标。"""
         data = self._load()
         data.setdefault("cursors", {})[str(pr_number)] = comment_id
+        self._save(data=data)
+
+    def get_agent_id(self) -> str | None:
+        """# Spec-0063/T1: 读已落盘的本实例 agent_id（承接 RFC-0011 语义）；未设过返回 None。
+
+        agent_id 是 runtime-state.json 顶层可选键（与 runs/cursors 平级）。供
+        identity.resolve_agent_id 在 env 未指定时复用既有值、保证跨进程/重启稳定。
+        _load 缺失/损坏返回 {} 时，data.get 得 None，非空 str 校验回落 None。
+        """
+        data = self._load()
+        agent_id = data.get("agent_id")
+        return agent_id if isinstance(agent_id, str) and agent_id else None
+
+    def set_agent_id(self, *, agent_id: str) -> None:
+        """# Spec-0063/T1: 落盘本实例 agent_id（承接 RFC-0011 语义）。
+
+        _load 保留顶层的全部既有键，故写 agent_id 不影响 runs/cursors/ui_capable（反之亦然）。
+        """
+        data = self._load()
+        data["agent_id"] = agent_id
+        self._save(data=data)
+
+    def get_ui_capable(self) -> bool:
+        """# Spec-0063/T1: 读固化的「前端 e2e 能力」状态量（承接 Spec-0055 语义）；缺键回落 False。
+
+        缺该键回落 False = 保守假设「不具备浏览器」——即无法真跑 UI 截图，RFC 阶段不硬要求截图测法
+        （宁可不误挡）。_load 缺失/损坏返回 {} 时同样回落 False。
+        """
+        data = self._load()
+        return bool(data.get("ui_capable", False))
+
+    def set_ui_capable(self, *, value: bool) -> None:
+        """# Spec-0063/T1: 落盘本机「前端 e2e 能力」状态量（承接 Spec-0055 语义），顶层键与 agent_id 平级。
+
+        _load 保留全部既有顶层键，故写 ui_capable 不影响 runs/cursors/agent_id（反之亦然）。
+        """
+        data = self._load()
+        data["ui_capable"] = bool(value)
         self._save(data=data)
 
     def _load(self) -> dict:

@@ -12,7 +12,6 @@ _OpenAgents —— RFC 驱动的多 Agent 框架。_
 |----|----|
 | `__init__.py` | OpenAgents —— RFC 驱动的多 Agent 框架。 |
 | `cli.py` | RFC-0001 T1 + RFC-0005: CLI 入口。 |
-| `state.py` | RFC-0001 T4: 状态持久化层（决策 4）。 |
 
 ### openagents.agents
 
@@ -146,7 +145,6 @@ graph LR
     nopenagents_spec_schema["spec.schema"]
     nopenagents_spec_signpost["spec.signpost"]
     nopenagents_spec_validate["spec.validate"]
-    nopenagents_state["openagents.state"]
     nopenagents_utils["openagents.utils"]
     nopenagents_utils_align["utils.align"]
     nopenagents_utils_blocknote["utils.blocknote"]
@@ -183,7 +181,6 @@ graph LR
     nopenagents_cli --> nopenagents_runtime_engine
     nopenagents_cli --> nopenagents_runtime_gates
     nopenagents_cli --> nopenagents_runtime_state
-    nopenagents_cli --> nopenagents_state
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_align
     nopenagents_cli --> nopenagents_utils_config
@@ -273,7 +270,6 @@ graph LR
     nopenagents_spec_validate --> nopenagents_spec
     nopenagents_spec_validate --> nopenagents_spec_model
     nopenagents_spec_validate --> nopenagents_spec_schema
-    nopenagents_state --> nopenagents_utils_github
     nopenagents_utils_align --> nopenagents_backends_base
     nopenagents_utils_config --> nopenagents_utils_github
     nopenagents_utils_envcheck --> nopenagents_backends_claude_code
@@ -286,15 +282,15 @@ graph LR
     nopenagents_utils_fleet_config --> nopenagents_utils
     nopenagents_utils_fleet_config --> nopenagents_utils_github
     nopenagents_utils_git --> nopenagents_utils_workspace
-    nopenagents_utils_identity --> nopenagents_state
+    nopenagents_utils_identity --> nopenagents_runtime_state
     nopenagents_utils_identity --> nopenagents_utils
     nopenagents_utils_identity --> nopenagents_utils_github
     nopenagents_utils_notes --> nopenagents_utils_blocknote
     nopenagents_utils_notes --> nopenagents_utils_replynote
     nopenagents_utils_notes --> nopenagents_utils_worknote
-    nopenagents_utils_release --> nopenagents_state
+    nopenagents_utils_release --> nopenagents_runtime_state
     nopenagents_utils_release --> nopenagents_utils
     nopenagents_utils_release --> nopenagents_utils_github
-    nopenagents_utils_results --> nopenagents_state
+    nopenagents_utils_results --> nopenagents_runtime_state
     nopenagents_utils_skip --> nopenagents_utils_hold
 ```

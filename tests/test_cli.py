@@ -96,7 +96,7 @@ def _patch_ensure(monkeypatch):
 
 def _stub_rfc_factories(monkeypatch):
     # Spec-0062/T4：RFC recipe 接线参数（_rfc_kwargs）会实构造 backend/身份/RuntimeState——打桩成
-    # sentinel 保持路由测试 hermetic（不触真实 ClaudeCodeBackend、不读写真实 state.json）。
+    # sentinel 保持路由测试 hermetic（不触真实 ClaudeCodeBackend、不读写真实 runtime-state.json）。
     monkeypatch.setattr("openagents.cli._backend_for", lambda: object())
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "agent-x")
     monkeypatch.setattr("openagents.cli._new_runtime_state_for", lambda *, ctx: object())

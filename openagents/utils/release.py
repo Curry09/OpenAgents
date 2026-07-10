@@ -27,8 +27,11 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from openagents.state import BLOCKED_LABEL, STATUS_BLOCKED, State
+# Spec-0063/T3: 改接新栈——STATUS_BLOCKED 从 runtime 权威词表、State→RuntimeState（list_runs 返回 dict）；
+# BLOCKED_LABEL 从 utils.github 权威源直取（旧 state.py 只是再导出，随其删除退役）。
+from openagents.runtime.state import STATUS_BLOCKED, RuntimeState
 from openagents.utils import github
+from openagents.utils.github import BLOCKED_LABEL
 
 # Spec-0023/T3：语义化版本三段 vX.Y.Z；仓库无任何版本 tag 时的首发起点。
 _INITIAL_VERSION = (0, 1, 0)
@@ -50,15 +53,17 @@ class ReleaseResult:
     reason: str
 
 
-def release(*, state: State, bump: str = "patch", source: str = "main") -> ReleaseResult:
+def release(*, state: RuntimeState, bump: str = "patch", source: str = "main") -> ReleaseResult:
     """Spec-0023/T3：预检通过则把 source（main）当前 HEAD 物化为新版本分支 + tag。
 
     预检任一不过即返回 released=False 且 reason 指明原因，不建任何分支/tag（决策照搬
     RFC-0012 决策 7，只把取绿对象从 test 换成 main）。
     """
-    blocked = [r for r in state.all_runs() if r.status == STATUS_BLOCKED]
+    # Spec-0063/T3: list_runs() 返回 dict 记录（非 RunRecord），故用下标取 status/issue_number；
+    # 语义不变——挑出 status==STATUS_BLOCKED 的 run 拼 issue 号做发布前挂起预检。
+    blocked = [r for r in state.list_runs() if r["status"] == STATUS_BLOCKED]
     if blocked:
-        issues = ", ".join(f"#{r.issue_number}" for r in blocked)
+        issues = ", ".join(f"#{r['issue_number']}" for r in blocked)
         return ReleaseResult(
             released=False, version="", reason=f"存在挂起（{STATUS_BLOCKED}）的 run：{issues}"
         )
