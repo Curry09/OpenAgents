@@ -36,6 +36,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# e2e 证据产物（一次性 probe 脚本/日志）不参与 lint：证据不是产品源码，
+# 否则"产证据即触发 ruff 失败"会在合并流水线 e2e 之后自发把 CI 打红（Spec-0064/#162）
+extend-exclude = ["docs/e2e-results/**"]
 
 [tool.ruff.lint]
 # E/F: pyflakes+pycodestyle，I: import 排序，UP: pyupgrade，

@@ -1,0 +1,29 @@
+✓ 全 agent 全绿→最终 merged
+✓ 流水线序 ci→e2e→review→merge(conflict CLEAN 跳过解冲突)
+✓ merge:agent 自动合调 stages.merge
+✓ merged 后置 done + 关 issue
+✓ DIRTY→先解 conflict(reason=resolved)
+✓ DIRTY→读 CI 之前短路(CALLS 无 ci)
+✓ DIRTY→conflict 阶段被调
+✓ UNKNOWN→本轮不推进(ev is None)
+✓ UNKNOWN→不读 CI
+✓ CI 红 ci:agent→reason=ci
+✓ CI 红 ci:agent→派 implementer 迭代
+✓ CI 红→未走到 e2e/review/merge(下轮从头重进)
+✓ CI 红 ci:human→reason=blocked
+✓ CI 红 ci:human→不派 implementer
+✓ CI 红 ci:human→state 置 blocked
+✓ ci:skip→跳过 CI 闸(CALLS 无 ci)
+✓ ci:skip→即便 CI 会红也放行到 merge
+✓ e2e 陈旧 e2e:agent→reason=e2e 且派 implementer
+✓ e2e:skip→跳过 e2e 闸放行 merge
+✓ review REWORK review:agent→reason=review 且派 implementer
+✓ review:human→blocked(gate=review)不派 implementer
+✓ review:skip→跳过 review(REWORK 也不拦)
+✓ merge:human→hold-merge 不调 stages.merge
+✓ round_cap 耗尽上限即 raise GateError(死循环硬兜底)
+✓ round_cap 上限有限(≤ DEFAULT_MAX_ROUNDS)
+✓ round_cap 非可配阶段名(stages 无从 skip 关掉它)
+✓ 三硬闸名全不在 stages 可配阶段
+
+=== 编排层探针：27 passed, 0 failed ===

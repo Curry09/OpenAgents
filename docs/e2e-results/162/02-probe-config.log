@@ -1,0 +1,24 @@
+✓ 整份缺失→全默认(全 agent stages)
+✓ 整份缺失→claude_code 默认后端
+✓ 整份缺失→release manual
+✓ 整份缺失→单仓 path=.
+✓ stages.merge=human 解析生效
+✓ 未声明的 ci 回落 agent 默认
+✓ conflict:skip 被拒
+✓ merge:skip 被拒
+✓ rfc:human 被拒(rfc 仅 agent/skip)
+✓ 硬闸名 head-advanced 进 stages 被 reject
+✓ 硬闸名 evidence-stamp 进 stages 被 reject
+✓ 硬闸名 round-cap 进 stages 被 reject
+✓ 恒agent阶段 implement 进 stages 被 reject
+✓ 恒agent阶段 deliver 进 stages 被 reject
+✓ 零闸组合 review:skip+merge:agent 被拒
+✓ review:skip+merge:human 放行(人兜底)
+✓ rfc:skip 出 warnings.warn 告警
+✓ 顶层仓沿用 merge:human
+✓ override 仓 merge:agent 覆盖生效
+✓ override 仓 base=develop 合并生效
+✓ override 后仍守零闸(repo merge:agent 撞顶层 review:skip)
+✓ agents.implementer=codex 声明面生效
+
+=== 配置层探针：22 passed, 0 failed ===

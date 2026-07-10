@@ -174,6 +174,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0063 state 归一：折叠旧 State 进 RuntimeState 并删 state.py，flat 层收敛为 cli+__init__
 承接 Spec-0062 两栈合一收尾：把旧 openagents/state.py 仍存活的三处生产读（agent_id 存储 / ui_capable 存储 / release+board 的 all_runs+RunRecord）迁到新栈 runtime.RuntimeState，STATUS_* 与 BLOCKED_LABEL/PR 改由权威源（runtime + utils.github）供给，随后删掉 state.py——flat 顶层最终仅剩 cli.py + __init__.py。因 .openagents/ 全 gitignore、state 文件为本地临时态，无需数据迁移。
 
+### 0064 收敛 recipes 到 vigil+issue：声明式 stages YAML 定义 agent/human/skip 阶段归属
+把 recipes 层 6→3 收敛（stages/vigil/backfill），人面向入口收敛为 vigil+issue+backfill-rfc+release，用一份声明式 .openagents/openagents.yml（agents/stages 三态/release）作「用哪些 agent + 每道闸归谁把关」的单一真源，阶段抽成 Vigil 类外的独立自由函数由 run_vigil 按 stages 策略路由，并给 CI/e2e/review 三闸接上「失败→派 implementer 迭代→下轮从 conflict 重进」的统一打回回环。
+- e2e 意图：证明「声明式 stages 策略路由 + recipes 层 6→3 收敛」的架构契约在离线确定性链路上成立——同一 issue 环，喂不同 .openagents/openagents.yml，agent_config 加载出的三态策略能真正驱动 run_vigil 分支（agent→调 stage 函数 / human→停等人 / skip→跳过），「不许零闸」守卫拦掉 review:skip+merge:agent，conflict/merge:skip 被拒；CI/e2e/review 失败经统一回环派 implementer 迭代、下轮从 conflict 重进；确定性硬闸（head 前移/证据戳/round_cap）不受 stages 管辖恒在；收敛后 recipes/ 仅剩 stages/vigil/backfill，人面向仅 vigil/issue/backfill-rfc/release + 隐藏 reply-comment。
+  - 测法：形态：纯后端配置 + 编排 + CLI 收敛，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0062 同款）： 1. 配置层针对性 pytest（假 YAML 串，不触真实仓库/网络）：agent_config 解析 agents/stages/release/    defaults/repos + 内建默认全回落 + 每仓 override 合并；三态每闸合法取值校验（conflict/merge 拒    skip、rfc 仅 agent/skip、硬闸名进 stages 直接 reject）；「不许零闸」守卫拒 review:skip+merge:agent；    rfc:skip 出显式告警。 2. 编排层针对性 pytest（假 backend 喂 canned 结构化裁决，不触真实 LLM/网络/仓库）：run_vigil 按    注入 config 的三态断言 agent/human/skip 三分支；合并流水线 conflict→ci→e2e→review→merge 序；    CI/e2e/review 失败→派 implementer→下轮从 conflict 重进的回环；stages 关不掉确定性硬闸。 3. grep 锚点（e2e 脚本）：recipes/ 仅剩 {stages,vigil,backfill,__init__}.py；全库对已删    recipes（solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet）与 agents.planner 的裸 import    零命中；stages 九原子函数均显式收参（无位置参数、无 private 默认值）；agent 回评论盖签名闭环    （identity.post_signed_comment 漏签 edit 补，非只 warn）。 4. 真实自主环冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil 用一份最小    openagents.yml（rfc:skip + merge:human）跑通一个 issue→PR、PR CI 全绿——作为成果验收（理念 8）    在 runbook 记录，不塞进离线脚本。 脚本：scripts/e2e-spec-0064-declarative-stages-converge.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -404,6 +409,12 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0063 | 0063/T3 | release + results/board 改接 RuntimeState + utils.github | done | T1 | openagents/utils/release.py<br>openagents/utils/results.py<br>tests/test_release.py<br>tests/test_results.py |
 | 0063 | 0063/T4 | CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState | done | T3 | openagents/cli.py<br>tests/test_cli.py |
 | 0063 | 0063/T5 | 删 state.py + 收敛 state 测试 + docs 再生成 | done | T4 | openagents/state.py<br>tests/test_state.py<br>tests/test_state_closed_at.py<br>tests/test_state_code_fingerprint.py |
+| 0064 | 0064/T1 | 配置层：.openagents/openagents.yml schema + 加载器 | done | — | openagents/utils/agent_config.py<br>tests/test_agent_config.py |
+| 0064 | 0064/T2 | 九阶段抽成 Vigil 类外独立自由函数：recipes/stages.py | done | — | openagents/recipes/stages.py<br>tests/test_recipe_stages.py |
+| 0064 | 0064/T3 | run_vigil 策略路由编排 + CI/e2e/review 打回回环 | done | T1, T2 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py |
+| 0064 | 0064/T4 | backfill-rfc path 驱动单列：recipes/backfill.py | done | T2 | openagents/recipes/backfill.py<br>tests/test_recipe_backfill.py |
+| 0064 | 0064/T5 | CLI 面收敛四命令 + 隐藏 reply-comment + 签名后校验硬化 | done | T3, T4 | openagents/cli.py<br>openagents/utils/identity.py<br>tests/test_cli_new_stack.py |
+| 0064 | 0064/T6 | 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成 | done | T5 | openagents/recipes/solve_issue.py<br>openagents/recipes/merge_pr.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/rfc_lifecycle.py<br>openagents/recipes/fleet.py<br>openagents/agents/planner.py |
 
 ## 跨 feature 关系图
 
@@ -743,6 +754,14 @@ graph LR
         n0063_T4["T4 CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState"]
         n0063_T5["T5 删 state.py + 收敛 state 测试 + docs 再生成"]
     end
+    subgraph G0064[0064 declarative-stages-converge]
+        n0064_T1["T1 配置层：.openagents/openagents.yml schema + 加载器"]
+        n0064_T2["T2 九阶段抽成 Vigil 类外独立自由函数：recipes/stages.py"]
+        n0064_T3["T3 run_vigil 策略路由编排 + CI/e2e/review 打回回环"]
+        n0064_T4["T4 backfill-rfc path 驱动单列：recipes/backfill.py"]
+        n0064_T5["T5 CLI 面收敛四命令 + 隐藏 reply-comment + 签名后校验硬化"]
+        n0064_T6["T6 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -942,6 +961,12 @@ graph LR
     n0063_T3 --> n0063_T1
     n0063_T4 --> n0063_T3
     n0063_T5 --> n0063_T4
+    n0064_T3 --> n0064_T1
+    n0064_T3 --> n0064_T2
+    n0064_T4 --> n0064_T2
+    n0064_T5 --> n0064_T3
+    n0064_T5 --> n0064_T4
+    n0064_T6 --> n0064_T5
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -958,12 +983,13 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
+| openagents/agents/planner.py | 0060, 0064 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -978,8 +1004,12 @@ graph LR
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
-| openagents/recipes/poll_comments.py | 0061, 0062 |
-| openagents/recipes/vigil.py | 0061, 0062 |
+| openagents/recipes/fleet.py | 0061, 0064 |
+| openagents/recipes/merge_pr.py | 0062, 0064 |
+| openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
+| openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
+| openagents/recipes/solve_issue.py | 0060, 0064 |
+| openagents/recipes/vigil.py | 0061, 0062, 0064 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -1002,7 +1032,7 @@ graph LR
 | openagents/utils/git.py | 0060, 0061 |
 | openagents/utils/github.py | 0060, 0061, 0062 |
 | openagents/utils/hold.py | 0061, 0062 |
-| openagents/utils/identity.py | 0061, 0062, 0063 |
+| openagents/utils/identity.py | 0061, 0062, 0063, 0064 |
 | openagents/utils/notes.py | 0061, 0062 |
 | openagents/utils/release.py | 0061, 0062, 0063 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
@@ -1017,7 +1047,7 @@ graph LR
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063 |
-| tests/test_cli_new_stack.py | 0061, 0062 |
+| tests/test_cli_new_stack.py | 0061, 0062, 0064 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
 | tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
@@ -1044,7 +1074,7 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_vigil.py | 0061, 0062 |
+| tests/test_recipe_vigil.py | 0061, 0062, 0064 |
 | tests/test_release.py | 0023, 0029, 0063 |
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
@@ -2641,4 +2671,41 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0064 收敛 recipes 到 vigil+issue：声明式 stages YAML 定义 agent/human/skip 阶段归属（issue #161）
+
+```mermaid
+graph LR
+    nT1["T1 配置层：.openagents/openagents.yml schema + 加载器"]
+    nT2["T2 九阶段抽成 Vigil 类外独立自由函数：recipes/stages.py"]
+    nT3["T3 run_vigil 策略路由编排 + CI/e2e/review 打回回环"]
+    nT4["T4 backfill-rfc path 驱动单列：recipes/backfill.py"]
+    nT5["T5 CLI 面收敛四命令 + 隐藏 reply-comment + 签名后校验硬化"]
+    nT6["T6 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成"]
+    nT1 --> nT3
+    nT2 --> nT3
+    nT2 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+    nT5 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

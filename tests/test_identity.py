@@ -137,16 +137,33 @@ def test_resolve_env_blank_falls_through(monkeypatch):
 
 
 def test_post_signed_comment_signs_then_posts(monkeypatch):
+    # Spec-0064/T5：post_signed_comment 现会「同步后回读校验漏签」——正常路径回读到自己带签名的评论、
+    # 不补签。故除 post_comment 外还需打桩 list_comments 返回刚发的签名评论，使本用例 hermetic。
+    from openagents.utils.github import Comment
+
     posted = {}
+
+    def _post(*, pr_number, body):
+        posted.update(pr_number=pr_number, body=body)
+
+    monkeypatch.setattr(identity_module.github, "post_comment", _post)
     monkeypatch.setattr(
         identity_module.github,
-        "post_comment",
-        lambda *, pr_number, body: posted.update(pr_number=pr_number, body=body),
+        "list_comments",
+        lambda *, pr_number: [
+            Comment(
+                id="1",
+                author="alice",
+                body="🤖 已更新 RFC\n\n<!-- openagents:agent=alice -->",
+                created_at="2026-01-01T00:00:00Z",
+            )
+        ],
     )
 
     post_signed_comment(pr_number=5, body="🤖 已更新 RFC", agent_id="alice")
 
     assert posted["pr_number"] == 5
+    # 回读到带本实例签名的评论 → 不补签，posted 仍是原始签名回复。
     assert posted["body"].startswith("🤖 已更新 RFC")
     # 下发的正文带签名，且可解析回 agent_id。
     assert parse_agent_id(body=posted["body"]) == "alice"

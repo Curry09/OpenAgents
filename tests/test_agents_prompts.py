@@ -13,9 +13,10 @@ from string import Template
 import pytest
 
 from openagents import agents
-from openagents.agents import deliver, implementer, planner, reviewer, tester
+from openagents.agents import deliver, drafter, implementer, replier, reviewer, tester, triager
 
-_MODULES = [planner, implementer, reviewer, deliver, tester]
+# Spec-0064/T6：planner 已合并进 drafter，改断言新栈实际 agent 集（drafter/triager/replier 补入）。
+_MODULES = [drafter, implementer, reviewer, deliver, tester, triager, replier]
 _AGENTS_DIR = Path(agents.__file__).parent
 
 
@@ -57,6 +58,6 @@ def test_prompt_placeholders_substitute():
     # Template 可被延后 substitute（占位符齐全即不抛），验证 prompt 字符串形态合法。
     reviewer.PROMPT.substitute(pr_number=1, issue_body="x")
     deliver.PROMPT.substitute(branch="openagents/issue-1", pr_number=1)
-    planner.PROMPT.substitute(issue_number=1, issue_body="x")
+    drafter.PROMPT.substitute(mode="draft", target="issue #1", branch="b", detail="d")
     implementer.PROMPT.substitute(issue_number=1, pr_number=1, feedback="")
     tester.PROMPT.substitute(pr_number=1, issue_body="x")

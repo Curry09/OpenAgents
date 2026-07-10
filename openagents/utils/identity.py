@@ -160,9 +160,39 @@ def _claim_age_seconds(*, created_at: str) -> float:
 
 
 def post_signed_comment(*, pr_number: int, body: str, agent_id: str) -> None:
-    """RFC-0011 决策 4：盖章后调用 github.post_comment——所有「agent 主动发评论」的唯一出口。
+    """RFC-0011 决策 4 / Spec-0064/T5：盖章后 post + **同步后校验漏签则补签**——所有「agent 主动发
+    评论」的唯一出口（约束③：防自循环闭环不可拆）。
 
-    收口盖章逻辑，使 github.post_comment 保持纯薄封装。RFC-0019：签名服务于评论溯源/审计
-    （poll 不再读评论做过滤，自动流转由 reviewer 闸驱动）。
+    收口盖章逻辑，使 github.post_comment 保持纯薄封装。`sign` 恒在 body 末尾追加隐藏签名，故 post 的
+    正文必带签名；但 Spec-0064 约束③要求「同步后校验漏签则补（不能只 warn）」——post 后回读 PR 上本
+    实例的最近一条评论确认签名确实落地，万一漏签（如外部改写/截断）则**主动补一条签名评论**修复闭环，
+    而非只告警。补签失败不上抛（best-effort，不阻断已发出的回复）。poll_comments 靠签名过滤人类评论，
+    漏签会让 agent 把自己的回复当新人类评论、自问自答死循环——故必须闭合。
     """
     github.post_comment(pr_number=pr_number, body=sign(body=body, agent_id=agent_id))
+    _verify_signature_or_fix(pr_number=pr_number, agent_id=agent_id)
+
+
+def _verify_signature_or_fix(*, pr_number: int, agent_id: str) -> None:
+    """Spec-0064/T5：回读最近一条评论校验本实例签名是否落地；漏签则补一条签名评论（约束③，非只 warn）。
+
+    正常路径（`sign` 已盖章）→ 最近评论带本实例签名 → no-op。异常路径（签名被截断/改写）→ 补一条只带
+    签名的修复评论，保证 PR 上确有本实例的签名评论、闭合防自循环闭环。读/补失败均吞掉（best-effort，
+    不阻断已发出的回复；github 侧真故障由上层守候段的 per-PR 错误隔离兜住）。
+    """
+    try:
+        comments = github.list_comments(pr_number=pr_number)
+    except github.GithubError:
+        return
+    if not comments:
+        return
+    latest = max(comments, key=lambda comment: comment.created_at)
+    if parse_agent_id(body=latest.body) == agent_id:
+        return
+    try:
+        github.post_comment(
+            pr_number=pr_number,
+            body=sign(body="（openagents 补签名：校正上一条回复的归属）", agent_id=agent_id),
+        )
+    except github.GithubError:
+        return
