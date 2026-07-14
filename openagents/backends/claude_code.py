@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 
 from openagents.backends.base import AgentResult
+from openagents.utils import proc as proc_utils
 
 # RFC-0001 T2: claude 可执行名做成模块级常量，便于测试 mock / 替换。
 CLAUDE_BIN = "claude"
@@ -170,7 +171,14 @@ class ClaudeCodeBackend:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            # Spec-0065/T2: 把调用方登记的 fd 传给子进程继承（守夜传的是它那把 flock 存活证明）。
+            # 于是「谁在干活谁持锁」——守夜进程被 SIGKILL 后，还在跑的 agent 孤儿仍持着锁，回收方抢不到、
+            # 那行就不会被打回队列重领（双跑的最后一个入口）。非守夜的调用方没登记 → 空元组 → 行为不变。
+            pass_fds=proc_utils.inherited_fds(),
         )
+        # Spec-0065/T2: 自报 PID + Popen 句柄给认领桶——守夜的 `_act` 硬超时据此**精确**杀掉这次调用起的
+        # 进程树；句柄用于验明正身（PID 被 reap 后可能已被复用，裸 PID 杀过去就是杀无辜者，见 utils.proc）。
+        proc_utils.publish(pid=proc.pid, handle=proc)
         result_text = ""
         raw_tail: list[str] = []
         for raw in proc.stdout:

@@ -22,6 +22,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from pathlib import Path
 
 # Spec-0060/T5: 新栈状态文件名——与旧 state.json 独立命名空间，避免文件级冲突。
@@ -39,7 +41,21 @@ STATUS_BLOCKED = "blocked"
 
 
 class RuntimeState:
-    """# Spec-0060/T5: 新栈状态读写器（按状态文件路径构造，独立命名空间）。"""
+    """# Spec-0060/T5: 新栈状态读写器（按状态文件路径构造，独立命名空间）。
+
+    # Spec-0065/T2: **并发写要串行 + 落盘要原子。** 守夜起 K 个 worker 线程，它们共用同一个 RuntimeState
+    # 实例并发写（`set_run` / `set_cursor`）。写是「读整个 JSON → 改一个键 → 整个写回」：
+    #   - 无锁 → **丢更新**：两个 worker 各自读到同一份旧 data，各改各的键，后写的把前者的记录抹掉
+    #     （丢一条 `set_run(status=done)` 或一条评论游标 = 重复回帖 / run 状态倒退）。
+    #   - 非原子 → **整文件被截断**：`write_text` 先截断再写，另一个线程恰好此时 `_load` 会读到半截 JSON，
+    #     `JSONDecodeError` 被容错成「空状态」{}，它接着一写就把**整个状态文件**覆盖成只剩自己那一条。
+    # 故：`_LOCK` 串行化「读-改-写」的全程（类级，同实例/同文件的所有写共用），`_save` 走 tmp + `os.replace`
+    # （同目录内的 rename 是原子的，读者要么看到旧文件、要么看到新文件，永远看不到半截）。
+    # 这只解决**进程内**的并发（守夜的 K 个 worker 是线程）；跨进程并发写同一个 state 文件不在本 spec 范围内
+    # （fleet 是每仓一进程、各写各的 state 文件）。
+    """
+
+    _LOCK = threading.RLock()
 
     def __init__(self, *, path: Path) -> None:
         self._path = Path(path)
@@ -62,12 +78,13 @@ class RuntimeState:
         # Spec-0062/T3: `closed_at` 可选（复活窗口用），默认 "" 且**仅非空时落盘**——保持既有 3 键
         # 形态与序列化不变（既有调用方不传 closed_at 时落盘仍是 3 键，旧断言/旧文件零回归）。
         """
-        data = self._load()
-        record: dict = {"status": status, "branch": branch, "pr_number": pr_number}
-        if closed_at:
-            record["closed_at"] = closed_at
-        data.setdefault("runs", {})[str(issue_number)] = record
-        self._save(data=data)
+        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行（K 个 worker 并发写会丢更新）
+            data = self._load()
+            record: dict = {"status": status, "branch": branch, "pr_number": pr_number}
+            if closed_at:
+                record["closed_at"] = closed_at
+            data.setdefault("runs", {})[str(issue_number)] = record
+            self._save(data=data)
 
     def find_run(self, *, pr_number: int) -> dict | None:
         """# Spec-0062/T3: 按 PR 号查 run（rfc_lifecycle refine/implement/iterate 复用）；无则 None。
@@ -103,9 +120,10 @@ class RuntimeState:
 
     def set_cursor(self, *, pr_number: int, comment_id: str) -> None:
         """写某 PR 的 comment 游标。"""
-        data = self._load()
-        data.setdefault("cursors", {})[str(pr_number)] = comment_id
-        self._save(data=data)
+        with RuntimeState._LOCK:  # Spec-0065/T2: 同 set_run——丢一条游标 = 对同一条人类评论重复回帖
+            data = self._load()
+            data.setdefault("cursors", {})[str(pr_number)] = comment_id
+            self._save(data=data)
 
     def get_agent_id(self) -> str | None:
         """# Spec-0063/T1: 读已落盘的本实例 agent_id（承接 RFC-0011 语义）；未设过返回 None。
@@ -123,9 +141,10 @@ class RuntimeState:
 
         _load 保留顶层的全部既有键，故写 agent_id 不影响 runs/cursors/ui_capable（反之亦然）。
         """
-        data = self._load()
-        data["agent_id"] = agent_id
-        self._save(data=data)
+        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行
+            data = self._load()
+            data["agent_id"] = agent_id
+            self._save(data=data)
 
     def get_ui_capable(self) -> bool:
         """# Spec-0063/T1: 读固化的「前端 e2e 能力」状态量（承接 Spec-0055 语义）；缺键回落 False。
@@ -141,9 +160,10 @@ class RuntimeState:
 
         _load 保留全部既有顶层键，故写 ui_capable 不影响 runs/cursors/agent_id（反之亦然）。
         """
-        data = self._load()
-        data["ui_capable"] = bool(value)
-        self._save(data=data)
+        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行
+            data = self._load()
+            data["ui_capable"] = bool(value)
+            self._save(data=data)
 
     def _load(self) -> dict:
         """读状态文件；缺失/损坏一律视为空状态（容错）。"""
@@ -158,6 +178,13 @@ class RuntimeState:
         return parsed if isinstance(parsed, dict) else {}
 
     def _save(self, *, data: dict) -> None:
-        """原子性无关的最简落盘（建父目录、写 JSON）。"""
+        """**原子**落盘：写同目录下的 tmp 文件 → `os.replace` 顶替（rename 在同一文件系统上是原子的）。
+
+        # Spec-0065/T2: 直接 `write_text` 是「先截断、后写入」——并发的读者会读到半截 JSON，而 `_load` 的
+        # 容错会把它当成「空状态」{}，接着那个读者一写就把整个状态文件覆盖成只剩它自己那一条记录。原子顶替
+        # 之后，读者要么看到完整的旧文件、要么看到完整的新文件，不存在中间态。
+        """
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, self._path)

@@ -62,6 +62,20 @@ def test_for_deliver_keys():
     assert payload["pr_number"] == 154
 
 
+def test_for_admit_keeps_the_dialogue_in_its_own_key():
+    # Spec-0065/T1: 准入对话是 admitter 的**唯一判据**（人点没点头，只在他说的那句话里），故必须是独立
+    # 占位符。塞进 issue_body 里冒充正文 = 把「人说的话」和「issue 原文」混成一坨，agent 分不清在判哪个。
+    issue = Issue(number=5, title="加 --once", body="issue 正文")
+    payload = context_module.for_admit(
+        work_dir=Path("/tmp/wt"), issue=issue, dialogue="- **alice**：可以，做吧"
+    )
+    assert payload["dialogue"] == "- **alice**：可以，做吧"
+    assert payload["issue_body"] == "issue 正文", "对话不许被拼进正文"
+    assert "可以，做吧" not in payload["issue_body"]
+    assert payload["issue_number"] == 5
+    assert payload["work_dir"] == Path("/tmp/wt")
+
+
 def test_workspace_property():
     assert _ctx(pr_number=None).workspace == Path("/tmp/wt")
 

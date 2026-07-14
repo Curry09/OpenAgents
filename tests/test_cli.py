@@ -78,15 +78,33 @@ def test_vigil_dispatches_to_run_vigil(monkeypatch, tmp_path):
     seen = {}
     import openagents.recipes.vigil as vigil_mod
 
-    def _fake_run_vigil(*, backend, state, work_dir, config, once, agent_id):
-        seen.update(once=once, agent_id=agent_id, merge_owner=config.stages.owner_of(stage="merge"))
+    def _fake_run_vigil(*, backend, state, work_dir, config, once, concurrency, agent_id):
+        seen.update(
+            once=once,
+            concurrency=concurrency,
+            agent_id=agent_id,
+            merge_owner=config.stages.owner_of(stage="merge"),
+        )
 
     monkeypatch.setattr(vigil_mod, "run_vigil", _fake_run_vigil)
     code = main(["vigil", "--once"])
     assert code == 0
     assert seen["once"] is True
+    assert seen["concurrency"] == 1  # Spec-0065/T2：缺省 K=1，即退化串行
     assert seen["agent_id"] == "AID"
     assert seen["merge_owner"] == "agent"  # 缺省 YAML → 默认 merge=agent
+
+
+def test_vigil_parallel_flag_sets_concurrency(monkeypatch, tmp_path):
+    """Spec-0065/T2：`--parallel K` 直接落到 `run_vigil(concurrency=K)`（并发上限，不是另一种模式）。"""
+    _patch_ensure(monkeypatch, repo_root=str(tmp_path))
+    monkeypatch.setattr("openagents.cli._vigil_deps_for", lambda *, ctx: ("BE", "ST", "AID"))
+    seen = {}
+    monkeypatch.setattr(
+        "openagents.recipes.vigil.run_vigil", lambda **kw: seen.update(k=kw["concurrency"])
+    )
+    assert main(["vigil", "--once", "--parallel", "4"]) == 0
+    assert seen["k"] == 4
 
 
 def test_vigil_persists_ui_capable(monkeypatch, tmp_path):
@@ -300,3 +318,40 @@ def test_agent_id_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAGENTS_AGENT_ID", "alice")
     ctx = ProjectContext(repo_root=tmp_path, remote="https://github.com/x/y.git")
     assert _agent_id_for(ctx=ctx) == "alice"
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0065/T2：`--parallel K` 的入参校验（1..32，非法当场 argparse 报错，不静默钳位）
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("value", ["1", "2", "32"])
+def test_parallel_accepts_valid_k(value):
+    """Spec-0065/T2：1..{_MAX_PARALLEL} 合法；边界 1（串行）与 32（上限）都必须过。"""
+    args = build_parser().parse_args(["vigil", "--once", "--parallel", value])
+    assert args.parallel == int(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-3", "33", "99999", "abc", "1.5", ""])
+def test_parallel_rejects_invalid_k(value):
+    """Spec-0065/T2：越界/非整数 → argparse 当场退出（code 2）。
+
+    不静默钳位（早前是 `max(1, K)`）：`--parallel 0` 悄悄给成 1 会把输入错误变成性能谜题。
+    """
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["vigil", "--once", "--parallel", value])
+    assert exc.value.code == 2
+
+
+def test_parallel_invalid_k_via_main_exits_two(monkeypatch):
+    """Spec-0065/T2：走 `main()` 全路径也一样（校验在 parser 里，早于任何 preflight / 后端接线）。"""
+    with pytest.raises(SystemExit) as exc:
+        main(["vigil", "--once", "--parallel", "99999"])
+    assert exc.value.code == 2
+
+
+def test_parallel_max_is_thirty_two():
+    """Spec-0065/T2：护栏常量与用例同源——上限改了这里就该跟着改（别偷偷放大）。"""
+    from openagents.cli import _MAX_PARALLEL
+
+    assert _MAX_PARALLEL == 32

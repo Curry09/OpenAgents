@@ -127,6 +127,21 @@ def for_triage(*, work_dir: Path, issue: object) -> dict:
     }
 
 
+def for_admit(*, work_dir: Path, issue: object, dialogue: str) -> dict:
+    """准入裁决占位符：issue 正文 + **准入对话逐字稿**，供 recipes.vigil 派 admitter agent。
+
+    对话是这个阶段唯一的判据（人点没点头，只在人说的那句话里），故它必须是独立占位符——塞进
+    `issue_body` 里冒充正文，等于把「人说的话」和「issue 原文」混成一坨，agent 分不清在判哪个。
+    """
+    return {
+        "work_dir": Path(work_dir),
+        "context": f"issue #{issue.number}「{issue.title}」的准入对话",
+        "issue_number": issue.number,
+        "issue_body": issue.body,
+        "dialogue": dialogue,
+    }
+
+
 def for_reply(*, work_dir: Path, pr_number: int, branch: str, comment: object) -> dict:
     """回复阶段占位符：PR 编号 + 分支 + 那条人类评论正文，供 recipes.poll_comments 派 replier。
 

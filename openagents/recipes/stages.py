@@ -28,8 +28,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from openagents.agents import admitter, drafter, implementer, reviewer, triager
 from openagents.agents import deliver as deliver_agent
-from openagents.agents import drafter, implementer, reviewer, triager
 from openagents.runtime import context, engine, gates
 from openagents.runtime.context import Context
 from openagents.utils import github
@@ -63,6 +63,21 @@ def triage(*, backend: Any, work_dir: Path, issue: Any) -> dict:
         triager,
         backend=backend,
         **context.for_triage(work_dir=Path(work_dir), issue=issue),
+    )
+
+
+def admit(*, backend: Any, work_dir: Path, issue: Any, dialogue: str) -> dict:
+    """准入裁决阶段（admitter agent）：读人在准入对话里的回话，判**人点头没有** → {approved, reason}。
+
+    `triage: human` 专用（见 vigil `_ask_human`）。**不是 triage 的同义词**：triage 判「issue 正文自不
+    自洽」且 fail-open（拿不准就放行），admit 判「人同意了吗」且 **fail-closed**（拿不准就当没点头）。
+    拿 triager 顶这个位子，人明说「先别做」也会被放行——那道人闸会当场退化成一台偏向「是」的 agent 闸。
+    纪律在 admitter prompt 内；本函数零判断。
+    """
+    return engine.run_agent(
+        admitter,
+        backend=backend,
+        **context.for_admit(work_dir=Path(work_dir), issue=issue, dialogue=dialogue),
     )
 
 
@@ -155,11 +170,15 @@ def deliver(
     branch: str,
     pr_number: int,
     issue_number: int,
+    context_text: str = "",
 ) -> dict:
     """交付阶段（deliver agent）：commit/push 把改动落到 PR head，返回交付报告 {delivered, head_sha, ...}。承 solve_issue 的 deliver。
 
     恒 agent（git 交付永远派 agent、不进 stages 策略点）。内嵌三道确定性硬闸兜底（见模块 docstring）——
     交付前基点确定性记录、交付后断言 head 前移 + 证据戳一致，防 #140 空转/张冠李戴。
+
+    # Spec-0065/T2: `context_text` 追加进 agent 上下文（缺省空串 = 既有调用方零变化）。守夜用它把
+    # 「一等出口 needs-human」契约拼进解冲突 agent 的提示词——冲突解不动是它最该主动交人的场景之一。
     """
     ctx = Context(
         work_dir=Path(worktree),
@@ -167,11 +186,13 @@ def deliver(
         branch=branch,
         pr_number=pr_number,
     )
+    placeholders = ctx.for_deliver(issue_number=issue_number)
+    placeholders["context"] = f"{placeholders['context']}{context_text}"
     return _deliver_gated(
         agent_module=deliver_agent,
         backend=backend,
         worktree=Path(worktree),
-        placeholders=ctx.for_deliver(issue_number=issue_number),
+        placeholders=placeholders,
         require_delivered=False,
     )
 
@@ -183,6 +204,7 @@ def conflict(
     pr_number: int,
     issue_number: int,
     branch: str,
+    context_text: str = "",
 ) -> dict:
     """冲突解决阶段（deliver agent 去 rebase）：读冲突/判双方意图/自测下放 agent，返回 {delivered, reason}。承 merge_pr._resolve_conflict。
 
@@ -200,6 +222,7 @@ def conflict(
         branch=resolved_branch,
         pr_number=pr_number,
         issue_number=issue_number,
+        context_text=context_text,  # Spec-0065/T2: 透传一等出口契约（守夜传，其它调用方缺省空串）
     )
     if report["delivered"]:
         return {"delivered": True, "reason": "resolved"}

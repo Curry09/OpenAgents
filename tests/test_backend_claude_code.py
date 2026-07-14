@@ -6,7 +6,9 @@
 """
 
 import json
+import os
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ from openagents.backends.claude_code import (
     _build_prompt,
     effective_permission_mode,
 )
+from openagents.utils import proc
 
 
 def _assistant_text(text):
@@ -43,9 +46,14 @@ def _result(text):
 class _FakePopen:
     """模拟 subprocess.Popen：stdout 为可迭代行序列，wait() 返回退出码。"""
 
-    def __init__(self, *, lines, returncode):
+    def __init__(self, *, lines, returncode, pass_fds=()):
         self.stdout = iter(lines)
         self._returncode = returncode
+        # Spec-0065/T2: 真 Popen 有 pid，后端要 proc_utils.publish(pid=proc.pid) 自报给认领桶。
+        self.pid = 4242
+        # Spec-0065/T2: 真 Popen 把 `pass_fds` 交给子进程继承（守夜传的是它那把 flock 存活证明）——
+        # 假 Popen 必须原样收下它，否则「锁跟着干活的进程走」这条唯一的存活证明链在测试里根本不可见。
+        self.pass_fds = pass_fds
 
     def wait(self):
         return self._returncode
@@ -68,7 +76,9 @@ def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
     def fake_popen(cmd, **kwargs):
         popen_calls.append((cmd, kwargs))
         return _FakePopen(
-            lines=[line + "\n" for line in claude_lines], returncode=claude_returncode
+            lines=[line + "\n" for line in claude_lines],
+            returncode=claude_returncode,
+            pass_fds=kwargs.get("pass_fds", ()),
         )
 
     def fake_run(cmd, **kwargs):
@@ -237,6 +247,47 @@ def test_accepts_path_work_dir(monkeypatch, tmp_path):
 
     result = ClaudeCodeBackend().run(work_dir=Path(tmp_path), task="t", context="c")
     assert result.changed is True
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0065/T2：存活证明跟着干活的进程走——调用线程登记的 fd 必须进 `Popen(pass_fds=…)`
+# --------------------------------------------------------------------------- #
+
+
+def test_popen_hands_the_calling_thread_registered_fd_to_the_child(monkeypatch, tmp_path):
+    """Spec-0065/T2：调用线程 `proc.hold_fd(fd=…)` 登记过的 fd，必须原样出现在 `Popen(pass_fds=…)` 里。
+
+    这是守夜「零双跑」证明的**承重构件**：守夜给认领的 subject 持一把 flock，把那个 fd 传给 agent 子进程
+    继承 → 锁的语义从「守夜进程还活着」变成「守夜进程**或**它起的 agent 还有一个活着」。守夜被
+    SIGKILL / OOM / `docker stop` 打死时，claude 子进程是被**孤儿化**而不是被杀（它要到下次写 stdout 才发现
+    父亲没了——足够它把一次 `git push` 做完）；此刻若锁随守夜进程一起被内核收走，重启后的 `_reclaim_dead`
+    就会抢到锁、判「持有者已死」、把行打回 queued → 另一个 worker 领走同一个 subject → **双跑**。
+
+    整条链只在这一行 `pass_fds=` 上成立，而它在这里之外**没有任何测试覆盖**（删掉它，全仓依旧全绿）。
+    未登记的调用方 → 空元组 → 行为与本 spec 之前完全一致（见 `test_invokes_claude_stream_json_in_work_dir`）。
+    """
+    popen_calls, _ = _patch(
+        monkeypatch,
+        claude_lines=[_result("ok")],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+    me = threading.get_ident()
+    fd = os.open(str(tmp_path / "issue-5.lock"), os.O_CREAT | os.O_RDWR, 0o644)
+    proc.track()
+    proc.hold_fd(fd=fd)
+    try:
+        ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+        bucket = proc.untrack(thread_id=me)
+    finally:
+        proc.release_fds(thread_id=me)
+        os.close(fd)
+
+    _, kwargs = popen_calls[0]
+    assert kwargs["pass_fds"] == (fd,), "登记的存活证明 fd 必须传给 agent 子进程继承"
+    # 自报的那个句柄**就是**收下这个 fd 的那个进程：认领桶（超时杀树用）与存活证明落在同一个 Popen 上。
+    assert list(bucket) == [4242]
+    assert bucket[4242].pass_fds == (fd,)
 
 
 # --------------------------------------------------------------------------- #

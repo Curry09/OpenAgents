@@ -28,6 +28,29 @@ from pathlib import Path
 from openagents.utils import github
 from openagents.utils.config import ProjectContext, ensure_project, resolve_project
 
+# Spec-0065/T2: `--parallel K` 的上限。每个 worker 是一条常驻线程 + 一条私有 sqlite 连接 + 一个 agent 子进程，
+# 且 K 个 worker 同时打 GitHub API（有速率限制）——K 大到某个程度只会换来更多的锁竞争和 429，不会更快。
+# 真正的并发上限本就由 issue 依赖图（blocked_by）约束，这个数字只是个防手滑的护栏（`--parallel 99999`）。
+_MAX_PARALLEL = 32
+
+
+def _parallel_k(value: str) -> int:
+    """argparse 的 `--parallel` 校验：必须是 `1..{_MAX_PARALLEL}` 的整数，否则当场报错。
+
+    不静默钳位（早前是 `max(1, K)`）：`--parallel 0` 明显是手滑或误解，悄悄给成 1 会让人以为「并行开了但没
+    变快」，把一个输入错误变成一个性能谜题。CLI 的错该在 CLI 里响。
+    """
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--parallel 需要一个整数，收到 {value!r}") from None
+    if not 1 <= parsed <= _MAX_PARALLEL:
+        raise argparse.ArgumentTypeError(
+            f"--parallel 需要落在 1..{_MAX_PARALLEL}（1 即串行），收到 {parsed}"
+        )
+    return parsed
+
+
 # RFC-0002 决策 5 / RFC-0004 决策 2：发现标签——单一真源。`oa issue` 提 issue 时自动附加它，vigil 发现
 # 段默认按它门控；两端共用同一常量。RFC-0015：字面量上移至 github，此处别名引用保向后兼容公共名。
 DISCOVERY_LABEL = github.DISCOVERY_LABEL
@@ -58,6 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_vigil.add_argument("--base", default=None, help="派单起草改动的分支基线，覆盖 YAML defaults")
     p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+守候）后退出")
+    p_vigil.add_argument(
+        # Spec-0065/T2：并发上限（同时最多几个 subject 在跑 agent）。**K=1 即退化串行**——并行不是
+        # 另一种模式，只是这个数字大于 1。上限由 issue 依赖图（blocked_by）天然约束，不需要另设旋钮。
+        "--parallel",
+        type=_parallel_k,
+        default=1,
+        metavar="K",
+        help=f"并发上限：同时最多 K 个 issue/PR 在跑 agent（默认 1，即串行；上限 {_MAX_PARALLEL}）",
+    )
     p_vigil.add_argument(
         "--hold",
         default=None,
@@ -239,8 +271,9 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0064/T5：守夜主循环——读 openagents.yml（+flag 单次覆盖）→ run_vigil 按 stages 三态路由。
-    # 多仓（repos 多项）→ run_fleet 每仓一子进程；单仓 → 本进程直接 run_vigil。
+    # Spec-0065/T2：守夜主循环——读 openagents.yml（+flag 单次覆盖）→ run_vigil 图驱动并行守夜
+    # （level-triggered reconcile：生产者按 GitHub 现态判定入队，K 个 worker 领 subject 推进）。
+    # `--parallel K` 是并发上限；**K=1 即退化串行**（不是另一种模式）。多仓 → run_fleet 每仓一子进程。
     from openagents.recipes.vigil import run_fleet, run_vigil
 
     config = _effective_config(ctx=ctx, args=args)
@@ -256,6 +289,7 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
         work_dir=ctx.repo_root,
         config=config,
         once=args.once,
+        concurrency=args.parallel,
         agent_id=agent_id,
     )
     return 0

@@ -36,6 +36,7 @@ from openagents.utils.github import (
     is_closed,
     is_merged,
     list_comments,
+    list_issue_comments,
     list_issues,
     list_open_prs,
     mark_ready,
@@ -399,6 +400,58 @@ def test_list_comments_error_raises(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
     with pytest.raises(GithubError):
         list_comments(pr_number=42)
+
+
+# --------------------------------------------------------------------------- #
+# list_issue_comments（Spec-0065/T2：准入对话读侧；与 list_comments 共用 _parse_comments 解析）
+# --------------------------------------------------------------------------- #
+
+
+def test_list_issue_comments_reads_the_issue_view_not_the_pr_view(monkeypatch):
+    """走 `gh issue view <n> --json comments`：issue 没有 PR 视图，`gh pr view` 在这里必然报错。"""
+    payload = json.dumps(
+        {
+            "comments": [
+                {
+                    "id": "IC_aaa",
+                    "author": {"login": "alice"},
+                    "body": "可以，就按这个做",
+                    "createdAt": "2026-07-14T01:00:00Z",
+                },
+                {
+                    "id": "IC_bbb",
+                    "author": {"login": "openagents"},
+                    "body": "收到",
+                    "createdAt": "2026-07-14T02:00:00Z",
+                },
+            ]
+        }
+    )
+    runner = _fake_run(stdout=payload)
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    comments = list_issue_comments(number=7)
+
+    assert all(isinstance(c, Comment) for c in comments)
+    assert [c.id for c in comments] == ["IC_aaa", "IC_bbb"]
+    assert [c.author for c in comments] == ["alice", "openagents"]
+    assert comments[0].body == "可以，就按这个做"
+    assert [c.created_at for c in comments] == ["2026-07-14T01:00:00Z", "2026-07-14T02:00:00Z"]
+    cmd = runner.calls[-1]
+    assert cmd[:3] == ["gh", "issue", "view"], "issue 的评论流只能从 issue 视图读"
+    assert "7" in cmd
+    assert cmd[cmd.index("--json") + 1] == "comments"
+
+
+def test_list_issue_comments_empty_payload(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"comments": []})))
+    assert list_issue_comments(number=7) == []
+
+
+def test_list_issue_comments_error_raises_here(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode=1, stderr="boom"))
+    with pytest.raises(GithubError):
+        list_issue_comments(number=7)
 
 
 # --------------------------------------------------------------------------- #

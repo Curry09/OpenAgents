@@ -20,6 +20,8 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
+| `admitter.py` | # Spec-0065/T1: agents.admitter —— 读人在准入对话里的回话 → 人到底点头没有（零逻辑）。 |
+| `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
 | `drafter.py` | # Spec-0062/T1: agents.drafter —— RFC 生命周期起草判断 → 结构化交付报告的提示词（零逻辑）。 |
 | `implementer.py` | # Spec-0060/T4: agents.implementer —— 按 RFC 实现 / 按反馈迭代的提示词（零逻辑）。 |
@@ -47,7 +49,7 @@ _# Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控
 | `__init__.py` | # Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent |
 | `backfill.py` | # Spec-0064/T4: recipes.backfill —— backfill-rfc path 驱动追溯单列（纯控制流，零业务判断）。 |
 | `stages.py` | # Spec-0064/T2: recipes.stages —— 九个阶段抽成 `Vigil` 类外的独立自由函数（可单独寻址）。 |
-| `vigil.py` | # Spec-0064/T3: recipes.vigil —— `run_vigil` 策略路由编排 + CI/e2e/review 打回回环（纯控制流）。 |
+| `vigil.py` | # Spec-0065/T2: recipes.vigil —— 图驱动的并行守夜 `run_vigil`（**level-triggered reconcile**，K=1 即串行）。 |
 
 ### openagents.runtime
 
@@ -96,6 +98,7 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |
 | `notes.py` | # Spec-0061/T1: utils.notes —— PR/issue 评论正文渲染的稳定 import 面（纯函数、零 IO）。 |
+| `proc.py` | 进程工具：子进程认领（backend 自报 PID）/ 进程树 SIGKILL / 直接子进程枚举。 |
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
@@ -109,6 +112,8 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 graph LR
     nopenagents["openagents"]
     nopenagents_agents["openagents.agents"]
+    nopenagents_agents_admitter["agents.admitter"]
+    nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
     nopenagents_agents_drafter["agents.drafter"]
     nopenagents_agents_implementer["agents.implementer"]
@@ -151,6 +156,7 @@ graph LR
     nopenagents_utils_hold["utils.hold"]
     nopenagents_utils_identity["utils.identity"]
     nopenagents_utils_notes["utils.notes"]
+    nopenagents_utils_proc["utils.proc"]
     nopenagents_utils_release["utils.release"]
     nopenagents_utils_replynote["utils.replynote"]
     nopenagents_utils_results["utils.results"]
@@ -165,6 +171,8 @@ graph LR
     nopenagents_agents --> nopenagents_agents_tester
     nopenagents_agents --> nopenagents_agents_triager
     nopenagents_backends_claude_code --> nopenagents_backends_base
+    nopenagents_backends_claude_code --> nopenagents_utils
+    nopenagents_backends_claude_code --> nopenagents_utils_proc
     nopenagents_cli --> nopenagents_backends_claude_code
     nopenagents_cli --> nopenagents_recipes
     nopenagents_cli --> nopenagents_recipes_backfill
@@ -188,6 +196,7 @@ graph LR
     nopenagents_recipes_backfill --> nopenagents_utils_git
     nopenagents_recipes_backfill --> nopenagents_utils_github
     nopenagents_recipes_stages --> nopenagents_agents
+    nopenagents_recipes_stages --> nopenagents_agents_admitter
     nopenagents_recipes_stages --> nopenagents_agents_deliver
     nopenagents_recipes_stages --> nopenagents_agents_drafter
     nopenagents_recipes_stages --> nopenagents_agents_implementer
@@ -201,14 +210,15 @@ graph LR
     nopenagents_recipes_stages --> nopenagents_utils_github
     nopenagents_recipes_vigil --> nopenagents
     nopenagents_recipes_vigil --> nopenagents_agents
+    nopenagents_recipes_vigil --> nopenagents_agents_curator
     nopenagents_recipes_vigil --> nopenagents_agents_replier
+    nopenagents_recipes_vigil --> nopenagents_agents_tester
     nopenagents_recipes_vigil --> nopenagents_cli
     nopenagents_recipes_vigil --> nopenagents_recipes
     nopenagents_recipes_vigil --> nopenagents_recipes_stages
     nopenagents_recipes_vigil --> nopenagents_runtime
     nopenagents_recipes_vigil --> nopenagents_runtime_context
     nopenagents_recipes_vigil --> nopenagents_runtime_engine
-    nopenagents_recipes_vigil --> nopenagents_runtime_gates
     nopenagents_recipes_vigil --> nopenagents_runtime_state
     nopenagents_recipes_vigil --> nopenagents_utils
     nopenagents_recipes_vigil --> nopenagents_utils_agent_config
@@ -217,6 +227,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_git
     nopenagents_recipes_vigil --> nopenagents_utils_github
     nopenagents_recipes_vigil --> nopenagents_utils_identity
+    nopenagents_recipes_vigil --> nopenagents_utils_proc
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_github
     nopenagents_runtime_gates --> nopenagents_utils

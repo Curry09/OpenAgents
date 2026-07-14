@@ -111,12 +111,17 @@ class Comment:
 
     id 是 GitHub 的 GraphQL node id（字符串，非数字）；评论的先后顺序用
     created_at（ISO 8601，可按字典序比较）判断，不能用 id 排序。
+
+    Spec-0065/T2：新增 author_association（GitHub 原生 `authorAssociation`：OWNER / MEMBER /
+    COLLABORATOR / CONTRIBUTOR / NONE …）——vigil 的准入人闸靠它认「谁说的话算数」。缺省 ""（未知）
+    是**故意的 fail-closed**：读不到关系 ⇒ 不是维护者 ⇒ 这句话不算拍板。
     """
 
     id: str
     author: str
     body: str
     created_at: str
+    author_association: str = ""
 
 
 @dataclass(frozen=True)
@@ -351,6 +356,36 @@ def find_pr_by_branch(*, branch: str) -> PR | None:
     return PR(number=int(number), url=url)
 
 
+def pr_for_branch(*, branch: str) -> PR | None:
+    """某分支上**最近的一个 PR，不限状态**（open / merged / closed 都算）；从没开过则 None。
+
+    # Spec-0065/T2：`_sense` 必须用它，不能用 `find_pr_by_branch`（后者只查 open）。一个 PR 一被合并就从
+    # open 列表里消失——守夜若沿用 open-only 的查法，会在合并的**下一圈**把这个 issue 读成「还没有 PR」，
+    # 于是走分支④再开一个 PR 把同一个 issue 重做一遍。merged 是 `_classify` 的终止条件，而终止条件只能从
+    # 「那个 PR 现在是什么状态」读出来，故这里必须能看见已合并的 PR。
+    # `--state all` + `--limit 1`：gh 按新→旧排，取最近一个（分支与 issue 一一对应，实践上就一个）。
+    """
+    data = _gh_json(
+        [
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "all",
+            "--json",
+            "number,url",
+            "--limit",
+            "1",
+        ],
+        allow_returncodes=set(),
+    )
+    rows = data if isinstance(data, list) else []
+    if not rows or rows[0].get("number") is None:
+        return None
+    return PR(number=int(rows[0]["number"]), url=rows[0].get("url") or "")
+
+
 def list_comments(*, pr_number: int) -> list[Comment]:
     """RFC-0001 T3：`gh pr view <n> --json comments`，解析为 Comment 列表。
 
@@ -362,6 +397,15 @@ def list_comments(*, pr_number: int) -> list[Comment]:
     )
     if not isinstance(data, dict):
         raise GithubError("gh pr view 返回了非预期的结构")
+    return _parse_comments(data=data)
+
+
+def _parse_comments(*, data: dict) -> list[Comment]:
+    """`--json comments` 的公共解析：comment id 是 node id 字符串；createdAt 供按时间判定新评论。
+
+    Spec-0065/T2：同时解析 `authorAssociation`（说话的人跟本仓库是什么关系）——vigil 准入人闸凭它
+    认维护者。字段缺失时留空串（fail-closed：读不到关系的评论不算拍板）。
+    """
     comments: list[Comment] = []
     for raw in data.get("comments") or []:
         author = (raw.get("author") or {}).get("login") or ""
@@ -371,6 +415,7 @@ def list_comments(*, pr_number: int) -> list[Comment]:
                 author=author,
                 body=raw.get("body") or "",
                 created_at=raw.get("createdAt") or "",
+                author_association=str(raw.get("authorAssociation") or ""),
             )
         )
     return comments
@@ -413,18 +458,7 @@ def list_issue_comments(*, number: int) -> list[Comment]:
     )
     if not isinstance(data, dict):
         raise GithubError("gh issue view 返回了非预期的结构")
-    comments: list[Comment] = []
-    for raw in data.get("comments") or []:
-        author = (raw.get("author") or {}).get("login") or ""
-        comments.append(
-            Comment(
-                id=str(raw.get("id") or ""),
-                author=author,
-                body=raw.get("body") or "",
-                created_at=raw.get("createdAt") or "",
-            )
-        )
-    return comments
+    return _parse_comments(data=data)  # Spec-0065/T2：与 list_comments 共用解析，别留两份拷贝
 
 
 def mark_ready(*, pr_number: int) -> None:
@@ -868,3 +902,194 @@ def _classify_checks(*, checks: list[dict[str, Any]]) -> CheckStatus:
     if has_pending:
         return CheckStatus(state="pending", failed_logs=[])
     return CheckStatus(state="pass", failed_logs=[])
+
+
+# --------------------------------------------------------------------------------------------------
+# Spec-0065/T2：level-triggered `_sense` 需要的四类原生读——PR 快照（含 head sha / label）、
+# check 快照（含**计数**与开始时间）、issue 原生依赖（blocked_by）。仍是薄 gh 封装：只如实回传 GitHub
+# 字段，零业务判定（「零个 check 算不算等 CI」「哪种 mergeable 算冲突」都由 recipes.vigil 决定）。
+# --------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PRSnapshot:
+    """一次 `gh pr view` 取回的 PR 现态快照——**同源、一次往返**，不会读到互相矛盾的中间态。
+
+    `_sense` 要在同一时刻拿到 state / head sha / label / mergeable：分四次读会在 agent 正好 push 的
+    瞬间读到「旧 head + 新 mergeable」这种自相矛盾的组合，而分支表的顺序依赖（冲突必须在 CI 前判）正
+    建立在「这些字段属于同一个 head」之上。
+
+    state: OPEN | CLOSED | MERGED（GitHub 原值大写）。
+    labels: PR 当前所带标签名（`review-approved:<sha7>` 等裁决落处）。
+    mergeable / merge_state_status: 同 `Mergeability`，原值大写，不归一化。
+    head_pushed_at: 当前 head commit 的提交时间（ISO）——喂看门狗的 `last_progress_at`。**不可省**：
+      一个「刚推上去、CI 一个 check 都没起、也无任何评论」的 PR，除了它自己没有任何时间戳可读；缺了它
+      `last_progress_at` 恒为 None → 看门狗永远不响 → 「CI 永不启动」这条死法（护栏二要抓的正主）会静默
+      烂在那里。head 一变它自动前移，计时随之归零。
+    """
+
+    number: int
+    state: str
+    head_sha: str
+    labels: tuple[str, ...]
+    mergeable: str
+    merge_state_status: str
+    head_pushed_at: str
+
+
+@dataclass(frozen=True)
+class CheckSnapshot:
+    """`gh pr checks` 的聚合 + **计数** + 最近开始时间。
+
+    `count` 不能省：`check_status` 把「零个 check」归成 `pass`（无 CI 的仓库照常放行），但守夜必须把
+    「当前 head 上一个 check 都没有」读成**还在等 CI**（workflow 可能刚触发、也可能永不触发——后者正是
+    看门狗要抓的死法），绝不能读成「CI 绿了」→ 直接合并一份没跑过 CI 的代码。
+
+    `latest_started_at`: 最近一次 check 的开始时间（ISO，无 check 时为空串）——喂 `_Clock`，让「卡了
+    多久」成为当前态的纯函数（零本地记忆）。
+    """
+
+    state: str  # pass | fail | pending（同 CheckStatus.state）
+    count: int
+    latest_started_at: str
+
+
+@dataclass(frozen=True)
+class Blocker:
+    """issue 原生依赖（`blocked_by`）的对端：挡着当前 issue 的那个 issue。
+
+    响应自带 `state`，故一次调用同时拿到「边」和「blocker 关没关」→ `deps_done` 直接算出，无需第二轮
+    查询。(https://docs.github.com/en/rest/issues/issue-dependencies)
+    """
+
+    number: int
+    state: str  # OPEN | CLOSED（原值大写）
+
+
+def pr_snapshot(*, pr_number: int) -> PRSnapshot:
+    """Spec-0065/T2：一次 `gh pr view` 取回 PR 的 state / head sha / labels / mergeable / head 推送时间。"""
+    data = _gh_json(
+        [
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "number,state,headRefOid,labels,mergeable,mergeStateStatus,commits",
+        ],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict) or data.get("number") is None:
+        raise GithubError("gh pr view 返回了非预期的结构")
+    return PRSnapshot(
+        number=int(data["number"]),
+        state=str(data.get("state") or "").upper(),
+        head_sha=str(data.get("headRefOid") or ""),
+        labels=_parse_label_names(raw=data),
+        mergeable=str(data.get("mergeable") or "UNKNOWN").upper(),
+        merge_state_status=str(data.get("mergeStateStatus") or "UNKNOWN").upper(),
+        head_pushed_at=_head_committed_at(commits=data.get("commits")),
+    )
+
+
+def _head_committed_at(*, commits: Any) -> str:
+    """PR 的 commits 列表 → 末条（即 head）的 `committedDate`；空/异常结构 → 空串（看门狗据此不看门）。"""
+    if not isinstance(commits, list) or not commits:
+        return ""
+    last = commits[-1]
+    return str(last.get("committedDate") or "") if isinstance(last, dict) else ""
+
+
+def check_snapshot(*, pr_number: int) -> CheckSnapshot:
+    """Spec-0065/T2：读**当前 head** 上的 check（`gh pr checks` 天然按 head 报），带计数与最近开始时间。
+
+    `gh pr checks` 在仓库无任何 CI 时以非零退出并报 "no checks reported"——照 `check_status` 的容错风格
+    吞掉，但**计数如实为 0**（区分「没有 check」与「check 全绿」的责任在调用方，见 `CheckSnapshot`）。
+    """
+    try:
+        data = _gh_json(
+            ["pr", "checks", str(pr_number), "--json", "name,state,link,startedAt"],
+            allow_returncodes={_GH_CHECKS_PENDING_RETURNCODE},
+        )
+    except GithubError as exc:
+        if "no checks reported" in str(exc).lower():
+            return CheckSnapshot(state="pass", count=0, latest_started_at="")
+        raise
+    checks = data if isinstance(data, list) else []
+    aggregate = _classify_checks(checks=checks)
+    started = [str(check.get("startedAt") or "") for check in checks]
+    return CheckSnapshot(
+        state=aggregate.state,
+        count=len(checks),
+        latest_started_at=max(started) if started else "",
+    )
+
+
+def check_logs(*, pr_number: int) -> list[str]:
+    """Spec-0065/T2：当前 head 上失败 check 的摘要（薄引用 `check_status`），供喂回 fix-ci 的 agent。"""
+    return check_status(pr_number=pr_number).failed_logs
+
+
+def issue_rest_id(*, number: int) -> int:
+    """Spec-0065/T2：取 issue 的 REST 数字 id（`POST …/dependencies/blocked_by` 的请求体要它，不是 number）。"""
+    data = _gh_json(
+        ["api", f"{_REPO_PLACEHOLDER}/issues/{number}", "--jq", "{id: .id}"],
+        allow_returncodes=set(),
+    )
+    if not isinstance(data, dict) or data.get("id") is None:
+        raise GithubError(f"gh api 未返回 issue #{number} 的 id")
+    return int(data["id"])
+
+
+def list_blocked_by(*, number: int) -> list[Blocker]:
+    """Spec-0065/T2：读 issue 的原生依赖边（`GET …/issues/{n}/dependencies/blocked_by`，2025-08 GA）。
+
+    响应自带各 blocker 的 `state`，一次调用同时给出「边」与「blocker 关没关」。仓库未开启该特性 / 无边
+    时返回 []（404 归成空，不抛——依赖是可选特性，缺它只意味着「无依赖」）。
+    """
+    try:
+        data = _gh_json(
+            ["api", f"{_REPO_PLACEHOLDER}/issues/{number}/dependencies/blocked_by"],
+            allow_returncodes=set(),
+        )
+    except GithubError as exc:
+        if _is_not_found(reason=str(exc)):
+            return []
+        raise
+    rows = data if isinstance(data, list) else []
+    blockers: list[Blocker] = []
+    for raw in rows:
+        if not isinstance(raw, dict) or raw.get("number") is None:
+            continue
+        blockers.append(
+            Blocker(number=int(raw["number"]), state=str(raw.get("state") or "").upper())
+        )
+    return blockers
+
+
+def add_blocked_by(*, number: int, blocker_number: int) -> None:
+    """Spec-0065/T2：给 issue 落一条原生依赖边（`POST …/issues/{n}/dependencies/blocked_by`）。
+
+    请求体要的是 blocker 的 **REST 数字 id**（不是 issue number），故先 `issue_rest_id` 换一次。边已存在
+    时 GitHub 返回 4xx——吞掉视为成功（幂等，与 `ensure_label` 吞 "already exists" 同一容错风格）。
+    """
+    blocker_id = issue_rest_id(number=blocker_number)
+    try:
+        _run_gh(
+            [
+                "api",
+                "--method",
+                "POST",
+                f"{_REPO_PLACEHOLDER}/issues/{number}/dependencies/blocked_by",
+                # Spec-0065/T2: 必须是 `-F`（类型推断 → JSON number），不能是 `-f`（一律当字符串发）。
+                # dependencies API 的 issue_id 声明为 integer，发字符串会 422，且 422 不在下面的
+                # already/duplicate 白名单里 → 直接抛 → 依赖边一条也落不下去。
+                "-F",
+                f"issue_id={blocker_id}",
+            ],
+            allow_returncodes=set(),
+        )
+    except GithubError as exc:
+        reason = str(exc).lower()
+        if "already" in reason or "duplicate" in reason:
+            return
+        raise
