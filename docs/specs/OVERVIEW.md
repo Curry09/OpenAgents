@@ -220,6 +220,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0067 oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）
 把仓库根的 openagents.yml.template 收进包内作 package data 单一真源，oa init 幂等地把它拷成 .openagents/openagents.yml（--force 覆盖），让首次上手即有带注释、可直接改的声明式默认；运行时 --skip/--hold/--base 仍单次覆盖不变。加防漂移测试断言打包 template 语义等价 default_config()。
 
+### 0069 为 openagents CLI 接入 argcomplete Shell Tab 补全（读现成 argparse parser，单一真源，零副作用）
+在 cli.main() 的 parse_args 之前插一行 argcomplete.autocomplete(parser)，让 openagents/oa 直接从现成的 argparse parser 生成 zsh/bash Tab 补全，覆盖全部子命令与选项，无需手写维护第二份命令清单；argcomplete 对非补全调用零副作用（仅当 _ARGCOMPLETE 环境变量存在时介入），CLI 既有行为不变。配套加 argcomplete 运行时依赖 + README 文档给出用户侧一次性启用步骤。
+- e2e 意图：证明「argcomplete 接现成 argparse parser 生成 Tab 补全」这一接线在离线确定性链路上成立且零回归——main() 在 parse_args 之前调 argcomplete.autocomplete(parser)（补全握手时介入、正常调用零副作用），全部子命令与 vigil 全部选项都进 parser（补全候选单一真源即 build_parser）；argcomplete 缺失时 CLI 优雅降级不崩；argcomplete 已作为运行时依赖声明。
+  - 测法：形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067 同款）： 1. CLI 针对性 pytest（打桩 openagents.cli.argcomplete，hermetic 不触 shell/网络）：main([]) 在 parse_args 前调 argcomplete.autocomplete 恰一次且入参是 build_parser() 造出的 ArgumentParser，且 main([]) 仍返回 2（无命令）；把 openagents.cli.argcomplete 打成 None → main([]) 仍返回 2 不抛（优雅降级）；build_parser 注册的子命令全集与 vigil 全部选项仍在（补全候选覆盖面）。 2. grep 锚点（e2e 脚本）：cli.py 存在 argcomplete 优雅降级 import 与 autocomplete(parser) 调用；pyproject.toml 的 dependencies 含 argcomplete。 脚本：scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -482,6 +487,7 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0066 | 0066/T3 | oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告 | done | T1 | openagents/cli.py<br>tests/test_cli_timing.py |
 | 0067 | 0067/T1 | 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试 | done | — | openagents/data/openagents.yml.template<br>openagents.yml.template<br>openagents/utils/agent_config.py<br>tests/test_agent_config.py |
 | 0067 | 0067/T2 | oa init 接线：--force + 幂等生成 + 提示 | done | T1 | openagents/cli.py<br>tests/test_cli.py |
+| 0069 | 0069/T1 | argcomplete 接线 + 依赖 + 文档 + 测试 | done | — | openagents/cli.py<br>pyproject.toml<br>README.md<br>tests/test_cli.py |
 
 ## 跨 feature 关系图
 
@@ -873,6 +879,9 @@ graph LR
         n0067_T1["T1 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试"]
         n0067_T2["T2 oa init 接线：--force + 幂等生成 + 提示"]
     end
+    subgraph G0069[0069 argcomplete-shell-tab-completion]
+        n0069_T1["T1 argcomplete 接线 + 依赖 + 文档 + 测试"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1104,7 +1113,7 @@ graph LR
 |----|----|
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
 | .github/workflows/ci.yml | 0014, 0023 |
-| README.md | 0026, 0029, 0054 |
+| README.md | 0026, 0029, 0054, 0069 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
@@ -1118,7 +1127,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1172,7 +1181,7 @@ graph LR
 | openagents/utils/workspace.py | 0035, 0062 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
-| pyproject.toml | 0001, 0014 |
+| pyproject.toml | 0001, 0014, 0069 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/test_agent_config.py | 0064, 0067 |
@@ -1180,7 +1189,7 @@ graph LR
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
@@ -3058,4 +3067,20 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0069 为 openagents CLI 接入 argcomplete Shell Tab 补全（读现成 argparse parser，单一真源，零副作用）（issue #151）
+
+```mermaid
+graph LR
+    nT1["T1 argcomplete 接线 + 依赖 + 文档 + 测试"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
 ```

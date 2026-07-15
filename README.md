@@ -53,6 +53,25 @@ uv tool install --force --from . openagents
 
 > 注意:`openagents` 是一份 uv tool 快照——改了代码不重装,命令会跑旧代码。
 
+### Shell Tab 补全(可选)
+
+`openagents` 内置 [argcomplete](https://github.com/kislyuk/argcomplete):补全直接读现成的命令定义,覆盖全部子命令(init/vigil/backfill-rfc/issue/release/board/report)与各自的选项(如 `vigil --interval/--label/--base/--once/--parallel/--hold/--skip/--config`)。一次性启用后 `openagents <Tab>`、`openagents vigil --<Tab>` 即弹候选。
+
+zsh(写进 `~/.zshrc`):
+
+```zsh
+autoload -U bcompinit && compinit
+eval "$(register-python-argcomplete openagents)"
+```
+
+bash(写进 `~/.bashrc`):
+
+```bash
+eval "$(register-python-argcomplete openagents)"
+```
+
+> 不启用也完全不影响命令本身:argcomplete 只在 Tab 补全握手时介入,普通调用零副作用。`register-python-argcomplete` 随 argcomplete 依赖一并装好。
+
 ---
 
 ## 用法

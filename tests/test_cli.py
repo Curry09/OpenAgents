@@ -409,3 +409,51 @@ def test_parallel_max_is_thirty_two():
     from openagents.cli import _MAX_PARALLEL
 
     assert _MAX_PARALLEL == 32
+
+
+# --------------------------------------------------------------------------------------------------
+# Spec-0069/T1：argcomplete Shell Tab 补全接线契约。补全直接读现成 argparse parser（build_parser），
+# 命令清单单一真源不复制；autocomplete 必须在 parse_args 之前调、仅补全握手时介入、正常调用零副作用；
+# argcomplete 缺失时优雅降级不崩。
+# --------------------------------------------------------------------------------------------------
+
+
+def test_main_calls_argcomplete_before_parse(monkeypatch):
+    """main() 在 parse_args 之前调 argcomplete.autocomplete(parser) 恰一次，入参是 argparse parser。"""
+    import argparse
+
+    calls = []
+
+    class _FakeArgcomplete:
+        def autocomplete(self, parser):
+            calls.append(parser)
+
+    monkeypatch.setattr("openagents.cli.argcomplete", _FakeArgcomplete())
+    # 无命令：parse_args 成功但 args.command 为 None → 打印帮助、返回 2，不触任何 gh/后端。
+    assert main([]) == 2
+    assert len(calls) == 1
+    assert isinstance(calls[0], argparse.ArgumentParser)
+
+
+def test_argcomplete_missing_degrades_gracefully(monkeypatch):
+    """argcomplete 缺失（顶层 import 失败 → None）时 CLI 不崩，行为逐字不变。"""
+    monkeypatch.setattr("openagents.cli.argcomplete", None)
+    assert main([]) == 2
+
+
+def test_completion_covers_vigil_options():
+    """补全候选覆盖面：vigil 子命令的全部选项都在 parser 里（argcomplete 据此生成候选）。"""
+    subparsers = next(a for a in build_parser()._actions if getattr(a, "choices", None))
+    vigil = subparsers.choices["vigil"]
+    options = {opt for action in vigil._actions for opt in action.option_strings}
+    for expected in (
+        "--interval",
+        "--label",
+        "--base",
+        "--once",
+        "--parallel",
+        "--hold",
+        "--skip",
+        "--config",
+    ):
+        assert expected in options

@@ -9,6 +9,9 @@ requires-python = ">=3.12"
 dependencies = [
     "ruamel.yaml>=0.18",
     "jsonschema>=4.0",
+    # Spec-0069/T1：Shell Tab 补全——读现成 argparse parser 生成 zsh/bash 补全候选，
+    # 提供 register-python-argcomplete 入口脚本供用户一次性启用（见 README）。
+    "argcomplete>=3.0",
 ]
 
 [project.optional-dependencies]

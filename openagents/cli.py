@@ -25,6 +25,14 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+# Spec-0069/T1：Shell Tab 补全——直接读现成 argparse parser 生成候选（命令清单单一真源仍是 build_parser，
+# 不维护第二份会漂移的补全脚本）。顶层做优雅降级导入：argcomplete 是声明依赖、正常一定装了，但万一环境缺失
+# （老快照 / 精简安装），补全应静默不可用而非拖垮整个 CLI。
+try:
+    import argcomplete
+except ImportError:  # pragma: no cover - argcomplete 是声明依赖；缺失时补全静默降级
+    argcomplete = None
+
 from openagents.utils import github
 from openagents.utils.config import ProjectContext, ensure_project, resolve_project
 
@@ -547,6 +555,11 @@ def _run(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    # Spec-0069/T1：必须在 parse_args 之前调（argcomplete 文档规定的唯一正确位置）。它仅在 shell 补全
+    # 握手（环境变量 _ARGCOMPLETE 存在）时读 parser 生成候选并 exit；正常运行下立即返回、零副作用，故下方
+    # 分发/退出码/错误处理链全部不变。
+    if argcomplete is not None:
+        argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help(sys.stderr)
