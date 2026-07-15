@@ -240,6 +240,9 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 - e2e 意图：证明「单一 writer 文件所有权从设计期声明硬化为运行期可执行守卫」这条改动在离线确定性链路上成立——spec.ownership 能从一个组的 tasks[].files 建单一 writer 索引并判越权写（生成物 spec md/OVERVIEW/ARCHITECTURE 恒放行）；spec CLI `ownership` 无 --check 打印所有权表、--check 对含无主写的 changeset 退出码 1；runtime.gates.assert_writes_owned 对越权写 raise GateError。三层在本仓库真实 spec（0071 自身三个 Task 的归属）上可跑通。
   - 测法：形态：纯后端（spec.ownership 解析器 + runtime.gates 硬闸）+ CLI（spec ownership 子命令），无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0059/0060/0064 同款）： 1. 针对性 pytest（不触真实 LLM/网络/仓库）：    - test_spec_ownership.py：build_index 把 files 映射到唯一 owner（首个声明者胜）、owner_of 未知路径返 None、generated_artifacts 含 spec md/OVERVIEW/ARCHITECTURE、unowned_writes 放行声明文件与生成物/拦无主文件/排序去重/空 changeset 返空/自定义 specs_root 透传。    - test_gates_ownership.py：assert_writes_owned 放行声明文件与生成物、空 changeset 放行、越权写 raise GateError 且消息列出越权文件、自定义 specs_root 透传。    - test_spec_cli.py：ownership 无 --check 打印 owner→path 表、--check 放行声明文件、--check 拦无主写退出码 1、--check 缺 --group 退出码 2、--check 未知组退出码 2。 2. spec ownership 真跑：uv run spec ownership 的输出含 0071 三个 Task 的归属；uv run spec ownership --check --group 0071 对『声明文件+生成物』放行、对含 evil.py 的 changeset 退出码 1。 3. grep 锚点：ownership.py 首行为 '# Spec-0071/T1'；gates.py 含 assert_writes_owned；cli.py 含 'ownership' 子命令。 4. ruff check + ruff format --check 全绿。 脚本：scripts/e2e-spec-0071-single-writer-ownership-guard.sh（ruff + 上述三个测试文件 pytest + CLI 真跑 + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0072 spec 组 Task 数软上限：>6 主动提示 + 声明式豁免，大 feature 一个 spec/一个 PR 交付
+把 spec-driven 的 ≤6 Task 硬拆组约定降为可读性软上限：>6 由 spec validate 出 warning 主动提示，声明 oversized-rationale 即豁免；单一 writer 的 files 互斥不变，大 feature 得以在一个 spec/一个 PR 内做完
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -509,6 +512,10 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 | 0071 | 0071/T1 | spec.ownership 纯解析器：单一 writer 索引 + 越权写判定（生成物恒放行） | done | — | openagents/spec/ownership.py<br>tests/test_spec_ownership.py |
 | 0071 | 0071/T2 | spec CLI `ownership` 子命令：打印所有权表 / --check 校验 changeset 无越权写 | done | T1 | openagents/spec/cli.py<br>tests/test_spec_cli.py |
 | 0071 | 0071/T3 | runtime.gates.assert_writes_owned 硬闸：harness 侧越权写拒绝原语 + e2e 脚本 | done | T1 | openagents/runtime/gates.py<br>tests/test_gates_ownership.py<br>scripts/e2e-spec-0071-single-writer-ownership-guard.sh |
+| 0072 | 0072/T1 | frontmatter 增可选 oversized-rationale + model round-trip | done | — | openagents/spec/schema.py<br>openagents/spec/model.py |
+| 0072 | 0072/T2 | validate 第 11 条链：>6 Task 软上限 warning + 声明式豁免 | done | T1 | openagents/spec/validate.py |
+| 0072 | 0072/T3 | skill 文档 reframe：6-Task 软上限 + files 互斥硬不变量 | done | — | .claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/task-fields.md |
+| 0072 | 0072/T4 | 规则 11 + round-trip 单测 | done | T2 | tests/test_spec_validate.py<br>tests/test_spec_model.py |
 
 ## 跨 feature 关系图
 
@@ -915,6 +922,12 @@ graph LR
         n0071_T2["T2 spec CLI `ownership` 子命令：打印所有权表 / --check 校验 changeset 无越权写"]
         n0071_T3["T3 runtime.gates.assert_writes_owned 硬闸：harness 侧越权写拒绝原语 + e2e 脚本"]
     end
+    subgraph G0072[0072 task-count-soft-cap]
+        n0072_T1["T1 frontmatter 增可选 oversized-rationale + model round-trip"]
+        n0072_T2["T2 validate 第 11 条链：>6 Task 软上限 warning + 声明式豁免"]
+        n0072_T3["T3 skill 文档 reframe：6-Task 软上限 + files 互斥硬不变量"]
+        n0072_T4["T4 规则 11 + round-trip 单测"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1137,6 +1150,8 @@ graph LR
     n0068_T2 --> n0068_T1
     n0071_T2 --> n0071_T1
     n0071_T3 --> n0071_T1
+    n0072_T2 --> n0072_T1
+    n0072_T4 --> n0072_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1147,7 +1162,8 @@ graph LR
 
 | 文件 | 涉及组 |
 |----|----|
-| .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
+| .claude/skills/spec-driven-development/SKILL.md | 0014, 0024, 0072 |
+| .claude/skills/spec-driven-development/references/task-fields.md | 0024, 0072 |
 | .github/workflows/ci.yml | 0014, 0023 |
 | README.md | 0026, 0029, 0054, 0069 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
@@ -1194,12 +1210,12 @@ graph LR
 | openagents/runtime/gates.py | 0017, 0060, 0062, 0071 |
 | openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
-| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
+| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | openagents/spec/mutate.py | 0014, 0015 |
 | openagents/spec/render.py | 0014, 0015, 0040, 0055 |
-| openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055 |
+| openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | openagents/spec/signpost.py | 0024, 0028, 0055 |
-| openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
+| openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/utils/agent_config.py | 0064, 0067 |
@@ -1264,11 +1280,11 @@ graph LR
 | tests/test_runtime_context.py | 0060, 0065 |
 | tests/test_runtime_gates.py | 0017, 0060 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
-| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055 |
+| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
 | tests/test_spec_render.py | 0014, 0015, 0040, 0055 |
 | tests/test_spec_signpost.py | 0024, 0055 |
-| tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055 |
+| tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055, 0063 |
 | tests/test_state_closed_at.py | 0042, 0063 |
 | tests/test_state_code_fingerprint.py | 0053, 0063 |
@@ -3180,4 +3196,31 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0072 spec 组 Task 数软上限：>6 主动提示 + 声明式豁免，大 feature 一个 spec/一个 PR 交付（issue #156）
+
+```mermaid
+graph LR
+    nT1["T1 frontmatter 增可选 oversized-rationale + model round-trip"]
+    nT2["T2 validate 第 11 条链：>6 Task 软上限 warning + 声明式豁免"]
+    nT3["T3 skill 文档 reframe：6-Task 软上限 + files 互斥硬不变量"]
+    nT4["T4 规则 11 + round-trip 单测"]
+    nT1 --> nT2
+    nT2 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

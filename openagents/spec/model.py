@@ -158,6 +158,9 @@ class Metadata:
     # Spec-0015：组级人话 TL;DR（整个 feature 的「是啥/为什么/产出什么」）。
     # 默认空串兼容旧调用点；非空由 validate 的 _summary_checks 强制。
     summary: str = ""
+    # Spec-0072/T1：组级「原子交付」声明（可选）。默认空串 = 未声明（既有 spec 零回归）；
+    # 非空即声明本组是一次原子交付，豁免 >6 Task 软上限的 warning（validate._task_count_checks）。
+    oversized_rationale: str = ""
     # Spec-0040/T1：组级 e2e 粗规划（可选）。None = 未声明（既有 spec 零回归）；非 None 时由
     # validate._e2e_checks 强制 form 合法 / intent 非空 / acceptance≥1。
     e2e: E2EPlan | None = None
@@ -202,6 +205,8 @@ def load_group(*, path: Path) -> Group:
         issue=int(meta.get("issue", 0)),
         slug=str(meta.get("slug", "")),
         summary=str(meta.get("summary", "")),
+        # Spec-0072/T1：缺失即空串（既有 spec 零回归）。
+        oversized_rationale=str(meta.get("oversized-rationale", "")),
         e2e=e2e_from_mapping(data=meta.get("e2e")),  # Spec-0040/T1：无 e2e 块 → None。
     )
 
@@ -240,6 +245,10 @@ def render_group(*, group: Group) -> str:
     fm["issue"] = group.metadata.issue
     fm["slug"] = group.metadata.slug
     fm["summary"] = group.metadata.summary
+    # Spec-0072/T1：oversized-rationale 仅在声明（非空）时写入，夹在 summary 之后、e2e/tasks 之前；
+    # 未声明即整键不出现，保持既有 spec 逐字节不变、零回归。
+    if group.metadata.oversized_rationale:
+        fm["oversized-rationale"] = group.metadata.oversized_rationale
     # Spec-0040/T1：e2e 粗规划仅在声明时写入 frontmatter（None 即整块不出现，保持既有 spec 逐字节
     # 不变、零回归）。夹在 summary 之后、tasks 之前，与其组级元数据身份一致。
     if group.metadata.e2e is not None:

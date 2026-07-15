@@ -65,8 +65,16 @@ from the snapshot by `spec abandon` (history lives in git).
 | `scope` | str | what this Task changes (one line) |
 | `acceptance` | str | a verifiable acceptance criterion. **Required.** |
 
+## Group-level frontmatter (beyond `number`/`title`/`issue`/`slug`/`summary`/`tasks`)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `oversized-rationale` | str | **Optional (Spec-0072).** Declares this group is one **atomic delivery** that intentionally exceeds the 6-Task readability soft-cap. When non-empty, it silences the non-blocking `spec validate` warning fired for groups with >6 Tasks. Leave unset for ≤6-Task groups (the common case). It does **not** relax the single-writer `files`-disjoint invariant. See SKILL.md "When to Split". |
+
 ## Required vs optional
 
 Required per Task: `id`, `title`, `status`, `priority`, `files`, `acceptance`.
 Required per group: metadata `summary` (one-line TL;DR) + the 4 required overview sections.
+The 6-Task count is a **readability soft-cap**, not a hard limit — >6 is allowed for one atomic
+delivery (declare `oversized-rationale`); only the `files`-disjoint rule is a hard invariant.
 Everything else defaults empty — fill what the feature actually needs.

@@ -79,9 +79,28 @@ Skip when ALL hold: no design decisions to document, only one module/file affect
 
 If a small feature is a natural extension of an existing group's scope, `spec add-task` it onto that group rather than creating a new one.
 
-### When to Split
+### When to Split (6-Task is a readability soft-cap, not a hard wall)
 
-A group with more than 6 Tasks is too large — split into multiple focused groups.
+6 Tasks is a **readability / reviewability soft-cap**, not a hard invariant — keep a group
+≤6 Tasks so one spec stays readable and reviewable. It is deliberately **not** the same kind
+of rule as the single-writer `files`-disjoint invariant (that one is a real correctness
+invariant — two Tasks writing the same file is a real conflict — and stays a hard `spec
+validate` **error**).
+
+When a feature **naturally decomposes into more than 6 work units**, you MAY keep them all in
+**one spec group** (one spec / one PR), as long as the `files`-disjoint invariant still holds.
+`spec validate` then emits a non-blocking **warning** (`组 Task 数 N > 6 …`, CI stays green).
+If this is a genuine single atomic delivery, declare it in the group frontmatter to silence the
+prompt (软约定硬化 — crossing the soft-cap leaves an explicit, machine-recorded reason):
+
+```yaml
+oversized-rationale: "<why this is one atomic delivery that would be harmed by splitting>"
+```
+
+Only split into multiple focused groups when the >6 Tasks are **not** one atomic delivery
+(i.e. they'd read/review/deliver just as well as separate specs). Spec-0072 (issue #156)
+introduced this soft-cap + declared-exemption so a big feature is no longer forced into
+multiple spec numbers / multiple PRs.
 
 ## Disk Layout (reference)
 
@@ -131,7 +150,7 @@ The spec group is the core artifact. Author it via the CLI — never hand-write 
      --depends-on T0 \
      --scope "<这个 Task 改什么>" --acceptance "<可验证的验收标准>"
    ```
-   - **Task count must not exceed 6.** If it does, split into multiple groups.
+   - **Task count: aim for ≤6 (readability soft-cap).** >6 is allowed for one atomic delivery — `spec validate` warns (non-blocking); declare `oversized-rationale` in the group frontmatter to silence it. See "When to Split" above.
    - **`files` across Tasks must be disjoint** — 这是协同模式无冲突的根（单一 writer 所有权，理念 6），也是 issue #71 运行期 owner 检查的结构化源。两个 Task 必须碰同一文件就合并它们，或把该文件的改动独立成一个 Task。
    - `depends-on` declares the DAG (cross-group refs use qualified ids like `0012/T2`). Tasks with no mutual dependency run in parallel. New Tasks start `status: pending`.
    - Task 不再挂重 prose；它的设计依据在组级 Reference-level 里讲。每行必填 `files` + `acceptance`。

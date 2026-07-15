@@ -91,6 +91,35 @@ def test_round_trip_preserves_overview_and_tasks(tmp_path: Path) -> None:
     assert model.render_group(group=group) == model.render_group(group=reloaded)
 
 
+def test_oversized_rationale_round_trips_and_defaults_empty(tmp_path: Path) -> None:
+    """Spec-0072/T1：oversized-rationale 声明时 round-trip 保真、写入 frontmatter；未声明默认空串且整键不出现。"""
+    # 声明 → 保真 + 写入 frontmatter（夹在 summary 后、tasks 前）。
+    declared = Group(
+        number="0072",
+        metadata=Metadata(
+            title="big", issue=156, slug="big", summary="TL;DR", oversized_rationale="一次原子交付"
+        ),
+        tasks=[Task(id="T1", title="x", status="pending", priority="P1")],
+        overview=_sample_overview(),
+    )
+    path = _write_group(root=tmp_path, group=declared)
+    reloaded = model.load_group(path=path)
+    assert reloaded.metadata.oversized_rationale == "一次原子交付"
+    head = path.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+    assert "oversized-rationale:" in head
+    assert model.render_group(group=declared) == model.render_group(group=reloaded)
+
+    # 未声明 → 默认空串，且 frontmatter 整键不出现（既有 spec 零回归、逐字节不变）。
+    plain = Group(
+        number="0001",
+        metadata=Metadata(title="m", issue=1, slug="min"),
+        tasks=[Task(id="T1", title="x", status="pending", priority="P1")],
+    )
+    plain_path = _write_group(root=tmp_path, group=plain)
+    assert model.load_group(path=plain_path).metadata.oversized_rationale == ""
+    assert "oversized-rationale" not in plain_path.read_text(encoding="utf-8")
+
+
 def test_body_holds_overview_frontmatter_holds_scope(tmp_path: Path) -> None:
     """正文放 rust 9 段组级 prose；scope/acceptance 进 frontmatter；正文无 Task 小节。"""
     path = _write_group(root=tmp_path, group=_sample_group())

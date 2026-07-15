@@ -90,6 +90,9 @@ GROUP_FRONTMATTER_SCHEMA: dict = {
         "slug": {"type": "string"},
         # Spec-0015：组级人话 TL;DR。schema 只声明类型；非空由 validate 的 _summary_checks 强制。
         "summary": {"type": "string"},
+        # Spec-0072/T1：组级「原子交付」声明（可选）。非空即豁免 >6 Task 软上限的 warning
+        # （validate._task_count_checks）；schema 只声明类型，语义由 validate 处理。
+        "oversized-rationale": {"type": "string"},
         # Spec-0040/T1：组级 e2e 粗规划（可选，不进 required——无 e2e 块的既有 spec 零回归）。
         "e2e": E2E_SCHEMA,
         "tasks": {"type": "array", "items": TASK_SCHEMA},

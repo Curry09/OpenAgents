@@ -28,6 +28,11 @@ from openagents.spec.schema import GROUP_FRONTMATTER_SCHEMA
 _ERROR = "error"
 _WARNING = "warning"
 
+# Spec-0072/T2：单组 Task 数的**可读性软上限**（非硬不变量）。>6 且未声明 oversized-rationale
+# 时出一条 warning 主动提示（非 error，大 feature 一个 spec/一个 PR 不挂 CI）。区别于同组 files
+# 互斥那条真不变量（_file_overlap_checks，error）——那是并行安全的根，本条只是可读性经验值。
+_TASK_SOFT_CAP = 6
+
 # issue #69：单 spec 自包含 + 总览先行的质量门槛。
 # 必填总览段（attr, 人读标题）——这四段撑起「读完即懂、无需翻别的 spec」。
 _REQUIRED_SECTIONS: tuple[tuple[str, str], ...] = (
@@ -88,6 +93,8 @@ def validate(*, specs_root: Path) -> ValidationReport:
     issues.extend(_self_contained_checks(groups=groups))
     # 10. e2e 粗规划块（声明才校验）：form 合法 / intent 非空 / acceptance≥1。 -> error
     issues.extend(_e2e_checks(groups=groups))
+    # 11. 单组 Task 数软上限（Spec-0072：>6 且未声明 oversized-rationale）。       -> warning
+    issues.extend(_task_count_checks(groups=groups))
 
     ok = not any(issue.level == _ERROR for issue in issues)
     return ValidationReport(ok=ok, issues=issues)
@@ -120,6 +127,33 @@ def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:
                     message="e2e.method 为空（须声明怎么测的 prose 测法步骤）",
                 )
             )
+    return issues
+
+
+def _task_count_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """Spec-0072/T2：单组 Task 数 > 软上限(6) 且未声明 oversized-rationale → warning（非 error）。
+
+    6 只是可读性/可评审的经验值，不是并行安全不变量（那是同组 files 互斥，见 _file_overlap_checks）。
+    故 >6 仅出一条 warning 主动提示「确认是原子交付、否则拆组」，不影响 ok——让天然 >6 工作单元的
+    大 feature 合法地待在一个 spec/一个 PR 内。作者在组 frontmatter 声明 oversized-rationale（非空）
+    即确认这是一次原子交付，静默该提示（软约定硬化：越过软上限须留痕，而非静默越过）。
+    """
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        if len(group.tasks) <= _TASK_SOFT_CAP:
+            continue
+        if group.metadata.oversized_rationale.strip():
+            continue
+        issues.append(
+            ValidationIssue(
+                level=_WARNING,
+                where=f"{group.number}/tasks",
+                message=(
+                    f"组 Task 数 {len(group.tasks)} > {_TASK_SOFT_CAP}（可读性软上限）："
+                    "确认这是一次原子交付并在 frontmatter 声明 oversized-rationale；否则拆成多个聚焦的组"
+                ),
+            )
+        )
     return issues
 
 

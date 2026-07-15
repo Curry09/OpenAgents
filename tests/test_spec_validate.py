@@ -315,3 +315,47 @@ def test_task_without_acceptance_is_schema_error(tmp_path: Path) -> None:
     report = validate(specs_root=tmp_path)
     assert report.ok is False
     assert any("acceptance" in m for m in _errors(report))
+
+
+def _n_tasks(n: int) -> list[Task]:
+    """n 个 files 两两不相交的最小 Task（规避同组 files 重叠 error，隔离 Task 数软上限）。"""
+    return [_task(id=f"T{i}", files=[f"f{i}.py"]) for i in range(1, n + 1)]
+
+
+def test_six_tasks_no_soft_cap_warning(tmp_path: Path) -> None:
+    """Spec-0072/T2：正好 6 Task（软上限内）→ 不出 Task 数 warning。"""
+    _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=_n_tasks(6))
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True
+    assert not any("软上限" in m for m in _warnings(report))
+
+
+def test_seven_tasks_warns_but_ok(tmp_path: Path) -> None:
+    """Spec-0072/T2：7 Task 且未声明 oversized-rationale → 一条 warning，但 ok=True（非阻塞）。"""
+    _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=_n_tasks(7))
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True  # warning 不影响 ok，大 feature 一个 spec 不挂 CI
+    cap_warnings = [m for m in _warnings(report) if "软上限" in m]
+    assert len(cap_warnings) == 1
+    assert "7 > 6" in cap_warnings[0]
+
+
+def test_seven_tasks_with_rationale_is_silent(tmp_path: Path) -> None:
+    """Spec-0072/T2：7 Task 且声明 oversized-rationale（原子交付）→ 静默、无 Task 数 warning。"""
+    group = Group(
+        number="0001",
+        metadata=Metadata(
+            title="alpha",
+            issue=1,
+            slug="alpha",
+            summary="alpha TL;DR",
+            oversized_rationale="一次原子交付：拆组会割裂 e2e 验收",
+        ),
+        tasks=_n_tasks(7),
+        overview=_overview(),
+    )
+    path = model.group_path(specs_root=tmp_path, number="0001", slug="alpha")
+    model.dump_group(group=group, path=path)
+    report = validate(specs_root=tmp_path)
+    assert report.ok is True
+    assert not any("软上限" in m for m in _warnings(report))
