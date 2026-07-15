@@ -243,6 +243,9 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 ### 0072 spec 组 Task 数软上限：>6 主动提示 + 声明式豁免，大 feature 一个 spec/一个 PR 交付
 把 spec-driven 的 ≤6 Task 硬拆组约定降为可读性软上限：>6 由 spec validate 出 warning 主动提示，声明 oversized-rationale 即豁免；单一 writer 的 files 互斥不变，大 feature 得以在一个 spec/一个 PR 内做完
 
+### 0073 openagents 桌面 app：并行看板 + 大窗流式 + tab 待看导航
+Electron 桌面前端呈现 vigil --parallel N 的并行成果:N 个小窗看板(成果/状态)、点击进大窗看实时流式 agent 会话、Tab 按优先级跳到下一个待看窗;只读呈现,后端加 per-subject 流分流 + 本地 daemon 接口两样加法
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -516,6 +519,12 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 | 0072 | 0072/T2 | validate 第 11 条链：>6 Task 软上限 warning + 声明式豁免 | done | T1 | openagents/spec/validate.py |
 | 0072 | 0072/T3 | skill 文档 reframe：6-Task 软上限 + files 互斥硬不变量 | done | — | .claude/skills/spec-driven-development/SKILL.md<br>.claude/skills/spec-driven-development/references/task-fields.md |
 | 0072 | 0072/T4 | 规则 11 + round-trip 单测 | done | T2 | tests/test_spec_validate.py<br>tests/test_spec_model.py |
+| 0073 | 0073/T1 | 后端：agent 输出按 subject 分流(stream tee) | done | — | openagents/utils/streams.py<br>openagents/backends/claude_code.py<br>openagents/recipes/vigil.py<br>tests/test_streams.py |
+| 0073 | 0073/T2 | 后端：本地 daemon 接口(HTTP+SSE) | done | T1 | openagents/desktop/__init__.py<br>openagents/desktop/daemon.py<br>openagents/cli.py<br>tests/test_desktop_daemon.py |
+| 0073 | 0073/T3 | 前端：Electron 外壳 + client + App 基座 | done | T2 | apps/desktop/package.json<br>apps/desktop/tsconfig.json<br>apps/desktop/electron.vite.config.ts<br>apps/desktop/src/main/index.ts<br>apps/desktop/src/preload/index.ts<br>apps/desktop/src/renderer/index.html<br>apps/desktop/src/renderer/src/main.tsx<br>apps/desktop/src/renderer/src/App.tsx<br>apps/desktop/src/renderer/src/daemon-client.ts<br>apps/desktop/src/renderer/src/types.ts |
+| 0073 | 0073/T4 | 前端：看板小窗(board) | done | T3 | apps/desktop/src/renderer/src/board/Board.tsx<br>apps/desktop/src/renderer/src/board/Card.tsx<br>apps/desktop/src/renderer/src/board/useBoard.ts<br>apps/desktop/src/renderer/src/board/Board.test.tsx |
+| 0073 | 0073/T5 | 前端：大窗流式 + 快切 | done | T3 | apps/desktop/src/renderer/src/detail/DetailOverlay.tsx<br>apps/desktop/src/renderer/src/detail/StreamView.tsx<br>apps/desktop/src/renderer/src/detail/useStream.ts<br>apps/desktop/src/renderer/src/detail/DetailOverlay.test.tsx |
+| 0073 | 0073/T6 | 前端：Tab 待看导航 + 优先级 | done | T3 | apps/desktop/src/renderer/src/nav/useTabNav.ts<br>apps/desktop/src/renderer/src/nav/pending.ts<br>apps/desktop/src/renderer/src/nav/pending.test.ts |
 
 ## 跨 feature 关系图
 
@@ -928,6 +937,14 @@ graph LR
         n0072_T3["T3 skill 文档 reframe：6-Task 软上限 + files 互斥硬不变量"]
         n0072_T4["T4 规则 11 + round-trip 单测"]
     end
+    subgraph G0073[0073 desktop-app]
+        n0073_T1["T1 后端：agent 输出按 subject 分流(stream tee)"]
+        n0073_T2["T2 后端：本地 daemon 接口(HTTP+SSE)"]
+        n0073_T3["T3 前端：Electron 外壳 + client + App 基座"]
+        n0073_T4["T4 前端：看板小窗(board)"]
+        n0073_T5["T5 前端：大窗流式 + 快切"]
+        n0073_T6["T6 前端：Tab 待看导航 + 优先级"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1152,6 +1169,11 @@ graph LR
     n0071_T3 --> n0071_T1
     n0072_T2 --> n0072_T1
     n0072_T4 --> n0072_T2
+    n0073_T2 --> n0073_T1
+    n0073_T3 --> n0073_T2
+    n0073_T4 --> n0073_T3
+    n0073_T5 --> n0073_T3
+    n0073_T6 --> n0073_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1176,10 +1198,10 @@ graph LR
 | openagents/agents/replier.py | 0016, 0059, 0061 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1200,7 +1222,7 @@ graph LR
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
 | openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -3223,4 +3245,40 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0073 openagents 桌面 app：并行看板 + 大窗流式 + tab 待看导航（issue #170）
+
+```mermaid
+graph LR
+    nT1["T1 后端：agent 输出按 subject 分流(stream tee)"]
+    nT2["T2 后端：本地 daemon 接口(HTTP+SSE)"]
+    nT3["T3 前端：Electron 外壳 + client + App 基座"]
+    nT4["T4 前端：看板小窗(board)"]
+    nT5["T5 前端：大窗流式 + 快切"]
+    nT6["T6 前端：Tab 待看导航 + 优先级"]
+    nT1 --> nT2
+    nT2 --> nT3
+    nT3 --> nT4
+    nT3 --> nT5
+    nT3 --> nT6
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    v_T6_1["T6 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+    class v_T6_1 st_done;
 ```

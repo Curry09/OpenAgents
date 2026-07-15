@@ -22,6 +22,7 @@ from pathlib import Path
 
 from openagents.backends.base import AgentResult
 from openagents.utils import proc as proc_utils
+from openagents.utils import streams
 
 # RFC-0001 T2: claude 可执行名做成模块级常量，便于测试 mock / 替换。
 CLAUDE_BIN = "claude"
@@ -309,11 +310,14 @@ class ClaudeCodeBackend:
                 event = _parse_event(line=line)
                 if event is None:
                     # 异常：非 JSON 行（如启动错误）——原样透传并留作兜底详情。
-                    print(line, flush=True)
+                    # Spec-0073/T1: print 换成 streams.emit——照旧打 stdout（行为不变）+ 追加当前线程绑定
+                    # subject 的 ring buffer，供 daemon 的大窗 SSE 分流呈现。
+                    streams.emit(line=line)
                     raw_tail.append(line)
                     continue
                 for human in _lines_for_event(event=event):
-                    print(human, flush=True)
+                    # Spec-0073/T1: 同上——事件文本落当前线程绑定 subject 的 buffer。
+                    streams.emit(line=human)
                 if event.get("type") == "result":
                     result_text = str(event.get("result") or "")
             returncode = proc.wait()

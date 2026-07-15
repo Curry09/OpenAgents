@@ -41,6 +41,15 @@ _RFC-0001 T1: 后端适配层。_
 | `base.py` | RFC-0001 T1: 后端抽象层 —— AgentBackend 协议与 AgentResult。 |
 | `claude_code.py` | RFC-0001 T2 + RFC-0003: Claude Code 后端适配器。 |
 
+### openagents.desktop
+
+_# Spec-0073/T2: 本地 daemon 接口（HTTP+SSE），供 Electron 桌面 app 读 work_queue/GitHub/流。_
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | # Spec-0073/T2: 本地 daemon 接口（HTTP+SSE），供 Electron 桌面 app 读 work_queue/GitHub/流。 |
+| `daemon.py` | # Spec-0073/T2: 本地 daemon 接口（HTTP + SSE），只听 127.0.0.1。 |
+
 ### openagents.recipes
 
 _# Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent_
@@ -107,6 +116,7 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `selfupdate.py` | # Spec-0070/T1: openagents 自更新预检——每次 `openagents` 命令前保证跑在最新快照。 |
 | `skip.py` | Spec-0054/T1: vigil --skip 逐闸旁路开关配置模型（与 hold.py 对称）。 |
+| `streams.py` | # Spec-0073/T1: agent 输出按 subject 分流（stream tee）。 |
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
 
@@ -130,6 +140,8 @@ graph LR
     nopenagents_backends_base["backends.base"]
     nopenagents_backends_claude_code["backends.claude_code"]
     nopenagents_cli["openagents.cli"]
+    nopenagents_desktop["openagents.desktop"]
+    nopenagents_desktop_daemon["desktop.daemon"]
     nopenagents_recipes["openagents.recipes"]
     nopenagents_recipes_backfill["recipes.backfill"]
     nopenagents_recipes_stages["recipes.stages"]
@@ -169,6 +181,7 @@ graph LR
     nopenagents_utils_results["utils.results"]
     nopenagents_utils_selfupdate["utils.selfupdate"]
     nopenagents_utils_skip["utils.skip"]
+    nopenagents_utils_streams["utils.streams"]
     nopenagents_utils_worknote["utils.worknote"]
     nopenagents_utils_workspace["utils.workspace"]
     nopenagents_agents --> nopenagents_agents_deliver
@@ -181,7 +194,10 @@ graph LR
     nopenagents_backends_claude_code --> nopenagents_backends_base
     nopenagents_backends_claude_code --> nopenagents_utils
     nopenagents_backends_claude_code --> nopenagents_utils_proc
+    nopenagents_backends_claude_code --> nopenagents_utils_streams
     nopenagents_cli --> nopenagents_backends_claude_code
+    nopenagents_cli --> nopenagents_desktop
+    nopenagents_cli --> nopenagents_desktop_daemon
     nopenagents_cli --> nopenagents_recipes
     nopenagents_cli --> nopenagents_recipes_backfill
     nopenagents_cli --> nopenagents_recipes_vigil
@@ -201,6 +217,8 @@ graph LR
     nopenagents_cli --> nopenagents_utils_release
     nopenagents_cli --> nopenagents_utils_results
     nopenagents_cli --> nopenagents_utils_selfupdate
+    nopenagents_desktop_daemon --> nopenagents_utils
+    nopenagents_desktop_daemon --> nopenagents_utils_streams
     nopenagents_recipes_backfill --> nopenagents_recipes
     nopenagents_recipes_backfill --> nopenagents_recipes_stages
     nopenagents_recipes_backfill --> nopenagents_utils
@@ -241,6 +259,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_github
     nopenagents_recipes_vigil --> nopenagents_utils_identity
     nopenagents_recipes_vigil --> nopenagents_utils_proc
+    nopenagents_recipes_vigil --> nopenagents_utils_streams
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_github
     nopenagents_runtime_gates --> nopenagents_spec

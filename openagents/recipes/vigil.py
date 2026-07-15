@@ -150,7 +150,7 @@ from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
 from openagents.runtime import context, engine, timing
 from openagents.runtime.state import RuntimeState
-from openagents.utils import agent_config, git, github, identity, proc
+from openagents.utils import agent_config, git, github, identity, proc, streams
 
 # Spec-0065/T2: 单 issue → 单分支命名（承旧串行 vigil 一致）。
 _BRANCH_PREFIX = "openagents/issue-"
@@ -2406,6 +2406,9 @@ def _run_claimed(
             agent_id=agent_id,
         )
         return
+    # Spec-0073/T1: 本次认领的 agent 输出分流到该 subject 的 ring buffer（喂 daemon 大窗 SSE）。领取时的
+    # subject UNIQUE 保证本 worker 线程此刻独占该 subject，故「线程→subject」一一映射，bind/unbind 成对。
+    streams.bind(subject=subject)
     try:
         _reconcile(
             backend=backend,
@@ -2441,6 +2444,9 @@ def _run_claimed(
             agent_id=agent_id,
         )
         return
+    finally:
+        # Spec-0073/T1: 收工/异常/挂死任一路径都解绑——线程复用时不把上一个 subject 的绑定串给下一个。
+        streams.unbind()
     _finish(
         conn=conn,
         task_id=row["id"],

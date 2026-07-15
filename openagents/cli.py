@@ -156,6 +156,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("board", help="启动本地成果看板")
 
+    # Spec-0073/T2：desktop 起本地 daemon（HTTP+SSE）供 Electron 桌面 app 读 work_queue/流；只读呈现。
+    p_desktop = sub.add_parser(
+        "desktop", help="启动本地 daemon（HTTP+SSE）供桌面 app 呈现 vigil --parallel 并行成果"
+    )
+    p_desktop.add_argument(
+        "--host", default="127.0.0.1", metavar="HOST", help="监听地址（默认仅本机 127.0.0.1）"
+    )
+    p_desktop.add_argument(
+        "--port", type=int, default=8765, metavar="PORT", help="监听端口（默认 8765；0=系统分配）"
+    )
+
     # Spec-0066/T3：读 .openagents/timing.jsonl，输出单 issue 各阶段墙钟时长 + 跨 issue p50/p90 文本报告
     # （定位流水线瓶颈：CI 排队 / review 卡顿 / 轮询等待各占多久）。薄路由，聚合逻辑在 runtime.timing。
     p_report = sub.add_parser(
@@ -492,10 +503,26 @@ def _cmd_board(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_desktop(args: argparse.Namespace) -> int:
+    # Spec-0073/T2：起本地 daemon（HTTP+SSE）。只读 work_queue + streams ring buffer，不操作仓库/远端，
+    # 故跳过 preflight（同 board）。db 在 <repo>/.openagents/vigil-queue.db（vigil --parallel 落盘处）。
+    from openagents.desktop import daemon
+
+    ctx = resolve_project()
+    repo_root = ctx.repo_root if ctx is not None else Path.cwd()
+    db_path = repo_root / ".openagents" / "vigil-queue.db"
+    board_fn = daemon.default_board_fn(db_path=db_path, enrich=None)
+    daemon.run(host=args.host, port=args.port, board_fn=board_fn)
+    return 0
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     # board 不操作仓库，跳过 preflight（决策 10）。
     if args.command == "board":
         return _cmd_board(args)
+    # Spec-0073/T2：desktop 只读本地 work_queue/流，不操作仓库/远端，同样跳过 preflight。
+    if args.command == "desktop":
+        return _cmd_desktop(args)
     # Spec-0066/T3：report 只读本地 timing.jsonl，不操作仓库/远端，同样跳过 preflight（无 remote 也能出报告）。
     if args.command == "report":
         ctx = resolve_project()
