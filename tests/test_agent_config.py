@@ -15,8 +15,10 @@ from openagents.utils.agent_config import (
     RELEASE_MANUAL,
     AgentConfig,
     AgentConfigError,
+    _default_template_text,
     default_config,
     load_agent_config,
+    scaffold_default_config,
 )
 
 
@@ -229,3 +231,66 @@ def test_top_level_non_mapping_rejected(tmp_path):
     cfg = _write(tmp_path, "- just\n- a\n- list\n")
     with pytest.raises(AgentConfigError):
         load_agent_config(path=cfg)
+
+
+# --------------------------------------------------------------------------------------------------
+# Spec-0067/T1: 打包默认配置模板 + scaffold_default_config（防漂移 / 幂等 / 可回读）契约测试。
+# --------------------------------------------------------------------------------------------------
+
+
+def test_packaged_template_matches_builtin_defaults(tmp_path):
+    # 防漂移硬闸：打包模板经 load_agent_config 解析后，必须语义等价内建默认 default_config()。
+    # 模板里写死的默认（stages 全 agent / claude_code / manual / interval 60 / base main /
+    # labels [openagents]）与 agent_config._DEFAULT_* 是两处表述同一事实——改一方不同步另一方，
+    # 这条 CI 就红（Spec-0067 Drawbacks）。逐字段比而非整对象等值：repos 路径依赖配置文件落点，
+    # 与 default_config() 的 cwd 基准不同，比 stages/agents/release/defaults 语义即可。
+    cfg_path = tmp_path / ".openagents" / "openagents.yml"
+    assert scaffold_default_config(path=cfg_path, force=False) is True
+    cfg = load_agent_config(path=cfg_path)
+    builtin = default_config()
+    for stage in ("triage", "rfc", "conflict", "ci", "e2e", "review", "merge"):
+        assert (
+            cfg.stages.owner_of(stage=stage) == builtin.stages.owner_of(stage=stage) == OWNER_AGENT
+        )
+    for role in ("triager", "drafter", "implementer", "reviewer", "replier", "deliver"):
+        assert cfg.agents.backend_for(role=role) == "claude_code"
+    assert cfg.release.mode == builtin.release.mode == RELEASE_MANUAL
+    assert cfg.interval == builtin.interval == 60
+    assert cfg.base == builtin.base == "main"
+    assert cfg.labels == builtin.labels == ["openagents"]
+
+
+def test_scaffold_writes_when_absent(tmp_path):
+    # 目标不存在 → 建好父目录、写入模板文本、返回 True；内容逐字等于打包模板。
+    cfg_path = tmp_path / ".openagents" / "openagents.yml"
+    assert not cfg_path.exists()
+    assert scaffold_default_config(path=cfg_path, force=False) is True
+    assert cfg_path.exists()
+    assert cfg_path.read_text(encoding="utf-8") == _default_template_text()
+
+
+def test_scaffold_is_idempotent_without_force(tmp_path):
+    # 已存在且 force=False → 返回 False、绝不覆盖用户改动。
+    cfg_path = tmp_path / ".openagents" / "openagents.yml"
+    scaffold_default_config(path=cfg_path, force=False)
+    cfg_path.write_text("stages:\n  review: human\n", encoding="utf-8")
+    assert scaffold_default_config(path=cfg_path, force=False) is False
+    assert cfg_path.read_text(encoding="utf-8") == "stages:\n  review: human\n"
+
+
+def test_scaffold_force_overwrites(tmp_path):
+    # force=True → 覆盖既有、返回 True，内容重置回打包模板。
+    cfg_path = tmp_path / ".openagents" / "openagents.yml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text("stages:\n  review: human\n", encoding="utf-8")
+    assert scaffold_default_config(path=cfg_path, force=True) is True
+    assert cfg_path.read_text(encoding="utf-8") == _default_template_text()
+
+
+def test_scaffolded_file_loads_cleanly(tmp_path):
+    # 生成物必须能被既有加载器无错解析（round-trip：scaffold → load）。
+    cfg_path = tmp_path / ".openagents" / "openagents.yml"
+    scaffold_default_config(path=cfg_path, force=False)
+    cfg = load_agent_config(path=cfg_path)
+    assert isinstance(cfg, AgentConfig)
+    assert cfg.stages.owner_of(stage="merge") == OWNER_AGENT

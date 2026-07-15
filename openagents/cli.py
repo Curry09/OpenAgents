@@ -63,7 +63,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
-    sub.add_parser("init", help="绑定/初始化当前目录为 OpenAgents 项目")
+    # Spec-0067/T2：init 除就绪校验外，顺手把默认 .openagents/openagents.yml 生成出来（幂等）。
+    p_init = sub.add_parser("init", help="绑定/初始化当前目录为 OpenAgents 项目（并生成默认配置）")
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="用包内最新模板覆盖已存在的 .openagents/openagents.yml（默认幂等、不覆盖用户改动）",
+    )
 
     # Spec-0064/T5：自主环——收编 rfc/implement/iterate/poll/watch/vigil-all/fleet 等自动化单步。
     p_vigil = sub.add_parser(
@@ -273,9 +279,25 @@ def _parse_gate_list(*, raw: str | None) -> set[str]:
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0067/T2：就绪校验后顺手 scaffold 默认 .openagents/openagents.yml（幂等，--force 覆盖）——
+    # 让首次上手即有一份带注释、可直接改的声明式默认。生成物只是默认，运行时 flag 仍可单次覆盖它。
+    from openagents.utils import envcheck
+    from openagents.utils.agent_config import scaffold_default_config
+
     github.ensure_prerequisites()
     print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
-    from openagents.utils import envcheck
+
+    config_path = ctx.repo_root / ".openagents" / "openagents.yml"
+    existed = config_path.exists()
+    if scaffold_default_config(path=config_path, force=args.force):
+        if existed:
+            print("✓ 已用包内模板覆盖配置 .openagents/openagents.yml")
+        else:
+            print(
+                "✓ 已生成默认配置 .openagents/openagents.yml（可编辑；oa vigil --skip/--hold 可单次覆盖）"
+            )
+    else:
+        print("· 配置已存在，跳过生成 .openagents/openagents.yml（--force 覆盖）")
 
     print()
     print(envcheck.check().text)

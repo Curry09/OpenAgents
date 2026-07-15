@@ -263,14 +263,68 @@ def test_board_skips_preflight(monkeypatch):
     assert calls == []
 
 
-def test_init_runs_preflight_and_envcheck(monkeypatch):
-    calls = _patch_ensure(monkeypatch)
+def test_init_runs_preflight_and_envcheck(monkeypatch, tmp_path):
+    calls = _patch_ensure(monkeypatch, repo_root=str(tmp_path))
     monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     monkeypatch.setattr(
         "openagents.utils.envcheck.check", lambda: SimpleNamespace(text="▶ 体检", all_ok=True)
     )
     assert main(["init"]) == 0
     assert calls == [True]
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0067/T2：init 顺手 scaffold 默认 .openagents/openagents.yml（幂等 / --force 覆盖）
+# --------------------------------------------------------------------------- #
+
+
+def _quiet_envcheck(monkeypatch):
+    monkeypatch.setattr(
+        "openagents.utils.envcheck.check", lambda: SimpleNamespace(text="▶ 体检", all_ok=True)
+    )
+
+
+def test_parser_registers_init_force_flag():
+    subparsers = next(a for a in build_parser()._actions if getattr(a, "choices", None))
+    init = subparsers.choices["init"]
+    assert any(a.dest == "force" and a.const is True for a in init._actions)
+
+
+def test_init_generates_default_config_first_run(monkeypatch, tmp_path, capsys):
+    _patch_ensure(monkeypatch, repo_root=str(tmp_path))
+    _quiet_envcheck(monkeypatch)
+    cfg = tmp_path / ".openagents" / "openagents.yml"
+    assert not cfg.exists()
+    assert main(["init"]) == 0
+    assert cfg.exists()
+    from openagents.utils.agent_config import _default_template_text
+
+    assert cfg.read_text(encoding="utf-8") == _default_template_text()
+    assert "已生成默认配置" in capsys.readouterr().out
+
+
+def test_init_is_idempotent_and_preserves_user_edits(monkeypatch, tmp_path, capsys):
+    _patch_ensure(monkeypatch, repo_root=str(tmp_path))
+    _quiet_envcheck(monkeypatch)
+    cfg = tmp_path / ".openagents" / "openagents.yml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("stages:\n  review: human\n", encoding="utf-8")
+    assert main(["init"]) == 0
+    assert cfg.read_text(encoding="utf-8") == "stages:\n  review: human\n"
+    assert "已存在" in capsys.readouterr().out
+
+
+def test_init_force_overwrites_config(monkeypatch, tmp_path, capsys):
+    _patch_ensure(monkeypatch, repo_root=str(tmp_path))
+    _quiet_envcheck(monkeypatch)
+    cfg = tmp_path / ".openagents" / "openagents.yml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("stages:\n  review: human\n", encoding="utf-8")
+    assert main(["init", "--force"]) == 0
+    from openagents.utils.agent_config import _default_template_text
+
+    assert cfg.read_text(encoding="utf-8") == _default_template_text()
+    assert "已用包内模板覆盖" in capsys.readouterr().out
 
 
 def test_missing_dependency_hint(monkeypatch, capsys):

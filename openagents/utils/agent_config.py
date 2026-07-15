@@ -25,6 +25,7 @@ git / gh / 子进程（理念 10 解耦）。
 
 from __future__ import annotations
 
+import importlib.resources
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,6 +96,11 @@ _DEFAULT_REPO_PATH = "."
 
 # Spec-0064/T1: 配置文件默认落点（承 .openagents/ 命名空间；单仓库整份可省 → 内建默认）。
 DEFAULT_CONFIG_PATH = ".openagents/openagents.yml"
+
+# Spec-0067/T1: 打包进包内的默认配置注释模板——`oa init` 从它生成盘上 .openagents/openagents.yml
+# 的单一真源。放 openagents/data/ 使源码树（editable 安装）与 wheel 里路径一致、两种安装模式同源
+# （见 Spec-0067 Rationale）。防漂移：tests 断言它经 load_agent_config 解析后语义等价 default_config()。
+_TEMPLATE_RESOURCE = "openagents.yml.template"
 
 _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -249,6 +255,32 @@ def default_config() -> AgentConfig:
             )
         ],
     )
+
+
+def _default_template_text() -> str:
+    """读打包进包内的默认配置注释模板文本（Spec-0067/T1）。
+
+    走 `importlib.resources.files("openagents")` 定位包目录再 joinpath 到 data/ 下的模板，
+    只依赖 `openagents` 是包（恒成立），不要求 data 子目录本身是包；editable 与 wheel 两种
+    安装模式都可达（源码树与 wheel 内路径同为 openagents/data/）。
+    """
+    resource = importlib.resources.files("openagents").joinpath("data", _TEMPLATE_RESOURCE)
+    return resource.read_text(encoding="utf-8")
+
+
+def scaffold_default_config(*, path: Path, force: bool) -> bool:
+    """把包内默认配置注释模板写到 `path`（Spec-0067/T1）——`oa init` 的落盘出口。
+
+    幂等：`path` 已存在且 `not force` → 直接返回 False（不碰用户改动）；否则建好父目录后写入
+    模板文本、返回 True（`force=True` 时覆盖既有）。生成物只是声明式默认，运行时 flag 仍可单次
+    覆盖它（见 `cli._effective_config`）。除写目标文件外无副作用（不读 git/gh/网络，理念 10 解耦）。
+    """
+    resolved = Path(path)
+    if resolved.exists() and not force:
+        return False
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(_default_template_text(), encoding="utf-8")
+    return True
 
 
 def load_agent_config(*, path: Path) -> AgentConfig:

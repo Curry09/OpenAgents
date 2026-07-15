@@ -192,6 +192,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 - e2e 意图：证明「墙钟阶段计时旁路埋点 + 跨轮时长重建」在离线确定性链路上成立——反复调 run_vigil(once=True) 一次一个 tick 推一个 issue 环，每 tick 在 _consider/_reconcile 旁路把 level-triggered _Verdict 归一成 phase 事件 append 到 .openagents/timing.jsonl；跨轮把「等 CI」「等 review」「在合并」细分成独立 phase（不再糊成旧栈单一 open）；timing.record 写失败被容错吞掉、守夜照常推进、_fingerprint 埋点前后不变（护栏一不自毁）；oa report 读回 jsonl 聚合出单 issue 各阶段 duration + 跨 issue p50/p90 + 最长尾，并标注墙钟精度下限=轮询 interval。
   - 测法：形态：纯后端埋点 + 聚合 + CLI 报告，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0064 同款）： 1. timing 模块针对性 pytest（纯标准库、不触网络/仓库）：record append 合法 JSON 五键 + UTC ISO8601；    注入 open/write 抛异常 → record 静默吞掉不 raise（容错）；load_events 跳损坏行；timelines 跨轮    重建各 phase duration（含 phase 复现分段累加、末条 terminal 时长 0）；phase_stats 出每 phase    p50/p90 + 最长尾 + interval 精度下限字段。 2. vigil 埋点针对性 pytest（假 backend/github seam，不触真实 LLM/网络/仓库）：once 跑一 tick 后    timing.jsonl 生成含 dispatch/等待/合并各段；_phase_of 四值 verdict × facts 逐态归一；record 抛异常    时 _consider/_reconcile 照常返回（容错端到端）；_fingerprint 埋点前后相等（旁路不进 fp）；合并段    awaiting-ci 与 review-or-fix 可区分。 3. CLI 针对性 pytest：oa report 对造好的 timing.jsonl 输出单 subject 时间线 + 跨 subject p50/p90 +    「精度下限 = interval」字样；空/缺文件友好提示、退出码 0。 4. grep 锚点（e2e 脚本）：runtime/timing.py 存在且零 recipes.vigil import（无循环依赖）；timing 事件    写入点仅在 vigil.py 两处 _consider/_reconcile；record 容错（except 兜底）就位。 脚本：scripts/e2e-spec-0066-phase-timing-wall-clock.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0067 oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）
+把仓库根的 openagents.yml.template 收进包内作 package data 单一真源，oa init 幂等地把它拷成 .openagents/openagents.yml（--force 覆盖），让首次上手即有带注释、可直接改的声明式默认；运行时 --skip/--hold/--base 仍单次覆盖不变。加防漂移测试断言打包 template 语义等价 default_config()。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -436,6 +439,8 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0066 | 0066/T1 | runtime.timing 独立模块：append-only 事件写入器（容错） + 跨轮时长重建聚合器 | done | — | openagents/runtime/timing.py<br>tests/test_runtime_timing.py |
 | 0066 | 0066/T2 | vigil 旁路埋点：生产者 _consider（等待/终态段）+ worker _reconcile（活动动作段）追加阶段信号 | done | T1 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil_timing.py |
 | 0066 | 0066/T3 | oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告 | done | T1 | openagents/cli.py<br>tests/test_cli_timing.py |
+| 0067 | 0067/T1 | 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试 | done | — | openagents/data/openagents.yml.template<br>openagents.yml.template<br>openagents/utils/agent_config.py<br>tests/test_agent_config.py |
+| 0067 | 0067/T2 | oa init 接线：--force + 幂等生成 + 提示 | done | T1 | openagents/cli.py<br>tests/test_cli.py |
 
 ## 跨 feature 关系图
 
@@ -797,6 +802,10 @@ graph LR
         n0066_T2["T2 vigil 旁路埋点：生产者 _consider（等待/终态段）+ worker _reconcile（活动动作段）追加阶段信号"]
         n0066_T3["T3 oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告"]
     end
+    subgraph G0067[0067 init-scaffold-config]
+        n0067_T1["T1 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试"]
+        n0067_T2["T2 oa init 接线：--force + 幂等生成 + 提示"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1007,6 +1016,7 @@ graph LR
     n0065_T2 --> n0065_T1
     n0066_T2 --> n0066_T1
     n0066_T3 --> n0066_T1
+    n0067_T2 --> n0067_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1030,7 +1040,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1068,6 +1078,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
+| openagents/utils/agent_config.py | 0064, 0067 |
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
@@ -1084,11 +1095,12 @@ graph LR
 | pyproject.toml | 0001, 0014 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
+| tests/test_agent_config.py | 0064, 0067 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0065 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
@@ -2823,4 +2835,24 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0067 oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）（issue #165）
+
+```mermaid
+graph LR
+    nT1["T1 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试"]
+    nT2["T2 oa init 接线：--force + 幂等生成 + 提示"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
