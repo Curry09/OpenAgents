@@ -1,4 +1,11 @@
-"""# Spec-0060/T2: runtime.engine —— run_agent 引擎（填占位符 → 派 backend → 收结构化输出）。
+# Spec-0060/T2: runtime.engine —— 新栈唯一「派 agent」入口（元信息放 docstring 之上，像 argparse # Author）
+
+"""Fill an agent's prompt placeholders, dispatch to a backend, and return validated output.
+
+调用示例：
+    >>> out = run_agent(triager, backend=claude, work_dir=wt, issue_body=body)
+    >>> out["verdict"]
+    'actionable'
 
 新栈唯一的「派 agent」入口，也是 recipe 调 agent 的唯一方式。职责三步、**不认识任何具体流程**
 （换一套 agent/recipe 零改动，理念 10 机制与策略分离）：
@@ -7,12 +14,12 @@
 2. `backend.run(work_dir=..., task=prompt, context=...)` 派后端跑（backend 抽象见 backends/base.py）；
 3. 解析 agent 输出**末行 JSON**、按 `agent_module.OUTPUT_SCHEMA`（键→类型 dict）校验 → 返回 dict。
 
-失败语义（见 spec Unresolved 定死为「raise，交上层 recipe 按轮次消化」）：agent 吐坏 JSON /
-末行不是 JSON 对象 / 缺 schema 键 / 键类型不符 → 抛 `AgentOutputError`。engine 不重试、不兜业务，
-把「这轮输出不合契约」明确上抛，由 recipe 层决定（solve_issue 里表现为 round_cap 内的一轮）。
-
 保留字占位符：`work_dir`（必填，派给 backend 的工作目录）、`context`（选填，issue 正文/PR 历史等
 上下文串）由 engine 从 placeholders 取出交给 backend；其余键都用于填 PROMPT 模板。
+
+Exports:
+    run_agent -- 填占位符 → 派 backend → 校验末行 JSON → 返回结构化 dict。
+    AgentOutputError -- agent 输出不合 OUTPUT_SCHEMA 契约（坏 JSON / 缺键 / 类型不符）时抛出。
 """
 
 from __future__ import annotations
@@ -22,7 +29,10 @@ from typing import Any
 
 
 class AgentOutputError(Exception):
-    """# Spec-0060/T2: agent 输出不合 OUTPUT_SCHEMA 契约（坏 JSON / 缺键 / 类型不符）时抛出。"""
+    """Raise when an agent's output breaks the OUTPUT_SCHEMA contract.
+
+    Spec-0060/T2: agent 输出不合契约（坏 JSON / 末行非 JSON 对象 / 缺 schema 键 / 键类型不符）时抛出。
+    """
 
 
 def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[str, Any]:

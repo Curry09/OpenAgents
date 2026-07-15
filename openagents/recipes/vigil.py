@@ -463,7 +463,9 @@ def run_vigil(
     watchdog_thresholds: dict[str, int | None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
 ) -> None:
-    """图驱动守夜主循环：K 个常驻 worker 领 `work_queue` 表，生产者每 tick 按 level-triggered 判定补给。
+    """Run the graph-driven vigil main loop until interrupted.
+
+    Spec-0065/T2: 图驱动并行守夜主循环——K 个常驻 worker 领 work_queue，生产者每 tick level-triggered 补给
 
     建表（`_init_db`）后起 `concurrency`(=K) 个 worker 线程跑 `_worker_loop`（消费者：`_claim_next` 原子领
     一个 subject + 取 flock 存活证明 → `_reconcile` **推进到卡住为止** → `_mark_done` 先删行后释锁 → 再领）；
@@ -492,6 +494,22 @@ def run_vigil(
       DB——**幂等 + 持久**，安全放弃、重启续跑。
     - `kill -9` / OOM / 断电：`claimed` 行留在库里，但锁随进程被内核回收 → 重启后第一个 `_reclaim_dead` 就
       抢得到锁 → 判死 → 行立刻回 `queued`。**恢复延迟 = 一个 tick，不是一个租约。**
+
+    Args:
+        backend: 派 agent 的后端（`engine.run_agent` 透传）；worker 领到 subject 用它跑 reconcile 分支。
+        state: `RuntimeState` 运行态存储，记录每个 subject 的进度与指纹分流依据。
+        work_dir: 仓库工作目录；队列 DB 落在 `work_dir/.openagents/vigil-queue.db`。
+        config: 单一真源配置——stages 三态 + agents 后端映射 + base/labels/interval。
+        once: True 只跑一个 `_producer_tick` 再 `_drain_queue` 排空即返回（cron/CI/测试）；False 长驻循环。
+        concurrency: 常驻 worker 线程数 K（并发上限）；默认 1 即退化串行。
+        agent_id: 本守夜人签名标识，用于认领标签与签名回帖；缺省空串。
+        priority_fn: 排 subject 优先级的偏函数；None 用内置 `_priority_default`。
+        watchdog_thresholds: QUIET 看门狗各阈值覆盖；None/缺键回落 `_WATCHDOG_DEFAULTS`。
+        now_fn: 取当前时间的注入点（测试可定桩）；None 用 `datetime.now(UTC)`。
+
+    Raises:
+        Exception: once=True 时单个 `_producer_tick` 的异常上抛让调度器看见非零退出；once=False 时吞掉
+            记日志继续（守夜第一要务是「活着进下一轮」）。KeyboardInterrupt 两种模式都吞掉、收池返回。
     """
     resolved_priority = priority_fn or _priority_default
     resolved_now = now_fn or (lambda: datetime.now(UTC))

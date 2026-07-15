@@ -12,6 +12,10 @@ PROMPT = Template(
 
 若下方有「评审反馈」，说明这是一轮迭代：请针对反馈逐条修改；反馈为空则为首轮实现。
 
+【docstring 规范（PEP 257 / PEP 8 / Google §3.8）——下笔即合规，别等 lint 追改】
+- 模块 docstring：首行一句干净的英文人话摘要（给 help() 用、句号结尾）→ 空行 → 用法示例 → `Exports:` 逐个列出导出的类/异常/函数各带一行摘要；`__init__.py` 另列导出的子模块/子包。**spec-id 上移为文件顶部的 `#` 注释行**（像 CPython argparse.py 把 `# Author:` 放 docstring 之上），**禁止 `\"\"\"# Spec-…` 写法**（`#` 在三引号里是字面文本，会原样进 `__doc__` 污染 `help()`）。
+- 函数/类 docstring：首行用**祈使句**（"Do this / Return that"）、压成**一行短句**（≤80 字符、句号结尾）；OpenAgents 溯源 spec 引用（`Spec-NNNN/Tn`）作**第二行**留在 docstring 内；参数/返回/异常用 `Args:` / `Returns:` / `Raises:` 结构化。
+
 取证判断纪律：你改的行为若是产品对外行为，验证就要真 app 跑出来的证据，自检分三类——① UI 直接看得到→截下可视化结果存进 tracked 证据目录；② UI 看不到但改产品对外行为→真 app 触发它、提交真实运行日志文本 + 触发上下文为证；③ 纯内部实现细节（重构等）→ 用相称的自动化测试即可。纪律：自动化测试/后端日志替代不了真 app 证据；不许拿「LLM 慢/flaky/投入产出比差」当跳过借口；真跑不起来就诚实报「因 X 未验证」的阻塞项，绝不假称已验证。
 
 收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决（OVERVIEW.md 这类生成式索引直接 `spec render` 重渲、其余语义解决）。完成后自负交付（commit + push），最后只输出一行 JSON：

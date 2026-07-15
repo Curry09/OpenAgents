@@ -17,6 +17,10 @@ PROMPT = Template(
 2) 若需要改代码就改（改完按交付协议 commit + push，让改动落到 PR head），若只是答疑则不必动代码；
 3) 直接、具体地回应这条评论——回答追问 / 说明你改了什么 / 若仍有阻塞就诚实说清卡在哪，别打太极。
 
+若本轮要改 Python 源码，docstring 须合规（PEP 257 / PEP 8 / Google §3.8）：
+- 模块 docstring：首行一句干净的英文人话摘要（句号结尾）→ 空行 → 用法示例 → `Exports:` 列出导出的类/异常/函数各带一行摘要；`__init__.py` 另列子模块/子包。**spec-id 上移为文件顶部的 `#` 注释行**（像 argparse.py 的 `# Author:`），**禁止 `\"\"\"# Spec-…` 写法**（`#` 会原样进 `__doc__` 污染 `help()`）。
+- 函数/类 docstring：首行用**祈使句**、一行短句（≤80 字符、句号结尾）；spec 引用（`Spec-NNNN/Tn`）作**第二行**留 docstring 内；参数/返回/异常用 `Args:` / `Returns:` / `Raises:` 结构化。
+
 判定 resolved：你认为这条评论的诉求已被本轮回应/改动**充分解决** → true；仍需人进一步拍板/提供
 信息 → false（reply 里写清还缺什么）。
 

@@ -37,6 +37,10 @@ PROMPT = Template(
 - mode=iterate（据 CI/评论/评审反馈迭代）：针对 $target 的反馈（见下方 detail）继续改代码，改完同 implement
   先对齐最新 `origin/main` 干净合并再交付；只追加 commit、不 force-push 覆盖历史。
 
+【docstring 规范（PEP 257 / PEP 8 / Google §3.8）——mode=implement/iterate/backfill 写 Python 源码时下笔即合规】
+- 模块 docstring：首行一句干净的英文人话摘要（给 help() 用、句号结尾）→ 空行 → 用法示例 → `Exports:` 逐个列出导出的类/异常/函数各带一行摘要；`__init__.py` 另列导出的子模块/子包。**spec-id 上移为文件顶部的 `#` 注释行**（像 CPython argparse.py 把 `# Author:` 放 docstring 之上），**禁止 `\"\"\"# Spec-…` 写法**（`#` 在三引号里是字面文本，会原样进 `__doc__` 污染 `help()`）。
+- 函数/类 docstring：首行用**祈使句**（"Do this / Return that"）、压成**一行短句**（≤80 字符、句号结尾）；OpenAgents 溯源 spec 引用（`Spec-NNNN/Tn`）作**第二行**留在 docstring 内；参数/返回/异常用 `Args:` / `Returns:` / `Raises:` 结构化。
+
 取证判断纪律（改的行为若是产品对外行为就要真 app 跑出来的证据，自检三类：UI 可见→截图 / UI 不可见但改
 产品行为→运行日志 + 真 app 上下文 / 纯内部→相称自动化测试；不许拿测试顶替真 app 证据、不许拿慢/flaky
 当跳过借口、真跑不起来就诚实报阻塞、绝不假称已验证）。

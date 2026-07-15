@@ -60,7 +60,7 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 |----|----|
 | `__init__.py` | # Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 最小硬闸 + 上下文/状态）。 |
 | `context.py` | # Spec-0060/T5: runtime.context —— 组装占位符的值，供 recipe 传给 engine.run_agent。 |
-| `engine.py` | # Spec-0060/T2: runtime.engine —— run_agent 引擎（填占位符 → 派 backend → 收结构化输出）。 |
+| `engine.py` | Fill an agent's prompt placeholders, dispatch to a backend, and return validated output. |
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
 | `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
