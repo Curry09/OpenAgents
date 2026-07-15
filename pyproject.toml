@@ -1,6 +1,6 @@
 [project]
 name = "openagents"
-version = "0.1.0"
+version = "0.1.1"
 description = "RFC 驱动的多 Agent 框架"
 requires-python = ">=3.12"
 # Spec-0014/T1：spec 工具需要 YAML round-trip 保真（块标量/键序/注释）与声明式校验。
