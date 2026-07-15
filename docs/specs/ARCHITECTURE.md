@@ -104,6 +104,7 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
+| `selfupdate.py` | # Spec-0070/T1: openagents 自更新预检——每次 `openagents` 命令前保证跑在最新快照。 |
 | `skip.py` | Spec-0054/T1: vigil --skip 逐闸旁路开关配置模型（与 hold.py 对称）。 |
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
@@ -164,6 +165,7 @@ graph LR
     nopenagents_utils_release["utils.release"]
     nopenagents_utils_replynote["utils.replynote"]
     nopenagents_utils_results["utils.results"]
+    nopenagents_utils_selfupdate["utils.selfupdate"]
     nopenagents_utils_skip["utils.skip"]
     nopenagents_utils_worknote["utils.worknote"]
     nopenagents_utils_workspace["utils.workspace"]
@@ -196,6 +198,7 @@ graph LR
     nopenagents_cli --> nopenagents_utils_identity
     nopenagents_cli --> nopenagents_utils_release
     nopenagents_cli --> nopenagents_utils_results
+    nopenagents_cli --> nopenagents_utils_selfupdate
     nopenagents_recipes_backfill --> nopenagents_recipes
     nopenagents_recipes_backfill --> nopenagents_recipes_stages
     nopenagents_recipes_backfill --> nopenagents_utils

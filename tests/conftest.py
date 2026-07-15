@@ -32,3 +32,16 @@ def _no_real_gh(monkeypatch):
         return _REAL_RUN(argv, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", _guard)
+
+
+@pytest.fixture(autouse=True)
+def _no_self_update(monkeypatch):
+    """# Spec-0070/T1: 全局关掉自更新预检——既有测试导入/调用 `cli.main` 时预检整段 no-op，零回归、不触网。
+
+    `openagents.cli.main()` 每次都在 `parse_args` 前跑一段自更新预检（`selfupdate.precheck`：git fetch →
+    比对落后 → pull/uv install/execvp）。测试里绝不能真去 fetch 网络 / 重装 / execvp，故 autouse 置硬开关
+    `OPENAGENTS_NO_SELF_UPDATE=1`，让 `precheck` 一进来就短路。测 selfupdate 本体的用例自己 delenv 覆盖它。
+    """
+    from openagents.utils import selfupdate
+
+    monkeypatch.setenv(selfupdate.DISABLE_ENV, "1")

@@ -560,6 +560,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 分发/退出码/错误处理链全部不变。
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
+    # Spec-0070/T1：自更新预检——每次命令前保证跑在最新 uv tool 快照上（快照与 git 源码解耦，源码 pull 后
+    # 快照不自动更新）。落后且可安全更新则 pull --ff-only + uv tool install --force + execvp 重执行本命令；
+    # 否则打印可操作提示并 fail-open 继续（离线/脏工作区/feature 分支绝不阻断、绝不动 WIP）。仅接 openagents
+    # 入口（spec 独立命令不接）；传 sys.argv（重执行要完整进程 argv，非 main(argv) 的可选测试入参）。放在
+    # argcomplete 之后：补全握手时 argcomplete 已 exit，走不到这里；正常运行才做预检。
+    from openagents.utils import selfupdate
+
+    selfupdate.precheck(argv=sys.argv)
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help(sys.stderr)

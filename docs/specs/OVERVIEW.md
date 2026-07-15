@@ -225,6 +225,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 - e2e 意图：证明「argcomplete 接现成 argparse parser 生成 Tab 补全」这一接线在离线确定性链路上成立且零回归——main() 在 parse_args 之前调 argcomplete.autocomplete(parser)（补全握手时介入、正常调用零副作用），全部子命令与 vigil 全部选项都进 parser（补全候选单一真源即 build_parser）；argcomplete 缺失时 CLI 优雅降级不崩；argcomplete 已作为运行时依赖声明。
   - 测法：形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067 同款）： 1. CLI 针对性 pytest（打桩 openagents.cli.argcomplete，hermetic 不触 shell/网络）：main([]) 在 parse_args 前调 argcomplete.autocomplete 恰一次且入参是 build_parser() 造出的 ArgumentParser，且 main([]) 仍返回 2（无命令）；把 openagents.cli.argcomplete 打成 None → main([]) 仍返回 2 不抛（优雅降级）；build_parser 注册的子命令全集与 vigil 全部选项仍在（补全候选覆盖面）。 2. grep 锚点（e2e 脚本）：cli.py 存在 argcomplete 优雅降级 import 与 autocomplete(parser) 调用；pyproject.toml 的 dependencies 含 argcomplete。 脚本：scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0070 openagents 自更新预检：每次命令前检测并拉取最新版（快照重装 + 重执行）
+在 openagents 入口每次执行前插一段自更新预检：检测记录分支是否落后源仓库远端(git fetch 比对本地 ref 与 remote/branch)，落后且可安全更新(当前分支==记录分支且工作区干净)则 git pull --ff-only → uv tool install --force → os.execvp 重执行原命令；拉取失败/不可安全更新则打印可操作提示并 fail-open 继续，绝不阻断日常命令、绝不切分支动脏工作区；源仓库路径记于 ~/.openagents/source.json(默认 origin/main，OPENAGENTS_HOME 可覆盖)，在源仓库内运行任一命令时自动侦测落盘；OPENAGENTS_SELFUPDATE_DONE=1 重执行守卫防循环，OPENAGENTS_NO_SELF_UPDATE=1 硬开关整段关闭(供 CI/测试)；核心逻辑纯函数可注入，测试 hermetic 打桩 subprocess/execvp 不触真实 git/uv/网络。
+- e2e 意图：证明「openagents 入口每次命令前的自更新预检」这一接线在离线确定性链路上成立且零回归——precheck 纯函数可注入（run/execvp/environ/stderr 全部外部注入），DISABLE/DONE 两把守卫短路、无 source.json 短路、落后+安全走完整闭环(pull --ff-only → uv tool install --force → execvp 置 DONE=1)、不安全或任何异常一律 fail-open 打印提示继续；cli.main() 在 parse_args 前调 precheck 且正常调用行为逐字不变。
+  - 测法：形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067/0069 同款）： 1. selfupdate 针对性 pytest（注入 fake run/execvp，hermetic 不触真实 git/uv/网络/shell）：DISABLE/DONE 下 precheck 完全 no-op；无 source.json no-op；落后+安全→依次记录 pull --ff-only / uv tool install --force / execvp 且 execvp 环境含 OPENAGENTS_SELFUPDATE_DONE=1；落后但当前分支≠记录分支 / 工作区脏 / fetch 抛错 → 打印提示且不 exec（fail-open）；detect_source_repo 源仓库内落盘、目标项目内不落盘；OPENAGENTS_HOME 覆盖 home。 2. CLI 接线 pytest：main() 在 parse_args 前调 selfupdate.precheck 恰一次；打桩 precheck 为 no-op 时 main([]) 仍返回 2（正常行为不变）。 3. grep 锚点（e2e 脚本）：cli.py 存在 selfupdate.precheck 调用；selfupdate.py 存在 OPENAGENTS_NO_SELF_UPDATE / OPENAGENTS_SELFUPDATE_DONE / --ff-only / execvp；tests/conftest.py 存在 OPENAGENTS_NO_SELF_UPDATE。 脚本：scripts/e2e-spec-0070-self-update-precheck.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -488,6 +493,7 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0067 | 0067/T1 | 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试 | done | — | openagents/data/openagents.yml.template<br>openagents.yml.template<br>openagents/utils/agent_config.py<br>tests/test_agent_config.py |
 | 0067 | 0067/T2 | oa init 接线：--force + 幂等生成 + 提示 | done | T1 | openagents/cli.py<br>tests/test_cli.py |
 | 0069 | 0069/T1 | argcomplete 接线 + 依赖 + 文档 + 测试 | done | — | openagents/cli.py<br>pyproject.toml<br>README.md<br>tests/test_cli.py |
+| 0070 | 0070/T1 | 自更新预检模块 + main() 接线 + 测试离网硬闸 | done | — | openagents/utils/selfupdate.py<br>openagents/cli.py<br>tests/conftest.py<br>tests/test_selfupdate.py |
 
 ## 跨 feature 关系图
 
@@ -882,6 +888,9 @@ graph LR
     subgraph G0069[0069 argcomplete-shell-tab-completion]
         n0069_T1["T1 argcomplete 接线 + 依赖 + 文档 + 测试"]
     end
+    subgraph G0070[0070 self-update-precheck]
+        n0070_T1["T1 自更新预检模块 + main() 接线 + 测试离网硬闸"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1127,7 +1136,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1184,6 +1193,7 @@ graph LR
 | pyproject.toml | 0001, 0014, 0069 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
+| tests/conftest.py | 0065, 0070 |
 | tests/test_agent_config.py | 0064, 0067 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | tests/test_backfill.py | 0025, 0029 |
@@ -3074,6 +3084,22 @@ graph LR
 ```mermaid
 graph LR
     nT1["T1 argcomplete 接线 + 依赖 + 文档 + 测试"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+```
+
+### 0070 openagents 自更新预检：每次命令前检测并拉取最新版（快照重装 + 重执行）（issue #146）
+
+```mermaid
+graph LR
+    nT1["T1 自更新预检模块 + main() 接线 + 测试离网硬闸"]
 ```
 
 演化图：
