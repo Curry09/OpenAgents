@@ -182,6 +182,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0065 图驱动的并行守夜：LLM 排依赖边（落 GitHub 原生 dependencies）+ vigil level-triggered reconcile 并行跑前沿
 把守夜从「每轮全量扫、串行做一个 issue」重构为两面。准入面（agentic）：新 issue 过三态门控、审过打 ready label 作准入令牌，再由 LLM curator 排出彼此的依赖关系，边写进 GitHub 原生 issue dependencies（blocked_by，2025-08 GA）。执行面（机械）：level-triggered reconcile——生产者每 tick 对每个 subject 读一次 GitHub 现态，纯函数给出四值判定（IN_FLIGHT / TERMINAL / QUIET / ACTIONABLE），只有 ACTIONABLE 入队；K 个常驻 worker 各原子领一个 subject，跑一张 reconcile 分支表（人有新话 → 依赖未满足 → 无 PR → 冲突 → CI → e2e → review → merge，顺序即硬依赖）推到卡在外部为止。状态量的落处按「决定 vs 事实」切开：**我们做的决定打 label**（ready 准入 / needs-human 终态 / review 裁决——裁决绑 commit，故 label 名里必须带 head sha：`review-approved:<sha7>`，否则审完再 push 会合并没人审过的代码），**GitHub 自己的事实读原生**（CI / mergeable，本就绑 sha，复制成 label 就是造第二份真相要对账）。agent 干不动时的**正常收口是它自己打 needs-human + 留理由**（一等出口，当场 TERMINAL、轮询停止、零多余 LLM 调用）。刻意不做变更检测（边沿会丢，见 k8s level-triggered 原则），代价是三种 **agent 自己看不见**的死法要护栏：它没意识到自己在空转（不会主动叫人，且每轮留的评论还会刷新时间戳让看门狗不响）→ 收工时盖 attempt 指纹戳（存 GitHub 评论；**戳本身不能改 fp**，故 facts 不含 comment id，否则护栏自毁成死循环）；状态该动却不动（agent 压根没被叫起）→ 看门狗（age 从 GitHub 时间戳算，零本地记忆）。认领落 SQLite 单表（队列 + 归属 + 崩溃计数，一 subject 一行 UNIQUE），存活证明落 fcntl.flock：抢得到锁 ⇒ 内核已回收持有者的锁 ⇒ 它确已死，故不用租约、不猜死亡，双跑是结构性的零而非小概率。SQLite 与 flock 同把部署钉在单机，多机替换点收在 4 个 claim 函数里。承 0062–0064 收敛弧线：两面控制流全内联进 recipes.vigil 的内部函数、不新开模块，旧串行实现直接删除（git history 即回退点，不留死代码副本），recipes 守恒为 3（stages / backfill / vigil）。新增文件：agents/curator.py（排依赖的零逻辑 Template）、agents/admitter.py（三态门控 human 态准入对话的 **fail-closed 人闸**：判「人到底点头没有」——拿 fail-open 的 triager 顶这个位子，人明说「先别做」也会被判可派单，人闸当场退化成一台偏向「是」的 agent 闸；且这道闸必须**认人**（只认 OWNER/MEMBER/COLLABORATOR 的话）并在叫 agent 前先盖 try 戳，否则闸门 fail-closed 而钥匙挂在门外、agent 一判崩就每 tick 重烧一次 LLM）、utils/proc.py（按线程的 PID 认领桶 + kill_tree + flock fd 继承登记，供硬超时精确杀本次调用起的进程树）、离线 e2e 脚本；utils/github.py 补读侧函数（pr_snapshot / check_snapshot / list_blocked_by / add_blocked_by / pr_for_branch）。
 
+### 0066 oa init 自动生成默认 .openagents/openagents.yml（打包内 template 拷出，幂等 + --force 覆盖）
+oa init 从打包进包内的 template 自动落一份带注释的默认 .openagents/openagents.yml：幂等（已存在跳过、--force 强制重写），运行时仍可被 oa vigil 的 --skip/--hold/--base 单次覆盖（_effective_config 不改），并加漂移测断言打包 template 经 load_agent_config 解析后语义等价于 default_config()。
+- e2e 意图：证明 oa init 在真实项目里首次运行即自动落一份带注释的默认 .openagents/openagents.yml，重复运行幂等不覆盖用户改动，只有 --force 才重写回默认——这是本 issue 对外的可见产品行为。
+  - 测法：1. 在一个临时 git 仓库里跑 oa init（github 前置检查按环境放行或打桩），断言 .openagents/openagents.yml 被创建，且内容字节等于包内 openagents/templates/openagents.yml。 2. 手动编辑生成文件（改一行注释或某个 stage 值），再跑一次 oa init，断言文件内容原样不变（幂等、不覆盖用户改动），且输出提示「已存在，跳过（--force 覆盖）」。 3. 跑 oa init --force，断言文件被重写回包内 template 内容，输出提示「已用默认重写」。 4. 把三步的终端输出与文件 diff 存证到 docs/evidence/spec-0066/；gh 不可用时改直接驱动 scaffold.write_default_config 取同一生命周期的产品行为证据并注明。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -420,6 +425,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0064 | 0064/T6 | 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成 | done | T5 | openagents/recipes/solve_issue.py<br>openagents/recipes/merge_pr.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/rfc_lifecycle.py<br>openagents/recipes/fleet.py<br>openagents/agents/planner.py |
 | 0065 | 0065/T1 | graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边） | done | — | openagents/agents/curator.py<br>openagents/agents/admitter.py<br>tests/test_agent_curator.py<br>tests/test_agent_admitter.py |
 | 0065 | 0065/T2 | vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指 | done | T1 | openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/runtime/context.py<br>openagents/runtime/state.py<br>openagents/backends/claude_code.py<br>openagents/cli.py<br>openagents/utils/github.py<br>openagents/utils/proc.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_admit.py<br>tests/conftest.py<br>tests/test_runtime_context.py<br>tests/test_github.py<br>tests/test_utils_github_vigil.py<br>tests/test_utils_proc.py<br>tests/test_backend_claude_code.py<br>tests/test_cli.py<br>scripts/e2e-spec-0065-graph-parallel-vigil.sh |
+| 0066 | 0066/T1 | 打包 template（relocate 进包 + 删根副本）+ scaffold 写盘 util（幂等 + force）+ 单测 + README 起步说明 | pending | — | openagents/templates/openagents.yml<br>openagents/utils/scaffold.py<br>openagents.yml.template<br>README.md<br>tests/test_scaffold.py |
+| 0066 | 0066/T2 | CLI 接线：oa init --force + _cmd_init 调 scaffold 生成/跳过/重写 | pending | T1 | openagents/cli.py<br>tests/test_cli.py |
+| 0066 | 0066/T3 | 防漂移测：包内 template 经 load_agent_config 语义等价 default_config() | pending | T1 | tests/test_config_template_drift.py |
 
 ## 跨 feature 关系图
 
@@ -771,6 +779,11 @@ graph LR
         n0065_T1["T1 graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边）"]
         n0065_T2["T2 vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指"]
     end
+    subgraph G0066[0066 init-scaffold-config]
+        n0066_T1["T1 打包 template（relocate 进包 + 删根副本）+ scaffold 写盘 util（幂等 + force）+ 单测 + README 起步说明"]
+        n0066_T2["T2 CLI 接线：oa init --force + _cmd_init 调 scaffold 生成/跳过/重写"]
+        n0066_T3["T3 防漂移测：包内 template 经 load_agent_config 语义等价 default_config()"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -977,6 +990,8 @@ graph LR
     n0064_T5 --> n0064_T4
     n0064_T6 --> n0064_T5
     n0065_T2 --> n0065_T1
+    n0066_T2 --> n0066_T1
+    n0066_T3 --> n0066_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -989,7 +1004,7 @@ graph LR
 |----|----|
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024 |
 | .github/workflows/ci.yml | 0014, 0023 |
-| README.md | 0026, 0029, 0054 |
+| README.md | 0026, 0029, 0054, 0066 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
@@ -999,7 +1014,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1057,7 +1072,7 @@ graph LR
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0066 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
@@ -2740,4 +2755,28 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0066 oa init 自动生成默认 .openagents/openagents.yml（打包内 template 拷出，幂等 + --force 覆盖）（issue #165）
+
+```mermaid
+graph LR
+    nT1["T1 打包 template（relocate 进包 + 删根副本）+ scaffold 写盘 util（幂等 + force）+ 单测 + README 起步说明"]
+    nT2["T2 CLI 接线：oa init --force + _cmd_init 调 scaffold 生成/跳过/重写"]
+    nT3["T3 防漂移测：包内 template 经 load_agent_config 语义等价 default_config()"]
+    nT1 --> nT2
+    nT1 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
 ```
