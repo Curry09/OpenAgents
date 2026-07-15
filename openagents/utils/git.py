@@ -17,10 +17,15 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 # Spec-0060/T1: 薄再导出 worktree 生命周期原语（不改 workspace.py 任何一行）。
 from openagents.utils.workspace import Workspace, WorkspaceError
+
+# Spec-0035/T1: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
+# 不抽成三模块共享常量：git.py 已 import workspace.py，反向 import 成循环依赖（见 spec Rationale 备选 1）。
+_GIT_NET_TIMEOUT_SECONDS = 30
 
 __all__ = ["Workspace", "WorkspaceError", "head_sha", "porcelain", "remote_branch_exists"]
 
@@ -51,15 +56,29 @@ def remote_branch_exists(*, work_dir: Path, branch: str) -> bool:
 
     vigil recipe 派单前的去重闸：远端分支已存在说明该 issue 已被某后端认领在飞行中，
     recipe 据此跳过、不重复派单。纯读客观事实（远端 ref），不含业务判断。
+
+    # Spec-0035/T1: ls-remote 走网络，可能被半开 socket 挂死。跑前打一行 stderr 面包屑（卡住时输出停在
+    # 这行、一眼定位），超时按 fail-open 保守返回 True（视作「可能在途」→ 本轮跳过、下轮重试）——绝不
+    # 误判「无分支」而重复派单（两种误判代价不对称，见 spec fail-open 矩阵）。
     """
-    result = _git(args=["ls-remote", "--heads", "origin", branch], cwd=Path(work_dir))
+    print(f"… issue 查远端分支去重（{branch}）…", file=sys.stderr, flush=True)
+    try:
+        result = _git(args=["ls-remote", "--heads", "origin", branch], cwd=Path(work_dir))
+    except subprocess.TimeoutExpired:
+        return True
     return bool(result.stdout.strip())
 
 
 def _git(*, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    """在 cwd 内运行一条只读 git 子命令并捕获输出（与 workspace._git 同款调用形态）。"""
+    """在 cwd 内运行一条只读 git 子命令并捕获输出（与 workspace._git 同款调用形态）。
+
+    # Spec-0035/T1: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（ls-remote）卡满即中断抛
+    # TimeoutExpired，绝不无限 poll；本地 git（rev-parse/status）经同一 helper 只拿到一个永不触发的
+    # 无害时间上限。收敛到唯一 helper（issue 要求「避免逐点散设」）。
+    """
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
+        timeout=_GIT_NET_TIMEOUT_SECONDS,
     )

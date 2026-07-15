@@ -7,6 +7,7 @@
 """
 
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -211,3 +212,43 @@ def test_push_failure_raises(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError):
         release(state=state)
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0035/T3: 网络 git（push）超时 → RuntimeError（携 action 语境）；_git 传 timeout=
+# --------------------------------------------------------------------------- #
+
+
+def test_push_timeout_raises_runtime_error_with_action(tmp_path, monkeypatch):
+    # push 走网络：tag --list 正常返回，push 一抛 TimeoutExpired → RuntimeError（携 action 语境）。
+    state = _state(tmp_path)
+    _patch_github(monkeypatch)
+
+    def runner(args, **kwargs):
+        if args[:3] == ["git", "tag", "--list"]:
+            return SimpleNamespace(returncode=0, stdout="v1.0.0", stderr="")
+        raise subprocess.TimeoutExpired(cmd=args, timeout=30)
+
+    monkeypatch.setattr(subprocess, "run", runner)
+    with pytest.raises(RuntimeError) as excinfo:
+        release(state=state)
+    assert "物化发布分支" in str(excinfo.value)
+    assert "超时" in str(excinfo.value)
+
+
+def test_release_git_passes_net_timeout(tmp_path, monkeypatch):
+    # _git（push 分支/tag/push tag）必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS。
+    state = _state(tmp_path)
+    _patch_github(monkeypatch)
+    seen = []
+
+    def runner(args, **kwargs):
+        if args[:3] == ["git", "tag", "--list"]:
+            return SimpleNamespace(returncode=0, stdout="v1.0.0", stderr="")
+        seen.append(kwargs.get("timeout"))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", runner)
+    release(state=state)
+    assert seen  # 至少一次 push
+    assert all(t == release_module._GIT_NET_TIMEOUT_SECONDS for t in seen)

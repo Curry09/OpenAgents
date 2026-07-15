@@ -110,6 +110,68 @@ def test_remote_branch_exists_false_when_empty(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Spec-0035/T2: 网络 git 超时 fail-open（fetch→WorkspaceError；去重探针→True）
+# --------------------------------------------------------------------------- #
+
+
+def _timeout_run(argv, **kwargs):
+    """subprocess.run 替身：一律抛 TimeoutExpired（模拟半开 socket 挂死）。"""
+    raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
+
+
+def test_git_helper_passes_net_timeout(tmp_path, monkeypatch):
+    # _git 必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS（收敛到唯一 helper）。
+    captured = {}
+
+    def _fake_run(argv, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    Workspace(work_dir=tmp_path).remote_branch_exists(branch="x")
+    assert captured["timeout"] == ws_module._GIT_NET_TIMEOUT_SECONDS
+
+
+def test_prepare_fetch_timeout_raises_workspace_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _timeout_run)
+    with pytest.raises(WorkspaceError):
+        Workspace(work_dir=tmp_path).prepare(
+            issue_number=3, branch="openagents/issue-3", base="main"
+        )
+
+
+def test_ensure_fetch_timeout_raises_workspace_error(tmp_path, monkeypatch):
+    # ensure 的 fetch 是 check=False，但 _git 超时统一转 WorkspaceError（不是普通非零退出）。
+    monkeypatch.setattr(subprocess, "run", _timeout_run)
+    with pytest.raises(WorkspaceError):
+        Workspace(work_dir=tmp_path).ensure(issue_number=3, branch="openagents/issue-3")
+
+
+def test_assert_delivered_fetch_timeout_raises_workspace_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", _timeout_run)
+    with pytest.raises(WorkspaceError):
+        Workspace(work_dir=tmp_path).assert_delivered(
+            worktree=tmp_path, branch="openagents/issue-3"
+        )
+
+
+def test_remote_branch_exists_fail_open_true_on_timeout(tmp_path, monkeypatch):
+    # 去重探针超时 → 保守返回 True（「可能在途」→ 跳过本轮、不重复派单），不误吞真实失败。
+    monkeypatch.setattr(subprocess, "run", _timeout_run)
+    assert Workspace(work_dir=tmp_path).remote_branch_exists(branch="x") is True
+
+
+def test_remote_branch_exists_false_on_nonzero_not_timeout(tmp_path, monkeypatch):
+    # check=False 下普通非零退出仍走 bool(stdout)='' → False（既有路径不变，非超时不吞成 True）。
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kw: SimpleNamespace(returncode=1, stdout="", stderr="boom"),
+    )
+    assert Workspace(work_dir=tmp_path).remote_branch_exists(branch="x") is False
+
+
+# --------------------------------------------------------------------------- #
 # issue #53: changed_spec_group（取代 RFC-0008 changed_rfc_path）
 # --------------------------------------------------------------------------- #
 

@@ -104,6 +104,11 @@ spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 
 ### 0034 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
 冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环
 
+### 0035 裸 git 网络调用统一硬超时（fail-open）+ 发现段慢检查进度日志
+所有走网络的裸 git 子进程调用都没有 timeout=，任一被网络抖动挂死的半开 socket 卡住就无限 poll，同步跑在守夜主循环里会整轮冻死；且发现段的慢检查过程无日志，卡住时看不出停在哪。对齐既有 github.py 的 _GH_TIMEOUT_SECONDS，给三个 git 运行 helper（utils/git.py、utils/workspace.py、utils/release.py）加统一子进程超时常量 _GIT_NET_TIMEOUT_SECONDS + TimeoutExpired 处理，按 fail-open 收口：去重探针超时保守返回 True（可能在途、跳过下轮重试），fetch/push 超时抛既有 WorkspaceError/RuntimeError 由既有 per-issue try/except 隔离，绝不无限阻塞、绝不因单点网络抖动阵亡整轮；再给发现段（_intake 拉带标签 issue 前 / _admit 调 LLM 分诊前）补 stderr 进度日志，任一检查卡住时输出明确停在对应行。默认网络正常路径行为逐字节不变。
+- e2e 意图：证明网络 git 超时 fail-open 真的有牙——卡住的裸 git 不再无限阻塞，去重探针超时保守判 True（不重复派单）、fetch/push 超时转既有 WorkspaceError/RuntimeError 被 per-issue/per-round 隔离（不掀翻整轮）；且发现段两个慢检查有 stderr 进度日志（卡住时输出停在对应行）。
+  - 测法：纯内部可靠性改动、无 UI，e2e 为 hermetic 离线脚本 scripts/e2e-spec-0035-git-net-timeout.sh： 1. 打桩 subprocess.run 抛 TimeoutExpired，跑 T1/T2 的去重探针 → 断言返回 True（fail-open「可能在途」），不触真实 git/网络。 2. 打桩 subprocess.run 抛 TimeoutExpired，跑 T2 fetch（prepare/ensure/assert_delivered）→ 断言抛 WorkspaceError；跑 T3 push（release）→ 断言抛 RuntimeError。 3. 断言 T4 发现段两行进度日志（拉带标签 issue 前 / 调 LLM 分诊前）落 stderr。 4. 断言网络正常路径（subprocess 正常返回）行为逐字节不变：返回值/退出码不改。 
+
 ### 0036 解挂后 agent 读取并正面回应人的评论：merge 闸也喂评论内容 + 编排层确定性贴回引用原评论
 让评论驱动协作真正双向：所有闸（含此前丢弃内容的 merge 闸）解挂都把人类评论喂给 agent；agent 完成本轮动作后，由编排层确定性贴回一条引用原评论的签名回应（答追问/说明做了什么/解不了讲清原因），复用既有发帖出口、不依赖 prompt 记性、不踩 headless 发帖权限坑
 
@@ -340,6 +345,10 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0034 | 0034/T2 | rebase：扇出冲突评论带诊断 + 已 needs-human 不重发 | done | T1 | openagents/rebase.py<br>tests/test_rebase_conflict_diag.py |
 | 0034 | 0034/T3 | messages：merge 闸 blocker 带诊断 + 扇出注入诊断器 | done | T1 | openagents/messages.py<br>tests/test_messages_conflict_diag.py |
 | 0034 | 0034/T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | done | T2, T3 | scripts/e2e-spec-0034-conflict-diagnostics.sh |
+| 0035 | 0035/T1 | git.py 去重探针加固：超时 fail-open 返回 True + ls-remote 前进度面包屑 | done | — | openagents/utils/git.py<br>tests/test_utils_git.py |
+| 0035 | 0035/T2 | workspace.py fetch 加固：_git 超时抛 WorkspaceError + 去重探针超时 fail-open 返回 True | done | — | openagents/utils/workspace.py<br>tests/test_workspace.py |
+| 0035 | 0035/T3 | release.py push 加固：_git 超时抛 RuntimeError（覆盖 push 分支 + push tag） | done | — | openagents/utils/release.py<br>tests/test_release.py |
+| 0035 | 0035/T4 | 发现段慢检查进度日志：_intake 拉 issue 前 + _admit 调 LLM 前两行 stderr | done | — | openagents/recipes/vigil.py<br>tests/test_recipe_vigil_discovery.py |
 | 0036 | 0036/T1 | state：unblock_detail 字段 + setter | done | — | openagents/state.py<br>tests/test_state_unblock_detail.py |
 | 0036 | 0036/T2 | replynote：引用原评论的回应构造（新模块） | done | — | openagents/replynote.py<br>tests/test_replynote.py |
 | 0036 | 0036/T3 | conflict：解冲突器接受人类 guidance | done | — | openagents/conflict.py<br>tests/test_conflict_guidance.py |
@@ -657,6 +666,12 @@ graph LR
         n0034_T2["T2 rebase：扇出冲突评论带诊断 + 已 needs-human 不重发"]
         n0034_T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
         n0034_T4["T4 hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）"]
+    end
+    subgraph G0035[0035 git-net-timeout-and-discovery-progress]
+        n0035_T1["T1 git.py 去重探针加固：超时 fail-open 返回 True + ls-remote 前进度面包屑"]
+        n0035_T2["T2 workspace.py fetch 加固：_git 超时抛 WorkspaceError + 去重探针超时 fail-open 返回 True"]
+        n0035_T3["T3 release.py push 加固：_git 超时抛 RuntimeError（覆盖 push 分支 + push tag）"]
+        n0035_T4["T4 发现段慢检查进度日志：_intake 拉 issue 前 + _admit 调 LLM 前两行 stderr"]
     end
     subgraph G0036[0036 unblock-comment-read-and-reply]
         n0036_T1["T1 state：unblock_detail 字段 + setter"]
@@ -1095,7 +1110,7 @@ graph LR
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
 | openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0016, 0017, 0058, 0061, 0062, 0064, 0065, 0066 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0061, 0062, 0064, 0065, 0066 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -1116,14 +1131,15 @@ graph LR
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
-| openagents/utils/git.py | 0060, 0061 |
+| openagents/utils/git.py | 0035, 0060, 0061 |
 | openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065 |
 | openagents/utils/hold.py | 0061, 0062 |
 | openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064 |
 | openagents/utils/notes.py | 0061, 0062 |
-| openagents/utils/release.py | 0061, 0062, 0063 |
+| openagents/utils/release.py | 0035, 0061, 0062, 0063 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
 | openagents/utils/skip.py | 0061, 0062 |
+| openagents/utils/workspace.py | 0035, 0062 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014 |
@@ -1165,7 +1181,7 @@ graph LR
 | tests/test_recipe_stages.py | 0017, 0064 |
 | tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065 |
 | tests/test_recipe_vigil_act.py | 0017, 0065 |
-| tests/test_release.py | 0023, 0029, 0063 |
+| tests/test_release.py | 0023, 0029, 0035, 0063 |
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
@@ -1180,10 +1196,11 @@ graph LR
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055, 0063 |
 | tests/test_state_closed_at.py | 0042, 0063 |
 | tests/test_state_code_fingerprint.py | 0053, 0063 |
+| tests/test_utils_git.py | 0035, 0060 |
 | tests/test_utils_github_vigil.py | 0017, 0065 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029, 0062 |
 | tests/test_vigil_claim.py | 0039, 0049 |
-| tests/test_workspace.py | 0005, 0008, 0029, 0056 |
+| tests/test_workspace.py | 0005, 0008, 0029, 0035, 0056 |
 
 ## 各 feature 详情
 
@@ -2093,6 +2110,31 @@ graph LR
     nT1 --> nT3
     nT2 --> nT4
     nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0035 裸 git 网络调用统一硬超时（fail-open）+ 发现段慢检查进度日志（issue #147）
+
+```mermaid
+graph LR
+    nT1["T1 git.py 去重探针加固：超时 fail-open 返回 True + ls-remote 前进度面包屑"]
+    nT2["T2 workspace.py fetch 加固：_git 超时抛 WorkspaceError + 去重探针超时 fail-open 返回 True"]
+    nT3["T3 release.py push 加固：_git 超时抛 RuntimeError（覆盖 push 分支 + push tag）"]
+    nT4["T4 发现段慢检查进度日志：_intake 拉 issue 前 + _admit 调 LLM 前两行 stderr"]
 ```
 
 演化图：

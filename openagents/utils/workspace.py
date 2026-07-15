@@ -28,6 +28,10 @@ from pathlib import Path
 # RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
 
+# Spec-0035/T2: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
+# 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
+_GIT_NET_TIMEOUT_SECONDS = 30
+
 # 2026-06-24 spec-markdown-form：spec 组 = 单文件 NNNN-slug.md（slug 以字母起，
 # 排除 dated 设计文档 YYYY-MM-DD-*.md）。
 _SPEC_GROUP_FILE_RE = re.compile(r"^\d{4}-[A-Za-z].*\.md$")
@@ -134,12 +138,20 @@ class Workspace:
         return None
 
     def remote_branch_exists(self, *, branch: str) -> bool:
-        """远端是否已存在该分支（`git ls-remote --heads`）。"""
-        result = self._git(
-            args=["ls-remote", "--heads", "origin", branch],
-            cwd=self._work_dir,
-            check=False,
-        )
+        """远端是否已存在该分支（`git ls-remote --heads`）。
+
+        # Spec-0035/T2: ls-remote 走网络。check=False 下 `_git` 的 WorkspaceError **唯一来源**即超时转换
+        # （普通非零退出在 check=False 下正常返回 CompletedProcess、不抛），故这层 catch 精确等价「超时→True」、
+        # 不误吞真实失败——保守判「可能在途」→ 本轮跳过、下轮重试，绝不误判「无分支」而重复派单（fail-open）。
+        """
+        try:
+            result = self._git(
+                args=["ls-remote", "--heads", "origin", branch],
+                cwd=self._work_dir,
+                check=False,
+            )
+        except WorkspaceError:
+            return True
         return bool(result.stdout.strip())
 
     def _worktree_path(self, *, issue_number: int) -> Path:
@@ -147,12 +159,23 @@ class Workspace:
         return self._work_dir / _WORKTREE_SUBDIR / f"issue-{issue_number}"
 
     def _git(self, *, args: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess[str]:
-        """在 cwd 内运行一条 git 子命令；check=True 时非零退出抛 WorkspaceError。"""
-        result = subprocess.run(
-            ["git", "-C", str(cwd), *args],
-            capture_output=True,
-            text=True,
-        )
+        """在 cwd 内运行一条 git 子命令；check=True 时非零退出抛 WorkspaceError。
+
+        # Spec-0035/T2: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（fetch/ls-remote）卡满即中断，
+        # 归一为既有 WorkspaceError（覆盖 prepare/ensure/assert_delivered 三个 fetch 调用方 → 落既有
+        # per-issue/per-round 隔离，不掀翻整轮）；本地 git（worktree/rev-parse/diff/branch）只拿无害上限。
+        """
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(cwd), *args],
+                capture_output=True,
+                text=True,
+                timeout=_GIT_NET_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            raise WorkspaceError(
+                f"git {' '.join(args)} 超时（{_GIT_NET_TIMEOUT_SECONDS}s）"
+            ) from None
         if check and result.returncode != 0:
             reason = result.stderr.strip() or f"git {' '.join(args)} 返回码 {result.returncode}"
             raise WorkspaceError(reason)

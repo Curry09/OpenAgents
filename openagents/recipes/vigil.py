@@ -1744,6 +1744,8 @@ def _intake(
     # `--once` 连排空都进不去——比某个 subject 卡住严重得多。这里没有认领的行，故不传 lock_fd。
     timed = _TimedBackend(inner=backend, timeout_seconds=_AGENT_TIMEOUT_SECONDS, lock_fd=None)
     admitted = 0
+    # Spec-0035/T4: 发现段慢检查进度日志——拉带标签 issue 走网络，卡住时输出停在这行、一眼定位。
+    _log(message="▶ 发现段：拉取带标签 issue…")
     for issue in github.list_issues(labels=config.labels):
         if _LABEL_READY in issue.labels or _LABEL_NEEDS_HUMAN in issue.labels:
             continue
@@ -1768,6 +1770,8 @@ def _admit(*, owner: str, backend: Any, work_dir: Path, issue: Any, agent_id: st
     """
 
     def _on_agent() -> int:
+        # Spec-0035/T4: 发现段慢检查进度日志——triager LLM 分诊耗时且过程全哑，卡住时输出停在这行。
+        _log(message=f"… issue #{issue.number} 自检分诊方向(LLM)…")
         verdict = stages.triage(backend=backend, work_dir=work_dir, issue=issue)
         if verdict["actionable"]:
             return _grant_ready(issue=issue)

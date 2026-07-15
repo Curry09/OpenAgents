@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from openagents.utils import git
@@ -54,3 +55,51 @@ def test_porcelain_runs_status_porcelain_and_strips(monkeypatch):
 def test_head_sha_empty_when_no_output(monkeypatch):
     monkeypatch.setattr(git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout="\n"))
     assert git.head_sha(work_dir=Path(".")) == ""
+
+
+# --- Spec-0035/T1: 网络 git 超时 fail-open + ls-remote 进度面包屑 ---------------------
+
+
+def test_git_helper_passes_net_timeout(monkeypatch):
+    # _git 必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS（收敛到唯一 helper）。
+    captured = {}
+
+    def _fake_run(argv, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return _FakeProc(stdout="")
+
+    monkeypatch.setattr(git.subprocess, "run", _fake_run)
+    git.head_sha(work_dir=Path("/tmp/wt"))
+    assert captured["timeout"] == git._GIT_NET_TIMEOUT_SECONDS
+
+
+def test_remote_branch_exists_true_on_output(monkeypatch):
+    # 正常路径逐字节不变：ls-remote 有输出 → True。
+    monkeypatch.setattr(
+        git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout="abc123\trefs/heads/x\n")
+    )
+    assert git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="x") is True
+
+
+def test_remote_branch_exists_false_on_empty(monkeypatch):
+    # 正常路径逐字节不变：ls-remote 无输出 → False（远端确无该分支）。
+    monkeypatch.setattr(git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout="\n"))
+    assert git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="x") is False
+
+
+def test_remote_branch_exists_fail_open_true_on_timeout(monkeypatch):
+    # fail-open：ls-remote 超时 → 保守返回 True（「可能在途」→ 本轮跳过、不重复派单）。
+    def _boom(argv, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
+
+    monkeypatch.setattr(git.subprocess, "run", _boom)
+    assert git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="x") is True
+
+
+def test_remote_branch_exists_logs_breadcrumb_before_ls_remote(monkeypatch, capsys):
+    # 跑 ls-remote 前有一行 stderr 面包屑（卡住时输出停在这行）。
+    monkeypatch.setattr(git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout=""))
+    git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="openagents/issue-9")
+    err = capsys.readouterr().err
+    assert "查远端分支去重" in err
+    assert "openagents/issue-9" in err

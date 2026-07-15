@@ -33,6 +33,10 @@ from openagents.runtime.state import STATUS_BLOCKED, RuntimeState
 from openagents.utils import github
 from openagents.utils.github import BLOCKED_LABEL
 
+# Spec-0035/T3: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
+# 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
+_GIT_NET_TIMEOUT_SECONDS = 30
+
 # Spec-0023/T3：语义化版本三段 vX.Y.Z；仓库无任何版本 tag 时的首发起点。
 _INITIAL_VERSION = (0, 1, 0)
 _VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -156,13 +160,24 @@ def _materialize_release(*, source: str, version: str) -> None:
 
 
 def _git(*, args: list[str], action: str) -> None:
-    """跑一条 git 子命令；非零退出抛 RuntimeError，附带 action 语境与 stderr。"""
-    result = subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """跑一条 git 子命令；非零退出抛 RuntimeError，附带 action 语境与 stderr。
+
+    # Spec-0035/T3: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（push 分支 / push tag）卡满即中断，
+    # 归一为既有 RuntimeError（携 action 语境，CLI 层转成干净一行提示，不掀翻进程）；本地 git（tag）
+    # 只随共享 helper 拿到无害上限。_list_version_tags 的 `tag --list` 走独立 subprocess、为本地读，不加超时。
+    """
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_GIT_NET_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"{action}失败：git {' '.join(args)} 超时（{_GIT_NET_TIMEOUT_SECONDS}s）"
+        ) from None
     if result.returncode != 0:
         reason = result.stderr.strip() or f"git {' '.join(args)} 返回码 {result.returncode}"
         raise RuntimeError(f"{action}失败：{reason}")
