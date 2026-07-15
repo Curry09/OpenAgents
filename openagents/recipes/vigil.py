@@ -147,7 +147,7 @@ from typing import Any
 
 from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
-from openagents.runtime import context, engine
+from openagents.runtime import context, engine, timing
 from openagents.runtime.state import RuntimeState
 from openagents.utils import agent_config, git, github, identity, proc
 
@@ -286,6 +286,13 @@ _ACT_READY = (
     "ready"  # 全绿 + APPROVED 但仍 draft → 转正（Spec-0017：**必须排在 merge 前**，见 `_classify`）
 )
 _ACT_MERGE = "merge"  # 全绿 + APPROVED + 非 draft → 合
+
+# Spec-0066/T2: TERMINAL 的阶段细分（`_phase_of` 据 facts 把单一 TERMINAL 拆成三态，供墙钟计时区分收口原因）。
+# QUIET 的 phase 直接取 `verdict.reason`（_AWAITING_*），ACTIONABLE 直接取 `verdict.action`（_ACT_*），
+# IN_FLIGHT 取 `_IN_FLIGHT`——故只有 TERMINAL 需要额外三个字面量。
+_PHASE_MERGED = "merged"  # 已合并收口
+_PHASE_CLOSED = "closed"  # 被关闭收口
+_PHASE_NEEDS_HUMAN = _LABEL_NEEDS_HUMAN  # needs-human 收口（"needs-human"，与全仓同源）
 
 # ------------------------------ facts 的枚举取值（GitHub 事实的归一化投影） ------------------------------
 _MERGE_CLEAN = "clean"
@@ -798,6 +805,55 @@ def _fingerprint(*, facts: _Facts) -> str:
     payload = {field.name: _stable(value=getattr(facts, field.name)) for field in fields(_Facts)}
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _phase_of(*, verdict: _Verdict, facts: _Facts) -> str:
+    """# Spec-0066/T2: 把一个 `_Verdict` 归一成墙钟计时的 phase 字符串（纯函数、无 IO）。
+
+    归一逻辑读 `_Verdict`/`_Facts` 类型，故留在 `vigil` 而非 `timing`——保 `timing` 对 `vigil` **零依赖**、
+    杜绝循环 import。四值各自的 phase：
+      - `IN_FLIGHT` → `in-flight`（生产者视角：有别的 worker 在干，看不出干哪一步）；
+      - `TERMINAL`  → 据 `facts` 细分 `merged`/`closed`/`needs-human`（收口原因，供报告区分）；
+      - `QUIET`     → `reason`（`awaiting-blockers`/`-mergeability`/`-ci`/`-effect`，天然细分合并段的等待相）；
+      - `ACTIONABLE`→ `action`（`solve`/`rebase`/`fix-ci`/`e2e`/`review-or-fix`/`merge`/`reply`——worker 以
+        `in_flight=False` 调 `_classify`，故 `_reconcile` 记的是**具体动作**，把生产者的泛 in-flight 解开）。
+    """
+    if verdict.kind == _IN_FLIGHT:
+        return _IN_FLIGHT
+    if verdict.kind == _TERMINAL:
+        if facts.merged:
+            return _PHASE_MERGED
+        if facts.closed:
+            return _PHASE_CLOSED
+        return _PHASE_NEEDS_HUMAN
+    if verdict.kind == _QUIET:
+        return verdict.reason or _QUIET
+    return verdict.action or _ACTIONABLE
+
+
+def _record_timing(
+    *, work_dir: Path, subject: str, facts: _Facts, verdict: _Verdict, now: datetime
+) -> None:
+    """# Spec-0066/T2: 旁路盖一枚阶段戳（`timing.record`）。**容错**：任一失败绝不影响守夜推进。
+
+    从 subject 解出 issue/pr 归属（`issue:5` → issue=5,pr=facts.pr_number；`pr:12` → pr=12,issue=None：
+    裸 PR 无 issue 归属）。不改任何返回值/控制流/fp——只旁路 append（对齐「只富化不回归」）。整体裹 try：
+    连 `_split_subject`/`_phase_of` 也不许把一条计时的失败冒泡进主流程。
+    """
+    try:
+        kind, number = _split_subject(subject=subject)
+        issue = number if kind == _KIND_ISSUE else None
+        pr = number if kind == _KIND_PR else facts.pr_number
+        timing.record(
+            work_dir=Path(work_dir),
+            subject=subject,
+            issue=issue,
+            pr=pr,
+            phase=_phase_of(verdict=verdict, facts=facts),
+            now=now,
+        )
+    except Exception:  # noqa: BLE001 —— 旁路容错：计时失败绝不影响守夜推进
+        return
 
 
 def _watchdog(
@@ -1470,6 +1526,7 @@ def _producer_tick(
                     conn=conn,
                     subject=subject,
                     config=config,
+                    work_dir=Path(work_dir),
                     in_flight=in_flight,
                     priority_fn=priority_fn,
                     thresholds=thresholds,
@@ -1495,6 +1552,7 @@ def _consider(
     conn: sqlite3.Connection,
     subject: str,
     config: agent_config.AgentConfig,
+    work_dir: Path,
     in_flight: dict[str, Any],
     priority_fn: Callable[..., Any],
     thresholds: dict[str, int | None],
@@ -1505,10 +1563,24 @@ def _consider(
     """单 subject 的生产判定：sense → classify → 护栏一降级 → 入队 / 看门 / 略过。返回本 subject 入队数（0/1）。
 
     从 `_producer_tick` 里切出来只为让「四值分流」这一段可单测、且错误隔离的 try 边界正好包住一个 subject。
+
+    # Spec-0066/T2: `work_dir`（additive 关键字参）为墙钟计时落盘路径。护栏一降级**前置**到四值分流之前，
+    # 使 `_record_timing` 盖到的是降级后的真实等待相（`awaiting-effect`）——`_has_attempt_stamp` 仍只在
+    # ACTIONABLE 触发（读 GitHub 的次数与前不变），故这次重排对 IN_FLIGHT/TERMINAL 零行为影响。
     """
     observed = _sense(config=config, subject=subject)
     verdict = _classify(facts=observed.facts, in_flight=subject in in_flight)
     fp = _fingerprint(facts=observed.facts)
+
+    if verdict.kind == _ACTIONABLE and _has_attempt_stamp(facts=observed.facts, fp=fp):
+        # 护栏一：我在**完全相同的状态**下已经出过手且一个字节没推动 → 别再叫 agent（零 LLM 调用）。
+        verdict = _Verdict(kind=_QUIET, reason=_AWAITING_EFFECT)
+
+    # Spec-0066/T2: 生产者旁路盖阶段戳（等待段 awaiting-* / 终态 merged-closed-needs-human / 入队瞬间
+    # solve-merge / in-flight）。**旁路**：不改下方任何返回值/控制流/fp，写失败被 `_record_timing` 吞掉。
+    _record_timing(
+        work_dir=work_dir, subject=subject, facts=observed.facts, verdict=verdict, now=now
+    )
 
     if verdict.kind == _IN_FLIGHT:
         # IN_FLIGHT 超龄 → **只打 needs-human 告警，绝不动行**（回收活着的持有者的行 = 双跑）。
@@ -1524,10 +1596,6 @@ def _consider(
         return 0
     if verdict.kind == _TERMINAL:
         return 0
-
-    if verdict.kind == _ACTIONABLE and _has_attempt_stamp(facts=observed.facts, fp=fp):
-        # 护栏一：我在**完全相同的状态**下已经出过手且一个字节没推动 → 别再叫 agent（零 LLM 调用）。
-        verdict = _Verdict(kind=_QUIET, reason=_AWAITING_EFFECT)
 
     if verdict.kind == _ACTIONABLE:
         if _enqueue(
@@ -2434,6 +2502,16 @@ def _reconcile(
             return
 
         last_fp = fp
+        # Spec-0066/T2: worker 旁路盖**活动段**阶段戳——此处 verdict 恒 ACTIONABLE（非 ACTIONABLE 已在上方
+        # 交还 slot），`_phase_of` 取其 `action`，把生产者视角的泛 in-flight 解析成 solve/fix-ci/review-or-fix
+        # 等真动作。旁路容错、不改控制流/fp。
+        _record_timing(
+            work_dir=Path(work_dir),
+            subject=subject,
+            facts=observed.facts,
+            verdict=verdict,
+            now=now_fn(),
+        )
         last_summary = _act(
             backend=backend,
             state=state,

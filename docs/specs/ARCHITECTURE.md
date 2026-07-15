@@ -63,6 +63,7 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `engine.py` | # Spec-0060/T2: runtime.engine —— run_agent 引擎（填占位符 → 派 backend → 收结构化输出）。 |
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
+| `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
 
 ### openagents.spec
 
@@ -136,6 +137,7 @@ graph LR
     nopenagents_runtime_engine["runtime.engine"]
     nopenagents_runtime_gates["runtime.gates"]
     nopenagents_runtime_state["runtime.state"]
+    nopenagents_runtime_timing["runtime.timing"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
     nopenagents_spec_graph["spec.graph"]
@@ -179,9 +181,11 @@ graph LR
     nopenagents_cli --> nopenagents_recipes
     nopenagents_cli --> nopenagents_recipes_backfill
     nopenagents_cli --> nopenagents_recipes_vigil
+    nopenagents_cli --> nopenagents_runtime
     nopenagents_cli --> nopenagents_runtime_engine
     nopenagents_cli --> nopenagents_runtime_gates
     nopenagents_cli --> nopenagents_runtime_state
+    nopenagents_cli --> nopenagents_runtime_timing
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_agent_config
     nopenagents_cli --> nopenagents_utils_align
@@ -223,6 +227,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_runtime_context
     nopenagents_recipes_vigil --> nopenagents_runtime_engine
     nopenagents_recipes_vigil --> nopenagents_runtime_state
+    nopenagents_recipes_vigil --> nopenagents_runtime_timing
     nopenagents_recipes_vigil --> nopenagents_utils
     nopenagents_recipes_vigil --> nopenagents_utils_agent_config
     nopenagents_recipes_vigil --> nopenagents_utils_config

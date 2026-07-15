@@ -187,6 +187,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0065 图驱动的并行守夜：LLM 排依赖边（落 GitHub 原生 dependencies）+ vigil level-triggered reconcile 并行跑前沿
 把守夜从「每轮全量扫、串行做一个 issue」重构为两面。准入面（agentic）：新 issue 过三态门控、审过打 ready label 作准入令牌，再由 LLM curator 排出彼此的依赖关系，边写进 GitHub 原生 issue dependencies（blocked_by，2025-08 GA）。执行面（机械）：level-triggered reconcile——生产者每 tick 对每个 subject 读一次 GitHub 现态，纯函数给出四值判定（IN_FLIGHT / TERMINAL / QUIET / ACTIONABLE），只有 ACTIONABLE 入队；K 个常驻 worker 各原子领一个 subject，跑一张 reconcile 分支表（人有新话 → 依赖未满足 → 无 PR → 冲突 → CI → e2e → review → merge，顺序即硬依赖）推到卡在外部为止。状态量的落处按「决定 vs 事实」切开：**我们做的决定打 label**（ready 准入 / needs-human 终态 / review 裁决——裁决绑 commit，故 label 名里必须带 head sha：`review-approved:<sha7>`，否则审完再 push 会合并没人审过的代码），**GitHub 自己的事实读原生**（CI / mergeable，本就绑 sha，复制成 label 就是造第二份真相要对账）。agent 干不动时的**正常收口是它自己打 needs-human + 留理由**（一等出口，当场 TERMINAL、轮询停止、零多余 LLM 调用）。刻意不做变更检测（边沿会丢，见 k8s level-triggered 原则），代价是三种 **agent 自己看不见**的死法要护栏：它没意识到自己在空转（不会主动叫人，且每轮留的评论还会刷新时间戳让看门狗不响）→ 收工时盖 attempt 指纹戳（存 GitHub 评论；**戳本身不能改 fp**，故 facts 不含 comment id，否则护栏自毁成死循环）；状态该动却不动（agent 压根没被叫起）→ 看门狗（age 从 GitHub 时间戳算，零本地记忆）。认领落 SQLite 单表（队列 + 归属 + 崩溃计数，一 subject 一行 UNIQUE），存活证明落 fcntl.flock：抢得到锁 ⇒ 内核已回收持有者的锁 ⇒ 它确已死，故不用租约、不猜死亡，双跑是结构性的零而非小概率。SQLite 与 flock 同把部署钉在单机，多机替换点收在 4 个 claim 函数里。承 0062–0064 收敛弧线：两面控制流全内联进 recipes.vigil 的内部函数、不新开模块，旧串行实现直接删除（git history 即回退点，不留死代码副本），recipes 守恒为 3（stages / backfill / vigil）。新增文件：agents/curator.py（排依赖的零逻辑 Template）、agents/admitter.py（三态门控 human 态准入对话的 **fail-closed 人闸**：判「人到底点头没有」——拿 fail-open 的 triager 顶这个位子，人明说「先别做」也会被判可派单，人闸当场退化成一台偏向「是」的 agent 闸；且这道闸必须**认人**（只认 OWNER/MEMBER/COLLABORATOR 的话）并在叫 agent 前先盖 try 戳，否则闸门 fail-closed 而钥匙挂在门外、agent 一判崩就每 tick 重烧一次 LLM）、utils/proc.py（按线程的 PID 认领桶 + kill_tree + flock fd 继承登记，供硬超时精确杀本次调用起的进程树）、离线 e2e 脚本；utils/github.py 补读侧函数（pr_snapshot / check_snapshot / list_blocked_by / add_blocked_by / pr_for_branch）。
 
+### 0066 阶段计时：墙钟 per-phase 时延——旁路 append-only 事件流 + 跨轮重建报告，定位流水线瓶颈
+为守夜流水线加墙钟阶段计时：每 tick 在生产者判定咽喉 _consider 旁路追加一条带时间戳的阶段信号事件到 .openagents/timing.jsonl（与 runtime-state.json 文件级零耦合、写失败不掀翻主流程），phase 直接取自 level-triggered 的 _Verdict 分类（solve/rebase/fix-ci/e2e/review-or-fix/merge + awaiting-ci/effect/mergeability/blockers + in-flight + terminal 各态），天然把旧栈会坍缩成一个 open 的合并段细分成 CI-wait / review-wait / merge；新增 runtime.timing 独立模块提供 append 写入器 + 跨轮时长重建聚合器（单 issue 时间线 + 跨 issue 每阶段 p50/p90 + 最长尾），oa report 子命令读 jsonl 输出文本报告并标注墙钟精度下限=轮询 interval。
+- e2e 意图：证明「墙钟阶段计时旁路埋点 + 跨轮时长重建」在离线确定性链路上成立——反复调 run_vigil(once=True) 一次一个 tick 推一个 issue 环，每 tick 在 _consider/_reconcile 旁路把 level-triggered _Verdict 归一成 phase 事件 append 到 .openagents/timing.jsonl；跨轮把「等 CI」「等 review」「在合并」细分成独立 phase（不再糊成旧栈单一 open）；timing.record 写失败被容错吞掉、守夜照常推进、_fingerprint 埋点前后不变（护栏一不自毁）；oa report 读回 jsonl 聚合出单 issue 各阶段 duration + 跨 issue p50/p90 + 最长尾，并标注墙钟精度下限=轮询 interval。
+  - 测法：形态：纯后端埋点 + 聚合 + CLI 报告，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0064 同款）： 1. timing 模块针对性 pytest（纯标准库、不触网络/仓库）：record append 合法 JSON 五键 + UTC ISO8601；    注入 open/write 抛异常 → record 静默吞掉不 raise（容错）；load_events 跳损坏行；timelines 跨轮    重建各 phase duration（含 phase 复现分段累加、末条 terminal 时长 0）；phase_stats 出每 phase    p50/p90 + 最长尾 + interval 精度下限字段。 2. vigil 埋点针对性 pytest（假 backend/github seam，不触真实 LLM/网络/仓库）：once 跑一 tick 后    timing.jsonl 生成含 dispatch/等待/合并各段；_phase_of 四值 verdict × facts 逐态归一；record 抛异常    时 _consider/_reconcile 照常返回（容错端到端）；_fingerprint 埋点前后相等（旁路不进 fp）；合并段    awaiting-ci 与 review-or-fix 可区分。 3. CLI 针对性 pytest：oa report 对造好的 timing.jsonl 输出单 subject 时间线 + 跨 subject p50/p90 +    「精度下限 = interval」字样；空/缺文件友好提示、退出码 0。 4. grep 锚点（e2e 脚本）：runtime/timing.py 存在且零 recipes.vigil import（无循环依赖）；timing 事件    写入点仅在 vigil.py 两处 _consider/_reconcile；record 容错（except 兜底）就位。 脚本：scripts/e2e-spec-0066-phase-timing-wall-clock.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -428,6 +433,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0064 | 0064/T6 | 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成 | done | T5 | openagents/recipes/solve_issue.py<br>openagents/recipes/merge_pr.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/rfc_lifecycle.py<br>openagents/recipes/fleet.py<br>openagents/agents/planner.py |
 | 0065 | 0065/T1 | graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边） | done | — | openagents/agents/curator.py<br>openagents/agents/admitter.py<br>tests/test_agent_curator.py<br>tests/test_agent_admitter.py |
 | 0065 | 0065/T2 | vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指 | done | T1 | openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/runtime/context.py<br>openagents/runtime/state.py<br>openagents/backends/claude_code.py<br>openagents/cli.py<br>openagents/utils/github.py<br>openagents/utils/proc.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_admit.py<br>tests/conftest.py<br>tests/test_runtime_context.py<br>tests/test_github.py<br>tests/test_utils_github_vigil.py<br>tests/test_utils_proc.py<br>tests/test_backend_claude_code.py<br>tests/test_cli.py<br>scripts/e2e-spec-0065-graph-parallel-vigil.sh |
+| 0066 | 0066/T1 | runtime.timing 独立模块：append-only 事件写入器（容错） + 跨轮时长重建聚合器 | done | — | openagents/runtime/timing.py<br>tests/test_runtime_timing.py |
+| 0066 | 0066/T2 | vigil 旁路埋点：生产者 _consider（等待/终态段）+ worker _reconcile（活动动作段）追加阶段信号 | done | T1 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil_timing.py |
+| 0066 | 0066/T3 | oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告 | done | T1 | openagents/cli.py<br>tests/test_cli_timing.py |
 
 ## 跨 feature 关系图
 
@@ -784,6 +792,11 @@ graph LR
         n0065_T1["T1 graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边）"]
         n0065_T2["T2 vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指"]
     end
+    subgraph G0066[0066 phase-timing-wall-clock]
+        n0066_T1["T1 runtime.timing 独立模块：append-only 事件写入器（容错） + 跨轮时长重建聚合器"]
+        n0066_T2["T2 vigil 旁路埋点：生产者 _consider（等待/终态段）+ worker _reconcile（活动动作段）追加阶段信号"]
+        n0066_T3["T3 oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -992,6 +1005,8 @@ graph LR
     n0064_T5 --> n0064_T4
     n0064_T6 --> n0064_T5
     n0065_T2 --> n0065_T1
+    n0066_T2 --> n0066_T1
+    n0066_T3 --> n0066_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1015,7 +1030,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1036,7 +1051,7 @@ graph LR
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
 | openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0017, 0061, 0062, 0064, 0065 |
+| openagents/recipes/vigil.py | 0017, 0061, 0062, 0064, 0065, 0066 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -2784,4 +2799,28 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+```
+
+### 0066 阶段计时：墙钟 per-phase 时延——旁路 append-only 事件流 + 跨轮重建报告，定位流水线瓶颈（issue #157）
+
+```mermaid
+graph LR
+    nT1["T1 runtime.timing 独立模块：append-only 事件写入器（容错） + 跨轮时长重建聚合器"]
+    nT2["T2 vigil 旁路埋点：生产者 _consider（等待/终态段）+ worker _reconcile（活动动作段）追加阶段信号"]
+    nT3["T3 oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告"]
+    nT1 --> nT2
+    nT1 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```

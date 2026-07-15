@@ -860,11 +860,13 @@ def test_reconcile_stops_immediately_when_agent_self_labels_needs_human(monkeypa
 # --------------------------------------------------------------------------------------------------
 
 
-def _consider_once(conn, *, in_flight=None, quiet_counts=None) -> int:
+def _consider_once(conn, *, work_dir, in_flight=None, quiet_counts=None) -> int:
+    # Spec-0066/T2: `_consider` 增 additive 关键字参 `work_dir`（墙钟计时落盘路径）；本 seam 透传 tmp_path。
     return _consider(
         conn=conn,
         subject="issue:5",
         config=_config(),
+        work_dir=work_dir,
         in_flight=in_flight or {},
         priority_fn=vigil_module._priority_default,
         thresholds=dict(vigil_module._WATCHDOG_DEFAULTS),
@@ -893,7 +895,7 @@ def test_producer_skips_enqueue_when_same_fp_attempt_stamp_exists(tmp_path, monk
     )
     _stub_consider(monkeypatch, facts=stuck, comments=[stamp])
     quiet: dict[str, int] = {}
-    assert _consider_once(conn, quiet_counts=quiet) == 0
+    assert _consider_once(conn, work_dir=tmp_path, quiet_counts=quiet) == 0
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
     assert quiet == {_AWAITING_EFFECT: 1}
 
@@ -906,7 +908,7 @@ def test_producer_enqueues_again_once_fingerprint_changes(tmp_path, monkeypatch)
         1, "bot", f"<!-- openagents:attempt fp={old_fp} -->\n撞墙了", "2026-07-14T11:00:00Z"
     )
     _stub_consider(monkeypatch, facts=_facts(ci="failure", head_sha="f" * 40), comments=[stale])
-    assert _consider_once(conn) == 1
+    assert _consider_once(conn, work_dir=tmp_path) == 1
 
 
 def test_producer_parks_on_watchdog_timeout(tmp_path, monkeypatch):
@@ -926,7 +928,7 @@ def test_producer_parks_on_watchdog_timeout(tmp_path, monkeypatch):
         "_park_needs_human",
         lambda *, subject, body, agent_id: parked.append((subject, body)),
     )
-    _consider_once(conn)
+    _consider_once(conn, work_dir=tmp_path)
     assert parked and parked[0][0] == "issue:5"
     assert _AWAITING_CI in parked[0][1]
 
@@ -939,7 +941,7 @@ def test_producer_does_not_park_a_live_in_flight_holder(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
     )
-    assert _consider_once(conn, in_flight={"issue:5": _NOW.isoformat()}) == 0
+    assert _consider_once(conn, work_dir=tmp_path, in_flight={"issue:5": _NOW.isoformat()}) == 0
     assert parked == []
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
 
@@ -953,7 +955,7 @@ def test_producer_alarms_on_overdue_in_flight_without_touching_the_row(tmp_path,
         vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
     )
     ancient = (_NOW - timedelta(seconds=vigil_module._INFLIGHT_ALARM_SECONDS * 2)).isoformat()
-    assert _consider_once(conn, in_flight={"issue:5": ancient}) == 0
+    assert _consider_once(conn, work_dir=tmp_path, in_flight={"issue:5": ancient}) == 0
     assert parked == ["issue:5"]
 
 

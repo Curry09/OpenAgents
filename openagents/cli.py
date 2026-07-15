@@ -142,6 +142,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("board", help="启动本地成果看板")
 
+    # Spec-0066/T3：读 .openagents/timing.jsonl，输出单 issue 各阶段墙钟时长 + 跨 issue p50/p90 文本报告
+    # （定位流水线瓶颈：CI 排队 / review 卡顿 / 轮询等待各占多久）。薄路由，聚合逻辑在 runtime.timing。
+    p_report = sub.add_parser(
+        "report", help="读 timing.jsonl 输出各阶段墙钟时延报告（单 issue 时间线 + p50/p90）"
+    )
+    p_report.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="openagents 配置文件路径（默认 .openagents/openagents.yml，用于读轮询 interval 作精度下限标注）",
+    )
+
     # Spec-0064/T5：reply-comment 降隐藏内部命令——被派子 agent（解冲突 agent 等）盖签名回评论的唯一
     # 出口，删了会破坏防自循环闭环（约束③）。仍走 identity.post_signed_comment。**不传 `help=`**：argparse
     # 只在提供 help 时才把子命令登进帮助清单，故省略 help 使它从 `--help` 列表隐去、但仍可解析分发（不占
@@ -352,6 +364,81 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 1
 
 
+def _cmd_report(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0066/T3：读 timing.jsonl → timing 聚合器 → stdout 文本报告。薄路由：解析路径 + 取 interval，
+    # 聚合/重建全在 runtime.timing（单 issue 时间线 + 跨 issue p50/p90 + 最长尾）。空/缺文件友好提示、退出码 0。
+    from openagents.runtime import timing
+
+    path = ctx.repo_root / ".openagents" / timing.TIMING_FILENAME
+    events = timing.load_events(path=path)
+    interval = _report_interval(ctx=ctx, args=args)
+    print(_render_report(events=events, interval=interval, path=path))
+    return 0
+
+
+def _report_interval(*, ctx: ProjectContext, args: argparse.Namespace) -> int:
+    # Spec-0066/T3：轮询 interval 作墙钟精度下限标注——从 openagents.yml 读，读不到回落内建默认 60s。
+    from openagents.utils.agent_config import AgentConfigError, load_agent_config
+
+    config_path = (
+        Path(args.config) if args.config else ctx.repo_root / ".openagents" / "openagents.yml"
+    )
+    try:
+        return load_agent_config(path=config_path).interval
+    except (AgentConfigError, FileNotFoundError, OSError):
+        return 60  # 缺配置不该让报告失败——回落内建默认轮询间隔
+
+
+def _render_report(*, events: list, interval: int, path: Path) -> str:
+    # Spec-0066/T3：把聚合结果排成 stdout 文本表。**显式标注墙钟精度下限 = 轮询 interval**（issue 验收项）。
+    from openagents.runtime import timing
+
+    if not events:
+        return (
+            f"（timing.jsonl 为空或不存在：{path}）\n"
+            "跑一轮 `oa vigil` 后各阶段信号会落到此文件，再来看报告。"
+        )
+
+    lines = timing.timelines(events=events)
+    stats = timing.phase_stats(events=events, interval=interval)
+    out: list[str] = []
+    out.append("═══ openagents 阶段墙钟时延报告 ═══")
+    out.append(
+        f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
+    )
+    out.append("")
+    out.append("── 单 subject 时间线（各阶段墙钟停留）──")
+    for line in lines:
+        head = f"{line.subject}"
+        if line.pr is not None:
+            head += f"（PR #{line.pr}）"
+        out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
+        for segment in line.segments:
+            out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
+    out.append("")
+    out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
+    out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
+    for stat in stats.phases:
+        out.append(
+            f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
+            f"{_fmt_duration(seconds=stat.p90):>10}   "
+            f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+        )
+    return "\n".join(out)
+
+
+def _fmt_duration(*, seconds: float) -> str:
+    # Spec-0066/T3：秒 → 人读时长（0s / 45s / 3m0s / 1h2m）。纯展示，不改聚合值。
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m{secs}s"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h{mins}m"
+
+
 def _cmd_board(args: argparse.Namespace) -> int:
     # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），读新栈 RuntimeState 渲染看板。
     from openagents.utils.results import board
@@ -368,6 +455,12 @@ def _dispatch(args: argparse.Namespace) -> int:
     # board 不操作仓库，跳过 preflight（决策 10）。
     if args.command == "board":
         return _cmd_board(args)
+    # Spec-0066/T3：report 只读本地 timing.jsonl，不操作仓库/远端，同样跳过 preflight（无 remote 也能出报告）。
+    if args.command == "report":
+        ctx = resolve_project()
+        if ctx is None:
+            ctx = ProjectContext(repo_root=Path.cwd(), remote=None)
+        return _cmd_report(args, ctx)
 
     ctx = ensure_project(interactive=True)
     handlers = {
