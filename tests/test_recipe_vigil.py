@@ -167,7 +167,7 @@ def test_classify_in_flight_precedes_everything_including_needs_human():
             _ACTIONABLE,
             None,
             _ACT_READY,
-        ),  # Spec-0066: 全绿+approved 但 draft → 转正
+        ),  # Spec-0017: 全绿+approved 但 draft → 转正
         ({}, _ACTIONABLE, None, _ACT_MERGE),  # 非 draft 才落 merge
     ],
 )
@@ -177,7 +177,7 @@ def test_classify_branch_table(overrides, kind, reason, action):
 
 
 def test_classify_draft_self_heal_precedes_merge_and_never_merges():
-    """Spec-0066: 全绿+approved@head 但仍 draft → **必落 ready、绝不 merge**（draft PR 合不了、#168 根因）。"""
+    """Spec-0017: 全绿+approved@head 但仍 draft → **必落 ready、绝不 merge**（draft PR 合不了、#168 根因）。"""
     draft = _facts(is_draft=True)  # 其余字段全绿、只欠转正
     verdict = _classify(facts=draft, in_flight=False)
     assert verdict.action == _ACT_READY
@@ -253,7 +253,7 @@ def test_fingerprint_covers_exactly_every_facts_field():
         "review_state": "CHANGES_REQUESTED",
         "review_commit_id": "0000000",
         "latest_comment_is_ours": False,
-        "is_draft": True,  # Spec-0066/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
+        "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
     }
     assert set(mutations) == {field.name for field in fields(_Facts)}
     for name, value in mutations.items():
@@ -343,7 +343,7 @@ def test_sense_zero_checks_is_awaiting_ci_not_green(monkeypatch):
 
 
 def test_sense_reads_is_draft_from_snapshot(monkeypatch):
-    """Spec-0066/T2: `_sense` 从 pr_snapshot.is_draft 读入 → `_classify` 全绿+approved 时判 ready（非 merge）。"""
+    """Spec-0017/T2: `_sense` 从 pr_snapshot.is_draft 读入 → `_classify` 全绿+approved 时判 ready（非 merge）。"""
     # e2e:skip 把证据戳归一成 head（本测只关心 draft 支）；review 留 agent，用真 review-approved label。
     config = _config(stages=_stages(e2e="skip"))
     _patch_sense(

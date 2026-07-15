@@ -16,7 +16,7 @@ PROMPT = Template(
 3. 先记下远端基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch`（BASE 必须在 fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
 4. 与远端分叉就 `git rebase origin/$branch`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、`git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；
 5. `git push --force-with-lease=$branch:$$BASE origin $branch`；禁止裸 `git push --force`，`--force-with-lease` 仅限本工作分支 $branch，绝不作用于 main/受保护分支/他人分支。
-6. 推完代码后把 PR 转正：`gh pr ready $pr_number`（Spec-0066/T1：转正归你这个每轮都会被派上来跑的 agent）；幂等——PR 已经是非 draft 时 `gh` 会以非零退出并报「not a draft」之类，视作无副作用吞掉、不算失败。
+6. 推完代码后把 PR 转正：`gh pr ready $pr_number`（Spec-0017/T1：转正归你这个每轮都会被派上来跑的 agent）；幂等——PR 已经是非 draft 时 `gh` 会以非零退出并报「not a draft」之类，视作无副作用吞掉、不算失败。
 完成判据：`git rev-parse origin/$branch` == 你的 `HEAD`（改动落到 head）**且 PR #$pr_number 非 draft**（已 `gh pr ready` 转正），两条都不满足就继续处理直到满足。
 
 最后只输出一行 JSON（base_sha 填第 1 步记下的交付前 SHA，head_sha 填交付后当前 HEAD 的 SHA）：

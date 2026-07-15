@@ -1,5 +1,5 @@
 ---
-number: "0066"
+number: "0017"
 title: PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
 issue: 174
 slug: pr-lifecycle-delegated-to-agent
@@ -21,7 +21,7 @@ e2e:
        green+approved@head+is_draft → _ACT_READY（断言绝不 _ACT_MERGE），非 draft 才 _ACT_MERGE，
        draft 自愈分支严格在 merge 分支之前；_do_ready 调 github.mark_ready 幂等；_do_solve 不再直调
        github.mark_ready（grep 锚点）；_do_merge 经 stages.merge 派 merger。
-    4. 离线 e2e 脚本 scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh（ruff check + ruff
+    4. 离线 e2e 脚本 scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh（ruff check + ruff
        format --check + 上述针对性 pytest + grep 锚点：_do_solve 无 github.mark_ready、stages.merge 无
        github.merge_pr 裸直调），被 PR e2e signpost 采集。反复调 run_vigil(once=True) 一 tick 一步：
        delivered+is_draft+green+approved 的 PR → tick₁ 转正（is_draft False）→ tick₂ 才 merge；
@@ -75,12 +75,12 @@ tasks:
       - openagents/recipes/vigil.py
       - tests/test_recipe_vigil.py
       - tests/test_recipe_vigil_act.py
-      - scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh
+      - scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh
     scope: '把 draft 接成 reconcile 分支表的一等维度、并把两个一次性生命周期直调改成 level-triggered / agent 职责。① _Facts 增 is_draft（末位默认 False，自动进 _fingerprint 全集哈希——转正使 True→False 改 fp、记为真进展，故护栏一不误触）；_sense 从 pr_snapshot.is_draft 读入。② _classify 在 merge 前插入自愈分支：全绿+review-approved@head 但 is_draft → ACTIONABLE: ready（新 _ACT_READY）；非 draft 才落 merge（原⑪ merge → ⑫，新⑪=ready）。此分支置于 merge 前，保证「任何 PR 都不在 draft 态被合」，且 merge:human 时人拿到的是已转正、可直接合的 PR（正是 #168 人被 draft 墙挡住的根因）。③ _act 增 _ACT_READY 分派 → _do_ready：确定性 github.mark_ready（level-triggered：is_draft 每 tick 复检，零判断的机械动作按 Spec-0064 分界留确定性；happy-path 转正由 deliver agent 承担，本支是脱靶后的安全网）。④ _do_solve 删除 github.mark_ready 一次性直调（转正归 deliver agent）。⑤ _do_merge 改调 T3 的新 stages.merge(backend=,pr_number=,head_sha=,work_dir=,context_text=_NEEDS_HUMAN_CONTRACT) 下放 merger agent。附离线 e2e 脚本。同步更新构造 PRSnapshot/_Facts 的测试 fake（is_draft 默认 False，一般零改）。'
-    acceptance: pytest tests/test_recipe_vigil.py + tests/test_recipe_vigil_act.py 通过 + bash scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh 绿。_fingerprint 字段集 == dataclasses.fields(_Facts) 全集且含 is_draft；_classify：green+approved@head+is_draft → _ACT_READY（断言绝不 merge）、green+approved@head+非draft → _ACT_MERGE，draft 自愈分支严格排在 merge 分支之前；_do_ready 调 github.mark_ready 幂等；grep 断言 _do_solve 不再出现 github.mark_ready；_do_merge 走 stages.merge 派 merger（假 backend 注入、不触网）。e2e：反复调 run_vigil(once=True)——一个 delivered 但 is_draft 的 green+approved PR 下一 tick 经 _ACT_READY 转正、再下一 tick 才 merge；merge:human 下先转正再 park needs-human（人拿到非 draft PR）。
+    acceptance: pytest tests/test_recipe_vigil.py + tests/test_recipe_vigil_act.py 通过 + bash scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh 绿。_fingerprint 字段集 == dataclasses.fields(_Facts) 全集且含 is_draft；_classify：green+approved@head+is_draft → _ACT_READY（断言绝不 merge）、green+approved@head+非draft → _ACT_MERGE，draft 自愈分支严格排在 merge 分支之前；_do_ready 调 github.mark_ready 幂等；grep 断言 _do_solve 不再出现 github.mark_ready；_do_merge 走 stages.merge 派 merger（假 backend 注入、不触网）。e2e：反复调 run_vigil(once=True)——一个 delivered 但 is_draft 的 green+approved PR 下一 tick 经 _ACT_READY 转正、再下一 tick 才 merge；merge:human 下先转正再 park needs-human（人拿到非 draft PR）。
 ---
 
-# 0066 · PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
+# 0017 · PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
 
 <!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
 
@@ -176,7 +176,7 @@ PR #168（issue #163 的成果）代码 DONE、CI 六项全绿、`mergeable=CLEA
 |---|---|---|
 | **T1** | — | `openagents/utils/github.py`、`openagents/agents/deliver.py`、`tests/test_utils_github_vigil.py`、`tests/test_agents_deliver.py` |
 | **T3** | — | `openagents/runtime/gates.py`、`openagents/agents/merger.py`、`openagents/recipes/stages.py`、`tests/test_runtime_gates.py`、`tests/test_recipe_stages.py`、`tests/test_agents_merger.py` |
-| **T2** | T1, T3 | `openagents/recipes/vigil.py`、`tests/test_recipe_vigil.py`、`tests/test_recipe_vigil_act.py`、`scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh` |
+| **T2** | T1, T3 | `openagents/recipes/vigil.py`、`tests/test_recipe_vigil.py`、`tests/test_recipe_vigil_act.py`、`scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh` |
 
 ```mermaid
 graph LR
@@ -188,7 +188,7 @@ T1（`PRSnapshot.is_draft`）、T3（新 `stages.merge` 签名 + merger + 硬闸
 
 ### e2e 脚本路径
 
-`scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh`（离线确定性，见 frontmatter `e2e.method`），被 PR e2e signpost 采集。
+`scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh`（离线确定性，见 frontmatter `e2e.method`），被 PR e2e signpost 采集。
 
 ## Drawbacks
 

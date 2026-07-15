@@ -11,7 +11,7 @@
 - **judgment 段派既有 agent**（经 `engine.run_agent` 出结构化裁决）：triage→triager、rfc→drafter、
   implement→implementer、review→reviewer、conflict/deliver→deliver；
 - **机械段走确定性 `utils`/`gates`**（读客观事实）：ci 读 github check + gates 分类、e2e 读证据溯源戳；
-  merge 是「确定性硬闸兜底 + 下放 merger agent」（Spec-0066/T3：`gates.assert_merge_allowed` 把守不可逆
+  merge 是「确定性硬闸兜底 + 下放 merger agent」（Spec-0017/T3：`gates.assert_merge_allowed` 把守不可逆
   红线后，动作下放 merger agent 落 `gh pr merge`）。**三态 `agent`/`human`/`skip` 是「这道闸归谁」而非
   「谁执行检测」**——`ci: agent`
   指「自动化拥有此闸、红了自动打回 implementer」，检测仍是客观读 check（见 spec 分界线）。
@@ -273,7 +273,7 @@ def merge(
     work_dir: Path,
     context_text: str,
 ) -> dict:
-    """合并阶段（Spec-0066/T3：确定性硬闸兜底 + 下放 merger agent）：返回 merger 报告 {merged, summary}。
+    """合并阶段（Spec-0017/T3：确定性硬闸兜底 + 下放 merger agent）：返回 merger 报告 {merged, summary}。
 
     合并**不可逆**，故形态是「先闸后 agent」：
     1. 先经确定性 `gates.assert_merge_allowed(pr_number, head_sha)` **实时复读** CI + label 把守红线——不放行

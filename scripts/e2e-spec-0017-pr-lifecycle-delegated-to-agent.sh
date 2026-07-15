@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spec-0066 端到端测试启动脚本：PR 生命周期（create/ready/merge）下放 agent —— draft 升为一等事实的
+# Spec-0017 端到端测试启动脚本：PR 生命周期（create/ready/merge）下放 agent —— draft 升为一等事实的
 # level-triggered 自愈转正 + 合并动作下放 merger agent + 不可逆合并硬闸兜底。
 #
 # 证明架构契约在离线确定性链路上成立（intent，见 spec §e2e）：
@@ -18,7 +18,7 @@
 # 记录，不塞进本离线脚本。
 #
 # 用法：
-#   bash scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh
+#   bash scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -91,7 +91,7 @@ PY
 echo
 echo "==> [5/5] reconcile 走查：draft green+approved PR 先转正再合；merge:human 先转正再 park（人拿非 draft PR）"
 uv run --extra dev python - <<'PY'
-"""Spec-0066 §e2e 的可执行版：假 GitHub（内存）+ 假 merger agent + 真 vigil（sense/classify/_act 一字不改）。
+"""Spec-0017 §e2e 的可执行版：假 GitHub（内存）+ 假 merger agent + 真 vigil（sense/classify/_act 一字不改）。
 
 被替换的只有**外部世界**：GitHub 读写 + merger 那次 LLM 调用（换成按剧本行事的假 agent，它照样只能通过
 GitHub 说话）。`_sense` / `_classify` / `_fingerprint` / `_reconcile` / `_do_ready` / `_do_merge` /
@@ -235,7 +235,7 @@ def check(label, cond, detail=""):
 # ---- 场景 A：merge:agent —— delivered 但 draft 的 green+approved PR 先转正、再下放 merger 合 ----------
 W = World()
 ACTS.clear()
-work_a = Path(tempfile.mkdtemp(prefix="oa-0066-a-"))
+work_a = Path(tempfile.mkdtemp(prefix="oa-0017-a-"))
 run_once(build_config(merge_owner="agent"), work_a)
 check("A draft 自愈支严格排在 merge 前：ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
 check("A 转正发生在合并之前：merge 落地时 PR 已非 draft（任何 PR 都不在 draft 态被合）", not W.is_draft)
@@ -244,7 +244,7 @@ check("A 合并动作下放 merger agent（闸放行后）→ PR 已 merged", W.
 # ---- 场景 B：merge:human —— 先转正、再 park needs-human：人拿到的是**已转正、可直接合**的 PR --------------
 W = World()
 ACTS.clear()
-work_b = Path(tempfile.mkdtemp(prefix="oa-0066-b-"))
+work_b = Path(tempfile.mkdtemp(prefix="oa-0017-b-"))
 run_once(build_config(merge_owner="human"), work_b)
 check("B 仍先转正再触 merge 支：ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
 check("B 人拿到的是**非 draft** PR（转正先于 human 合并动作，直闭 #168 人被 draft 墙挡住）", not W.is_draft)
@@ -261,8 +261,8 @@ try:
 except gates.GateError:
     check("C 合并硬闸绑 head sha：head 前移使裁决作废 → 抛 GateError，决不合并未审代码", True)
 
-print("\n✅ Spec-0066 离线 e2e 全绿：PR 生命周期下放 agent + draft level-triggered 自愈 + 合并硬闸兜底")
+print("\n✅ Spec-0017 离线 e2e 全绿：PR 生命周期下放 agent + draft level-triggered 自愈 + 合并硬闸兜底")
 PY
 
 echo
-echo "✅ Spec-0066 端到端离线验证全部通过"
+echo "✅ Spec-0017 端到端离线验证全部通过"

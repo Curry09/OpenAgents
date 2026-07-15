@@ -927,7 +927,7 @@ class PRSnapshot:
       `last_progress_at` 恒为 None → 看门狗永远不响 → 「CI 永不启动」这条死法（护栏二要抓的正主）会静默
       烂在那里。head 一变它自动前移，计时随之归零。
     is_draft: PR 是否为 draft（GitHub 原生事实）。**置于末位、默认 False**——`_sense` 把它当每 tick 复检的
-      一等事实（Spec-0066/T1），与 state/head/mergeable **同源一次 `gh pr view` 往返**读入（不复用独立的
+      一等事实（Spec-0017/T1），与 state/head/mergeable **同源一次 `gh pr view` 往返**读入（不复用独立的
       `github.is_draft`，免每 tick 多一次网络往返）。缺省 False 使既有构造点/测试 fake 零改动仍可实例化。
     """
 
@@ -939,7 +939,7 @@ class PRSnapshot:
     merge_state_status: str
     head_pushed_at: str
     is_draft: bool = (
-        False  # Spec-0066/T1: draft 升为快照事实（末位默认 False，避 Spec-0031 式 fake 破裂）
+        False  # Spec-0017/T1: draft 升为快照事实（末位默认 False，避 Spec-0031 式 fake 破裂）
     )
 
 
@@ -994,7 +994,7 @@ def pr_snapshot(*, pr_number: int) -> PRSnapshot:
         mergeable=str(data.get("mergeable") or "UNKNOWN").upper(),
         merge_state_status=str(data.get("mergeStateStatus") or "UNKNOWN").upper(),
         head_pushed_at=_head_committed_at(commits=data.get("commits")),
-        # Spec-0066/T1: isDraft 与其余现态同源读入；true/false/缺失/非布尔 → 默认 False（比照 is_draft 容错）。
+        # Spec-0017/T1: isDraft 与其余现态同源读入；true/false/缺失/非布尔 → 默认 False（比照 is_draft 容错）。
         is_draft=data.get("isDraft") is True,
     )
 

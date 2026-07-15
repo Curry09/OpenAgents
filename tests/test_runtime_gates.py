@@ -77,7 +77,7 @@ def test_evidence_stamp_raises_on_mismatch():
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0066/T3: assert_merge_allowed —— 合并不可逆红线硬闸（CI 全绿 + review-approved:<head sha7>@head）。
+# Spec-0017/T3: assert_merge_allowed —— 合并不可逆红线硬闸（CI 全绿 + review-approved:<head sha7>@head）。
 # 纯读客观事实、假快照注入、不触网。四情形：全绿+approved@head 放行；否则各抛 GateError。
 # --------------------------------------------------------------------------- #
 

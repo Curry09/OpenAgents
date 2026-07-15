@@ -49,6 +49,11 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR
 给每个 spec 加一段面向人的大白话 TL;DR：metadata 增组级 summary 字段、spec new 必填、validate 强制非空、render 在 OVERVIEW 顶部逐 feature 展示，并迁移补齐所有现存 spec。是 #59 人类监督闸门的地基。
 
+### 0017 PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
+把 mark_ready / merge 两个 PR 生命周期动作从确定性一次性直调改为 agent 职责，并给 draft 补上 level-triggered 自愈通路，消除「一次性动作脱靶就永久卡死」的不可复位死角。
+- e2e 意图：证明「PR 生命周期动作下放 agent + draft 升为一等事实的 level-triggered 自愈」这条架构契约在离线确定性链路上成立——(1) deliver agent 的完成判据含「PR 非 draft」（转正归它）；(2) 稳态 reconcile 分支表把 is_draft 当成每 tick 复检的一等维度：一个已交付但仍 draft 的 green+approved PR 下一 tick 经 _ACT_READY 自愈转正、再下一 tick 才落 merge，且 draft 自愈分支严格排在 merge 分支之前（任何 PR 都不在 draft 态被合、merge:human 时人拿到已转正可直接合的 PR——直闭
+  - 测法：本组是纯后端编排 + agent 提示词，无 product-facing 前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0064/0065 同款）： 1. 快照/提示词针对性 pytest（假 gh JSON / Template.substitute，不触真实仓库/网络/LLM）：    pr_snapshot 解析 isDraft→is_draft（true/false/缺失→默认 False）；PRSnapshot 加 is_draft 后既有    构造点仍可零改实例化；deliver.PROMPT 含 `gh pr ready` 与「非 draft」完成判据；merger.PROMPT 含    `gh pr merge` 与 needs-human 一等出口。 2. 硬闸针对性 pytest（假 CheckSnapshot/PRSnapshot 快照注入，不触网）：gates.assert_merge_allowed 在    CI 非全绿 / 无 review-approved label / label sha≠head 三情形各抛 GateError，唯全绿+approved@head    放行；stages.merge 闸放行→派 merger agent、闸抛→不派 agent（断言 merger 未被调用）。 3. reconcile 分支表针对性 pytest（纯函数 _classify / 假 backend 喂 canned 裁决）：    _fingerprint 字段集 == dataclasses.fields(_Facts) 全集且含 is_draft（转正改 fp = 真进展）；    green+approved@head+is_draft → _ACT_READY（断言绝不 _ACT_MERGE），非 draft 才 _ACT_MERGE，    draft 自愈分支严格在 merge 分支之前；_do_ready 调 github.mark_ready 幂等；_do_solve 不再直调    github.mark_ready（grep 锚点）；_do_merge 经 stages.merge 派 merger。 4. 离线 e2e 脚本 scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh（ruff check + ruff    format --check + 上述针对性 pytest + grep 锚点：_do_solve 无 github.mark_ready、stages.merge 无    github.merge_pr 裸直调），被 PR e2e signpost 采集。反复调 run_vigil(once=True) 一 tick 一步：    delivered+is_draft+green+approved 的 PR → tick₁ 转正（is_draft False）→ tick₂ 才 merge；    merge:human 配置下 → tick₁ 先转正 → tick₂ park needs-human（断言人拿到的是非 draft PR）。 5. 真实自主环冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil 跑通一个 issue→PR，    观测 deliver 后 PR 直接非 draft、且残留 draft 能被下一轮转正——作为成果验收（理念 8）记入 runbook。 
+
 ### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
 给 OpenAgents 加两道人类监督闸门：提 issue 前的「需求对齐」（把模糊想法复述成 做什么X/边界Y/不做Z 让人确认），以及 vigil 自治循环的分级 --hold 闸（在 spec 批准、PR 合并等关键点停下等人点头）。让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，不改既有 issue→PR 自动流程的内部逻辑。
 
@@ -182,11 +187,6 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0065 图驱动的并行守夜：LLM 排依赖边（落 GitHub 原生 dependencies）+ vigil level-triggered reconcile 并行跑前沿
 把守夜从「每轮全量扫、串行做一个 issue」重构为两面。准入面（agentic）：新 issue 过三态门控、审过打 ready label 作准入令牌，再由 LLM curator 排出彼此的依赖关系，边写进 GitHub 原生 issue dependencies（blocked_by，2025-08 GA）。执行面（机械）：level-triggered reconcile——生产者每 tick 对每个 subject 读一次 GitHub 现态，纯函数给出四值判定（IN_FLIGHT / TERMINAL / QUIET / ACTIONABLE），只有 ACTIONABLE 入队；K 个常驻 worker 各原子领一个 subject，跑一张 reconcile 分支表（人有新话 → 依赖未满足 → 无 PR → 冲突 → CI → e2e → review → merge，顺序即硬依赖）推到卡在外部为止。状态量的落处按「决定 vs 事实」切开：**我们做的决定打 label**（ready 准入 / needs-human 终态 / review 裁决——裁决绑 commit，故 label 名里必须带 head sha：`review-approved:<sha7>`，否则审完再 push 会合并没人审过的代码），**GitHub 自己的事实读原生**（CI / mergeable，本就绑 sha，复制成 label 就是造第二份真相要对账）。agent 干不动时的**正常收口是它自己打 needs-human + 留理由**（一等出口，当场 TERMINAL、轮询停止、零多余 LLM 调用）。刻意不做变更检测（边沿会丢，见 k8s level-triggered 原则），代价是三种 **agent 自己看不见**的死法要护栏：它没意识到自己在空转（不会主动叫人，且每轮留的评论还会刷新时间戳让看门狗不响）→ 收工时盖 attempt 指纹戳（存 GitHub 评论；**戳本身不能改 fp**，故 facts 不含 comment id，否则护栏自毁成死循环）；状态该动却不动（agent 压根没被叫起）→ 看门狗（age 从 GitHub 时间戳算，零本地记忆）。认领落 SQLite 单表（队列 + 归属 + 崩溃计数，一 subject 一行 UNIQUE），存活证明落 fcntl.flock：抢得到锁 ⇒ 内核已回收持有者的锁 ⇒ 它确已死，故不用租约、不猜死亡，双跑是结构性的零而非小概率。SQLite 与 flock 同把部署钉在单机，多机替换点收在 4 个 claim 函数里。承 0062–0064 收敛弧线：两面控制流全内联进 recipes.vigil 的内部函数、不新开模块，旧串行实现直接删除（git history 即回退点，不留死代码副本），recipes 守恒为 3（stages / backfill / vigil）。新增文件：agents/curator.py（排依赖的零逻辑 Template）、agents/admitter.py（三态门控 human 态准入对话的 **fail-closed 人闸**：判「人到底点头没有」——拿 fail-open 的 triager 顶这个位子，人明说「先别做」也会被判可派单，人闸当场退化成一台偏向「是」的 agent 闸；且这道闸必须**认人**（只认 OWNER/MEMBER/COLLABORATOR 的话）并在叫 agent 前先盖 try 戳，否则闸门 fail-closed 而钥匙挂在门外、agent 一判崩就每 tick 重烧一次 LLM）、utils/proc.py（按线程的 PID 认领桶 + kill_tree + flock fd 继承登记，供硬超时精确杀本次调用起的进程树）、离线 e2e 脚本；utils/github.py 补读侧函数（pr_snapshot / check_snapshot / list_blocked_by / add_blocked_by / pr_for_branch）。
 
-### 0066 PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
-把 mark_ready / merge 两个 PR 生命周期动作从确定性一次性直调改为 agent 职责，并给 draft 补上 level-triggered 自愈通路，消除「一次性动作脱靶就永久卡死」的不可复位死角。
-- e2e 意图：证明「PR 生命周期动作下放 agent + draft 升为一等事实的 level-triggered 自愈」这条架构契约在离线确定性链路上成立——(1) deliver agent 的完成判据含「PR 非 draft」（转正归它）；(2) 稳态 reconcile 分支表把 is_draft 当成每 tick 复检的一等维度：一个已交付但仍 draft 的 green+approved PR 下一 tick 经 _ACT_READY 自愈转正、再下一 tick 才落 merge，且 draft 自愈分支严格排在 merge 分支之前（任何 PR 都不在 draft 态被合、merge:human 时人拿到已转正可直接合的 PR——直闭
-  - 测法：本组是纯后端编排 + agent 提示词，无 product-facing 前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0064/0065 同款）： 1. 快照/提示词针对性 pytest（假 gh JSON / Template.substitute，不触真实仓库/网络/LLM）：    pr_snapshot 解析 isDraft→is_draft（true/false/缺失→默认 False）；PRSnapshot 加 is_draft 后既有    构造点仍可零改实例化；deliver.PROMPT 含 `gh pr ready` 与「非 draft」完成判据；merger.PROMPT 含    `gh pr merge` 与 needs-human 一等出口。 2. 硬闸针对性 pytest（假 CheckSnapshot/PRSnapshot 快照注入，不触网）：gates.assert_merge_allowed 在    CI 非全绿 / 无 review-approved label / label sha≠head 三情形各抛 GateError，唯全绿+approved@head    放行；stages.merge 闸放行→派 merger agent、闸抛→不派 agent（断言 merger 未被调用）。 3. reconcile 分支表针对性 pytest（纯函数 _classify / 假 backend 喂 canned 裁决）：    _fingerprint 字段集 == dataclasses.fields(_Facts) 全集且含 is_draft（转正改 fp = 真进展）；    green+approved@head+is_draft → _ACT_READY（断言绝不 _ACT_MERGE），非 draft 才 _ACT_MERGE，    draft 自愈分支严格在 merge 分支之前；_do_ready 调 github.mark_ready 幂等；_do_solve 不再直调    github.mark_ready（grep 锚点）；_do_merge 经 stages.merge 派 merger。 4. 离线 e2e 脚本 scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh（ruff check + ruff    format --check + 上述针对性 pytest + grep 锚点：_do_solve 无 github.mark_ready、stages.merge 无    github.merge_pr 裸直调），被 PR e2e signpost 采集。反复调 run_vigil(once=True) 一 tick 一步：    delivered+is_draft+green+approved 的 PR → tick₁ 转正（is_draft False）→ tick₂ 才 merge；    merge:human 配置下 → tick₁ 先转正 → tick₂ park needs-human（断言人拿到的是非 draft PR）。 5. 真实自主环冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil 跑通一个 issue→PR，    观测 deliver 后 PR 直接非 draft、且残留 draft 能被下一轮转正——作为成果验收（理念 8）记入 runbook。 
-
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -254,6 +254,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0015 | 0015/T3 | 闸门：validate 强制 summary 非空 | done | T1 | openagents/spec/validate.py<br>tests/test_spec_validate.py |
 | 0015 | 0015/T4 | 人读视图：render 顶部 TL;DR 区块 | done | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
 | 0015 | 0015/T5 | 迁移：补齐 14 个现有 spec 的 summary + 重渲染 | done | T3, T4 | docs/specs/OVERVIEW.md |
+| 0017 | 0017/T1 | draft 升为 PR 快照事实 + deliver agent 承接转正职责 | done | — | openagents/utils/github.py<br>openagents/agents/deliver.py<br>tests/test_utils_github_vigil.py<br>tests/test_agents_deliver.py |
+| 0017 | 0017/T3 | 合并动作下放 merger agent + 确定性合并硬闸兜底 | done | — | openagents/runtime/gates.py<br>openagents/agents/merger.py<br>openagents/recipes/stages.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_agents_merger.py |
+| 0017 | 0017/T2 | draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放 | done | T1, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh |
 | 0020 | 0020/T1 | 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z | done | — | openagents/align.py<br>tests/test_align.py |
 | 0020 | 0020/T2 | hold 配置模型：解析 spec,merge 成闸门集合 | done | — | openagents/hold.py<br>tests/test_hold.py |
 | 0020 | 0020/T3 | 流水线分级闸：hold 穿到 poll 两道闸分流 | done | T2 | openagents/vigil.py<br>openagents/messages.py<br>tests/test_vigil.py<br>tests/test_messages.py |
@@ -425,9 +428,6 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0064 | 0064/T6 | 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成 | done | T5 | openagents/recipes/solve_issue.py<br>openagents/recipes/merge_pr.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/rfc_lifecycle.py<br>openagents/recipes/fleet.py<br>openagents/agents/planner.py |
 | 0065 | 0065/T1 | graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边） | done | — | openagents/agents/curator.py<br>openagents/agents/admitter.py<br>tests/test_agent_curator.py<br>tests/test_agent_admitter.py |
 | 0065 | 0065/T2 | vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指 | done | T1 | openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/runtime/context.py<br>openagents/runtime/state.py<br>openagents/backends/claude_code.py<br>openagents/cli.py<br>openagents/utils/github.py<br>openagents/utils/proc.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_admit.py<br>tests/conftest.py<br>tests/test_runtime_context.py<br>tests/test_github.py<br>tests/test_utils_github_vigil.py<br>tests/test_utils_proc.py<br>tests/test_backend_claude_code.py<br>tests/test_cli.py<br>scripts/e2e-spec-0065-graph-parallel-vigil.sh |
-| 0066 | 0066/T1 | draft 升为 PR 快照事实 + deliver agent 承接转正职责 | done | — | openagents/utils/github.py<br>openagents/agents/deliver.py<br>tests/test_utils_github_vigil.py<br>tests/test_agents_deliver.py |
-| 0066 | 0066/T3 | 合并动作下放 merger agent + 确定性合并硬闸兜底 | done | — | openagents/runtime/gates.py<br>openagents/agents/merger.py<br>openagents/recipes/stages.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_agents_merger.py |
-| 0066 | 0066/T2 | draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放 | done | T1, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh |
 
 ## 跨 feature 关系图
 
@@ -525,6 +525,11 @@ graph LR
         n0015_T3["T3 闸门：validate 强制 summary 非空"]
         n0015_T4["T4 人读视图：render 顶部 TL;DR 区块"]
         n0015_T5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    end
+    subgraph G0017[0017 pr-lifecycle-delegated-to-agent]
+        n0017_T1["T1 draft 升为 PR 快照事实 + deliver agent 承接转正职责"]
+        n0017_T3["T3 合并动作下放 merger agent + 确定性合并硬闸兜底"]
+        n0017_T2["T2 draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放"]
     end
     subgraph G0020[0020 human-oversight-gates]
         n0020_T1["T1 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z"]
@@ -779,11 +784,6 @@ graph LR
         n0065_T1["T1 graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边）"]
         n0065_T2["T2 vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指"]
     end
-    subgraph G0066[0066 pr-lifecycle-delegated-to-agent]
-        n0066_T1["T1 draft 升为 PR 快照事实 + deliver agent 承接转正职责"]
-        n0066_T3["T3 合并动作下放 merger agent + 确定性合并硬闸兜底"]
-        n0066_T2["T2 draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放"]
-    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -845,6 +845,8 @@ graph LR
     n0015_T4 --> n0015_T1
     n0015_T5 --> n0015_T3
     n0015_T5 --> n0015_T4
+    n0017_T2 --> n0017_T1
+    n0017_T2 --> n0017_T3
     n0020_T3 --> n0020_T2
     n0020_T4 --> n0020_T1
     n0020_T4 --> n0020_T2
@@ -990,8 +992,6 @@ graph LR
     n0064_T5 --> n0064_T4
     n0064_T6 --> n0064_T5
     n0065_T2 --> n0065_T1
-    n0066_T2 --> n0066_T1
-    n0066_T2 --> n0066_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1008,7 +1008,7 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
-| openagents/agents/deliver.py | 0060, 0066 |
+| openagents/agents/deliver.py | 0017, 0060 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
@@ -1035,14 +1035,14 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0064, 0065, 0066 |
-| openagents/recipes/vigil.py | 0061, 0062, 0064, 0065, 0066 |
+| openagents/recipes/stages.py | 0017, 0064, 0065 |
+| openagents/recipes/vigil.py | 0017, 0061, 0062, 0064, 0065 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/runtime/context.py | 0060, 0061, 0065 |
-| openagents/runtime/gates.py | 0060, 0062, 0066 |
+| openagents/runtime/gates.py | 0017, 0060, 0062 |
 | openagents/runtime/state.py | 0060, 0062, 0063, 0065 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
@@ -1057,7 +1057,7 @@ graph LR
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/git.py | 0060, 0061 |
-| openagents/utils/github.py | 0060, 0061, 0062, 0065, 0066 |
+| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065 |
 | openagents/utils/hold.py | 0061, 0062 |
 | openagents/utils/identity.py | 0061, 0062, 0063, 0064 |
 | openagents/utils/notes.py | 0061, 0062 |
@@ -1101,15 +1101,15 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0064, 0066 |
-| tests/test_recipe_vigil.py | 0061, 0062, 0064, 0065, 0066 |
-| tests/test_recipe_vigil_act.py | 0065, 0066 |
+| tests/test_recipe_stages.py | 0017, 0064 |
+| tests/test_recipe_vigil.py | 0017, 0061, 0062, 0064, 0065 |
+| tests/test_recipe_vigil_act.py | 0017, 0065 |
 | tests/test_release.py | 0023, 0029, 0063 |
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_runtime_context.py | 0060, 0065 |
-| tests/test_runtime_gates.py | 0060, 0066 |
+| tests/test_runtime_gates.py | 0017, 0060 |
 | tests/test_spec_cli.py | 0014, 0015, 0024 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
@@ -1119,7 +1119,7 @@ graph LR
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055, 0063 |
 | tests/test_state_closed_at.py | 0042, 0063 |
 | tests/test_state_code_fingerprint.py | 0053, 0063 |
-| tests/test_utils_github_vigil.py | 0065, 0066 |
+| tests/test_utils_github_vigil.py | 0017, 0065 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029, 0062 |
 | tests/test_vigil_claim.py | 0039, 0049 |
 | tests/test_workspace.py | 0005, 0008, 0029, 0056 |
@@ -1569,6 +1569,30 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0017 PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底（issue #174）
+
+```mermaid
+graph LR
+    nT1["T1 draft 升为 PR 快照事实 + deliver agent 承接转正职责"]
+    nT3["T3 合并动作下放 merger agent + 确定性合并硬闸兜底"]
+    nT2["T2 draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放"]
+    nT1 --> nT2
+    nT3 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```
 
 ### 0020 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控（issue #59）
@@ -2760,28 +2784,4 @@ graph LR
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
-```
-
-### 0066 PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底（issue #174）
-
-```mermaid
-graph LR
-    nT1["T1 draft 升为 PR 快照事实 + deliver agent 承接转正职责"]
-    nT3["T3 合并动作下放 merger agent + 确定性合并硬闸兜底"]
-    nT2["T2 draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放"]
-    nT1 --> nT2
-    nT3 --> nT2
-```
-
-演化图：
-
-```mermaid
-graph LR
-    v_T1_1["T1 v1"]
-    v_T2_1["T2 v1"]
-    v_T3_1["T3 v1"]
-    classDef st_done fill:#b7e4c7;
-    class v_T1_1 st_done;
-    class v_T2_1 st_done;
-    class v_T3_1 st_done;
 ```

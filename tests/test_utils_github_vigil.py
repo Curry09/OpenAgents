@@ -189,7 +189,7 @@ def test_pr_snapshot_parses_every_field(monkeypatch):
     assert snap.merge_state_status == "CLEAN"
     # head_pushed_at 取 commits **末条**（= head）的 committedDate，不是首条。
     assert snap.head_pushed_at == "2026-07-14T10:30:00Z"
-    # Spec-0066/T1: isDraft 缺省 → is_draft 默认 False（既有构造点/payload 零改动仍可实例化）。
+    # Spec-0017/T1: isDraft 缺省 → is_draft 默认 False（既有构造点/payload 零改动仍可实例化）。
     assert snap.is_draft is False
     # 所有字段必须在同一次 `gh pr view` 里取回（同源快照，不会读到自相矛盾的中间态）。
     cmd = runner.calls[-1]
@@ -203,25 +203,25 @@ def test_pr_snapshot_parses_every_field(monkeypatch):
         "mergeable",
         "mergeStateStatus",
         "commits",
-        "isDraft",  # Spec-0066/T1: draft 与其余现态同源一次往返读入
+        "isDraft",  # Spec-0017/T1: draft 与其余现态同源一次往返读入
     }
     assert len(runner.calls) == 1
 
 
 def test_pr_snapshot_is_draft_true(monkeypatch):
-    # Spec-0066/T1: isDraft=true → is_draft True（draft 升为一等快照事实）。
+    # Spec-0017/T1: isDraft=true → is_draft True（draft 升为一等快照事实）。
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft=True)))
     assert pr_snapshot(pr_number=164).is_draft is True
 
 
 def test_pr_snapshot_is_draft_false(monkeypatch):
-    # Spec-0066/T1: isDraft=false → is_draft False（已转正的 PR）。
+    # Spec-0017/T1: isDraft=false → is_draft False（已转正的 PR）。
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft=False)))
     assert pr_snapshot(pr_number=164).is_draft is False
 
 
 def test_pr_snapshot_is_draft_non_bool_defaults_false(monkeypatch):
-    # Spec-0066/T1: isDraft 非布尔（异常结构）→ 容错默认 False（比照 is_draft 容错风格）。
+    # Spec-0017/T1: isDraft 非布尔（异常结构）→ 容错默认 False（比照 is_draft 容错风格）。
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft="yes")))
     assert pr_snapshot(pr_number=164).is_draft is False
 

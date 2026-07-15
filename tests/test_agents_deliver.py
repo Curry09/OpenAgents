@@ -1,4 +1,4 @@
-"""Spec-0066/T1: deliver agent 承接「PR 转正」职责的提示词契约单测（不触真实 gh/LLM）。
+"""Spec-0017/T1: deliver agent 承接「PR 转正」职责的提示词契约单测（不触真实 gh/LLM）。
 
 deliver push 完代码后顺手 `gh pr ready`，其完成判据从「push 到 head」扩为「push 到 head 且 PR 非 draft」。
 OUTPUT_SCHEMA 不变（零控制流改动）。
@@ -18,7 +18,7 @@ def test_prompt_is_template_and_substitutes():
 
 
 def test_prompt_contains_gh_pr_ready():
-    # Spec-0066/T1: 转正动作写进 deliver 职责——push 之后 `gh pr ready $pr_number`。
+    # Spec-0017/T1: 转正动作写进 deliver 职责——push 之后 `gh pr ready $pr_number`。
     text = deliver.PROMPT.substitute(branch="openagents/issue-1", pr_number=42)
     assert "gh pr ready 42" in text
 

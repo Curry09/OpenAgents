@@ -1,4 +1,4 @@
-"""# Spec-0066/T3: agents.merger —— 落合并动作 → 结构化合并报告的提示词（零逻辑）。
+"""# Spec-0017/T3: agents.merger —— 落合并动作 → 结构化合并报告的提示词（零逻辑）。
 
 合并**不可逆**，故「可不可以合」这条红线由确定性硬闸 `gates.assert_merge_allowed`（CI 全绿 +
 `review-approved:<head sha7>`@head）在派本 agent **之前**把守——本 agent 只在闸放行后被派上来落

@@ -216,7 +216,7 @@ def test_e2e_matching_stamp_ok(monkeypatch):
 
 
 def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
-    # Spec-0066/T3: 硬闸放行 → 经 engine.run_agent 派 merger agent 落合并（返回 {merged, summary}）。
+    # Spec-0017/T3: 硬闸放行 → 经 engine.run_agent 派 merger agent 落合并（返回 {merged, summary}）。
     gate_calls = {}
     agent_calls = []
     monkeypatch.setattr(
@@ -244,7 +244,7 @@ def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
 
 
 def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
-    # Spec-0066/T3: 闸抛 GateError → **决不派 agent**（agent 只能在闸放行后落合并动作，防合未审代码）。
+    # Spec-0017/T3: 闸抛 GateError → **决不派 agent**（agent 只能在闸放行后落合并动作，防合未审代码）。
     agent_calls = []
 
     def _boom(*, pr_number, head_sha):

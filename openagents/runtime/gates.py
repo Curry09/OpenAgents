@@ -5,7 +5,7 @@
 不判「代码对不对」「冲突怎么解」——那些是 agent 的活。
 
 - `assert_head_advanced`：head 有没有前移（真交付了？）——#140 的 `assert_delivered` 一般化。
-- `assert_merge_allowed`：合并红线（CI 全绿 + review-approved:<head sha7>@head）——Spec-0066 兜底不可逆合并。
+- `assert_merge_allowed`：合并红线（CI 全绿 + review-approved:<head sha7>@head）——Spec-0017 兜底不可逆合并。
 - `round_cap`：循环轮次上限（防死循环）——reviewer 恒 REWORK 时兜底 raise。
 - `assert_pr_exists`：PR 号存在性。
 - `assert_evidence_stamp`：证据溯源戳（`head_sha` 匹配）——Spec-0055 沿用。
@@ -32,7 +32,7 @@ REVIVE_WINDOW_SECONDS = 7 * 24 * 3600
 _HOLD_GATES = ("spec", "merge")
 _SKIP_GATES = ("ci", "code", "evidence", "spec")
 
-# Spec-0066/T3: 合并硬闸的两条客观判据——CI 全绿 + `review-approved:<head sha7>` label 且 sha 匹配当前 head。
+# Spec-0017/T3: 合并硬闸的两条客观判据——CI 全绿 + `review-approved:<head sha7>` label 且 sha 匹配当前 head。
 # label 前缀与 recipes.vigil `_LABEL_REVIEW_APPROVED_PREFIX` 同字面（裁决落处的单一约定），sha7 长度与 git 短
 # sha 一致。gates 不 import vigil（避免 recipe→runtime 反向依赖），故在此就地立常量。
 _REVIEW_APPROVED_LABEL_PREFIX = "review-approved:"
@@ -74,7 +74,7 @@ def assert_head_advanced(*, before: str, workspace: Path) -> str:
 
 
 def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
-    """合并红线硬闸（Spec-0066/T3）：**实时复读** CI + labels，非「全绿 ∧ review-approved:<head sha7>@head」即抛。
+    """合并红线硬闸（Spec-0017/T3）：**实时复读** CI + labels，非「全绿 ∧ review-approved:<head sha7>@head」即抛。
 
     合并**不可逆**——当初把 `merge_pr` 留在确定性层，就是防「觉得可以合了」就合掉一份没审过的代码。把合并
     动作下放 merger agent 后，「可不可以合」这条红线仍由本闸把守：agent 只能在本闸放行后才被派上来落合并
