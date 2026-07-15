@@ -125,6 +125,23 @@ class RuntimeState:
             data.setdefault("cursors", {})[str(pr_number)] = comment_id
             self._save(data=data)
 
+    def get_issue_cursor(self, *, number: int) -> str | None:
+        """# Spec-0016/T2：取某 issue 的 comment 游标（最后处理到的 issue 页评论 id）；无则 None。
+
+        与 `get_cursor`（PR 版，`cursors` 键按 pr_number）平级但落**独立命名空间键** `issue_cursors`
+        （按 issue number）——issue N 与 PR N 是两个不同的对象，同键会撞（回复 issue N 的游标覆盖
+        PR N 的游标 → 对同一条评论重复回帖 / 漏回）。缺省返回 None（=从头算，任意人类评论即算新）。
+        """
+        return self._load().get("issue_cursors", {}).get(str(number))
+
+    def set_issue_cursor(self, *, number: int, comment_id: str) -> None:
+        """# Spec-0016/T2：写某 issue 的 comment 游标（落 `issue_cursors` 键）。"""
+        # Spec-0016/T2: 同 set_cursor——读-改-写全程串行（丢一条游标 = 对同一条人类评论重复回帖）
+        with RuntimeState._LOCK:
+            data = self._load()
+            data.setdefault("issue_cursors", {})[str(number)] = comment_id
+            self._save(data=data)
+
     def get_agent_id(self) -> str | None:
         """# Spec-0063/T1: 读已落盘的本实例 agent_id（承接 RFC-0011 语义）；未设过返回 None。
 

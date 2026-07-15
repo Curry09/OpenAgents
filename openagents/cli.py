@@ -165,7 +165,11 @@ def build_parser() -> argparse.ArgumentParser:
     # 只在提供 help 时才把子命令登进帮助清单，故省略 help 使它从 `--help` 列表隐去、但仍可解析分发（不占
     # 人心智；help=SUPPRESS 反而会打印字面 "==SUPPRESS==" 噪声）。
     p_reply = sub.add_parser("reply-comment")
-    p_reply.add_argument("--pr", type=int, required=True, metavar="N", help="要回复的 PR 编号")
+    # Spec-0016/T5：--pr / --issue 二选一（互斥必选组）——issue #149 把签名回复从 PR 扩到 issue 页，
+    # 手动出口对称补 --issue。仍不传 help=（隐藏内部命令，Spec-0064/T5 定位不变）。
+    p_reply_target = p_reply.add_mutually_exclusive_group(required=True)
+    p_reply_target.add_argument("--pr", type=int, metavar="N", help="要回复的 PR 编号")
+    p_reply_target.add_argument("--issue", type=int, metavar="N", help="要回复的 issue 编号")
     p_reply.add_argument("--body", required=True, help="回复正文（会自动盖上本 agent 签名）")
 
     return parser
@@ -367,9 +371,16 @@ def _confirm_issue_alignment(*, title: str, body: str) -> bool:
 def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0064/T5：隐藏内部命令——coding agent 回评论的唯一出口。post_signed_comment 盖签名 + 同步后
     # 校验漏签 edit 补（约束③），使回复不被下一轮 poll 当成新人类评论（防自循环）。
+    # Spec-0016/T5：--issue 路由到 issue 版签名出口 post_signed_comment_on_issue（防自循环闭环同构）；
+    # --pr 维持既有 post_signed_comment（零回归）。二者由 argparse 互斥必选组保证恰有其一。
     from openagents.utils import identity
 
-    identity.post_signed_comment(pr_number=args.pr, body=args.body, agent_id=_agent_id_for(ctx=ctx))
+    agent_id = _agent_id_for(ctx=ctx)
+    if args.issue is not None:
+        identity.post_signed_comment_on_issue(number=args.issue, body=args.body, agent_id=agent_id)
+        print(f"✓ 已以本 agent 身份回复 issue #{args.issue} 的评论")
+        return 0
+    identity.post_signed_comment(pr_number=args.pr, body=args.body, agent_id=agent_id)
     print(f"✓ 已以本 agent 身份回复 PR #{args.pr} 的评论")
     return 0
 

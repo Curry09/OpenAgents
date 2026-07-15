@@ -111,6 +111,27 @@ def new_human_comments(*, pr_number: int, since: str) -> list[github.Comment]:
     return sorted(fresh, key=lambda comment: comment.created_at)
 
 
+def new_human_comments_on_issue(*, number: int, since: str) -> list[github.Comment]:
+    """# Spec-0016/T1：读侧 issue 版——返回 issue 页上「since 之后的新人类评论」，按时间升序。
+
+    与 `new_human_comments`（PR 版）逐字对称，唯一区别是读源改调 `github.list_issue_comments`
+    （`gh issue view --json comments`）而非 `list_comments`（`gh pr view`）。沿用同一对硬约束：
+    - created_at 严格大于 `since`（issue 评论游标 state.get_issue_cursor）——历史评论、上次回复
+      之前的评论全被滤掉；since="" 时任何非空 created_at 都算新（任意人类评论即可触发）。
+    - parse_agent_id(body) is None（无 OpenAgents 隐藏签名）——一切带签名的机器评论（本实例回帖、
+      认领便签、准入对话回贴）全被滤掉。
+
+    两道约束叠加 → agent 永远读不到自己的回帖自触发（issue #149「回复即消息」闭环延伸到 issue 页），
+    与 PR 侧防自循环语义完全同构。PR 版 `new_human_comments` 零改动（零回归）。
+    """
+    fresh = [
+        comment
+        for comment in github.list_issue_comments(number=number)
+        if comment.created_at > since and parse_agent_id(body=comment.body) is None
+    ]
+    return sorted(fresh, key=lambda comment: comment.created_at)
+
+
 def build_claim_note(*, agent_id: str) -> str:
     """Spec-0049/T2：构造一条**署名认领便签**正文——claim 标记 + agent 签名，供贴到 issue。
 
@@ -192,6 +213,44 @@ def _verify_signature_or_fix(*, pr_number: int, agent_id: str) -> None:
     try:
         github.post_comment(
             pr_number=pr_number,
+            body=sign(body="（openagents 补签名：校正上一条回复的归属）", agent_id=agent_id),
+        )
+    except github.GithubError:
+        return
+
+
+def post_signed_comment_on_issue(*, number: int, body: str, agent_id: str) -> None:
+    """# Spec-0016/T1：盖章后 post 到 **issue 页** + 同步后校验漏签则补签——issue 版签名回帖唯一出口。
+
+    与 `post_signed_comment`（PR 版）逐字对称，唯一区别是写源改调 `github.issue_comment`
+    （`gh issue comment`）而非 `post_comment`（`gh pr comment`）、回读改调 `list_issue_comments`。
+    `sign` 恒在 body 末尾追加隐藏签名，故落地正文必带签名；Spec-0064 约束③要求「同步后校验漏签则
+    补（不能只 warn）」——post 后回读 issue 上本实例的最近一条评论确认签名确实落地，万一漏签则**主动
+    补一条签名评论**闭合防自循环闭环（漏签会让下一轮 `new_human_comments_on_issue` 把自己的回帖当新
+    人类评论、自问自答死循环）。补签失败不上抛（best-effort，不阻断已发出的回复）。PR 版零改动（零回归）。
+    """
+    github.issue_comment(number=number, body=sign(body=body, agent_id=agent_id))
+    _verify_signature_or_fix_on_issue(number=number, agent_id=agent_id)
+
+
+def _verify_signature_or_fix_on_issue(*, number: int, agent_id: str) -> None:
+    """# Spec-0016/T1：issue 版回读校验——最近一条评论带本实例签名则 no-op，漏签则补一条签名评论。
+
+    与 `_verify_signature_or_fix`（PR 版）对称：读经 `list_issue_comments`、补签经 `issue_comment`。
+    读/补失败均吞掉（best-effort，不阻断已发出的回复；真故障由上层守候段 per-subject 错误隔离兜住）。
+    """
+    try:
+        comments = github.list_issue_comments(number=number)
+    except github.GithubError:
+        return
+    if not comments:
+        return
+    latest = max(comments, key=lambda comment: comment.created_at)
+    if parse_agent_id(body=latest.body) == agent_id:
+        return
+    try:
+        github.issue_comment(
+            number=number,
             body=sign(body="（openagents 补签名：校正上一条回复的归属）", agent_id=agent_id),
         )
     except github.GithubError:

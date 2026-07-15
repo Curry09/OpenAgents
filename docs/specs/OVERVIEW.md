@@ -49,6 +49,11 @@ OpenAgents 的最小可用自举闭环：拉一个 issue、派一个 agent、用
 ### 0015 spec 人类可读 summary：填 group 级 summary 字段 + render 大白话 TL;DR
 给每个 spec 加一段面向人的大白话 TL;DR：metadata 增组级 summary 字段、spec new 必填、validate 强制非空、render 在 OVERVIEW 顶部逐 feature 展示，并迁移补齐所有现存 spec。是 #59 人类监督闸门的地基。
 
+### 0016 issue 页面新增评论 agent 自动回复（把评论回复从 PR 扩展到 issue）
+把「新人类评论→agent 签名回复」闭环从 PR 扩展到 issue 页：vigil 的 reply 分支②对**已准入、尚无 PR** 的 issue subject 也读 issue 页评论、按签名滤新人类评论、派 replier（issue 语境提示词，只答疑不改代码）经 issue 级签名出口回帖。读侧/写侧 issue 原语补齐（identity.new_human_comments_on_issue / post_signed_comment_on_issue，复用已存在的 github.list_issue_comments/issue_comment），state 加 issue 评论游标，reply-comment CLI 加 --issue 手动出口。准入面 admitter（triage:human 一次性入闸对话）与本回复面（已准入 issue 的持续答疑）按 issue 准入态天然切开、互不打架。
+- e2e 意图：证明「issue 页面出现新人类评论 → agent 感知 → 派 replier → 带签名回帖到该 issue」闭环在离线确定性链路上成立，且不自触发（自己的签名回复不会被下一轮当成新人类评论）。
+  - 测法：形态：纯后端编排，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP， 故不设浏览器 e2e，改用离线确定性测法（承 Spec-0061/0065 的 fake-github 离线 e2e 风格）： 脚本 scripts/e2e-spec-0016-issue-comment-agent-reply.sh 反复调 run_vigil(once=True)，用注入的 fake github + fake backend 构造一个**已准入（带 ready label）、尚无 PR** 的 issue，其评论流最新一条 是无签名的人类评论。断言： 1. 该 tick vigil 对此 issue 判 ACTIONABLE:reply（而非 solve），派出 replier； 2. replier 的回复经 identity.post_signed_comment_on_issue 落到该 issue（gh issue comment），且带本    实例签名 `<!-- openagents:agent=… -->`； 3. 再跑一 tick：最新评论已是我方签名 → `_latest_is_ours` True → 不再重复回帖（不自触发死循环）； 4. 手动出口 `oa reply-comment --issue N --body …` 同样经签名出口落到 issue。 
+
 ### 0017 PR 生命周期(create/ready/merge)下放 agent：draft 升为一等事实、level-triggered 自愈转正 + 合并硬闸兜底
 把 mark_ready / merge 两个 PR 生命周期动作从确定性一次性直调改为 agent 职责，并给 draft 补上 level-triggered 自愈通路，消除「一次性动作脱靶就永久卡死」的不可复位死角。
 - e2e 意图：证明「PR 生命周期动作下放 agent + draft 升为一等事实的 level-triggered 自愈」这条架构契约在离线确定性链路上成立——(1) deliver agent 的完成判据含「PR 非 draft」（转正归它）；(2) 稳态 reconcile 分支表把 is_draft 当成每 tick 复检的一等维度：一个已交付但仍 draft 的 green+approved PR 下一 tick 经 _ACT_READY 自愈转正、再下一 tick 才落 merge，且 draft 自愈分支严格排在 merge 分支之前（任何 PR 都不在 draft 态被合、merge:human 时人拿到已转正可直接合的 PR——直闭
@@ -262,6 +267,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0015 | 0015/T3 | 闸门：validate 强制 summary 非空 | done | T1 | openagents/spec/validate.py<br>tests/test_spec_validate.py |
 | 0015 | 0015/T4 | 人读视图：render 顶部 TL;DR 区块 | done | T1 | openagents/spec/render.py<br>tests/test_spec_render.py |
 | 0015 | 0015/T5 | 迁移：补齐 14 个现有 spec 的 summary + 重渲染 | done | T3, T4 | docs/specs/OVERVIEW.md |
+| 0016 | 0016/T1 | identity issue 签名读/写原语（new_human_comments_on_issue + post_signed_comment_on_issue） | done | — | openagents/utils/identity.py<br>tests/test_identity_issue_reply.py |
+| 0016 | 0016/T2 | state issue 评论游标（get/set_issue_cursor，独立命名空间） | done | — | openagents/runtime/state.py<br>tests/test_runtime_state_issue_cursor.py |
+| 0016 | 0016/T3 | replier issue 提示词 + context issue 回复占位符（只答疑、不改代码） | done | — | openagents/agents/replier.py<br>openagents/runtime/context.py<br>tests/test_agents_replier_issue.py<br>tests/test_runtime_context_issue_reply.py |
+| 0016 | 0016/T4 | vigil 接线：_sense 填 issue latest_comment_is_ours（限 ready 无-PR）+ _do_reply issue 分派 + 离线 e2e | done | T1, T2, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil_issue_reply.py<br>scripts/e2e-spec-0016-issue-comment-agent-reply.sh |
+| 0016 | 0016/T5 | reply-comment --issue 手动出口（与 --pr 互斥二选一） | done | T1 | openagents/cli.py<br>tests/test_cli_issue_reply.py |
 | 0017 | 0017/T1 | draft 升为 PR 快照事实 + deliver agent 承接转正职责 | done | — | openagents/utils/github.py<br>openagents/agents/deliver.py<br>tests/test_utils_github_vigil.py<br>tests/test_agents_deliver.py |
 | 0017 | 0017/T3 | 合并动作下放 merger agent + 确定性合并硬闸兜底 | done | — | openagents/runtime/gates.py<br>openagents/agents/merger.py<br>openagents/recipes/stages.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_agents_merger.py |
 | 0017 | 0017/T2 | draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放 | done | T1, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh |
@@ -538,6 +548,13 @@ graph LR
         n0015_T3["T3 闸门：validate 强制 summary 非空"]
         n0015_T4["T4 人读视图：render 顶部 TL;DR 区块"]
         n0015_T5["T5 迁移：补齐 14 个现有 spec 的 summary + 重渲染"]
+    end
+    subgraph G0016[0016 issue-comment-agent-reply]
+        n0016_T1["T1 identity issue 签名读/写原语（new_human_comments_on_issue + post_signed_comment_on_issue）"]
+        n0016_T2["T2 state issue 评论游标（get/set_issue_cursor，独立命名空间）"]
+        n0016_T3["T3 replier issue 提示词 + context issue 回复占位符（只答疑、不改代码）"]
+        n0016_T4["T4 vigil 接线：_sense 填 issue latest_comment_is_ours（限 ready 无-PR）+ _do_reply issue 分派 + 离线 e2e"]
+        n0016_T5["T5 reply-comment --issue 手动出口（与 --pr 互斥二选一）"]
     end
     subgraph G0017[0017 pr-lifecycle-delegated-to-agent]
         n0017_T1["T1 draft 升为 PR 快照事实 + deliver agent 承接转正职责"]
@@ -867,6 +884,10 @@ graph LR
     n0015_T4 --> n0015_T1
     n0015_T5 --> n0015_T3
     n0015_T5 --> n0015_T4
+    n0016_T4 --> n0016_T1
+    n0016_T4 --> n0016_T2
+    n0016_T4 --> n0016_T3
+    n0016_T5 --> n0016_T1
     n0017_T2 --> n0017_T1
     n0017_T2 --> n0017_T3
     n0020_T3 --> n0020_T2
@@ -1035,12 +1056,13 @@ graph LR
 | openagents/__init__.py | 0001, 0029 |
 | openagents/agents/deliver.py | 0017, 0060 |
 | openagents/agents/planner.py | 0060, 0064 |
+| openagents/agents/replier.py | 0016, 0061 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1061,14 +1083,14 @@ graph LR
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
 | openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0017, 0061, 0062, 0064, 0065, 0066 |
+| openagents/recipes/vigil.py | 0016, 0017, 0061, 0062, 0064, 0065, 0066 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0060, 0061, 0065 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065 |
 | openagents/runtime/gates.py | 0017, 0060, 0062 |
-| openagents/runtime/state.py | 0060, 0062, 0063, 0065 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065 |
 | openagents/spec/cli.py | 0014, 0015 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/spec/mutate.py | 0014, 0015 |
@@ -1085,7 +1107,7 @@ graph LR
 | openagents/utils/git.py | 0060, 0061 |
 | openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065 |
 | openagents/utils/hold.py | 0061, 0062 |
-| openagents/utils/identity.py | 0061, 0062, 0063, 0064 |
+| openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064 |
 | openagents/utils/notes.py | 0061, 0062 |
 | openagents/utils/release.py | 0061, 0062, 0063 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
@@ -1579,6 +1601,38 @@ graph LR
     nT1 --> nT4
     nT3 --> nT5
     nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+```
+
+### 0016 issue 页面新增评论 agent 自动回复（把评论回复从 PR 扩展到 issue）（issue #149）
+
+```mermaid
+graph LR
+    nT1["T1 identity issue 签名读/写原语（new_human_comments_on_issue + post_signed_comment_on_issue）"]
+    nT2["T2 state issue 评论游标（get/set_issue_cursor，独立命名空间）"]
+    nT3["T3 replier issue 提示词 + context issue 回复占位符（只答疑、不改代码）"]
+    nT4["T4 vigil 接线：_sense 填 issue latest_comment_is_ours（限 ready 无-PR）+ _do_reply issue 分派 + 离线 e2e"]
+    nT5["T5 reply-comment --issue 手动出口（与 --pr 互斥二选一）"]
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+    nT1 --> nT5
 ```
 
 演化图：

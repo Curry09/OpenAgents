@@ -143,6 +143,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from openagents.agents import curator, replier, tester
@@ -671,9 +672,16 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
         # 降级 QUIET(awaiting-effect)）会**永远**卡在那里——`_watchdog` 因 `last_progress_at is None` 直接
         # 返回 False，needs-human 永不触发。这正是 §5 表承诺「状态该动却不动 → 看门狗兜底」不可能发生的
         # 静默永久卡死。attempt 戳与人类评论都落在 issue 上，读它们喂进度时钟（成因时钟一致：head 一推、
-        # 有 PR 后自然改走 PR 分支）。不动 `latest_comment_is_ours`：无-PR issue 的人机对话归**准入面**的
-        # admitter，reply 分支②要 PR 语境（回帖对象是 PR 评论），此处不激活，见 §14。
-        progress.extend(comment.created_at for comment in github.list_issue_comments(number=number))
+        # 有 PR 后自然改走 PR 分支）。
+        issue_comments = github.list_issue_comments(number=number)
+        progress.extend(comment.created_at for comment in issue_comments)
+        # Spec-0016/T4: 已准入（ready）、尚无 PR 的 issue，其页面评论流也接进 reply 分支②（issue #149：
+        # 把「新人类评论→agent 签名回复」从 PR 扩到 issue 页）。**只在 ready 时激活**：无 ready 的 issue
+        # 仍归**准入面** admitter（`_ask_human` 处理 triage:human 入闸对话），准入后才归本回复面——`ready`
+        # 是这条边界的单一判据（见 §14）。复用既有纯函数 `_latest_is_ours`（最新一条非我方签名 → 有人有
+        # 新话 → 分支②派 replier）；**不新增携 comment id 的字段**，fp 全集不变（护栏一不自毁，见 `_Facts`）。
+        if _LABEL_READY in labels:
+            latest_comment_is_ours = _latest_is_ours(comments=issue_comments)
 
     review_state, review_commit_id = _review_from_labels(labels=labels)
 
@@ -2659,10 +2667,15 @@ def _do_reply(
 
     与其它分支一样拼上 `_NEEDS_HUMAN_CONTRACT`：人问的问题 replier 也可能答不了（要动的东西超出授权、需求
     本身有歧义），它同样需要那个一等出口，否则「答不了」只能靠看门狗兜。
+
+    # Spec-0016/T4: 两条对称路径按 `pr_number` 分派——有 PR → PR 版原语（下），无 PR（且是已准入 issue）
+    # → issue 版原语（`_do_reply_issue`）。issue #149：把回复从 PR 扩到 issue 页，只答疑不改代码。
     """
     pr_number = facts.pr_number
     if pr_number is None:
-        return ""
+        return _do_reply_issue(
+            backend=backend, state=state, work_dir=work_dir, facts=facts, agent_id=agent_id
+        )
     news = identity.new_human_comments(
         pr_number=pr_number, since=state.get_cursor(pr_number=pr_number) or ""
     )
@@ -2680,6 +2693,42 @@ def _do_reply(
     identity.post_signed_comment(pr_number=pr_number, body=verdict["reply"], agent_id=agent_id)
     state.set_cursor(pr_number=pr_number, comment_id=latest.created_at)
     _log(message=f"↩ PR #{pr_number}：已回应人类评论")
+    return verdict["reply"]
+
+
+# Spec-0016/T4: issue 回复用的 agent-module 视图——`engine.run_agent` 恒读 `agent_module.PROMPT`，
+# 故给它一个把 `PROMPT` 指向 `replier.ISSUE_PROMPT`（issue 语境、只答疑不改代码）、`OUTPUT_SCHEMA` 复用
+# replier 同一 schema 的轻量命名空间。不新造 agent 模块（奥卡姆）：issue/PR replier 共用输出契约，只是
+# 提示词分家。
+_ISSUE_REPLIER = SimpleNamespace(PROMPT=replier.ISSUE_PROMPT, OUTPUT_SCHEMA=replier.OUTPUT_SCHEMA)
+
+
+def _do_reply_issue(
+    *, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts, agent_id: str
+) -> str:
+    """# Spec-0016/T4：分支②的 issue 支——已准入无-PR issue 上有新人类评论 → 派 replier 回一条签名评论。
+
+    与 `_do_reply`（PR 支）逐环对称，只是每一环都换 issue 版原语：读经 `new_human_comments_on_issue`
+    （游标取 `state.get_issue_cursor`）、占位符经 `context.for_issue_reply`（issue 语境提示词
+    `replier.ISSUE_PROMPT`——只答疑不改代码，见 T3）、回帖经 `identity.post_signed_comment_on_issue`、
+    游标推 `state.set_issue_cursor`。同样拼上 `_NEEDS_HUMAN_CONTRACT` 一等出口（答不了/超授权 → 主动叫人）。
+    回帖后最新评论变我方签名 → 下一 tick `_sense` 的 `_latest_is_ours` True → 分支②停火（不重复回帖）。
+    """
+    kind, number = _split_subject(subject=facts.subject)
+    if kind != _KIND_ISSUE:
+        return ""  # 无 PR 的裸 PR subject 不存在；防御性返回
+    news = identity.new_human_comments_on_issue(
+        number=number, since=state.get_issue_cursor(number=number) or ""
+    )
+    if not news:
+        return ""
+    latest = news[-1]
+    placeholders = context.for_issue_reply(work_dir=work_dir, issue_number=number, comment=latest)
+    placeholders["context"] = f"{placeholders['context']}{_NEEDS_HUMAN_CONTRACT}"
+    verdict = engine.run_agent(_ISSUE_REPLIER, backend=backend, **placeholders)
+    identity.post_signed_comment_on_issue(number=number, body=verdict["reply"], agent_id=agent_id)
+    state.set_issue_cursor(number=number, comment_id=latest.created_at)
+    _log(message=f"↩ issue #{number}：已回应人类评论")
     return verdict["reply"]
 
 

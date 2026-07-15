@@ -155,3 +155,19 @@ def for_reply(*, work_dir: Path, pr_number: int, branch: str, comment: object) -
         "branch": branch,
         "comment_body": comment.body,
     }
+
+
+def for_issue_reply(*, work_dir: Path, issue_number: int, comment: object) -> dict:
+    """# Spec-0016/T3：issue 回复阶段占位符：issue 编号 + 那条人类评论正文，供 recipes.vigil 派 replier。
+
+    与 `for_reply`（PR 版）同风格，但 issue 键：**无** `pr_number`、**无** `branch`（issue 尚无工作
+    分支，replier.ISSUE_PROMPT 只吃 `$issue_number` / `$comment_body`——只答疑不改代码，见 T3）。入参
+    `comment` 是 vigil reconcile 分支②（issue 支）`identity.new_human_comments_on_issue` 已拉到的那条
+    待回应人类评论（含 body），直接取字段组装，不再二次读 github。`context` 即评论正文（回应对象本身）。
+    """
+    return {
+        "work_dir": Path(work_dir),
+        "context": comment.body,
+        "issue_number": issue_number,
+        "comment_body": comment.body,
+    }
