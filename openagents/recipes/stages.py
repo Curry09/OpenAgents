@@ -10,8 +10,10 @@
 分界线（承 Spec-0060/0061/0062，逐字一致）：
 - **judgment 段派既有 agent**（经 `engine.run_agent` 出结构化裁决）：triage→triager、rfc→drafter、
   implement→implementer、review→reviewer、conflict/deliver→deliver；
-- **机械段走确定性 `utils`/`gates`**（读客观事实）：ci 读 github check + gates 分类、e2e 读证据溯源戳、
-  merge 调 github 合并。**三态 `agent`/`human`/`skip` 是「这道闸归谁」而非「谁执行检测」**——`ci: agent`
+- **机械段走确定性 `utils`/`gates`**（读客观事实）：ci 读 github check + gates 分类、e2e 读证据溯源戳；
+  merge 是「确定性硬闸兜底 + 下放 merger agent」（Spec-0017/T3：`gates.assert_merge_allowed` 把守不可逆
+  红线后，动作下放 merger agent 落 `gh pr merge`）。**三态 `agent`/`human`/`skip` 是「这道闸归谁」而非
+  「谁执行检测」**——`ci: agent`
   指「自动化拥有此闸、红了自动打回 implementer」，检测仍是客观读 check（见 spec 分界线）。
 
 `rfc` 阶段收敛 `planner`+`drafter` 为**单一起草函数**——只依赖 `drafter`（承接五 mode 起草判断），
@@ -28,7 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from openagents.agents import admitter, drafter, implementer, reviewer, triager
+from openagents.agents import admitter, drafter, implementer, merger, reviewer, triager
 from openagents.agents import deliver as deliver_agent
 from openagents.runtime import context, engine, gates
 from openagents.runtime.context import Context
@@ -263,12 +265,32 @@ def e2e(*, pr_number: int) -> str:
     return E2E_OK
 
 
-def merge(*, pr_number: int) -> None:
-    """合并阶段（确定性动作）：调 github 合并 PR。承 merge_pr._finish_merge 的合并落地。
+def merge(
+    *,
+    backend: Any,
+    pr_number: int,
+    head_sha: str,
+    work_dir: Path,
+    context_text: str,
+) -> dict:
+    """合并阶段（Spec-0017/T3：确定性硬闸兜底 + 下放 merger agent）：返回 merger 报告 {merged, summary}。
 
-    「要不要停下等人」（hold/merge:human）由 T3 在调本函数前判；本函数只做确定性合并动作、零判断。
+    合并**不可逆**，故形态是「先闸后 agent」：
+    1. 先经确定性 `gates.assert_merge_allowed(pr_number, head_sha)` **实时复读** CI + label 把守红线——不放行
+       即抛 `GateError`，**决不派 agent**（agent 只能在闸放行后才被派上来落合并动作，防误派/TOCTOU 合未审代码）；
+    2. 放行后经 `engine.run_agent` 派 merger agent 落 `gh pr merge`——把「动作」下放 agent（承 Spec-0064 动作
+       全归 agent 层），merger 另带 `needs-human` 一等出口察觉硬闸没覆盖的异常。
+
+    「要不要停下等人」（hold/merge:human）由调用方在调本函数前判；本函数只在闸放行后落合并动作、零业务判断。
     """
-    github.merge_pr(pr_number=pr_number)
+    gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha)
+    return engine.run_agent(
+        merger,
+        backend=backend,
+        work_dir=Path(work_dir),
+        context=context_text,
+        pr_number=pr_number,
+    )
 
 
 # --------------------------------------------------------------------------------------------------

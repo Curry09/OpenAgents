@@ -35,6 +35,7 @@ from openagents.recipes.vigil import (
     _ACT_E2E,
     _ACT_FIX_CI,
     _ACT_MERGE,
+    _ACT_READY,
     _ACT_REBASE,
     _ACT_REPLY,
     _ACT_REVIEW_OR_FIX,
@@ -63,6 +64,7 @@ _AGENT_OUTPUTS: dict[str, dict] = {
     "tester": {"verdict": "PASS", "reason": "e2e 全绿"},
     "replier": {"reply": "已回应你的问题", "resolved": True},
     "deliver": {"delivered": True, "base_sha": "0" * 40, "head_sha": _HEAD, "summary": "已 push"},
+    "merger": {"merged": True, "summary": "已合并"},  # Spec-0017/T3: 合并动作下放 merger agent
 }
 
 
@@ -192,6 +194,8 @@ def rig(monkeypatch) -> _Rig:
     monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: "0" * 40)
     monkeypatch.setattr(gates, "assert_head_advanced", lambda *, before, workspace: _HEAD)
     monkeypatch.setattr(gates, "assert_evidence_stamp", lambda *, head_sha, claimed: None)
+    # Spec-0017/T3: 合并硬闸——本文件不测它（T3 test_runtime_gates 已钉），放行即可；只验合并动作下放 merger。
+    monkeypatch.setattr(gates, "assert_merge_allowed", lambda *, pr_number, head_sha: None)
 
     monkeypatch.setattr(git, "Workspace", _FakeWorkspace)
 
@@ -282,10 +286,13 @@ def test_act_reply_dispatches_replier_and_posts_signed_comment(rig, tmp_path):
 
 
 def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
-    """分支④：还没有 PR → worktree → rfc(drafter) → 开 draft PR → implement → deliver → mark_ready。
+    """分支④：还没有 PR → worktree → rfc(drafter) → 开 draft PR → implement → deliver。
 
     **不在此阻塞等 CI/review**：那两支是 `_classify` 的⑦⑩，回到 `_reconcile` 的循环自然会走到——故这里
     绝不该出现 reviewer/tester。
+
+    Spec-0017/T2：`_do_solve` **不再确定性直调 `github.mark_ready`**——转正归 deliver agent（其完成判据含
+    「PR 非 draft」）；脱靶残留 draft 由 `_classify` ⑪ 兜底转正。故 gh 调用流水里不再有 `mark_ready`。
     """
     facts = _facts(pr_number=None)
     assert _classify(facts=facts, in_flight=False).action == _ACT_SOLVE
@@ -297,7 +304,8 @@ def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
     worktree = _issue_worktree(tmp_path, 5)
     assert rig.agents[1][1]["work_dir"] == worktree  # implementer 在隔离 worktree 里写码
     assert rig.agents[1][1]["issue_number"] == 5
-    assert rig.gh_names() == ["get_issue", "create_pr", "mark_ready"]
+    assert rig.gh_names() == ["get_issue", "create_pr"]  # Spec-0017/T2: 不再直调 mark_ready
+    assert "mark_ready" not in rig.gh_names()
     assert rig.runs == [(5, "pr-open", "openagents/issue-5", 12)]
 
 
@@ -418,15 +426,37 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
     assert "[review]" in rig.agents[0][1]["feedback"]
 
 
-def test_act_merge_merges_closes_the_issue_and_marks_done(rig, tmp_path):
-    """分支⑪：全绿 + `review-approved:<当前 head 的 sha7>` → 合（**不可逆**）+ 关 issue + 置 done。"""
-    facts = _facts()
+def test_act_ready_promotes_residual_draft_via_mark_ready(rig, tmp_path):
+    """分支⑪（Spec-0017/T2）：全绿+approved@head 但仍 draft → 确定性 `github.mark_ready` 转正（level-triggered 安全网）。
+
+    零判断的机械动作，**不派任何 agent**（为何不派新 promoter agent 见 Spec-0017 Rationale）；happy-path
+    转正归 deliver agent，本支是那一枪脱靶后的兜底。
+    """
+    facts = _facts(is_draft=True)  # 其余全绿、只欠转正
+    assert _classify(facts=facts, in_flight=False).action == _ACT_READY
+
+    summary = _act(rig=rig, facts=facts, work_dir=tmp_path)
+
+    assert rig.agents == [], "转正是确定性机械动作，不该叫任何 agent"
+    assert ("mark_ready", {"pr_number": 12}) in rig.gh
+    assert "merge_pr" not in rig.gh_names()  # 排在 merge 前：draft 态绝不落合并
+    assert "转正" in summary
+
+
+def test_act_merge_dispatches_merger_agent_behind_the_gate(rig, tmp_path):
+    """分支⑫（Spec-0017/T2/T3）：全绿 + approved@head + 非 draft → 经确定性硬闸放行后**下放 merger agent** 合并 + 关 issue + 置 done。
+
+    合并不可逆：先 `gates.assert_merge_allowed`（本文件放行）把守红线，放行后经 `stages.merge` 派 merger
+    agent 落 `gh pr merge`——**不再是确定性 `github.merge_pr` 直调**。
+    """
+    facts = _facts()  # is_draft 默认 False
     assert _classify(facts=facts, in_flight=False).action == _ACT_MERGE
 
     summary = _act(rig=rig, facts=facts, work_dir=tmp_path)
 
-    assert rig.agents == [], "合并是确定性动作，不该叫任何 agent"
-    assert ("merge_pr", {"pr_number": 12}) in rig.gh
+    assert rig.agent_names() == ["merger"], "合并动作下放 merger agent（闸放行后）"
+    assert rig.agents[0][1]["pr_number"] == 12
+    assert isinstance(rig.backends[0], _TimedBackend)  # 经 _TimedBackend 派，超时可杀
     assert ("close_issue", {"number": 5}) in rig.gh
     assert rig.runs == [(5, "done", "openagents/issue-5", 12)]
     assert summary == "merged"
