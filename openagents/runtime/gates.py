@@ -5,6 +5,7 @@
 不判「代码对不对」「冲突怎么解」——那些是 agent 的活。
 
 - `assert_head_advanced`：head 有没有前移（真交付了？）——#140 的 `assert_delivered` 一般化。
+- `assert_merge_allowed`：合并红线（CI 全绿 + review-approved:<head sha7>@head）——Spec-0066 兜底不可逆合并。
 - `round_cap`：循环轮次上限（防死循环）——reviewer 恒 REWORK 时兜底 raise。
 - `assert_pr_exists`：PR 号存在性。
 - `assert_evidence_stamp`：证据溯源戳（`head_sha` 匹配）——Spec-0055 沿用。
@@ -30,6 +31,12 @@ REVIVE_WINDOW_SECONDS = 7 * 24 * 3600
 # Spec-0062/T2: hold/skip 两组闸名白名单——对称短路判读只认这些闸名，未知闸名判 GateError（防拼写漂移）。
 _HOLD_GATES = ("spec", "merge")
 _SKIP_GATES = ("ci", "code", "evidence", "spec")
+
+# Spec-0066/T3: 合并硬闸的两条客观判据——CI 全绿 + `review-approved:<head sha7>` label 且 sha 匹配当前 head。
+# label 前缀与 recipes.vigil `_LABEL_REVIEW_APPROVED_PREFIX` 同字面（裁决落处的单一约定），sha7 长度与 git 短
+# sha 一致。gates 不 import vigil（避免 recipe→runtime 反向依赖），故在此就地立常量。
+_REVIEW_APPROVED_LABEL_PREFIX = "review-approved:"
+_SHA_LABEL_LEN = 7
 
 
 class GateError(Exception):
@@ -64,6 +71,36 @@ def assert_head_advanced(*, before: str, workspace: Path) -> str:
             f"（agent 自判完成却没落地新提交）"
         )
     return after
+
+
+def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
+    """合并红线硬闸（Spec-0066/T3）：**实时复读** CI + labels，非「全绿 ∧ review-approved:<head sha7>@head」即抛。
+
+    合并**不可逆**——当初把 `merge_pr` 留在确定性层，就是防「觉得可以合了」就合掉一份没审过的代码。把合并
+    动作下放 merger agent 后，「可不可以合」这条红线仍由本闸把守：agent 只能在本闸放行后才被派上来落合并
+    动作，且本闸**绑 head sha**。它补两个洞：
+    - **误派**：merger agent 若被错误路由/手动触发，闸不放行就抛，agent 决不合并未审代码；
+    - **TOCTOU**：`_sense`（读到 approved@head）与 `_act`（落合并）之间 head 可能又前移（有人 push 了新
+      提交），本闸在落合并前**实时**再读一次 CI + label，head 一动 `review-approved:<旧 sha7>` 就对不上
+      当前 head → 抛，裁决自动作废，绝不合并未审的新代码。
+
+    纯读客观事实、零业务判断（承 gates 分层锚点）：CI 全绿 = `check_snapshot` state==pass 且 count>0（零个
+    check 不算绿，比照 vigil `_ci_state`——防合并一份没跑过 CI 的代码）；review-approved = `pr_snapshot`
+    的 labels 里存在 `review-approved:<当前 head 的 sha7>`。任一不满足 → GateError（合并不发生）。
+    """
+    checks = github.check_snapshot(pr_number=pr_number)
+    if checks.state != "pass" or checks.count == 0:
+        raise GateError(
+            f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
+            f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
+        )
+    labels = github.pr_snapshot(pr_number=pr_number).labels
+    expected = f"{_REVIEW_APPROVED_LABEL_PREFIX}{head_sha[:_SHA_LABEL_LEN]}"
+    if expected not in labels:
+        raise GateError(
+            f"合并硬闸未放行：PR #{pr_number} 无匹配当前 head 的 {expected!r} label"
+            f"（现有 {sorted(labels)}）——决不合并未审代码或裁决已因 head 前移作废"
+        )
 
 
 def round_cap(*, max_rounds: int | None = None) -> Iterator[int]:

@@ -282,7 +282,10 @@ _ACT_REBASE = "rebase"  # 冲突 → 变基（**必须排在 CI 前**，见 `_cl
 _ACT_FIX_CI = "fix-ci"  # 当前 head 上 CI 红 → 修
 _ACT_E2E = "e2e"  # e2e 证据缺失 / head_sha 陈旧 → 补
 _ACT_REVIEW_OR_FIX = "review-or-fix"  # review 缺失 / 陈旧 / CHANGES_REQUESTED
-_ACT_MERGE = "merge"  # 全绿 + APPROVED → 合
+_ACT_READY = (
+    "ready"  # 全绿 + APPROVED 但仍 draft → 转正（Spec-0066：**必须排在 merge 前**，见 `_classify`）
+)
+_ACT_MERGE = "merge"  # 全绿 + APPROVED + 非 draft → 合
 
 # ------------------------------ facts 的枚举取值（GitHub 事实的归一化投影） ------------------------------
 _MERGE_CLEAN = "clean"
@@ -306,6 +309,7 @@ _SKIP = agent_config.OWNER_SKIP
 _PRIORITY_DEFAULTS = {
     _ACT_REPLY: 6,
     _ACT_MERGE: 5,
+    _ACT_READY: 5,  # Spec-0066: 转正是「离 merge 一步」的机械动作，与 merge 同高优先（先收尾在制品）。
     _ACT_REVIEW_OR_FIX: 4,
     _ACT_E2E: 3,
     _ACT_FIX_CI: 2,
@@ -391,6 +395,11 @@ class _Facts:
     latest_comment_is_ours: (
         bool  # 最新评论是不是我方签名 → 否则「人有新话」→ 分支②。**不存 comment id**
     )
+    is_draft: bool = (
+        False  # Spec-0066/T2: PR 是否 draft（末位默认 False）→ 分支⑪ 自愈转正（排在 merge 前）。
+    )
+    # 转正动作把它从 True→False，改 fp、记为**真进展**（与 push 改 head_sha 同类），故护栏一不误触；
+    # 转正没成功则 is_draft 不变、fp 不变、attempt 戳照常兜底。是每 tick 复检的一等事实（level-triggered）。
 
 
 @dataclass(frozen=True)
@@ -627,6 +636,7 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
     ci = _CI_NONE
     e2e_head_sha: str | None = None
     latest_comment_is_ours = True
+    is_draft = False  # Spec-0066/T2: 无 PR 时恒非 draft（分支④ solve，不触转正支）。
 
     if pr_number is not None:
         snapshot = github.pr_snapshot(pr_number=pr_number)
@@ -634,6 +644,9 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
         merged = snapshot.state == "MERGED"
         closed = snapshot.state == "CLOSED"
         head_sha = snapshot.head_sha or None
+        is_draft = (
+            snapshot.is_draft
+        )  # 与 state/head/mergeable 同源一次 pr_snapshot 往返读入（免多一次网络）。
         mergeable_state = _mergeable_state(snapshot=snapshot)
         progress.append(snapshot.head_pushed_at)
         if mergeable_state == _MERGE_CLEAN:  # 坑 2：UNKNOWN / dirty 时**不读 CI**
@@ -679,6 +692,7 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
         review_state=review_state,
         review_commit_id=review_commit_id,
         latest_comment_is_ours=latest_comment_is_ours,
+        is_draft=is_draft,
     )
     return _Observed(facts=facts, clock=_Clock(last_progress_at=_latest_ts(stamps=progress)))
 
@@ -701,7 +715,8 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         ⑨ e2e 证据缺失 / head_sha 陈旧 ................ ACTIONABLE: e2e
         ⑩ 无 review-* label / 其 sha ≠ 当前 head /
           review-changes-requested ................... ACTIONABLE: review-or-fix
-        ⑪ 全绿 + review-approved:<当前 head 的 sha7> .. ACTIONABLE: merge
+        ⑪ 全绿 + approved@head + **is_draft** ......... ACTIONABLE: ready   （自愈转正，排在 merge 前）
+        ⑫ 全绿 + approved@head + **非 draft** ......... ACTIONABLE: merge
 
     **`needs-human` 是 agent 的一等出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」——CI 是
     上游 flaky、需求本身有歧义、要动的东西超出授权——它就**自己打 `needs-human` + 留一条说明理由的评论**，
@@ -720,6 +735,8 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     - **⑤⑥在⑦前**——conflict 在 CI 前是硬依赖：冲突的 PR 没有 merge ref → GitHub 不给它 check → ⑦会把
       「零个 check」读成「CI 还在跑」，然后 `awaiting-ci` 一直等到超时（见 `_sense` 坑 2）。
     - **⑦⑧只看当前 `head_sha`**——否则会派 agent 去修已经修好的代码（见 `_sense` 坑 1）。
+    - **⑪在⑫前**（Spec-0066）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人也被 draft 墙挡住
+      （#168 根因）：转正必须先于任何（agent 或 human 的）合并动作，故 `is_draft` 支排在 merge 之前。
 
     `in_flight`（队列里有该 subject 的 claimed 行 = 我的 agent 正在跑它）**必须先于一切判定**——否则看门狗
     会把一个正在写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 needs-human。
@@ -755,6 +772,10 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         sha=facts.head_sha
     ):
         return _Verdict(kind=_ACTIONABLE, action=_ACT_REVIEW_OR_FIX)
+    # ⑪ 全绿 + approved@head 但仍 draft → 先转正（Spec-0066）。**必须排在 ⑫ merge 前**：draft PR 合不了
+    # （GitHub 拒合 draft），且 `merge: human` 时人也被 draft 墙挡住（#168 根因）——转正必须先于任何合并动作。
+    if facts.is_draft:
+        return _Verdict(kind=_ACTIONABLE, action=_ACT_READY)
     return _Verdict(kind=_ACTIONABLE, action=_ACT_MERGE)
 
 
@@ -2464,7 +2485,10 @@ def _act(
       - `e2e` → 跑 e2e（tester）、贴带 head_sha 溯源戳的证据评论。
       - `review-or-fix` → 出裁决 → 打 `review-approved:<sha7>` / `review-changes-requested:<sha7>`（sha 取
         **裁决所针对的那个 head**）/ 按 CHANGES_REQUESTED 派 implementer 改代码。
-      - `merge` → 合（**不可逆**，故 `_classify` 把它排在最后一支、且人的新评论排在最前一支）。
+      - `ready` → 转正残留 draft PR（确定性 `github.mark_ready`，level-triggered 安全网；happy-path 转正
+        归 deliver agent）。**排在 merge 前**：任何 PR 都不在 draft 态被合（见 `_classify` ⑪，Spec-0066）。
+      - `merge` → 下放 merger agent 落合并（**不可逆**，故先经 `gates.assert_merge_allowed` 硬闸把守红线，
+        且 `_classify` 把它排在最后一支、人的新评论排在最前一支）。
       - `reply` → 回一条评论（复用 `agents.replier` + 签名回帖）。
 
     各分支复用 `recipes.stages` 的竖切段 / 合并段。可配闸按 `config.stages` 三态内联路由（`skip` 已在
@@ -2524,10 +2548,15 @@ def _act(
             on_human=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
         )
+    if action == _ACT_READY:
+        # Spec-0066: 转正自愈支——level-triggered 安全网（happy-path 转正归 deliver agent）。零判断的机械
+        # 动作（客观对 draft ∧ 已就绪完全决定该做什么），按 Spec-0064 分界留确定性 `github.mark_ready`，
+        # 不为一行 `gh pr ready` 烧 LLM。不进 stages 三态策略点（无「谁把关」可选）。
+        return _do_ready(facts=facts)
     if action == _ACT_MERGE:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_MERGE),
-            on_agent=lambda: _do_merge(state=state, facts=facts),
+            on_agent=lambda: _do_merge(backend=timed, state=state, work_dir=work_dir, facts=facts),
             on_human=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
         )
@@ -2642,7 +2671,8 @@ def _do_solve(
         # 主动打 needs-human，而不是硬着头皮 force-push 或空转到看门狗。
         context_text=_NEEDS_HUMAN_CONTRACT,
     )
-    github.mark_ready(pr_number=pr.number)
+    # Spec-0066/T2: 不再确定性直调 github.mark_ready——转正归 deliver agent（其完成判据含「PR 非 draft」）；
+    # 万一那一枪脱靶，PR 残留 draft 由 `_classify` ⑪ 每 tick 复检、`_do_ready` 兜底转正（level-triggered）。
     _log(message=f"✓ issue #{number}：已开 PR #{pr.number}")
     return str(report.get("summary", ""))
 
@@ -2763,10 +2793,35 @@ def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
     return str(verdict["reason"])
 
 
-def _do_merge(*, state: RuntimeState, facts: _Facts) -> str:
-    """分支⑪：全绿 + `review-approved:<当前 head 的 sha7>` → 合（**不可逆**）+ 关 issue + 置 done。"""
+def _do_ready(*, facts: _Facts) -> str:
+    """分支⑪：全绿 + approved@head 但仍 draft → 确定性转正（`github.mark_ready`，level-triggered 安全网）。
+
+    happy-path 转正由 deliver agent 顺手做（其完成判据含「PR 非 draft」）；本支是那一枪脱靶后的兜底——
+    `is_draft` 是每 tick 复检的一等事实，故这里天然幂等/自愈（`mark_ready` 对已非 draft 的 PR 是 no-op，
+    且下一 tick `_sense` 读回 `is_draft=False` → 走到 ⑫ merge）。零判断的机械动作，按 Spec-0064 分界留确定
+    性、不派 agent（为何不派新 promoter agent 见 Spec-0066 Rationale）。
+    """
     pr_number = facts.pr_number or 0
-    stages.merge(pr_number=pr_number)
+    github.mark_ready(pr_number=pr_number)
+    _log(message=f"✓ PR #{pr_number}：已转正（draft → ready），下一 tick 判 merge")
+    return "已转正（mark ready）"
+
+
+def _do_merge(*, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts) -> str:
+    """分支⑫：全绿 + `review-approved:<当前 head 的 sha7>` + 非 draft → 下放 merger agent 合（**不可逆**）+ 关 issue + 置 done。
+
+    Spec-0066/T2：合并动作经 `stages.merge` 下放 merger agent——但先经确定性 `gates.assert_merge_allowed`
+    实时复读 CI + label 把守不可逆红线（闸不放行即抛，决不派 agent 合未审代码），放行后才派 merger 落
+    `gh pr merge`。`head_sha` 绑当前 head（防 `_sense→_act` 间 head 前移的 TOCTOU）。
+    """
+    pr_number = facts.pr_number or 0
+    stages.merge(
+        backend=backend,
+        pr_number=pr_number,
+        head_sha=facts.head_sha or "",
+        work_dir=work_dir,
+        context_text=_NEEDS_HUMAN_CONTRACT,
+    )
     number = _issue_number_of(facts=facts)
     if number:
         state.set_run(

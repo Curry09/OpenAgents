@@ -425,9 +425,9 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0064 | 0064/T6 | 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成 | done | T5 | openagents/recipes/solve_issue.py<br>openagents/recipes/merge_pr.py<br>openagents/recipes/poll_comments.py<br>openagents/recipes/rfc_lifecycle.py<br>openagents/recipes/fleet.py<br>openagents/agents/planner.py |
 | 0065 | 0065/T1 | graph-curator agent（零逻辑 Template：issue 快照 + 已有边锚点 → 建议 blocked_by 边） | done | — | openagents/agents/curator.py<br>openagents/agents/admitter.py<br>tests/test_agent_curator.py<br>tests/test_agent_admitter.py |
 | 0065 | 0065/T2 | vigil 原地重写为 level-triggered reconcile（感知三纯函数 + SQLite 认领队列 + flock 存活证明 + 分支表）；CLI 改指 | done | T1 | openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/runtime/context.py<br>openagents/runtime/state.py<br>openagents/backends/claude_code.py<br>openagents/cli.py<br>openagents/utils/github.py<br>openagents/utils/proc.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_admit.py<br>tests/conftest.py<br>tests/test_runtime_context.py<br>tests/test_github.py<br>tests/test_utils_github_vigil.py<br>tests/test_utils_proc.py<br>tests/test_backend_claude_code.py<br>tests/test_cli.py<br>scripts/e2e-spec-0065-graph-parallel-vigil.sh |
-| 0066 | 0066/T1 | draft 升为 PR 快照事实 + deliver agent 承接转正职责 | pending | — | openagents/utils/github.py<br>openagents/agents/deliver.py<br>tests/test_utils_github_vigil.py<br>tests/test_agents_deliver.py |
-| 0066 | 0066/T3 | 合并动作下放 merger agent + 确定性合并硬闸兜底 | pending | — | openagents/runtime/gates.py<br>openagents/agents/merger.py<br>openagents/recipes/stages.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_agents_merger.py |
-| 0066 | 0066/T2 | draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放 | pending | T1, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh |
+| 0066 | 0066/T1 | draft 升为 PR 快照事实 + deliver agent 承接转正职责 | done | — | openagents/utils/github.py<br>openagents/agents/deliver.py<br>tests/test_utils_github_vigil.py<br>tests/test_agents_deliver.py |
+| 0066 | 0066/T3 | 合并动作下放 merger agent + 确定性合并硬闸兜底 | done | — | openagents/runtime/gates.py<br>openagents/agents/merger.py<br>openagents/recipes/stages.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_agents_merger.py |
+| 0066 | 0066/T2 | draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放 | done | T1, T3 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0066-pr-lifecycle-delegated-to-agent.sh |
 
 ## 跨 feature 关系图
 
@@ -2780,8 +2780,8 @@ graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```

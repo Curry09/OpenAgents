@@ -36,6 +36,7 @@ from openagents.recipes.vigil import (
     _ACT_E2E,
     _ACT_FIX_CI,
     _ACT_MERGE,
+    _ACT_READY,
     _ACT_REBASE,
     _ACT_REPLY,
     _ACT_REVIEW_OR_FIX,
@@ -161,12 +162,28 @@ def test_classify_in_flight_precedes_everything_including_needs_human():
         ({"ci": "failure"}, _ACTIONABLE, None, _ACT_FIX_CI),
         ({"e2e_head_sha": None}, _ACTIONABLE, None, _ACT_E2E),
         ({"e2e_head_sha": "0" * 40}, _ACTIONABLE, None, _ACT_E2E),  # 证据陈旧（张冠李戴）
-        ({}, _ACTIONABLE, None, _ACT_MERGE),
+        (
+            {"is_draft": True},
+            _ACTIONABLE,
+            None,
+            _ACT_READY,
+        ),  # Spec-0066: 全绿+approved 但 draft → 转正
+        ({}, _ACTIONABLE, None, _ACT_MERGE),  # 非 draft 才落 merge
     ],
 )
 def test_classify_branch_table(overrides, kind, reason, action):
     verdict = _classify(facts=_facts(**overrides), in_flight=False)
     assert (verdict.kind, verdict.reason, verdict.action) == (kind, reason, action)
+
+
+def test_classify_draft_self_heal_precedes_merge_and_never_merges():
+    """Spec-0066: 全绿+approved@head 但仍 draft → **必落 ready、绝不 merge**（draft PR 合不了、#168 根因）。"""
+    draft = _facts(is_draft=True)  # 其余字段全绿、只欠转正
+    verdict = _classify(facts=draft, in_flight=False)
+    assert verdict.action == _ACT_READY
+    assert verdict.action != _ACT_MERGE  # 任何 PR 都不在 draft 态被合
+    # 非 draft 同一 facts → merge：证明 draft 自愈支严格排在 merge 分支之前。
+    assert _classify(facts=_facts(is_draft=False), in_flight=False).action == _ACT_MERGE
 
 
 def test_classify_reply_precedes_merge_because_merge_is_irreversible():
@@ -236,6 +253,7 @@ def test_fingerprint_covers_exactly_every_facts_field():
         "review_state": "CHANGES_REQUESTED",
         "review_commit_id": "0000000",
         "latest_comment_is_ours": False,
+        "is_draft": True,  # Spec-0066/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
     }
     assert set(mutations) == {field.name for field in fields(_Facts)}
     for name, value in mutations.items():
@@ -322,6 +340,27 @@ def test_sense_zero_checks_is_awaiting_ci_not_green(monkeypatch):
     facts = _sense(config=_config(), subject="issue:5").facts
     assert facts.ci == "none"
     assert _classify(facts=facts, in_flight=False).reason == _AWAITING_CI
+
+
+def test_sense_reads_is_draft_from_snapshot(monkeypatch):
+    """Spec-0066/T2: `_sense` 从 pr_snapshot.is_draft 读入 → `_classify` 全绿+approved 时判 ready（非 merge）。"""
+    # e2e:skip 把证据戳归一成 head（本测只关心 draft 支）；review 留 agent，用真 review-approved label。
+    config = _config(stages=_stages(e2e="skip"))
+    _patch_sense(
+        monkeypatch,
+        snapshot=_snapshot(labels=(f"review-approved:{_SHA7}",), is_draft=True),
+    )
+    facts = _sense(config=config, subject="issue:5").facts
+    assert facts.is_draft is True
+    assert _classify(facts=facts, in_flight=False).action == _ACT_READY
+    # 非 draft 同源 → merge（证明 is_draft 是每 tick 复检的一等事实）。
+    _patch_sense(
+        monkeypatch,
+        snapshot=_snapshot(labels=(f"review-approved:{_SHA7}",), is_draft=False),
+    )
+    facts = _sense(config=config, subject="issue:5").facts
+    assert facts.is_draft is False
+    assert _classify(facts=facts, in_flight=False).action == _ACT_MERGE
 
 
 def test_sense_normalizes_skip_gates_as_already_passed(monkeypatch):

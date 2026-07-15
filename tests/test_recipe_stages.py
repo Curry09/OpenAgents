@@ -215,10 +215,53 @@ def test_e2e_matching_stamp_ok(monkeypatch):
     assert stages.e2e(pr_number=1) == stages.E2E_OK
 
 
-def test_merge_calls_github(monkeypatch):
-    called = {}
+def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
+    # Spec-0066/T3: 硬闸放行 → 经 engine.run_agent 派 merger agent 落合并（返回 {merged, summary}）。
+    gate_calls = {}
+    agent_calls = []
     monkeypatch.setattr(
-        stages.github, "merge_pr", lambda *, pr_number: called.setdefault("pr", pr_number)
+        stages.gates,
+        "assert_merge_allowed",
+        lambda *, pr_number, head_sha: gate_calls.update(pr=pr_number, head=head_sha),
     )
-    stages.merge(pr_number=42)
-    assert called["pr"] == 42
+
+    def _fake_run_agent(agent_module, *, backend, **kw):
+        agent_calls.append((agent_module.__name__, kw))
+        return {"merged": True, "summary": "已合并"}
+
+    monkeypatch.setattr(stages.engine, "run_agent", _fake_run_agent)
+
+    out = stages.merge(
+        backend=object(),
+        pr_number=42,
+        head_sha="abc123",
+        work_dir="/tmp/wt",
+        context_text="ctx",
+    )
+    assert gate_calls == {"pr": 42, "head": "abc123"}  # 闸先被调、绑 head sha
+    assert len(agent_calls) == 1 and agent_calls[0][0].endswith("merger")  # 放行后才派 merger
+    assert out == {"merged": True, "summary": "已合并"}
+
+
+def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
+    # Spec-0066/T3: 闸抛 GateError → **决不派 agent**（agent 只能在闸放行后落合并动作，防合未审代码）。
+    agent_calls = []
+
+    def _boom(*, pr_number, head_sha):
+        raise GateError("CI 非全绿")
+
+    monkeypatch.setattr(stages.gates, "assert_merge_allowed", _boom)
+    monkeypatch.setattr(
+        stages.engine,
+        "run_agent",
+        lambda *a, **k: agent_calls.append(1) or {"merged": True, "summary": ""},
+    )
+    with pytest.raises(GateError):
+        stages.merge(
+            backend=object(),
+            pr_number=42,
+            head_sha="abc123",
+            work_dir="/tmp/wt",
+            context_text="ctx",
+        )
+    assert agent_calls == []  # merger 未被调用

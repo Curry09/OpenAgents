@@ -31,7 +31,7 @@ e2e:
 tasks:
   - id: T1
     title: draft 升为 PR 快照事实 + deliver agent 承接转正职责
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -46,7 +46,7 @@ tasks:
     acceptance: pytest tests/test_utils_github_vigil.py + tests/test_agents_deliver.py 通过：pr_snapshot 把 isDraft 解析进 is_draft（true/false/缺失→默认 False 容错，比照既有字段容错风格）；PRSnapshot 新增 is_draft 字段（默认 False，既有构造点零改动仍可实例化）；deliver.PROMPT.substitute 后文本含 gh pr ready 与「非 draft」完成判据、OUTPUT_SCHEMA 保持 {delivered,base_sha,head_sha,summary}。不触真实 gh/LLM。
   - id: T3
     title: 合并动作下放 merger agent + 确定性合并硬闸兜底
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -63,7 +63,7 @@ tasks:
     acceptance: pytest tests/test_runtime_gates.py + tests/test_recipe_stages.py + tests/test_agents_merger.py 通过：assert_merge_allowed 在 (a) CI 非全绿、(b) 无 review-approved label、(c) label sha≠当前 head 三种情形各抛 GateError，唯「全绿+review-approved:<head sha7>@head」放行（纯读客观事实、假快照注入、不触网）；stages.merge 闸放行后调 engine.run_agent(merger)、闸抛则不派 agent（断言 merger 未被调用）；merger.PROMPT.substitute 含 gh pr merge 与 needs-human 一等出口、OUTPUT_SCHEMA={merged,summary}。不触真实 gh/LLM。
   - id: T2
     title: draft 升为 _Facts 一等事实 + _classify 自愈转正分支 + 生命周期直调下放
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:
