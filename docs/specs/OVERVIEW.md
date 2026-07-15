@@ -235,6 +235,11 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 - e2e 意图：证明「openagents 入口每次命令前的自更新预检」这一接线在离线确定性链路上成立且零回归——precheck 纯函数可注入（run/execvp/environ/stderr 全部外部注入），DISABLE/DONE 两把守卫短路、无 source.json 短路、落后+安全走完整闭环(pull --ff-only → uv tool install --force → execvp 置 DONE=1)、不安全或任何异常一律 fail-open 打印提示继续；cli.main() 在 parse_args 前调 precheck 且正常调用行为逐字不变。
   - 测法：形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067/0069 同款）： 1. selfupdate 针对性 pytest（注入 fake run/execvp，hermetic 不触真实 git/uv/网络/shell）：DISABLE/DONE 下 precheck 完全 no-op；无 source.json no-op；落后+安全→依次记录 pull --ff-only / uv tool install --force / execvp 且 execvp 环境含 OPENAGENTS_SELFUPDATE_DONE=1；落后但当前分支≠记录分支 / 工作区脏 / fetch 抛错 → 打印提示且不 exec（fail-open）；detect_source_repo 源仓库内落盘、目标项目内不落盘；OPENAGENTS_HOME 覆盖 home。 2. CLI 接线 pytest：main() 在 parse_args 前调 selfupdate.precheck 恰一次；打桩 precheck 为 no-op 时 main([]) 仍返回 2（正常行为不变）。 3. grep 锚点（e2e 脚本）：cli.py 存在 selfupdate.precheck 调用；selfupdate.py 存在 OPENAGENTS_NO_SELF_UPDATE / OPENAGENTS_SELFUPDATE_DONE / --ff-only / execvp；tests/conftest.py 存在 OPENAGENTS_NO_SELF_UPDATE。 脚本：scripts/e2e-spec-0070-self-update-precheck.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。 
 
+### 0071 把「单一 writer」文件所有权从设计期声明硬化为运行期可执行守卫（借鉴 Rust 所有权模型）
+多 agent 协同写同一 worktree 存在「agent 版 data race」——两个 agent 可能同时改同一文件。当前只靠理念 6「每个 Task 占一组互斥 files」+ reviewer 肉眼 + 自觉，而 spec validate 只在设计期校验同组 files 不重叠、无运行期强制。本 spec 借鉴 Rust「所有权唯一 + &mut 独占」，把这份设计期声明推到运行期可执行：新增纯函数 spec.ownership（从 tasks[].files 建单一 writer 索引 + 判 changeset 里的越权写，生成物恒放行）、runtime.gates.assert_writes_owned（raise 版硬闸，harness 交付后越权写直接拒）、spec CLI `ownership` 子命令（打印所有权表 / --check 校验 changeset）。本轮只做「文件所有权」这一半（越权写被拦），版本化共享状态 CAS + capability manifest 列为 Future。
+- e2e 意图：证明「单一 writer 文件所有权从设计期声明硬化为运行期可执行守卫」这条改动在离线确定性链路上成立——spec.ownership 能从一个组的 tasks[].files 建单一 writer 索引并判越权写（生成物 spec md/OVERVIEW/ARCHITECTURE 恒放行）；spec CLI `ownership` 无 --check 打印所有权表、--check 对含无主写的 changeset 退出码 1；runtime.gates.assert_writes_owned 对越权写 raise GateError。三层在本仓库真实 spec（0071 自身三个 Task 的归属）上可跑通。
+  - 测法：形态：纯后端（spec.ownership 解析器 + runtime.gates 硬闸）+ CLI（spec ownership 子命令），无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0059/0060/0064 同款）： 1. 针对性 pytest（不触真实 LLM/网络/仓库）：    - test_spec_ownership.py：build_index 把 files 映射到唯一 owner（首个声明者胜）、owner_of 未知路径返 None、generated_artifacts 含 spec md/OVERVIEW/ARCHITECTURE、unowned_writes 放行声明文件与生成物/拦无主文件/排序去重/空 changeset 返空/自定义 specs_root 透传。    - test_gates_ownership.py：assert_writes_owned 放行声明文件与生成物、空 changeset 放行、越权写 raise GateError 且消息列出越权文件、自定义 specs_root 透传。    - test_spec_cli.py：ownership 无 --check 打印 owner→path 表、--check 放行声明文件、--check 拦无主写退出码 1、--check 缺 --group 退出码 2、--check 未知组退出码 2。 2. spec ownership 真跑：uv run spec ownership 的输出含 0071 三个 Task 的归属；uv run spec ownership --check --group 0071 对『声明文件+生成物』放行、对含 evil.py 的 changeset 退出码 1。 3. grep 锚点：ownership.py 首行为 '# Spec-0071/T1'；gates.py 含 assert_writes_owned；cli.py 含 'ownership' 子命令。 4. ruff check + ruff format --check 全绿。 脚本：scripts/e2e-spec-0071-single-writer-ownership-guard.sh（ruff + 上述三个测试文件 pytest + CLI 真跑 + grep 锚点），被 PR e2e signpost 采集。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -501,6 +506,9 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 | 0068 | 0068/T2 | 并发回归测试 + 离线 e2e 脚本：N 线程并发 prepare 同一主仓 .git 零锁竞争 | done | T1 | tests/test_workspace_concurrency.py<br>scripts/e2e-spec-0068-parallel-worktree-git-lock.sh |
 | 0069 | 0069/T1 | argcomplete 接线 + 依赖 + 文档 + 测试 | done | — | openagents/cli.py<br>pyproject.toml<br>README.md<br>tests/test_cli.py |
 | 0070 | 0070/T1 | 自更新预检模块 + main() 接线 + 测试离网硬闸 | done | — | openagents/utils/selfupdate.py<br>openagents/cli.py<br>tests/conftest.py<br>tests/test_selfupdate.py |
+| 0071 | 0071/T1 | spec.ownership 纯解析器：单一 writer 索引 + 越权写判定（生成物恒放行） | done | — | openagents/spec/ownership.py<br>tests/test_spec_ownership.py |
+| 0071 | 0071/T2 | spec CLI `ownership` 子命令：打印所有权表 / --check 校验 changeset 无越权写 | done | T1 | openagents/spec/cli.py<br>tests/test_spec_cli.py |
+| 0071 | 0071/T3 | runtime.gates.assert_writes_owned 硬闸：harness 侧越权写拒绝原语 + e2e 脚本 | done | T1 | openagents/runtime/gates.py<br>tests/test_gates_ownership.py<br>scripts/e2e-spec-0071-single-writer-ownership-guard.sh |
 
 ## 跨 feature 关系图
 
@@ -902,6 +910,11 @@ graph LR
     subgraph G0070[0070 self-update-precheck]
         n0070_T1["T1 自更新预检模块 + main() 接线 + 测试离网硬闸"]
     end
+    subgraph G0071[0071 single-writer-ownership-guard]
+        n0071_T1["T1 spec.ownership 纯解析器：单一 writer 索引 + 越权写判定（生成物恒放行）"]
+        n0071_T2["T2 spec CLI `ownership` 子命令：打印所有权表 / --check 校验 changeset 无越权写"]
+        n0071_T3["T3 runtime.gates.assert_writes_owned 硬闸：harness 侧越权写拒绝原语 + e2e 脚本"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1122,6 +1135,8 @@ graph LR
     n0066_T3 --> n0066_T1
     n0067_T2 --> n0067_T1
     n0068_T2 --> n0068_T1
+    n0071_T2 --> n0071_T1
+    n0071_T3 --> n0071_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1176,9 +1191,9 @@ graph LR
 | openagents/rfc.py | 0008, 0013 |
 | openagents/runtime/context.py | 0016, 0060, 0061, 0065 |
 | openagents/runtime/engine.py | 0059, 0060 |
-| openagents/runtime/gates.py | 0017, 0060, 0062 |
+| openagents/runtime/gates.py | 0017, 0060, 0062, 0071 |
 | openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065 |
-| openagents/spec/cli.py | 0014, 0015 |
+| openagents/spec/cli.py | 0014, 0015, 0071 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055 |
 | openagents/spec/mutate.py | 0014, 0015 |
 | openagents/spec/render.py | 0014, 0015, 0040, 0055 |
@@ -1248,7 +1263,7 @@ graph LR
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_runtime_context.py | 0060, 0065 |
 | tests/test_runtime_gates.py | 0017, 0060 |
-| tests/test_spec_cli.py | 0014, 0015, 0024 |
+| tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024 |
 | tests/test_spec_render.py | 0014, 0015, 0040, 0055 |
@@ -3141,4 +3156,28 @@ graph LR
     v_T1_1["T1 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
+```
+
+### 0071 把「单一 writer」文件所有权从设计期声明硬化为运行期可执行守卫（借鉴 Rust 所有权模型）（issue #71）
+
+```mermaid
+graph LR
+    nT1["T1 spec.ownership 纯解析器：单一 writer 索引 + 越权写判定（生成物恒放行）"]
+    nT2["T2 spec CLI `ownership` 子命令：打印所有权表 / --check 校验 changeset 无越权写"]
+    nT3["T3 runtime.gates.assert_writes_owned 硬闸：harness 侧越权写拒绝原语 + e2e 脚本"]
+    nT1 --> nT2
+    nT1 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```

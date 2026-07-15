@@ -3,13 +3,15 @@
 2026-06-24 spec-markdown-form：spec 组改为单 markdown 文件；`spec amend` 退役（直接编辑组
 markdown 即可，历史交给 git）；新增 `spec graph` 生成「对代码的唯一映射」ARCHITECTURE.md。
 
-薄路由层（理念 1 奥卡姆）：把子命令转发到 mutate / render / validate / graph，自己不含业务逻辑。
-- spec new      <slug> --issue --title    → mutate.create_group
-- spec add-task <group> --id --title …    → mutate.add_task
-- spec render                             → 写 OVERVIEW.md
-- spec validate                           → 有 error 退出码非 0
-- spec abandon  <group> <task> --reason   → mutate.abandon（从快照移除，历史在 git）
-- spec graph    [--check]                 → 写 ARCHITECTURE.md / 校验 docstring + 漂移
+薄路由层（理念 1 奥卡姆）：把子命令转发到 mutate / render / validate / graph / ownership，自己不含
+业务逻辑。
+- spec new       <slug> --issue --title    → mutate.create_group
+- spec add-task  <group> --id --title …    → mutate.add_task
+- spec render                              → 写 OVERVIEW.md
+- spec validate                            → 有 error 退出码非 0
+- spec abandon   <group> <task> --reason   → mutate.abandon（从快照移除，历史在 git）
+- spec graph     [--check]                 → 写 ARCHITECTURE.md / 校验 docstring + 漂移
+- spec ownership [--group --changed --check] → 打印单一 writer 表 / 校验 changeset 无越权写（Spec-0071）
 
 默认 specs 根为 docs/specs（可用 --specs-root 覆盖）；graph 默认扫 openagents 包。
 """
@@ -19,7 +21,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from openagents.spec import graph, mutate
+from openagents.spec import graph, model, mutate, ownership
 from openagents.spec.render import write_overview
 from openagents.spec.schema import PRIORITY_VALUES, STATUS_VALUES
 from openagents.spec.validate import validate
@@ -63,6 +65,13 @@ def main(*, argv: list[str] | None = None) -> int:
         )
     if args.command == "graph":
         return _cmd_graph(specs_root=specs_root, package_root=args.package_root, check=args.check)
+    if args.command == "ownership":
+        return _cmd_ownership(
+            specs_root=specs_root,
+            group=args.group,
+            changed=args.changed,
+            check=args.check,
+        )
     parser.print_help()
     return 2
 
@@ -122,6 +131,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     g.add_argument("--check", action="store_true", help="CI 模式：校验 docstring 齐全 + 无漂移")
 
+    own = sub.add_parser(
+        "ownership",
+        help="打印单一 writer 所有权表 / 校验 changeset 无越权写（Spec-0071）",
+        parents=[common],
+    )
+    own.add_argument("--group", default=None, help="组编号 NNNN（--check 时必填，指定校验哪个组）")
+    own.add_argument(
+        "--changed",
+        type=_csv,
+        default=[],
+        help="改动文件（逗号分隔，仓库相对路径）——供 --check 校验越权写",
+    )
+    own.add_argument(
+        "--check",
+        action="store_true",
+        help="校验模式：--changed 里有本组无主写（越权写）则退出码 1",
+    )
+
     return parser
 
 
@@ -177,6 +204,41 @@ def _cmd_abandon(*, specs_root: Path, group: str, task: str, reason: str) -> int
     """abandon 子命令：转发 mutate.abandon。"""
     mutate.abandon(specs_root=specs_root, group=group, task_id=task, reason=reason)
     print(f"✓ 已 abandon {group}/{task}")
+    return 0
+
+
+def _cmd_ownership(*, specs_root: Path, group: str | None, changed: list[str], check: bool) -> int:
+    """ownership 子命令：--check 校验 changeset 无越权写（退出码 1）；否则打印单一 writer 所有权表。
+
+    Spec-0071/T2: 把「单一 writer」文件所有权做成可查询/可校验的运行期面。--check 需 --group 指定
+    校验哪个组，据 `spec.ownership.unowned_writes` 判无主写；无 --check 则逐组打印 owner→path 表。
+    """
+    groups = model.load_all(specs_root=specs_root)
+    if check:
+        if group is None:
+            print("[error] --check 需配合 --group NNNN 指定校验哪个组")
+            return 2
+        target = next((g for g in groups if g.number == group), None)
+        if target is None:
+            print(f"[error] 找不到组 {group}（specs_root={specs_root}）")
+            return 2
+        offenders = ownership.unowned_writes(
+            group=target, changed_paths=changed, specs_root=specs_root
+        )
+        for path in offenders:
+            print(f"[error] {path}: 越权写（组 {target.number} 无 Task 声明该文件，且非生成物）")
+        if offenders:
+            print(f"✗ 越权写检测失败：{len(offenders)} 个无主写")
+            return 1
+        print(f"✓ 越权写检测通过（组 {target.number}，{len(list(changed))} 个改动全部有主/生成物）")
+        return 0
+
+    # 无 --check：打印单一 writer 所有权表（owner Task → 声明文件，按组、按 path 排序）。
+    print("# 单一 writer 所有权表（Spec-0071：owner Task → 声明文件）")
+    for grp in groups:
+        index = ownership.build_index(group=grp)
+        for path in sorted(index.by_path):
+            print(f"{index.by_path[path]}\t{path}")
     return 0
 
 

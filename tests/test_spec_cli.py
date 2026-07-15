@@ -166,6 +166,77 @@ def test_graph_check_flags_missing_docstring(tmp_path: Path) -> None:
     assert code == 1
 
 
+# ── spec ownership（Spec-0071）──
+
+
+def test_ownership_table_lists_owner_and_path(tmp_path: Path, capsys) -> None:
+    """无 --check：打印单一 writer 表，每行 owner Task 限定 ID + 声明文件。"""
+    _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py", "b.py"])])
+    code = main(argv=["ownership", "--specs-root", str(tmp_path)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "0071/T1\ta.py" in out
+    assert "0071/T1\tb.py" in out
+
+
+def test_ownership_check_passes_for_declared_files(tmp_path: Path) -> None:
+    _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py"])])
+    code = main(
+        argv=[
+            "ownership",
+            "--specs-root",
+            str(tmp_path),
+            "--check",
+            "--group",
+            "0071",
+            "--changed",
+            "a.py",
+        ]
+    )
+    assert code == 0
+
+
+def test_ownership_check_flags_unowned_write(tmp_path: Path, capsys) -> None:
+    _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py"])])
+    code = main(
+        argv=[
+            "ownership",
+            "--specs-root",
+            str(tmp_path),
+            "--check",
+            "--group",
+            "0071",
+            "--changed",
+            "a.py,evil.py",
+        ]
+    )
+    assert code == 1
+    assert "evil.py" in capsys.readouterr().out
+
+
+def test_ownership_check_without_group_returns_2(tmp_path: Path) -> None:
+    _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py"])])
+    code = main(argv=["ownership", "--specs-root", str(tmp_path), "--check", "--changed", "a.py"])
+    assert code == 2
+
+
+def test_ownership_check_unknown_group_returns_2(tmp_path: Path) -> None:
+    _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py"])])
+    code = main(
+        argv=[
+            "ownership",
+            "--specs-root",
+            str(tmp_path),
+            "--check",
+            "--group",
+            "9999",
+            "--changed",
+            "a.py",
+        ]
+    )
+    assert code == 2
+
+
 # ── check-spec-number-conflicts.py ──
 
 

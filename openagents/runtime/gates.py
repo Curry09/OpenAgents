@@ -9,8 +9,11 @@
 - `round_cap`：循环轮次上限（防死循环）——reviewer 恒 REWORK 时兜底 raise。
 - `assert_pr_exists`：PR 号存在性。
 - `assert_evidence_stamp`：证据溯源戳（`head_sha` 匹配）——Spec-0055 沿用。
+- `assert_writes_owned`：越权写硬闸（changeset ⊆ 本组声明 files ∪ 生成物）——Spec-0071 把「单一
+  writer」从设计期声明推到运行期拒绝。
 
-经 `utils.git` / `utils.github` 读客观事实（确定性层），自身不直接碰 subprocess/gh。
+经 `utils.git` / `utils.github` 读客观事实（确定性层）、`spec.ownership` 读单一 writer 声明，自身
+不直接碰 subprocess/gh。
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
+from openagents.spec import ownership
+from openagents.spec.model import Group
 from openagents.utils import git, github
 
 # Spec-0060/T3: 评审循环默认轮次上限——超此仍未 PASS 视作死循环，兜底 raise（可由调用方覆盖）。
@@ -138,6 +143,39 @@ def assert_evidence_stamp(*, head_sha: str, claimed: str) -> None:
         raise GateError(
             f"证据溯源戳不匹配：实际 head={head_sha[:12] or '（空）'} ≠ "
             f"证据自述 head={claimed[:12] or '（空）'}（证据陈旧或张冠李戴）"
+        )
+
+
+def assert_writes_owned(
+    *,
+    group: Group,
+    changed_paths: list[str],
+    specs_root: Path = Path("docs/specs"),
+) -> None:
+    """越权写硬闸（Spec-0071/T3）：断言 changeset 里没有落在无主文件上的写，有则抛。
+
+    借鉴 Rust「所有权唯一 + `&mut` 独占」：一个 spec 组内每个文件至多一个 owner Task（`spec
+    validate` 的同组 files 不重叠 error 已在设计期保证唯一性），本闸把这份声明推到**运行期**——
+    agent 交付后由 harness 读实际改动文件集，凡落在「本组任何 Task 都没声明、且非生成物（spec md
+    / OVERVIEW / ARCHITECTURE）」的文件上的写即判越权 → raise GateError，而非靠 reviewer 肉眼逮
+    （issue #71 验收：只读 agent 的越权写被 harness 拦截）。纯读客观事实（文件路径集合）、零业务
+    判断（承 gates 分层锚点），经 `spec.ownership` 做集合判定。
+
+    Args:
+        group: 本次交付所属的 spec 组（提供 `tasks[].files` 单一 writer 声明）。
+        changed_paths: 实际改动的文件路径（仓库相对，harness 由 `git diff --name-only` 得到）。
+        specs_root: specs 根目录（默认 docs/specs），透传给 ownership 判定生成物路径。
+
+    Raises:
+        GateError: 存在无主写（越权写）时抛，消息列出全部越权文件与其应有的归属提示。
+    """
+    offenders = ownership.unowned_writes(
+        group=group, changed_paths=changed_paths, specs_root=specs_root
+    )
+    if offenders:
+        raise GateError(
+            f"越权写被拒：改动了本组（{group.number}）任何 Task 都未声明、且非生成物的文件 "
+            f"{offenders}——按理念 6「每个 Task 占一组互斥 files」，写前须在 spec 里声明归属"
         )
 
 

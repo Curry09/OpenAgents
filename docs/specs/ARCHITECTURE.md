@@ -76,6 +76,7 @@ _spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态�
 | `graph.py` | spec graph：从代码生成「对代码的唯一映射」（现状架构视图）。 |
 | `model.py` | spec 数据层：Task / Overview / Metadata / Group 模型与 **markdown 单文件** round-trip 读写。 |
 | `mutate.py` | spec new / add-task / abandon：在组 markdown 文件上增改 Task + 自动 render。 |
+| `ownership.py` | Resolve the single-writer owner of each spec-declared file and flag unowned writes. |
 | `render.py` | spec render：把源数据派生成唯一人读视图 OVERVIEW.md。 |
 | `schema.py` | spec JSON Schema —— 组 markdown frontmatter / Task 的结构校验单一真源。 |
 | `signpost.py` | spec 端到端验证指路牌：从一个 spec 组的组级 Overview 抽取 e2e 脚本并渲染指路牌。 |
@@ -144,6 +145,7 @@ graph LR
     nopenagents_spec_graph["spec.graph"]
     nopenagents_spec_model["spec.model"]
     nopenagents_spec_mutate["spec.mutate"]
+    nopenagents_spec_ownership["spec.ownership"]
     nopenagents_spec_render["spec.render"]
     nopenagents_spec_schema["spec.schema"]
     nopenagents_spec_signpost["spec.signpost"]
@@ -241,18 +243,25 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_proc
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_github
+    nopenagents_runtime_gates --> nopenagents_spec
+    nopenagents_runtime_gates --> nopenagents_spec_model
+    nopenagents_runtime_gates --> nopenagents_spec_ownership
     nopenagents_runtime_gates --> nopenagents_utils
     nopenagents_runtime_gates --> nopenagents_utils_git
     nopenagents_runtime_gates --> nopenagents_utils_github
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph
+    nopenagents_spec_cli --> nopenagents_spec_model
     nopenagents_spec_cli --> nopenagents_spec_mutate
+    nopenagents_spec_cli --> nopenagents_spec_ownership
     nopenagents_spec_cli --> nopenagents_spec_render
     nopenagents_spec_cli --> nopenagents_spec_schema
     nopenagents_spec_cli --> nopenagents_spec_validate
     nopenagents_spec_mutate --> nopenagents_spec
     nopenagents_spec_mutate --> nopenagents_spec_model
     nopenagents_spec_mutate --> nopenagents_spec_render
+    nopenagents_spec_ownership --> nopenagents_spec
+    nopenagents_spec_ownership --> nopenagents_spec_model
     nopenagents_spec_render --> nopenagents_spec
     nopenagents_spec_render --> nopenagents_spec_model
     nopenagents_spec_signpost --> nopenagents_spec
