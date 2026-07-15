@@ -220,6 +220,11 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 ### 0067 oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）
 把仓库根的 openagents.yml.template 收进包内作 package data 单一真源，oa init 幂等地把它拷成 .openagents/openagents.yml（--force 覆盖），让首次上手即有带注释、可直接改的声明式默认；运行时 --skip/--hold/--base 仍单次覆盖不变。加防漂移测试断言打包 template 语义等价 default_config()。
 
+### 0068 并行守夜 worktree prepare 的共享 .git 锁竞争消除：一把粗粒度 git-mutation 串行锁
+Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P3/P4/P5；遗留的唯一并发风险是 P2——K 个 worker 并发对同一主仓 .git 跑 Workspace.prepare/ensure（fetch + worktree remove/prune/add + branch -D）会争 packed-refs.lock / worktree 管理锁，且 worktree prune 是跨 worker 的全局副作用可误清他人半成品。修法遵循奥卡姆（issue 建议方向 1）：在 utils/workspace.py 加一把进程级 git-mutation 串行锁（模块级，类比 state._LOCK），把 prepare/ensure 的整段共享 .git 变更操作串行化；prepare 只花秒级、起草+reconcile 是分钟级，串行几乎不损失并行度却一次消掉全部 git 锁竞态，prune 落在同一把锁内故再不会与并发 add 相撞。commit_and_push 跑在各 worktree 私有 index、天生隔离，不进锁。
+- e2e 意图：证明「K 个 worker 并发对同一主仓 .git 建 worktree」在加了进程级 git-mutation 串行锁后不再触发 git 锁竞争——N(≥4) 条线程各带不同 issue_number/branch 并发调 Workspace.prepare，全部成功建成 worktree、零 WorkspaceError、git stderr 不含 cannot lock ref / could not lock working tree；且 prepare/ensure 的共享 .git 变更段在锁下互斥，commit_and_push 与 assert_delivered 不进锁。
+  - 测法：形态：纯内部并发正确性修复（form=cli），无 product-facing 前端可导航；按取证纪律「纯内部 → 相称自动化测试」，用并发回归测法（不触真实 LLM / GitHub / 网络，只用本地临时 git 仓）： 1. workspace 单测（tests/test_workspace.py）：monkeypatch Workspace._git 记录调用序，断言    prepare 与 ensure 的 .git 变更段在持有 _GIT_MUTATION_LOCK 时执行（进入回调时锁已被占）；    commit_and_push / assert_delivered 不获取该锁。 2. 并发回归（tests/test_workspace_concurrency.py）：真起 N(≥4) 条 threading.Thread 对同一个    临时 git 仓并发调 prepare（各自不同 issue_number/branch），join 后断言全部返回有效 worktree    路径、零 WorkspaceError、捕获的 git stderr 不含 'cannot lock ref' / 'could not lock working    tree'；文档化：去掉锁则该测试会 flaky（对照，不长期跑）。 3. 跑 scripts/e2e-spec-0068-parallel-worktree-git-lock.sh 离线段全绿：ruff check +    ruff format --check + pytest tests/test_workspace.py tests/test_workspace_concurrency.py。 
+
 ### 0069 为 openagents CLI 接入 argcomplete Shell Tab 补全（读现成 argparse parser，单一真源，零副作用）
 在 cli.main() 的 parse_args 之前插一行 argcomplete.autocomplete(parser)，让 openagents/oa 直接从现成的 argparse parser 生成 zsh/bash Tab 补全，覆盖全部子命令与选项，无需手写维护第二份命令清单；argcomplete 对非补全调用零副作用（仅当 _ARGCOMPLETE 环境变量存在时介入），CLI 既有行为不变。配套加 argcomplete 运行时依赖 + README 文档给出用户侧一次性启用步骤。
 - e2e 意图：证明「argcomplete 接现成 argparse parser 生成 Tab 补全」这一接线在离线确定性链路上成立且零回归——main() 在 parse_args 之前调 argcomplete.autocomplete(parser)（补全握手时介入、正常调用零副作用），全部子命令与 vigil 全部选项都进 parser（补全候选单一真源即 build_parser）；argcomplete 缺失时 CLI 优雅降级不崩；argcomplete 已作为运行时依赖声明。
@@ -492,6 +497,8 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0066 | 0066/T3 | oa report CLI 子命令：读 timing.jsonl 输出单 issue 时间线 + 跨 issue p50/p90 文本报告 | done | T1 | openagents/cli.py<br>tests/test_cli_timing.py |
 | 0067 | 0067/T1 | 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试 | done | — | openagents/data/openagents.yml.template<br>openagents.yml.template<br>openagents/utils/agent_config.py<br>tests/test_agent_config.py |
 | 0067 | 0067/T2 | oa init 接线：--force + 幂等生成 + 提示 | done | T1 | openagents/cli.py<br>tests/test_cli.py |
+| 0068 | 0068/T1 | workspace.py 加进程级 git-mutation 串行锁，包住 prepare/ensure 的共享 .git 变更段 | done | — | openagents/utils/workspace.py<br>tests/test_workspace.py |
+| 0068 | 0068/T2 | 并发回归测试 + 离线 e2e 脚本：N 线程并发 prepare 同一主仓 .git 零锁竞争 | done | T1 | tests/test_workspace_concurrency.py<br>scripts/e2e-spec-0068-parallel-worktree-git-lock.sh |
 | 0069 | 0069/T1 | argcomplete 接线 + 依赖 + 文档 + 测试 | done | — | openagents/cli.py<br>pyproject.toml<br>README.md<br>tests/test_cli.py |
 | 0070 | 0070/T1 | 自更新预检模块 + main() 接线 + 测试离网硬闸 | done | — | openagents/utils/selfupdate.py<br>openagents/cli.py<br>tests/conftest.py<br>tests/test_selfupdate.py |
 
@@ -885,6 +892,10 @@ graph LR
         n0067_T1["T1 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试"]
         n0067_T2["T2 oa init 接线：--force + 幂等生成 + 提示"]
     end
+    subgraph G0068[0068 parallel-worktree-git-lock]
+        n0068_T1["T1 workspace.py 加进程级 git-mutation 串行锁，包住 prepare/ensure 的共享 .git 变更段"]
+        n0068_T2["T2 并发回归测试 + 离线 e2e 脚本：N 线程并发 prepare 同一主仓 .git 零锁竞争"]
+    end
     subgraph G0069[0069 argcomplete-shell-tab-completion]
         n0069_T1["T1 argcomplete 接线 + 依赖 + 文档 + 测试"]
     end
@@ -1110,6 +1121,7 @@ graph LR
     n0066_T2 --> n0066_T1
     n0066_T3 --> n0066_T1
     n0067_T2 --> n0067_T1
+    n0068_T2 --> n0068_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1187,7 +1199,7 @@ graph LR
 | openagents/utils/release.py | 0035, 0061, 0062, 0063 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
 | openagents/utils/skip.py | 0061, 0062 |
-| openagents/utils/workspace.py | 0035, 0062 |
+| openagents/utils/workspace.py | 0035, 0062, 0068 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |
@@ -1249,7 +1261,7 @@ graph LR
 | tests/test_utils_github_vigil.py | 0017, 0065 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029, 0062 |
 | tests/test_vigil_claim.py | 0039, 0049 |
-| tests/test_workspace.py | 0005, 0008, 0029, 0035, 0056 |
+| tests/test_workspace.py | 0005, 0008, 0029, 0035, 0056, 0068 |
 
 ## 各 feature 详情
 
@@ -3065,6 +3077,26 @@ graph LR
 graph LR
     nT1["T1 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试"]
     nT2["T2 oa init 接线：--force + 幂等生成 + 提示"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+```
+
+### 0068 并行守夜 worktree prepare 的共享 .git 锁竞争消除：一把粗粒度 git-mutation 串行锁（issue #137）
+
+```mermaid
+graph LR
+    nT1["T1 workspace.py 加进程级 git-mutation 串行锁，包住 prepare/ensure 的共享 .git 变更段"]
+    nT2["T2 并发回归测试 + 离线 e2e 脚本：N 线程并发 prepare 同一主仓 .git 零锁竞争"]
     nT1 --> nT2
 ```
 

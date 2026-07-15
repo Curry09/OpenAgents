@@ -23,10 +23,21 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 # RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
+
+# Spec-0068/T1: 进程级 git-mutation 串行锁——照抄 RuntimeState._LOCK 同款模式
+# （openagents/runtime/state.py）。守夜 K 个 worker 并发对**同一主仓 .git** 跑
+# prepare/ensure（fetch + worktree remove/prune/add + branch -D）会争 packed-refs.lock /
+# worktree 管理锁，且 worktree prune 是跨 worker 的全局副作用可误清他人半成品（P2）。
+# 把这段秒级的共享 .git 变更整段串行化：起草+reconcile 是分钟级，串行几乎不损失并行度却一次
+# 消掉全部三类竞态；prune 落在同一把锁内故再不会与并发 add 相撞。用 Lock 而非 RLock——变更段
+# 不自嵌套，互斥即够。模块级（非实例级）因每次调用都 new 一个 Workspace，实例锁串不起跨 worker。
+# commit_and_push（各 worktree 私有 index）与 assert_delivered（纯读）天然隔离，不进锁。
+_GIT_MUTATION_LOCK = threading.Lock()
 
 # Spec-0035/T2: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
 # 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
@@ -55,20 +66,23 @@ class Workspace:
     def prepare(self, *, issue_number: int, branch: str, base: str) -> Path:
         """RFC-0003 决策 2/4：同步最新基线、幂等清理残留、再从 origin/<base> 拉新 worktree。"""
         path = self._worktree_path(issue_number=issue_number)
-        # 决策 2：起草前先拉最新 base（fetch 不触碰用户当前检出）。
-        self._git(args=["fetch", "origin", base], cwd=self._work_dir, check=True)
-        # 决策 4：幂等清理同 issue 可能残留的 worktree 与本地分支（失败忽略）。
-        self._git(
-            args=["worktree", "remove", "--force", str(path)], cwd=self._work_dir, check=False
-        )
-        self._git(args=["worktree", "prune"], cwd=self._work_dir, check=False)
-        self._git(args=["branch", "-D", branch], cwd=self._work_dir, check=False)
-        # 一条 worktree add 同时完成「建隔离工作树」+「从最新 origin/<base> 拉分支」。
-        self._git(
-            args=["worktree", "add", "-b", branch, str(path), f"origin/{base}"],
-            cwd=self._work_dir,
-            check=True,
-        )
+        # Spec-0068/T1: 整段共享 .git 变更（fetch→remove→prune→branch -D→add）持锁串行，
+        # 消除 K worker 并发下的 packed-refs / worktree 管理锁竞争与 prune 误清半成品（P2）。
+        with _GIT_MUTATION_LOCK:
+            # 决策 2：起草前先拉最新 base（fetch 不触碰用户当前检出）。
+            self._git(args=["fetch", "origin", base], cwd=self._work_dir, check=True)
+            # 决策 4：幂等清理同 issue 可能残留的 worktree 与本地分支（失败忽略）。
+            self._git(
+                args=["worktree", "remove", "--force", str(path)], cwd=self._work_dir, check=False
+            )
+            self._git(args=["worktree", "prune"], cwd=self._work_dir, check=False)
+            self._git(args=["branch", "-D", branch], cwd=self._work_dir, check=False)
+            # 一条 worktree add 同时完成「建隔离工作树」+「从最新 origin/<base> 拉分支」。
+            self._git(
+                args=["worktree", "add", "-b", branch, str(path), f"origin/{base}"],
+                cwd=self._work_dir,
+                check=True,
+            )
         return path
 
     def ensure(self, *, issue_number: int, branch: str) -> Path:
@@ -76,8 +90,10 @@ class Workspace:
         path = self._worktree_path(issue_number=issue_number)
         if path.exists():
             return path
-        self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=False)
-        self._git(args=["worktree", "add", str(path), branch], cwd=self._work_dir, check=True)
+        # Spec-0068/T1: 续写路径同样 fetch + worktree add 共享 .git，整段持锁串行（同 prepare）。
+        with _GIT_MUTATION_LOCK:
+            self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=False)
+            self._git(args=["worktree", "add", str(path), branch], cwd=self._work_dir, check=True)
         return path
 
     def assert_delivered(self, *, worktree: Path, branch: str) -> None:

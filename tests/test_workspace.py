@@ -299,5 +299,73 @@ def test_module_exposes_workspace_error():
     assert issubclass(ws_module.WorkspaceError, Exception)
 
 
+# --------------------------------------------------------------------------- #
+# Spec-0068/T1: 进程级 git-mutation 串行锁（prepare/ensure 持锁；commit/assert 不进锁）
+# --------------------------------------------------------------------------- #
+
+
+class _LockProbeRecorder:
+    """subprocess.run 替身：每条 git 命令执行时探测 _GIT_MUTATION_LOCK 当前是否被持有。
+
+    记录 (子命令, 进入时锁是否已被占)。用 `acquire(blocking=False)` 探测：能拿到 = 当前
+    没人持锁（返回 False 记「未持锁」并立刻释放）；拿不到 = 锁被本线程的 with 段占着（记 True）。
+    """
+
+    def __init__(self, *, stdout=""):
+        self.observations = []  # list[tuple[str, bool]]
+        self._stdout = stdout
+
+    def __call__(self, args, **kwargs):
+        sub = args[3] if len(args) > 3 else ""
+        got = ws_module._GIT_MUTATION_LOCK.acquire(blocking=False)
+        held_by_caller = not got
+        if got:
+            ws_module._GIT_MUTATION_LOCK.release()
+        self.observations.append((sub, held_by_caller))
+        return SimpleNamespace(returncode=0, stdout=self._stdout, stderr="")
+
+
+def test_prepare_git_mutations_run_under_lock(tmp_path, monkeypatch):
+    # prepare 的整段共享 .git 变更（fetch/remove/prune/branch/add）都应在持锁下执行。
+    probe = _LockProbeRecorder()
+    monkeypatch.setattr(subprocess, "run", probe)
+    Workspace(work_dir=tmp_path).prepare(issue_number=3, branch="openagents/issue-3", base="main")
+
+    mutating = {"fetch", "worktree", "branch"}
+    seen = [(sub, held) for sub, held in probe.observations if sub in mutating]
+    assert seen, "prepare 应至少跑一条 git 变更命令"
+    assert all(held for _, held in seen), f"prepare 的 git 变更段须持锁执行，实测：{seen}"
+
+
+def test_ensure_git_mutations_run_under_lock(tmp_path, monkeypatch):
+    # ensure（缺失重建路径）的 fetch + worktree add 也应在持锁下执行。
+    probe = _LockProbeRecorder()
+    monkeypatch.setattr(subprocess, "run", probe)
+    Workspace(work_dir=tmp_path).ensure(issue_number=3, branch="openagents/issue-3")
+
+    seen = [(sub, held) for sub, held in probe.observations if sub in {"fetch", "worktree"}]
+    assert seen, "ensure 重建路径应跑 fetch + worktree add"
+    assert all(held for _, held in seen), f"ensure 的 git 变更段须持锁执行，实测：{seen}"
+
+
+def test_assert_delivered_does_not_take_lock(tmp_path, monkeypatch):
+    # assert_delivered 纯读、不改共享 ref，不应获取 git-mutation 锁。
+    probe = _LockProbeRecorder(stdout="a" * 40 + "\n")
+    monkeypatch.setattr(subprocess, "run", probe)
+    Workspace(work_dir=tmp_path).assert_delivered(worktree=tmp_path, branch="openagents/issue-3")
+
+    assert probe.observations, "assert_delivered 应跑 fetch + rev-parse"
+    assert all(not held for _, held in probe.observations), (
+        f"assert_delivered 不应持 git-mutation 锁，实测：{probe.observations}"
+    )
+
+
+def test_lock_is_module_level_threading_lock():
+    # 锁须是模块级 threading.Lock（互斥、非可重入即够；实例锁串不起跨 worker 调用）。
+    lock = ws_module._GIT_MUTATION_LOCK
+    assert lock.acquire(blocking=False) is True
+    lock.release()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
