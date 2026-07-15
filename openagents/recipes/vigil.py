@@ -140,7 +140,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -1555,6 +1555,47 @@ def _producer_tick(
         conn.close()
 
 
+def _unblock_if_replied(*, observed: _Observed, subject: str) -> _Observed:
+    """Spec-0058/T1: needs-human 死锁自愈——人类越水位线回复即撤 label，把 subject 从 TERMINAL 复位续跑。
+
+    `needs-human` 是 agent 的一等出口（`_classify` 分支①），但其唯一撤销路径本是**人手摘 label**——分支①
+    短路在分支②（人有新话 → reply）之前，人在被挂 subject 上回复评论却没手摘 label 时 subject 一动不动，
+    与决策5（agent 先 comment、人审核后流程续跑）及 park 卡点评论对用户的承诺相悖。这里补上闭环：
+
+    **「人在被挂 subject 上说了话」本身就是解挂信号。** park 的理由评论**必签名**（`_park_needs_human`）且
+    恒为 park 那一刻的最后一条，故「最新一条评论不是我方签名」（`facts.latest_comment_is_ours`，`_sense`
+    已算出）**恰好等价于**「park 之后有人越过水位线说话」——无需另存 `block_watermark`、无需第二次读。
+    撤掉 `needs-human` 后用 `dataclasses.replace` 把它从**本 tick 已读到的 facts** 里剥掉，`_classify` 当轮
+    即在「已无 needs-human」现态上从头重判（②reply → ③…⑪ 保守重进整条流水线，无需信任旧证据）。
+
+    **防自触发天然内建**：`latest_comment_is_ours` 靠签名判定（`_latest_is_ours` → `identity.parse_agent_id`），
+    机器自己后来盖的任何签名评论都把它顶回 True，解挂不自触发（也让本步骤幂等：撤一次后无更新的无签名评论，
+    下一 tick 不再重撤）。撤 label 是唯一状态复位（不写 state 字段）——新栈里 label 本身即终态单一真源，
+    人机对话记录留在 GitHub 评论流 + `_log` 行，即 issue 要的 `unblock_detail` 审计落处（GitHub 是领域真相）。
+    """
+    facts = observed.facts
+    if _LABEL_NEEDS_HUMAN not in facts.labels:
+        return observed  # 没挂起 → 原样透传
+    # 最新是我方签名（含刚 park 的理由）→ 无人越水位线 → 不解挂（幂等 + 防自触发）
+    if facts.latest_comment_is_ours:
+        return observed
+    # 有人在 park 理由评论之后越过水位线说话 → 撤 needs-human，本 tick 即从头重判续跑
+    _remove_needs_human(subject=subject)
+    _log(message=f"⟳ {subject}：人类越水位线回复，撤 {_LABEL_NEEDS_HUMAN}，复位续跑")
+    return replace(observed, facts=replace(facts, labels=facts.labels - {_LABEL_NEEDS_HUMAN}))
+
+
+def _remove_needs_human(*, subject: str) -> None:
+    """Spec-0058/T1: 撤掉 subject 的 `needs-human` label——PR 走 `remove_label`、issue 走 `issue_remove_label`
+    （由 `_split_subject` 分流，与 `_park_needs_human` 的打 label 分流对称）。两者皆幂等容错（label 本就不在时
+    吞掉视为 no-op），故与人手动摘 label 竞态无害。"""
+    kind, number = _split_subject(subject=subject)
+    if kind == _KIND_ISSUE:
+        github.issue_remove_label(number=number, name=_LABEL_NEEDS_HUMAN)
+    else:
+        github.remove_label(pr_number=number, name=_LABEL_NEEDS_HUMAN)
+
+
 def _consider(
     *,
     conn: sqlite3.Connection,
@@ -1577,6 +1618,10 @@ def _consider(
     # ACTIONABLE 触发（读 GitHub 的次数与前不变），故这次重排对 IN_FLIGHT/TERMINAL 零行为影响。
     """
     observed = _sense(config=config, subject=subject)
+    # Spec-0058/T1: 解挂预处理必须在 `_sense` 之后、`_classify` 之前——撤 label 是副作用（只能生产者侧做），
+    # 撤完把 needs-human 从本 tick 已感知的 facts 里剥掉，`_classify` 当轮即在「已无 needs-human」的现态上从头
+    # 重判（②reply → ③…⑪ 合并流水线保守重进），满足「守夜一轮内自动续跑」。`_classify` 保持纯函数不动。
+    observed = _unblock_if_replied(observed=observed, subject=subject)
     verdict = _classify(facts=observed.facts, in_flight=subject in in_flight)
     fp = _fingerprint(facts=observed.facts)
 

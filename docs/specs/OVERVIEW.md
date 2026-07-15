@@ -168,6 +168,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0057 e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
 wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸没逼出结构化 e2e 块（被 spec 正文的 e2e 讨论骗过）→ run_e2e 空过；代码 review 把实现者自测（docs/evidence/ 自证）当成放行依据、没要求独立 executor 证据（docs/e2e-results/）。本组把这两条从软 rubric 硬化：T1 RFC 闸在调 LLM 前加一道确定性检查——改动 spec 缺真实 e2e 块（intent+method 非空）直接自动返工，不问 LLM；T2 代码 review rubric 明说运行时验证有两重（实现者自测=声明 / 独立 executor=裁判），要求交叉比对、独立证据缺失不得凭自测放行。两个证据目录保持分开（自证 vs 独立）。
 
+### 0058 needs-human 死锁自愈：人类回复越水位线即撤 label 复位续跑
+修 needs-human 单向死锁：图驱动守夜（Spec-0065）里 `_classify` 分支① `needs-human ∈ labels → TERMINAL → 轮询停止`，撤销的唯一路径是人**手摘 label**；人在被挂 PR 上回复评论无效——因为①短路在②（最新评论是人发的 → reply）之前。这违背决策5（agent 先 comment、人审核后流程续跑）与 park 卡点评论对用户的承诺（「说清楚后 谓词自动活过来」），与 #140（卡住无自愈）同类。修法：在生产者单 subject 判定 `_consider`（vigil.py）里、 `_sense` 之后 `_classify` 之前插一段**解挂预处理**——当 subject 挂着 `needs-human` 且**最新评论不是我方 签名**（= 有人在 park 理由评论之后说了话，越过水位线）时，撤掉 `needs-human` label 并把它从本 tick 已感知 的 facts 里剥掉，使 `_classify` 当轮即从头重判（②reply → ③…⑪ 合并流水线保守重进一遍）。水位线在新模型里 不再是 state 里的 `block_watermark` 字段，而是「最新一条评论是不是我方签名」这个 `_sense` 已算出的活事实 （park 理由评论必签名、且恒为 park 时最后一条，故任何更新的**无签名**人类评论都天然越过它）；防自触发靠 `latest_comment_is_ours` 的签名判定，机器自己的签名评论永不解挂。承 Spec-0032（#89）在旧 flat 栈实现、 于 Spec-0062/0064 收敛迁移时丢失的解挂闭环，在图驱动栈里以「撤 label」这一单一原语重建。
+- e2e 意图：证明 needs-human 不再是单向死锁——挂起的 subject 收到一条越过水位线的无签名人类评论后，一轮守夜内 label 被撤、subject 从 TERMINAL 复位为可推进态并能走到后续闸；而只有我方签名评论时保持 TERMINAL（防自触发）。
+  - 测法：形态：纯后端编排（form=cli），无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（不触真实 LLM）： 1. 打桩 github：一个挂 needs-human 的 PR + 评论流最后一条为**无签名**人类评论（越过 park 签名理由评论的    水位线）；反复 run_vigil(once=True) 单 tick 驱动 → 断言该 tick 内调了 remove_label 撤 needs-human，    且 _classify 对复位后的现态判非 TERMINAL（落 reply/后续流水线支，能走到后续闸）。 2. 对照：另一 PR 挂 needs-human 但最新评论为我方签名 → 断言不调 remove_label、保持 TERMINAL。 3. 跑 scripts/e2e-spec-0058-needs-human-reply-unblock.sh 离线段全绿：ruff check + ruff format --check +    pytest -q 全套通过。 
+
 ### 0060 架构重构（批次一）：核心收敛为 agents（提示词）+ recipes（编排），操作下放 agent，仅留最小硬闸 + runtime/utils 确定性层
 把「一切需判断的操作走 agent、人只做宏观」的初心从 #140 的 git 特例上升为架构总原则：核心只留 agents（string.Template 提示词，零逻辑）+ recipes（纯控制流编排）；agent 返回结构化裁决，recipe 只按裁决路由（顺序/循环/分支），自己不做任何业务判断；runtime 是唯一机制层（run_agent 引擎 + 最小硬闸：head 前移断言/轮次上限/PR 存在性/证据溯源戳），确定性非 agent 操作归 utils。本组是分批交付的批次一：additive 立起新栈（runtime/agents/recipes/utils 骨架）并让 solve_issue recipe（plan→implement→review 循环 while REWORK→deliver）端到端跑通一个真实 issue 验证契约成立，不动旧 orchestrator/messages/vigil（其删除与旧 spec 作废留后续批次）。
 - e2e 意图：证明架构契约在真实链路上成立——solve_issue recipe 只按 agent 的结构化裁决路由（PASS→next / REWORK→loop）、自身零业务判断；最小硬闸真能兜底（head 未前移 / 超轮次 → raise）；agents/* 确无逻辑、recipes/* 确无 git/gh/subprocess 直接调用。
@@ -417,6 +422,8 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0056 | 0056/T5 | conflict.py：解冲突结果交付（commit+push）也下放 resolve agent | done | T2 | openagents/conflict.py<br>tests/test_conflict.py<br>tests/test_conflict_guidance.py |
 | 0057 | 0057/T1 | RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM | done | — | openagents/orchestrator.py<br>openagents/messages.py<br>tests/test_orchestrator.py<br>tests/test_messages.py |
 | 0057 | 0057/T2 | 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
+| 0058 | 0058/T1 | 生产者解挂预处理：needs-human + 最新评论非我方签名 → 撤 label + 剥 facts，本 tick 从头重判续跑 | done | — | openagents/recipes/vigil.py |
+| 0058 | 0058/T2 | 解挂路径测试 + 修正旧「needs-human 恒 TERMINAL」断言 + 离线 e2e 脚本 | done | T1 | tests/test_recipe_vigil.py<br>scripts/e2e-spec-0058-needs-human-reply-unblock.sh |
 | 0060 | 0060/T1 | utils 确定性最小面：git + github 薄再导出 | done | — | openagents/utils/__init__.py<br>openagents/utils/git.py<br>openagents/utils/github.py<br>tests/test_utils_git.py<br>tests/test_utils_github.py |
 | 0060 | 0060/T2 | runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出） | done | — | openagents/runtime/__init__.py<br>openagents/runtime/engine.py<br>tests/test_runtime_engine.py |
 | 0060 | 0060/T3 | runtime.gates：最小硬闸（head 前移/轮次上限/PR 存在/证据溯源戳） | done | T1 | openagents/runtime/gates.py<br>tests/test_runtime_gates.py |
@@ -773,6 +780,10 @@ graph LR
         n0057_T1["T1 RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM"]
         n0057_T2["T2 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行"]
     end
+    subgraph G0058[0058 needs-human-reply-unblock]
+        n0058_T1["T1 生产者解挂预处理：needs-human + 最新评论非我方签名 → 撤 label + 剥 facts，本 tick 从头重判续跑"]
+        n0058_T2["T2 解挂路径测试 + 修正旧「needs-human 恒 TERMINAL」断言 + 离线 e2e 脚本"]
+    end
     subgraph G0060[0060 agents-recipes-core]
         n0060_T1["T1 utils 确定性最小面：git + github 薄再导出"]
         n0060_T2["T2 runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出）"]
@@ -1010,6 +1021,7 @@ graph LR
     n0056_T3 --> n0056_T2
     n0056_T4 --> n0056_T2
     n0056_T5 --> n0056_T2
+    n0058_T2 --> n0058_T1
     n0060_T3 --> n0060_T1
     n0060_T5 --> n0060_T1
     n0060_T6 --> n0060_T2
@@ -1083,7 +1095,7 @@ graph LR
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
 | openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0016, 0017, 0061, 0062, 0064, 0065, 0066 |
+| openagents/recipes/vigil.py | 0016, 0017, 0058, 0061, 0062, 0064, 0065, 0066 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -1151,7 +1163,7 @@ graph LR
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
 | tests/test_recipe_stages.py | 0017, 0064 |
-| tests/test_recipe_vigil.py | 0017, 0061, 0062, 0064, 0065 |
+| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065 |
 | tests/test_recipe_vigil_act.py | 0017, 0065 |
 | tests/test_release.py | 0023, 0029, 0063 |
 | tests/test_results.py | 0001, 0029, 0063 |
@@ -2664,6 +2676,26 @@ graph LR
 graph LR
     nT1["T1 RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM"]
     nT2["T2 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+```
+
+### 0058 needs-human 死锁自愈：人类回复越水位线即撤 label 复位续跑（issue #163）
+
+```mermaid
+graph LR
+    nT1["T1 生产者解挂预处理：needs-human + 最新评论非我方签名 → 撤 label + 剥 facts，本 tick 从头重判续跑"]
+    nT2["T2 解挂路径测试 + 修正旧「needs-human 恒 TERMINAL」断言 + 离线 e2e 脚本"]
+    nT1 --> nT2
 ```
 
 演化图：

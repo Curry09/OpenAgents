@@ -72,6 +72,7 @@ from openagents.recipes.vigil import (
     _sense,
     _TimedBackend,
     _try_lock,
+    _unblock_if_replied,
     _Verdict,
     _watchdog,
     route,
@@ -986,6 +987,104 @@ def test_producer_isolates_a_failing_subject(tmp_path, monkeypatch):
     )
     assert enqueued == 1
     assert [row["subject"] for row in conn.execute("SELECT subject FROM work_queue")] == ["issue:6"]
+
+
+# --------------------------------------------------------------------------------------------------
+# Spec-0058: needs-human 死锁自愈——人类越水位线回复 → 撤 label → 复位续跑；仅我方签名评论保持 TERMINAL。
+# --------------------------------------------------------------------------------------------------
+
+
+def _observed(**overrides) -> _Observed:
+    return _Observed(facts=_facts(**overrides), clock=_Clock(last_progress_at=_NOW))
+
+
+def _spy_remove_labels(monkeypatch) -> tuple[list[tuple[str, str]], list[tuple[int, str]]]:
+    """打桩两个撤 label 原语，返回 (PR 调用记录, issue 调用记录)，供解挂断言。"""
+    pr_calls: list[tuple[str, str]] = []
+    issue_calls: list[tuple[int, str]] = []
+    monkeypatch.setattr(
+        vigil_module.github,
+        "remove_label",
+        lambda *, pr_number, name: pr_calls.append((str(pr_number), name)),
+    )
+    monkeypatch.setattr(
+        vigil_module.github,
+        "issue_remove_label",
+        lambda *, number, name: issue_calls.append((number, name)),
+    )
+    return pr_calls, issue_calls
+
+
+def test_unblock_removes_label_when_human_replied_past_watermark(monkeypatch):
+    """(a) needs-human + 最新评论无签名（人越水位线说话）→ 撤 needs-human，剥 facts，`_classify` 判非 TERMINAL。"""
+    pr_calls, _ = _spy_remove_labels(monkeypatch)
+    observed = _observed(labels=frozenset({"needs-human"}), latest_comment_is_ours=False)
+    out = _unblock_if_replied(observed=observed, subject="pr:12")
+    assert pr_calls == [("12", "needs-human")]  # 走 PR 版 remove_label
+    assert "needs-human" not in out.facts.labels  # facts 里已剥掉终态 label
+    verdict = _classify(facts=out.facts, in_flight=False)
+    assert verdict.kind != _TERMINAL and verdict.action == _ACT_REPLY  # 复位为可推进态，落②reply
+
+
+def test_unblock_keeps_terminal_when_latest_comment_is_ours(monkeypatch):
+    """(b) 防自触发 + 幂等：最新评论为我方签名（含刚 park 的理由）→ 不撤 label、facts 原样、仍 TERMINAL。"""
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    observed = _observed(labels=frozenset({"needs-human"}), latest_comment_is_ours=True)
+    out = _unblock_if_replied(observed=observed, subject="pr:12")
+    assert pr_calls == [] and issue_calls == []  # 机器自己的签名评论永不解挂
+    assert out is observed  # facts 原样透传
+    assert (
+        _classify(facts=out.facts, in_flight=False).kind == _TERMINAL
+    )  # park 后无人回复 → 保持终态
+
+
+def test_unblock_passthrough_when_not_needs_human(monkeypatch):
+    """(c) 未挂 needs-human → 预处理原样透传（即便最新评论是人发的，走正常②reply，不多摸 GitHub 写）。"""
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    observed = _observed(labels=frozenset(), latest_comment_is_ours=False)
+    out = _unblock_if_replied(observed=observed, subject="pr:12")
+    assert pr_calls == [] and issue_calls == []
+    assert out is observed
+
+
+def test_unblock_issue_subject_uses_issue_remove_label(monkeypatch):
+    """(d) issue subject 走 `issue_remove_label`（与 PR 版 `remove_label` 分流对称）。"""
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    observed = _observed(
+        subject="issue:5", labels=frozenset({"needs-human"}), latest_comment_is_ours=False
+    )
+    out = _unblock_if_replied(observed=observed, subject="issue:5")
+    assert issue_calls == [(5, "needs-human")] and pr_calls == []
+    assert "needs-human" not in out.facts.labels
+
+
+def test_consider_reenqueues_reply_after_unblock(tmp_path, monkeypatch):
+    """(e) 端到端单 subject：needs-human + 人越水位线回复 → `_consider` 当轮撤 label 并入队 reply（复位续跑）。
+
+    Spec-0058: 修正旧「needs-human 经 `_consider` 后恒 TERMINAL（return 0、不入队）」的行为——越水位线人类回复
+    使同 tick `_classify` 从头重判走到②reply，subject 复位为可推进态、能走到后续闸。对照见上方 (b) 幂等测试。
+    """
+    _, conn = _db(tmp_path)
+    _spy_remove_labels(monkeypatch)
+    _stub_consider(
+        monkeypatch, facts=_facts(labels=frozenset({"needs-human"}), latest_comment_is_ours=False)
+    )
+    assert (
+        _consider_once(conn, work_dir=tmp_path) == 1
+    )  # 复位后落②reply → 入队（非 TERMINAL 的 return 0）
+    assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 1
+
+
+def test_consider_stays_terminal_when_only_our_signed_comment(tmp_path, monkeypatch):
+    """对照：needs-human + 最新评论为我方签名 → `_consider` 仍判 TERMINAL（return 0、不入队），防解挂写反。"""
+    _, conn = _db(tmp_path)
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    _stub_consider(
+        monkeypatch, facts=_facts(labels=frozenset({"needs-human"}), latest_comment_is_ours=True)
+    )
+    assert _consider_once(conn, work_dir=tmp_path) == 0
+    assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
+    assert pr_calls == [] and issue_calls == []
 
 
 def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
