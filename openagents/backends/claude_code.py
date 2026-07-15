@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 from openagents.backends.base import AgentResult
@@ -43,6 +45,85 @@ def effective_permission_mode() -> str:
     """
     value = os.environ.get(PERMISSION_MODE_ENV, "").strip()
     return value or _DEFAULT_PERMISSION_MODE
+
+
+# Spec-0046/T1: claude -p 流式读的 idle（停顿）看门狗旋钮，镜像上面的 effective_permission_mode 最小 env 范式。
+# 判据是「有没有新输出行（进展）」而非总时长——健康长任务持续吐 stream-json 事件，idle 计时被每来一行刷新
+# 归零，只有真僵死（挂在对 Anthropic API 的网络请求、等一个永不到来的输入、或进程僵死）才会长时间静默触发。
+IDLE_TIMEOUT_ENV = "OPENAGENTS_CLAUDE_IDLE_TIMEOUT"
+_DEFAULT_IDLE_TIMEOUT = (
+    300.0  # 5 分钟完全静默对健康 stream-json 流已是极强的僵死信号，宽到不误杀正常长任务。
+)
+MAX_WALL_ENV = "OPENAGENTS_CLAUDE_MAX_WALL"
+_DEFAULT_MAX_WALL = (
+    3600.0  # 绝对墙钟兜底，远大于 idle，防「每 59s 吐一行垃圾但永不 result」的病态流。
+)
+
+# Spec-0046/T1: terminate→kill 之间的宽限秒数（SIGTERM 后等这么久仍不退 → SIGKILL）。
+_TERMINATE_GRACE_SECONDS = 5.0
+# Spec-0046/T1: 看门狗轮询间隔上限；实际 poll 取「活跃阈值」与它的较小者，避免小阈值下轮询过疏而错过触发点。
+_WATCHDOG_POLL_CAP = 5.0
+
+
+def _effective_timeout(*, env_name, default):
+    """Spec-0046/T1: 读某个「秒数」env、float 解析——非法/空白落缺省，``<=0`` 视为关闭（返回 ``0.0``）。
+
+    与 effective_permission_mode 同源同理：单一真相源访问器、不引入配置文件、缺省取安全值。缺省本身恒 ``>0``，
+    故空白/非法回退缺省即仍启用；只有显式设成 ``0``/负数才关闭对应看门狗（默认行为不变、非侵入）。
+    """
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = default
+    return value if value > 0 else 0.0
+
+
+def effective_idle_timeout() -> float:
+    """Spec-0046/T1: idle 停顿超时秒数（单一真相源）；``<=0`` 关闭 idle 看门狗。"""
+    return _effective_timeout(env_name=IDLE_TIMEOUT_ENV, default=_DEFAULT_IDLE_TIMEOUT)
+
+
+def effective_max_wall() -> float:
+    """Spec-0046/T1: 绝对墙钟兜底秒数（单一真相源）；``<=0`` 关闭该兜底。"""
+    return _effective_timeout(env_name=MAX_WALL_ENV, default=_DEFAULT_MAX_WALL)
+
+
+def _watchdog_poll_interval(*, idle, max_wall):
+    """Spec-0046/T1: 看门狗轮询间隔——取活跃阈值与 ``_WATCHDOG_POLL_CAP`` 的较小者；两者皆关闭 → ``None``。
+
+    返回 ``None`` 表示 idle 与墙钟都关了 → 压根不起看门狗线程（此时读路径与本 spec 之前逐字节一致）。
+    """
+    candidates = [v for v in (idle, max_wall) if v > 0]
+    if not candidates:
+        return None
+    return min(min(candidates), _WATCHDOG_POLL_CAP)
+
+
+def _terminate_then_kill(*, proc):
+    """Spec-0046/T1: 终止子进程——先 ``terminate()``（SIGTERM），宽限内不退再 ``kill()``（SIGKILL）。
+
+    杀掉子进程会关闭其 stdout 管道 → 主循环的 ``for raw in proc.stdout:`` 随即结束迭代（这是唤醒阻塞读的
+    唯一手段，故读路径零改动）。尽力而为：各步吞异常，绝不把看门狗守护线程带崩（守夜第一要务是活着进下一轮）。
+    """
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    graceful = False
+    try:
+        proc.wait(timeout=_TERMINATE_GRACE_SECONDS)
+        graceful = True
+    except Exception:
+        graceful = False
+    if not graceful:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 # RFC-0003 决策 6: 实时事件流格式（stream-json 需配 --verbose 才输出完整事件）。
@@ -156,6 +237,13 @@ class ClaudeCodeBackend:
 
         stderr 合并进 stdout；从 `result` 事件取 `result` 文本作摘要；非零退出抛
         RuntimeError（带已知错误详情）。
+
+        Spec-0046/T1: 阻塞式逐行读外挂一道 idle（停顿）看门狗守护线程——主循环每来一行只多刷一次
+        `last_activity`（monotonic）戳；看门狗轮询若发现「连续静默超 idle」或「总时长超 max_wall」，就
+        terminate()→kill() 子进程，管道随之关闭、主循环退出，收尾抛**既有的** `RuntimeError`（带停顿/墙钟
+        超时详情），交上游 per-issue/per-round try/except 隔离（这轮这个 agent 失败 → 跳过、下轮重试）。
+        判据是「有没有新输出行」而非总时长：健康长任务持续吐事件、idle 计时被每行刷新归零 → 看门狗永不介入
+        读、永不误杀，读路径逐字节零回归。
         """
         proc = subprocess.Popen(
             [
@@ -179,24 +267,68 @@ class ClaudeCodeBackend:
         # Spec-0065/T2: 自报 PID + Popen 句柄给认领桶——守夜的 `_act` 硬超时据此**精确**杀掉这次调用起的
         # 进程树；句柄用于验明正身（PID 被 reap 后可能已被复用，裸 PID 杀过去就是杀无辜者，见 utils.proc）。
         proc_utils.publish(pid=proc.pid, handle=proc)
+
+        # Spec-0046/T1: 起 idle 看门狗。last_activity 用单元素 list 做可变共享戳（monotonic，不受系统时间回拨
+        # 影响）；watchdog_reason 由看门狗在触发时填入（「停顿超时」/「墙钟超时」），收尾据此抛 RuntimeError。
+        idle = effective_idle_timeout()
+        max_wall = effective_max_wall()
+        poll = _watchdog_poll_interval(idle=idle, max_wall=max_wall)
+        start = time.monotonic()
+        last_activity = [start]
+        stop_event = threading.Event()
+        watchdog_reason: list[str] = []
+
+        def _watch():
+            # Spec-0046/T1: 守护线程——不介入读，只轮询「上次进展戳」与墙钟；触发即杀子进程唤醒阻塞读。
+            while not stop_event.wait(poll):
+                now = time.monotonic()
+                if idle > 0 and now - last_activity[0] > idle:
+                    watchdog_reason.append(f"停顿超时（连续静默 {idle:.0f}s 无新输出）")
+                    _terminate_then_kill(proc=proc)
+                    return
+                if max_wall > 0 and now - start > max_wall:
+                    watchdog_reason.append(f"墙钟超时（单次调用总时长超 {max_wall:.0f}s）")
+                    _terminate_then_kill(proc=proc)
+                    return
+
+        watchdog = None
+        if poll is not None:
+            watchdog = threading.Thread(target=_watch, daemon=True)
+            watchdog.start()
+
         result_text = ""
         raw_tail: list[str] = []
-        for raw in proc.stdout:
-            line = raw.rstrip("\n")
-            if not line.strip():
-                continue
-            event = _parse_event(line=line)
-            if event is None:
-                # 异常：非 JSON 行（如启动错误）——原样透传并留作兜底详情。
-                print(line, flush=True)
-                raw_tail.append(line)
-                continue
-            for human in _lines_for_event(event=event):
-                print(human, flush=True)
-            if event.get("type") == "result":
-                result_text = str(event.get("result") or "")
-        returncode = proc.wait()
+        try:
+            for raw in proc.stdout:
+                # Spec-0046/T1: 每来一行只多做这一件事——刷新「上次进展」戳（含随后被 continue 的空行，
+                # 空行也是进展）。事件解析/打印/result 提取全部原样，健康流输出路径不经过看门狗（零回归）。
+                last_activity[0] = time.monotonic()
+                line = raw.rstrip("\n")
+                if not line.strip():
+                    continue
+                event = _parse_event(line=line)
+                if event is None:
+                    # 异常：非 JSON 行（如启动错误）——原样透传并留作兜底详情。
+                    print(line, flush=True)
+                    raw_tail.append(line)
+                    continue
+                for human in _lines_for_event(event=event):
+                    print(human, flush=True)
+                if event.get("type") == "result":
+                    result_text = str(event.get("result") or "")
+            returncode = proc.wait()
+        finally:
+            # Spec-0046/T1: 无论正常读完还是看门狗杀掉，都停表并回收看门狗线程（daemon，join 立即返回）。
+            stop_event.set()
+            if watchdog is not None:
+                watchdog.join()
 
+        if watchdog_reason:
+            # Spec-0046/T1: 复用既有 RuntimeError（不新增异常类型）——上游 try/except Exception 零改动接住。
+            raise RuntimeError(
+                f"Claude Code CLI 调用{watchdog_reason[0]}——已终止子进程"
+                f"（idle={idle:.0f}s, max_wall={max_wall:.0f}s）"
+            )
         if returncode != 0:
             detail = result_text.strip() or "\n".join(raw_tail).strip()
             raise RuntimeError(f"Claude Code CLI 调用失败（返回码 {returncode}）：{detail}")

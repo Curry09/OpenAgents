@@ -138,6 +138,11 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0045 Spec-0037 后清理旧 rebase/indexheal 口径
 扫掉 rebase.py/indexheal.py/sync-prs 删除后残留在 openagents/tests 注释里的 rebase_open_prs、rebase.CONFLICT_COMMENT、indexheal→conflict→人工 等活文档口径，让注释与拉式同步现状对齐
 
+### 0046 claude -p 流式调用 idle 看门狗：无进展停顿超时防 agent 僵死冻死 vigil
+给 ClaudeCodeBackend._run_claude_streaming 的阻塞式 stream-json 逐行读加一道 idle（停顿）看门狗：连续 N 秒无新输出行判定 claude 僵死 → terminate→kill 子进程 + 抛既有 RuntimeError，交既有 per-issue/per-round try/except 隔离（跳过、下轮重试）。判据是有没有进展（新输出）不是总时长——健康长任务持续吐 stream-json 事件不受影响，逐字节零回归。阈值走 OPENAGENTS_CLAUDE_IDLE_TIMEOUT 环境旋钮（宽默认不误杀长任务），再设一个远大于 idle 的绝对墙钟上限做最后兜底。与 vigil 既有硬超时（_AGENT_TIMEOUT_SECONDS，会误杀健康长任务）互补：本 spec 管 agent 流的停顿，#147 管 git 网络的硬超时，二者合起来才让「vigil 再也不会无输出地永久卡死」成立。
+- e2e 意图：证明 _run_claude_streaming 的 idle 看门狗在「真长时间静默」时确定性触发（terminate→kill 子进程 + 抛既有 RuntimeError），而在「健康持续吐 stream-json 事件」时逐字节零回归、绝不误杀；绝对墙钟上限兜住「每 tick 吐一行垃圾但永不结束」的病态流。
+  - 测法：形态：纯内部后端进程管理改动，无 product-facing 前端可导航、无对外可见产物；自检工具列表无浏览器 MCP， 故不设浏览器 e2e，改用相称的 hermetic 自动化测试（不调真实 claude）： 1. 假 Popen 覆盖看门狗三分支——stdout 为可控节奏行序列生成器，「长时间静默」用 threading.Event 阻塞    模拟读挂住，terminate()/kill() 置该 Event 解除阻塞→迭代结束（复刻「杀进程→管道关→for 退出」）；    测试把 OPENAGENTS_CLAUDE_IDLE_TIMEOUT 设极小值（如 0.1s）使触发确定性、亚秒级，不真等。    ① idle 触发：静默流 → terminate 后 kill 被调 + 抛 RuntimeError 含「停顿超时」；    ② 墙钟触发：每 tick 吐一行但总时长超 OPENAGENTS_CLAUDE_MAX_WALL → 抛 RuntimeError 含「墙钟超时」；    ③ 零回归：连续正常流 → 看门狗从不介入读、从不杀，输出/摘要/returncode 与改动前逐字节一致；    ④ 访问器：effective_idle_timeout/effective_max_wall 解析 env、非法/空白/<=0 落缺省或关闭。 2. 离线 e2e 脚本 scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh：ruff check + ruff format    --check + 针对性 pytest tests/test_backend_claude_code.py，被 PR e2e signpost 采集。 
+
 ### 0047 评审裁决按「实质内容」去重（同结论·理由不同照发）
 把 _post_review_decision 的去重从「同结论=重复」改成「同结论且同反馈才算重复」——多轮 REWORK 理由各异时中间轮裁决评论不再被吞、人盯 PR 能看清每轮卡点演变，同时保留 PR #61「33 条相同 PASS」的防刷屏去重。
 
@@ -393,6 +398,8 @@ wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸�
 | 0045 | 0045/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | done | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
 | 0045 | 0045/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | done | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
 | 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
+| 0046 | 0046/T1 | backend 加 idle 看门狗 + env 旋钮 | done | — | openagents/backends/claude_code.py |
+| 0046 | 0046/T2 | hermetic 测试 + 离线 e2e 脚本 | done | T1 | tests/test_backend_claude_code.py<br>scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh |
 | 0047 | 0047/T1 | reviewer.extract_decision_content：裁决内容纯解析器 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0047 | 0047/T2 | orchestrator._decision_already_posted：按结论+反馈内容去重 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0048 | 0048/T1 | reviewer rubric 三处硬化（防 design-as-implementation）+ 单测 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
@@ -738,6 +745,10 @@ graph LR
         n0045_T4["T4 测试注释去 sync-prs/rebase_open_prs 口径"]
         n0045_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
     end
+    subgraph G0046[0046 claude-streaming-idle-watchdog]
+        n0046_T1["T1 backend 加 idle 看门狗 + env 旋钮"]
+        n0046_T2["T2 hermetic 测试 + 离线 e2e 脚本"]
+    end
     subgraph G0047[0047 review-dedup-by-content]
         n0047_T1["T1 reviewer.extract_decision_content：裁决内容纯解析器"]
         n0047_T2["T2 orchestrator._decision_already_posted：按结论+反馈内容去重"]
@@ -1009,6 +1020,7 @@ graph LR
     n0045_T5 --> n0045_T2
     n0045_T5 --> n0045_T3
     n0045_T5 --> n0045_T4
+    n0046_T2 --> n0046_T1
     n0047_T2 --> n0047_T1
     n0048_T2 --> n0048_T1
     n0049_T2 --> n0049_T1
@@ -1103,7 +1115,7 @@ graph LR
 | openagents/agents/replier.py | 0016, 0059, 0061 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0065 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
 | openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067 |
@@ -1164,7 +1176,7 @@ graph LR
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/test_agent_config.py | 0064, 0067 |
-| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0065 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
@@ -2435,6 +2447,26 @@ graph LR
     class v_T3_1 st_done;
     class v_T4_1 st_done;
     class v_T5_1 st_done;
+```
+
+### 0046 claude -p 流式调用 idle 看门狗：无进展停顿超时防 agent 僵死冻死 vigil（issue #148）
+
+```mermaid
+graph LR
+    nT1["T1 backend 加 idle 看门狗 + env 旋钮"]
+    nT2["T2 hermetic 测试 + 离线 e2e 脚本"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
 
 ### 0047 评审裁决按「实质内容」去重（同结论·理由不同照发）（issue #116）

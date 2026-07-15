@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -17,9 +18,13 @@ from openagents.backends.base import AgentBackend, AgentResult
 from openagents.backends.claude_code import (
     _GUARDRAIL,
     CLAUDE_BIN,
+    IDLE_TIMEOUT_ENV,
+    MAX_WALL_ENV,
     PERMISSION_MODE_ENV,
     ClaudeCodeBackend,
     _build_prompt,
+    effective_idle_timeout,
+    effective_max_wall,
     effective_permission_mode,
 )
 from openagents.utils import proc
@@ -345,3 +350,185 @@ def test_command_line_honors_permission_mode_override(monkeypatch, tmp_path):
     cmd, _ = popen_calls[0]
     idx = cmd.index("--permission-mode")
     assert cmd[idx + 1] == "bypassPermissions"
+
+
+# --------------------------------------------------------------------------- #
+# Spec-0046/T2：claude -p 流式读的 idle（停顿）看门狗——真静默/病态流触发、健康流零回归、访问器解析
+#
+# 全程假 Popen，不触真实 claude：`stdout` 是可控节奏行序列生成器，「长时间静默」用 threading.Event
+# 阻塞模拟读挂住，terminate()/kill() 置该 Event 解除阻塞 → 迭代结束（复刻「杀进程→管道关→for 退出」）。
+# 阈值走极小值（0.1s / 0.2s）使触发确定性、亚秒级，不真等。
+# --------------------------------------------------------------------------- #
+
+
+class _WatchdogPopen:
+    """Spec-0046/T2：可控节奏的假 Popen——覆盖看门狗的静默/病态/健康三种流形态。
+
+    - `silence_after=True`：吐完 prelude 行后在 `threading.Event` 上阻塞，模拟「读挂住」（真僵死）；
+      terminate() **不**解除阻塞（模拟 SIGTERM 被卡死进程忽略），只有 kill() 置 Event → 迭代结束。
+    - `infinite=True`：循环吐 `lines`（每行前 `per_line_sleep`），模拟「每 tick 吐一行垃圾永不结束」的病态流；
+      killed 置位后下一轮退出（复刻管道关闭）。
+    - 皆为 False：吐完 `lines` 自然结束——健康连续流。
+    """
+
+    def __init__(
+        self, *, lines, returncode, silence_after=False, infinite=False, per_line_sleep=0.0
+    ):
+        self._lines = list(lines)
+        self._returncode = returncode
+        self._silence_after = silence_after
+        self._infinite = infinite
+        self._per_line_sleep = per_line_sleep
+        self._unblock = threading.Event()
+        self.pid = 4242
+        self.pass_fds = ()
+        self.terminated = False
+        self.killed = False
+        self.stdout = self._iter()
+
+    def _iter(self):
+        while True:
+            for ln in self._lines:
+                if self._per_line_sleep:
+                    time.sleep(self._per_line_sleep)
+                if self.killed:  # kill() 关闭管道 → 停止吐行
+                    return
+                yield ln
+            if self._infinite and self._lines:
+                continue
+            break
+        if self._silence_after:
+            self._unblock.wait()  # 阻塞模拟「读挂住」，直到 kill() 置 Event
+
+    def terminate(self):
+        # 模拟真僵死进程忽略 SIGTERM：只记调用、不解除阻塞（逼看门狗走到 kill）。
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+        self._unblock.set()
+
+    def wait(self, timeout=None):
+        # 带 timeout 且尚未 kill → 抛 TimeoutExpired（terminate 宽限内没退），复刻真 Popen 语义。
+        if timeout is not None and not self.killed:
+            raise subprocess.TimeoutExpired(cmd="claude", timeout=timeout)
+        return self._returncode
+
+
+def _patch_popen(monkeypatch, *, fake, git_porcelain):
+    """Spec-0046/T2：把 subprocess.Popen 打桩成返回给定假进程，git status 走假 run。返回 popen 调用记录。"""
+    popen_calls = []
+
+    def fake_popen(cmd, **kwargs):
+        popen_calls.append((cmd, kwargs))
+        fake.pass_fds = kwargs.get("pass_fds", ())
+        return fake
+
+    def fake_run(cmd, **kwargs):
+        return _FakeCompleted(returncode=0, stdout=git_porcelain)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return popen_calls
+
+
+def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
+    # ① idle 触发：吐一行后长时间静默 → 连续静默超 idle → terminate 后 kill 被调 + 抛 RuntimeError 含「停顿超时」。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0.1")
+    monkeypatch.setenv(MAX_WALL_ENV, "0")  # 只测 idle，关墙钟兜底
+    fake = _WatchdogPopen(
+        lines=[_assistant_text("thinking...") + "\n"], returncode=0, silence_after=True
+    )
+    _patch_popen(monkeypatch, fake=fake, git_porcelain="")
+
+    with pytest.raises(RuntimeError) as exc:
+        ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert "停顿超时" in str(exc.value)
+    assert fake.terminated is True, "看门狗触发时应先 terminate()"
+    assert fake.killed is True, "SIGTERM 宽限内未退 → 应升级到 kill()"
+
+
+def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
+    # ② 墙钟触发：每 tick 吐一行（idle 骗得过）但总时长超绝对上限 → 抛 RuntimeError 含「墙钟超时」。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")  # 关 idle：病态流一直有「新行」，idle 判据被骗过
+    monkeypatch.setenv(MAX_WALL_ENV, "0.2")
+    fake = _WatchdogPopen(
+        lines=[_assistant_text("垃圾") + "\n"],
+        returncode=0,
+        infinite=True,
+        per_line_sleep=0.03,
+    )
+    _patch_popen(monkeypatch, fake=fake, git_porcelain="")
+
+    with pytest.raises(RuntimeError) as exc:
+        ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert "墙钟超时" in str(exc.value)
+    assert fake.killed is True
+
+
+def test_zero_regression_healthy_stream_watchdog_never_fires(monkeypatch, tmp_path, capsys):
+    # ③ 零回归：连续正常流 → 看门狗从不介入读、从不杀；输出/摘要/changed 与「看门狗全关」逐字节一致。
+    lines = [
+        _assistant_text("开始改代码") + "\n",
+        _assistant_tool("Edit", file_path="a.py") + "\n",
+        _result("完成") + "\n",
+    ]
+
+    # (A) 看门狗启用（默认阈值 300s/3600s，健康快流下永不触发）。
+    monkeypatch.delenv(IDLE_TIMEOUT_ENV, raising=False)
+    monkeypatch.delenv(MAX_WALL_ENV, raising=False)
+    fake_on = _WatchdogPopen(lines=list(lines), returncode=0)
+    _patch_popen(monkeypatch, fake=fake_on, git_porcelain=" M a.py\n")
+    res_on = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+    out_on = capsys.readouterr().out
+
+    # (B) 看门狗全关（env=0 → 压根不起线程，等价于本 spec 之前的读路径）。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")
+    monkeypatch.setenv(MAX_WALL_ENV, "0")
+    fake_off = _WatchdogPopen(lines=list(lines), returncode=0)
+    _patch_popen(monkeypatch, fake=fake_off, git_porcelain=" M a.py\n")
+    res_off = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+    out_off = capsys.readouterr().out
+
+    assert out_on == out_off, "看门狗启用与否，健康流的 stdout 必须逐字节一致"
+    assert res_on.summary == res_off.summary == "完成"
+    assert res_on.changed is res_off.changed is True
+    assert fake_on.terminated is False and fake_on.killed is False, "健康流看门狗从不介入"
+
+
+def test_effective_idle_timeout_defaults_to_300(monkeypatch):
+    # ④ 访问器：未设 → 缺省 300s（宽到不误杀正常长任务）。
+    monkeypatch.delenv(IDLE_TIMEOUT_ENV, raising=False)
+    assert effective_idle_timeout() == 300.0
+
+
+def test_effective_max_wall_defaults_to_3600(monkeypatch):
+    # ④ 访问器：未设 → 缺省 3600s（远大于 idle）。
+    monkeypatch.delenv(MAX_WALL_ENV, raising=False)
+    assert effective_max_wall() == 3600.0
+
+
+def test_effective_idle_timeout_blank_or_invalid_falls_back(monkeypatch):
+    # ④ 访问器：空白/非法值落缺省（不拿坏值去当阈值）。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "   ")
+    assert effective_idle_timeout() == 300.0
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "not-a-number")
+    assert effective_idle_timeout() == 300.0
+
+
+def test_effective_idle_timeout_zero_or_negative_disables(monkeypatch):
+    # ④ 访问器：<=0 视为关闭该看门狗（返回 0.0）。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")
+    assert effective_idle_timeout() == 0.0
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "-5")
+    assert effective_idle_timeout() == 0.0
+
+
+def test_effective_timeouts_honor_override(monkeypatch):
+    # ④ 访问器：合法覆写 → 随之返回该值。
+    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "42")
+    monkeypatch.setenv(MAX_WALL_ENV, "1234.5")
+    assert effective_idle_timeout() == 42.0
+    assert effective_max_wall() == 1234.5
