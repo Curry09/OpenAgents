@@ -10,7 +10,7 @@ e2e:
 tasks:
   - id: T1
     title: forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on: []
@@ -36,7 +36,7 @@ tasks:
     acceptance: pytest 通过：forge 缺省委托 github（既有全量测试零回归）；configure 后委托 gitea；常量 import 零 IO；惰性发现读 tmp 仓配置、坏 YAML 回落 github；agent_config 新段校验（forge=gitea 缺 gitea 段报错）；merger PROMPT 无 gh 字面量且含两占位符；stages.merge 注入命令文本（monkeypatch backend 断言 task 内容）；cli merge-pr 转发 forge（打桩断言）。ruff 全绿。
   - id: T2
     title: Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖）
-    status: pending
+    status: done
     priority: P1
     tags: []
     depends-on:

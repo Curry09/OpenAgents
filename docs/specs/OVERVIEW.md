@@ -530,8 +530,8 @@ OpenAgents 的全部平台操作走 utils/github.py（gh CLI 薄封装），编�
 | 0073 | 0073/T4 | 前端：看板小窗(board) | done | T3 | apps/desktop/src/renderer/src/board/Board.tsx<br>apps/desktop/src/renderer/src/board/Card.tsx<br>apps/desktop/src/renderer/src/board/useBoard.ts<br>apps/desktop/src/renderer/src/board/Board.test.tsx |
 | 0073 | 0073/T5 | 前端：大窗流式 + 快切 | done | T3 | apps/desktop/src/renderer/src/detail/DetailOverlay.tsx<br>apps/desktop/src/renderer/src/detail/StreamView.tsx<br>apps/desktop/src/renderer/src/detail/useStream.ts<br>apps/desktop/src/renderer/src/detail/DetailOverlay.test.tsx |
 | 0073 | 0073/T6 | 前端：Tab 待看导航 + 优先级 | done | T3 | apps/desktop/src/renderer/src/nav/useTabNav.ts<br>apps/desktop/src/renderer/src/nav/pending.ts<br>apps/desktop/src/renderer/src/nav/pending.test.ts |
-| 0074 | 0074/T1 | forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令 | pending | — | openagents/utils/forge.py<br>openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/utils/github.py<br>openagents/agents/merger.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/recipes/backfill.py<br>openagents/runtime/gates.py<br>openagents/runtime/context.py<br>openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/cli.py<br>tests/test_forge.py<br>tests/test_agents_merger.py |
-| 0074 | 0074/T2 | Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖） | pending | T1 | openagents/utils/gitea.py<br>tests/test_gitea_driver.py<br>scripts/e2e-spec-0074-gitea-forge-driver.sh |
+| 0074 | 0074/T1 | forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令 | done | — | openagents/utils/forge.py<br>openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/utils/github.py<br>openagents/agents/merger.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/recipes/backfill.py<br>openagents/runtime/gates.py<br>openagents/runtime/context.py<br>openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/cli.py<br>tests/test_forge.py<br>tests/test_agents_merger.py |
+| 0074 | 0074/T2 | Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖） | done | T1 | openagents/utils/gitea.py<br>tests/test_gitea_driver.py<br>scripts/e2e-spec-0074-gitea-forge-driver.sh |
 
 ## 跨 feature 关系图
 
@@ -3314,7 +3314,7 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```
