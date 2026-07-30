@@ -62,7 +62,9 @@ def configure(*, name: str, settings: dict[str, Any] | None = None) -> None:
         raise GithubError(f"未知 forge {name!r}（可选：{'/'.join(_VALID_FORGES)}）")
     with _lock:
         if name == FORGE_GITEA:
-            from openagents.utils import gitea  # noqa: PLC0415  惰性：github 用户不付 gitea import 费
+            from openagents.utils import (
+                gitea,  # noqa: PLC0415  惰性：github 用户不付 gitea import 费
+            )
 
             gitea.configure(settings=dict(settings or {}))
         _active = name

@@ -131,8 +131,14 @@ def test_list_issues_filters_prs_and_unions_labels(monkeypatch):
     fake = _install(
         monkeypatch,
         (200, [{"number": 1, "title": "a", "body": "", "labels": []}], ""),
-        (200, [{"number": 1, "title": "a", "body": "", "labels": []},
-               {"number": 2, "title": "b", "body": "", "labels": []}], ""),
+        (
+            200,
+            [
+                {"number": 1, "title": "a", "body": "", "labels": []},
+                {"number": 2, "title": "b", "body": "", "labels": []},
+            ],
+            "",
+        ),
     )
     issues = gitea.list_issues(labels=["openagents", "ready"])
     assert [issue.number for issue in issues] == [1, 2]  # 按 number 去重合并（OR 语义）
@@ -156,10 +162,24 @@ def test_close_issue_404_is_noop(monkeypatch):
 def test_comments_author_association_owner_only(monkeypatch):
     _install(
         monkeypatch,
-        (200, [
-            {"id": 1, "user": {"login": "own"}, "body": "yes", "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 2, "user": {"login": "guest"}, "body": "hi", "created_at": "2026-01-02T00:00:00Z"},
-        ], ""),
+        (
+            200,
+            [
+                {
+                    "id": 1,
+                    "user": {"login": "own"},
+                    "body": "yes",
+                    "created_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "id": 2,
+                    "user": {"login": "guest"},
+                    "body": "hi",
+                    "created_at": "2026-01-02T00:00:00Z",
+                },
+            ],
+            "",
+        ),
     )
     comments = gitea.list_issue_comments(number=3)
     # 语义降级：只把配置 owner 认作 OWNER，其余 fail-closed 留空。
@@ -215,10 +235,14 @@ def test_create_pr_draft_uses_wip_prefix(monkeypatch):
 def test_pr_for_branch_filters_by_head_ref(monkeypatch):
     fake = _install(
         monkeypatch,
-        (200, [
-            {"number": 1, "html_url": "u1", "head": {"ref": "other"}},
-            {"number": 2, "html_url": "u2", "head": {"ref": "mine"}},
-        ], ""),
+        (
+            200,
+            [
+                {"number": 1, "html_url": "u1", "head": {"ref": "other"}},
+                {"number": 2, "html_url": "u2", "head": {"ref": "mine"}},
+            ],
+            "",
+        ),
     )
     pr = gitea.pr_for_branch(branch="mine")
     assert pr is not None and pr.number == 2
@@ -228,11 +252,20 @@ def test_pr_for_branch_filters_by_head_ref(monkeypatch):
 def test_pr_snapshot_merged_and_mergeable_mapping(monkeypatch):
     _install(
         monkeypatch,
-        (200, {
-            "number": 5, "state": "closed", "merged": True, "title": "t",
-            "head": {"sha": "abc"}, "labels": [{"name": "x"}],
-            "mergeable": False, "updated_at": "2026-01-01T00:00:00Z",
-        }, ""),
+        (
+            200,
+            {
+                "number": 5,
+                "state": "closed",
+                "merged": True,
+                "title": "t",
+                "head": {"sha": "abc"},
+                "labels": [{"name": "x"}],
+                "mergeable": False,
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+            "",
+        ),
     )
     snap = gitea.pr_snapshot(pr_number=5)
     assert snap.state == "MERGED"  # merged 布尔归一到三态互斥
@@ -243,7 +276,11 @@ def test_pr_snapshot_merged_and_mergeable_mapping(monkeypatch):
 def test_pr_snapshot_missing_mergeable_is_unknown(monkeypatch):
     _install(
         monkeypatch,
-        (200, {"number": 5, "state": "open", "title": "WIP: t", "head": {"sha": "a"}, "labels": []}, ""),
+        (
+            200,
+            {"number": 5, "state": "open", "title": "WIP: t", "head": {"sha": "a"}, "labels": []},
+            "",
+        ),
     )
     snap = gitea.pr_snapshot(pr_number=5)
     assert snap.mergeable == "UNKNOWN" and snap.merge_state_status == "UNKNOWN"
@@ -315,10 +352,17 @@ def test_check_status_failure_collects_logs(monkeypatch):
     _install(
         monkeypatch,
         _PULL_HEAD,
-        (200, {"state": "failure", "statuses": [
-            {"context": "ci/test", "status": "failure", "target_url": "http://log"},
-            {"context": "ci/lint", "status": "success", "target_url": ""},
-        ]}, ""),
+        (
+            200,
+            {
+                "state": "failure",
+                "statuses": [
+                    {"context": "ci/test", "status": "failure", "target_url": "http://log"},
+                    {"context": "ci/lint", "status": "success", "target_url": ""},
+                ],
+            },
+            "",
+        ),
     )
     status = gitea.check_status(pr_number=5)
     assert status.state == "fail"
@@ -336,10 +380,17 @@ def test_check_snapshot_counts_and_latest(monkeypatch):
     _install(
         monkeypatch,
         _PULL_HEAD,
-        (200, {"state": "pending", "statuses": [
-            {"context": "a", "status": "pending", "created_at": "2026-01-01T00:00:00Z"},
-            {"context": "b", "status": "success", "created_at": "2026-01-02T00:00:00Z"},
-        ]}, ""),
+        (
+            200,
+            {
+                "state": "pending",
+                "statuses": [
+                    {"context": "a", "status": "pending", "created_at": "2026-01-01T00:00:00Z"},
+                    {"context": "b", "status": "success", "created_at": "2026-01-02T00:00:00Z"},
+                ],
+            },
+            "",
+        ),
     )
     snap = gitea.check_snapshot(pr_number=5)
     assert snap.count == 2 and snap.state == "pending"

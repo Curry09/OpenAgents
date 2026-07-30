@@ -176,9 +176,7 @@ def test_stages_merge_injects_platform_commands(monkeypatch, tmp_path):
     from openagents.recipes import stages
 
     monkeypatch.chdir(tmp_path)  # forge → github
-    monkeypatch.setattr(
-        stages.gates, "assert_merge_allowed", lambda *, pr_number, head_sha: None
-    )
+    monkeypatch.setattr(stages.gates, "assert_merge_allowed", lambda *, pr_number, head_sha: None)
     seen = {}
 
     def _fake_run_agent(agent_module, *, backend, **kw):

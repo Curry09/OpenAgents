@@ -32,6 +32,7 @@ from openagents.utils.github import (  # noqa: F401  re-export 供直接 import 
     BLOCKED_LABEL,
     DISCOVERY_LABEL,
     DISPATCH_LABEL,
+    PR,
     PROCESS_LABELS,
     Blocker,
     CheckSnapshot,
@@ -40,7 +41,6 @@ from openagents.utils.github import (  # noqa: F401  re-export 供直接 import 
     GithubError,
     Issue,
     Mergeability,
-    PR,
     PRSnapshot,
     _strip_diff_file_blocks,
 )
@@ -88,7 +88,9 @@ def configure(*, settings: dict[str, Any]) -> None:
     global _base_url, _owner, _repo, _token_env
     missing = [key for key in ("base_url", "owner", "repo") if not settings.get(key)]
     if missing:
-        raise GithubError(f"forge=gitea 缺少连接设置 {missing}（.openagents/openagents.yml 的 gitea 段）")
+        raise GithubError(
+            f"forge=gitea 缺少连接设置 {missing}（.openagents/openagents.yml 的 gitea 段）"
+        )
     _base_url = str(settings["base_url"]).rstrip("/")
     _owner = str(settings["owner"])
     _repo = str(settings["repo"])
@@ -99,7 +101,9 @@ def configure(*, settings: dict[str, Any]) -> None:
 def _ensure_configured() -> tuple[str, str, str]:
     """取 (base_url, owner, repo)；未 configure → GithubError（提示配置入口）。"""
     if not (_base_url and _owner and _repo):
-        raise GithubError("gitea driver 未配置——需 forge.configure(name='gitea', settings=...) 装载连接设置")
+        raise GithubError(
+            "gitea driver 未配置——需 forge.configure(name='gitea', settings=...) 装载连接设置"
+        )
     return _base_url, _owner, _repo
 
 
@@ -261,7 +265,10 @@ def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
     不能直接逗号拼接）。labels 为空 = 不过滤。
     """
     queries: list[dict] = (
-        [{"state": state, "type": "issues", "limit": _LIST_LIMIT, "labels": label} for label in labels]
+        [
+            {"state": state, "type": "issues", "limit": _LIST_LIMIT, "labels": label}
+            for label in labels
+        ]
         if labels
         else [{"state": state, "type": "issues", "limit": _LIST_LIMIT}]
     )
@@ -416,7 +423,9 @@ def list_blocked_by(*, number: int) -> list[Blocker]:
     for raw in result.data or []:
         if not isinstance(raw, dict) or raw.get("number") is None:
             continue
-        blockers.append(Blocker(number=int(raw["number"]), state=str(raw.get("state") or "").upper()))
+        blockers.append(
+            Blocker(number=int(raw["number"]), state=str(raw.get("state") or "").upper())
+        )
     return blockers
 
 

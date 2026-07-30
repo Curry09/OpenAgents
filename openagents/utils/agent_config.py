@@ -381,7 +381,9 @@ def _validate(*, data: dict) -> None:
     # Spec-0074/T1: forge=gitea 必须带 gitea 连接段——缺了 driver 无从打 API，装载期就拦（fail-loud，
     # 绝不静默拿 gh 打一个 Gitea 项目）。schema 管形状，这里管跨字段依赖。
     if data.get("forge") == FORGE_GITEA and not data.get("gitea"):
-        raise AgentConfigError("forge=gitea 需要同级 gitea 段（base_url/owner/repo，可选 token_env）")
+        raise AgentConfigError(
+            "forge=gitea 需要同级 gitea 段（base_url/owner/repo，可选 token_env）"
+        )
     # 「不许零闸」跨字段守卫——顶层与每仓合并后的 stages 都要过（override 后仍不许零闸）。
     _guard_no_zero_gate(
         stages=_merge_stages(base=None, override=data.get("stages")), scope="<root>"

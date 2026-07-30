@@ -24,10 +24,10 @@ from pathlib import Path
 
 from openagents.spec import ownership
 from openagents.spec.model import Group
-from openagents.utils import git
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
+from openagents.utils import git
 
 # Spec-0060/T3: 评审循环默认轮次上限——超此仍未 PASS 视作死循环，兜底 raise（可由调用方覆盖）。
 DEFAULT_MAX_ROUNDS = 10
