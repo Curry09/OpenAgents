@@ -246,6 +246,11 @@ Spec-0065 已把 vigil 改成 K-worker 并行池（--parallel K）并落地 P1/P
 ### 0073 openagents 桌面 app：并行看板 + 大窗流式 + tab 待看导航
 Electron 桌面前端呈现 vigil --parallel N 的并行成果:N 个小窗看板(成果/状态)、点击进大窗看实时流式 agent 会话、Tab 按优先级跳到下一个待看窗;只读呈现,后端加 per-subject 流分流 + 本地 daemon 接口两样加法
 
+### 0074 forge 分发层与 Gitea driver：把 GitHub 耦合收敛为可换轨的托管平台接缝
+OpenAgents 的全部平台操作走 utils/github.py（gh CLI 薄封装），编排层（vigil/stages/gates/context/identity/release/cli/backfill）以模块函数形式消费——这既是耦合点也是天然接缝。本 spec 新增 utils/forge.py 分发模块（读 .openagents/openagents.yml 新增的 forge 段选 driver，缺省 github、存量用户零感知）与 utils/gitea.py driver（github.py 同名公共面对 Gitea /api/v1，stdlib urllib 零新依赖），消费方仅改 import 行为 `from openagents.utils import forge as github`（alias-import，数百个调用点零改动）。语义映射：checks→commit combined status、mergeable→bool+UNKNOWN 收敛、draft→WIP 标题前缀、blocked_by→issue dependencies、update_branch→POST /pulls/{index}/update、Closes
+- e2e 意图：证明「forge 可换轨」在离线确定性链路上成立——forge 缺省回落 github（存量零回归）；forge=gitea 时全部公共面函数打到 Gitea REST 且语义映射正确（checks/mergeable/draft/deps/merge/update/标签幂等）；merger 提示词无 gh 字面量、merge/verify 命令按 forge 注入；配置校验拒绝 forge=gitea 缺 gitea 段。
+  - 测法：形态：纯后端（forge 分发 + gitea driver + 配置段 + 提示词参数化），无前端可导航；不触真实 LLM/网络/仓库，全部离线确定性测法（沿用 Spec-0071 同款）： 1. 针对性 pytest：    - test_forge.py：缺省 github 委托、configure(gitea) 后委托 gitea、常量（DISCOVERY_LABEL 等）import 时零 IO 直出、reset 后惰性发现走 .openagents/openagents.yml（tmp_path 造仓）、坏 YAML fail-open 回落 github。    - test_gitea_driver.py：假 HTTP 层（monkeypatch gitea._http）覆盖全部公共面函数的请求形状（method/path/body）与响应解析；语义映射逐条——combined status 三态归类+零 status 计数 0、mergeable bool→MERGEABLE/CONFLICTING/缺失→UNKNOWN、WIP 前缀 is_draft/mark_ready 往返、dependencies GET/POST 形状与 404→[]、update 422 已最新→False、merge 已合并幂等、标签 add/remove 幂等容错、create_issue 标签名→id 解析、瞬时 5xx 退避重试。    - test_agent_config.py 追加：forge/gitea 段 schema、forge=gitea 缺 gitea 段报错、缺省 forge=github。    - test_agents_merger.py 更新：PROMPT 含 $merge_command/$verify_command、无 gh 字面量。    - test_stages.py（如有）/新增断言：stages.merge 注入 merge_command/verify_command。 2. grep 锚点：forge.py 首行 '# Spec-0074/T1'；gitea.py 首行 '# Spec-0074/T2'；vigil/stages/gates/context/identity/release/cli/backfill 的 import 行均为 'from openagents.utils import forge as github' 形态；agents/merger.py 无 'gh pr merge' 字面量。 3. ruff check + ruff format --check 全绿。 4. 对真实 Gitea 1.22（消费方 auto-designer 的 deploy/gitea 实例）手工冒烟一轮：建 issue→打 label→开 PR→merge→issue 自动关（消费方 spec-0032/T5 的验收项，不进本仓 CI）。 脚本：scripts/e2e-spec-0074-gitea-forge-driver.sh（ruff + 上述 pytest + grep 锚点）。 
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -525,6 +530,8 @@ Electron 桌面前端呈现 vigil --parallel N 的并行成果:N 个小窗看板
 | 0073 | 0073/T4 | 前端：看板小窗(board) | done | T3 | apps/desktop/src/renderer/src/board/Board.tsx<br>apps/desktop/src/renderer/src/board/Card.tsx<br>apps/desktop/src/renderer/src/board/useBoard.ts<br>apps/desktop/src/renderer/src/board/Board.test.tsx |
 | 0073 | 0073/T5 | 前端：大窗流式 + 快切 | done | T3 | apps/desktop/src/renderer/src/detail/DetailOverlay.tsx<br>apps/desktop/src/renderer/src/detail/StreamView.tsx<br>apps/desktop/src/renderer/src/detail/useStream.ts<br>apps/desktop/src/renderer/src/detail/DetailOverlay.test.tsx |
 | 0073 | 0073/T6 | 前端：Tab 待看导航 + 优先级 | done | T3 | apps/desktop/src/renderer/src/nav/useTabNav.ts<br>apps/desktop/src/renderer/src/nav/pending.ts<br>apps/desktop/src/renderer/src/nav/pending.test.ts |
+| 0074 | 0074/T1 | forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令 | pending | — | openagents/utils/forge.py<br>openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/utils/github.py<br>openagents/agents/merger.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py<br>openagents/recipes/backfill.py<br>openagents/runtime/gates.py<br>openagents/runtime/context.py<br>openagents/utils/identity.py<br>openagents/utils/release.py<br>openagents/cli.py<br>tests/test_forge.py<br>tests/test_agents_merger.py |
+| 0074 | 0074/T2 | Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖） | pending | T1 | openagents/utils/gitea.py<br>tests/test_gitea_driver.py<br>scripts/e2e-spec-0074-gitea-forge-driver.sh |
 
 ## 跨 feature 关系图
 
@@ -945,6 +952,10 @@ graph LR
         n0073_T5["T5 前端：大窗流式 + 快切"]
         n0073_T6["T6 前端：Tab 待看导航 + 优先级"]
     end
+    subgraph G0074[0074 gitea-forge-driver]
+        n0074_T1["T1 forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令"]
+        n0074_T2["T2 Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖）"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1174,6 +1185,7 @@ graph LR
     n0073_T4 --> n0073_T3
     n0073_T5 --> n0073_T3
     n0073_T6 --> n0073_T3
+    n0074_T2 --> n0074_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1194,6 +1206,7 @@ graph LR
 | openagents/agents/deliver.py | 0017, 0060 |
 | openagents/agents/drafter.py | 0059, 0062 |
 | openagents/agents/implementer.py | 0059, 0060 |
+| openagents/agents/merger.py | 0017, 0074 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061 |
 | openagents/backends/__init__.py | 0001, 0029 |
@@ -1201,10 +1214,11 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
+| openagents/data/openagents.yml.template | 0067, 0074 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
 | openagents/evidence_gate.py | 0040, 0051 |
@@ -1216,20 +1230,21 @@ graph LR
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
+| openagents/recipes/backfill.py | 0064, 0074 |
 | openagents/recipes/fleet.py | 0061, 0064 |
 | openagents/recipes/merge_pr.py | 0062, 0064 |
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0016, 0060, 0061, 0065 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074 |
 | openagents/runtime/engine.py | 0059, 0060 |
-| openagents/runtime/gates.py | 0017, 0060, 0062, 0071 |
+| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074 |
 | openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072 |
@@ -1240,16 +1255,16 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074 |
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/git.py | 0035, 0060, 0061 |
-| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065 |
+| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074 |
 | openagents/utils/hold.py | 0061, 0062 |
-| openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064 |
+| openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064, 0074 |
 | openagents/utils/notes.py | 0061, 0062 |
-| openagents/utils/release.py | 0035, 0061, 0062, 0063 |
+| openagents/utils/release.py | 0035, 0061, 0062, 0063, 0074 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
 | openagents/utils/skip.py | 0061, 0062 |
 | openagents/utils/workspace.py | 0035, 0062, 0068 |
@@ -1260,6 +1275,7 @@ graph LR
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/conftest.py | 0065, 0070 |
 | tests/test_agent_config.py | 0064, 0067 |
+| tests/test_agents_merger.py | 0017, 0074 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029 |
@@ -3281,4 +3297,24 @@ graph LR
     class v_T4_1 st_done;
     class v_T5_1 st_done;
     class v_T6_1 st_done;
+```
+
+### 0074 forge 分发层与 Gitea driver：把 GitHub 耦合收敛为可换轨的托管平台接缝（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 forge 分发层：配置段 + alias-import 改线 + merger 提示词参数化 + merge-pr 隐藏命令"]
+    nT2["T2 Gitea driver：github.py 同名公共面对 Gitea /api/v1（stdlib urllib，零新依赖）"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
 ```
