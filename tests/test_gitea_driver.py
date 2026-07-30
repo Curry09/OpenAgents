@@ -128,6 +128,8 @@ def test_get_issue_parses_labels(monkeypatch):
 
 
 def test_list_issues_filters_prs_and_unions_labels(monkeypatch):
+    # Spec-0074 实证修复：labels 查询参数按 label **ID** 过滤（传名恒零匹配），名→id 经缓存解析。
+    gitea._label_ids.update({"openagents": 11, "ready": 12})
     fake = _install(
         monkeypatch,
         (200, [{"number": 1, "title": "a", "body": "", "labels": []}], ""),
@@ -143,7 +145,14 @@ def test_list_issues_filters_prs_and_unions_labels(monkeypatch):
     issues = gitea.list_issues(labels=["openagents", "ready"])
     assert [issue.number for issue in issues] == [1, 2]  # 按 number 去重合并（OR 语义）
     assert all(call["query"]["type"] == "issues" for call in fake.calls)  # 排除 PR
-    assert [call["query"]["labels"] for call in fake.calls] == ["openagents", "ready"]
+    assert [call["query"]["labels"] for call in fake.calls] == [11, 12]  # ID 而非名
+
+
+def test_list_issues_unknown_label_is_zero_match_not_unfiltered(monkeypatch):
+    """未知标签必须是「零匹配」——绝不能把 labels 参数省掉退化成全量发现（vigil 会吃进所有 issue）。"""
+    fake = _install(monkeypatch, (200, [{"id": 3, "name": "other"}], ""))  # 仅缓存刷新的 GET labels
+    assert gitea.list_issues(labels=["ghost"]) == []
+    assert [call["path"] for call in fake.calls] == ["repos/own/rep/labels"]  # 无 issues 查询发出
 
 
 def test_create_issue_maps_label_names_to_ids(monkeypatch):
@@ -210,13 +219,21 @@ def test_list_blocked_by_404_means_no_deps(monkeypatch):
 
 
 def test_add_blocked_by_posts_issue_meta(monkeypatch):
+    # Spec-0074 实证修复：仓名字段的 JSON key 是 `repo` 不是 `name`（传 name 被吞空 → 404）。
     fake = _install(monkeypatch, (201, {}, ""))
     gitea.add_blocked_by(number=9, blocker_number=4)
-    assert fake.calls[0]["body"] == {"index": 4, "owner": "own", "name": "rep"}
+    assert fake.calls[0]["body"] == {"index": 4, "owner": "own", "repo": "rep"}
 
 
 def test_add_blocked_by_duplicate_is_noop(monkeypatch):
     _install(monkeypatch, (409, None, "duplicate"))
+    gitea.add_blocked_by(number=9, blocker_number=4)  # 不抛
+
+
+def test_add_blocked_by_feature_unavailable_404_is_noop(monkeypatch):
+    # Spec-0074 实证修复：依赖边是建议性特性（deps_done 机械复核兜底），404 与 list_blocked_by
+    # 对称降级为 no-op——绝不能让可选特性失败把票挂死到 needs-human。
+    _install(monkeypatch, (404, None, "not found"))
     gitea.add_blocked_by(number=9, blocker_number=4)  # 不抛
 
 

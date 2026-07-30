@@ -213,6 +213,13 @@ def _label_id(*, name: str) -> int:
     return _label_ids[name]
 
 
+def _known_label_id(*, name: str) -> int | None:
+    """标签名→id 的非抛版：未知名刷新一次缓存后仍无 → None（查询侧按「零匹配」处理，不报错）。"""
+    if name not in _label_ids:
+        _refresh_label_cache()
+    return _label_ids.get(name)
+
+
 def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> None:
     """幂等建标签：已存在（409/422）→ 刷新缓存复用（与 github.ensure_label 吞 already exists 同风格）。"""
     normalized = color if color.startswith("#") else f"#{color}"
@@ -263,15 +270,23 @@ def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
 
     多标签按 gh 的 OR 语义处理：逐标签查询后按 number 去重合并（Gitea 的 labels 查询参数是 AND 语义，
     不能直接逗号拼接）。labels 为空 = 不过滤。
+
+    Spec-0074 实证修复（Unresolved 1 命中）：1.22 的 `labels` 查询参数按 label **ID** 过滤——与
+    swagger「comma separated list of labels」的文案不符，传名恒零匹配（vigil 发现段因此静默空转）。
+    名→id 经缓存解析；**未知标签 = 零匹配**（跳过该次查询），绝不能把过滤参数整个省掉——那会退化成
+    「全量发现」，把仓里所有 issue 都当发现集吃进去。
     """
-    queries: list[dict] = (
-        [
-            {"state": state, "type": "issues", "limit": _LIST_LIMIT, "labels": label}
-            for label in labels
-        ]
-        if labels
-        else [{"state": state, "type": "issues", "limit": _LIST_LIMIT}]
-    )
+    queries: list[dict] = []
+    if labels:
+        for label in labels:
+            label_id = _known_label_id(name=label)
+            if label_id is None:
+                continue  # 未知标签 → 零匹配（见 docstring：不许退化成无过滤）
+            queries.append(
+                {"state": state, "type": "issues", "limit": _LIST_LIMIT, "labels": label_id}
+            )
+    else:
+        queries = [{"state": state, "type": "issues", "limit": _LIST_LIMIT}]
     seen: dict[int, Issue] = {}
     for query in queries:
         result = _request(
@@ -430,14 +445,22 @@ def list_blocked_by(*, number: int) -> list[Blocker]:
 
 
 def add_blocked_by(*, number: int, blocker_number: int) -> None:
-    """给 issue 落一条依赖边（body 是 IssueMeta：index+owner+name）；已存在（409/422）幂等 no-op。"""
+    """给 issue 落一条依赖边（body 是 IssueMeta：index+owner+repo）；已存在（409/422）幂等 no-op。
+
+    Spec-0074 实证修复（1.22 实例三次对照定案）：IssueMeta 仓名字段的 JSON key 是 **`repo`** 不是
+    `name`——Gitea 的 Go 结构体字段叫 Name、struct tag 却是 `json:"repo"`（与 #3 同类的
+    「文档字段名 ≠ 实现」）。传 `name` 会被吞空 → 按空仓名查找 → 404 IsErrRepoNotExist。
+    注意仅此端点如此：建 label / 建 repo 的 `name` 是各自结构体的正确 key，别动。
+    404 仍保留降级为 no-op——`enable_issue_dependencies` 可按实例关闭，依赖边是**建议性**的
+    （curator 契约：正确性由执行面 deps_done 机械复核兜底），可选特性失败不该把票挂死到 needs-human。
+    """
     _, owner, repo = _ensure_configured()
     _request(
         method="POST",
         path=_repo_path(suffix=f"issues/{number}/dependencies"),
-        body={"index": blocker_number, "owner": owner, "name": repo},
+        body={"index": blocker_number, "owner": owner, "repo": repo},
         query=None,
-        allow=(409, 422),
+        allow=(404, 409, 422),
     )
 
 

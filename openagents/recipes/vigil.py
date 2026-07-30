@@ -2846,7 +2846,13 @@ def _do_solve(
         owner=config.stages.owner_of(stage=agent_config.STAGE_RFC),
         on_agent=_draft,
         on_human=_draft,
-        on_skip=lambda: None,
+        # Spec-0074 实证修复：skip 态没有 drafter 落「首个 commit + push」，远端无 head 分支 →
+        # 下面的 create_pr 404。确定性空 seed commit 补位（编排 git 归 utils.git，本层零直调）。
+        on_skip=lambda: git.seed_branch(
+            work_dir=worktree,
+            branch=branch,
+            message=f"chore: open delivery branch for issue #{number} (rfc skipped)",
+        ),
     )
     pr = github.create_pr(
         branch=branch,
