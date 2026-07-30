@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openagents.utils import github
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 
 
 class Context:

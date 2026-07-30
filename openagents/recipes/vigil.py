@@ -150,7 +150,10 @@ from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
 from openagents.runtime import context, engine, timing
 from openagents.runtime.state import RuntimeState
-from openagents.utils import agent_config, git, github, identity, proc, streams
+from openagents.utils import agent_config, git, identity, proc, streams
+
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 
 # Spec-0065/T2: 单 issue → 单分支命名（承旧串行 vigil 一致）。
 _BRANCH_PREFIX = "openagents/issue-"

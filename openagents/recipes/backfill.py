@@ -23,7 +23,10 @@ from pathlib import Path
 from typing import Any
 
 from openagents.recipes import stages
-from openagents.utils import git, github
+from openagents.utils import git
+
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 
 # Spec-0064/T4: brownfield 反推的分支前缀——输入是代码 path（无 issue 号），用 path slug 定址。
 _BACKFILL_BRANCH_PREFIX = "openagents/backfill-"
