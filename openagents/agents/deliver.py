@@ -5,6 +5,12 @@
 agent 自述、防 #140 空转/撒谎——其基点由 recipe 派本 agent **之前**经 `gates.snapshot_head`
 确定性记录（**不取**本 agent 自述的 `base_sha`，否则报个假基点即可让闸恒放行）；本 agent 自报的
 `head_sha` 另经 `gates.assert_evidence_stamp` 与实际 HEAD 比对，`base_sha` 仅留作交叉校验。
+
+Spec-0074 实证修复：撤掉原第 6 步「`gh pr ready` 转正」（Spec-0017/T1 曾把转正归本 agent）——
+gh 是平台命令，Gitea forge 下容器里没有 gh，agent 只能临场拼 REST 凑转正、白耗轮次还误触
+head-advanced 硬闸（生产实测）。转正是零判断的机械动作，收回守夜判定表既有的机械兜底分支
+（全绿 + APPROVED 但仍 draft → `mark_ready`，经 forge 各平台各自落地）——机械归代码，本 agent
+回归纯 git 职责、提示词不再含任何平台命令。代价仅是转正晚一个 tick（排在评审通过之后）。
 """
 
 from string import Template
@@ -16,8 +22,8 @@ PROMPT = Template(
 3. 先记下远端基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch`（BASE 必须在 fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
 4. 与远端分叉就 `git rebase origin/$branch`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、`git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；
 5. `git push --force-with-lease=$branch:$$BASE origin $branch`；禁止裸 `git push --force`，`--force-with-lease` 仅限本工作分支 $branch，绝不作用于 main/受保护分支/他人分支。
-6. 推完代码后把 PR 转正：`gh pr ready $pr_number`（Spec-0017/T1：转正归你这个每轮都会被派上来跑的 agent）；幂等——PR 已经是非 draft 时 `gh` 会以非零退出并报「not a draft」之类，视作无副作用吞掉、不算失败。
-完成判据：`git rev-parse origin/$branch` == 你的 `HEAD`（改动落到 head）**且 PR #$pr_number 非 draft**（已 `gh pr ready` 转正），两条都不满足就继续处理直到满足。
+完成判据：`git rev-parse origin/$branch` == 你的 `HEAD`（改动落到 head）。PR 的 draft 转正**不归你**——
+守夜会在评审通过后机械转正，你不需要也不应该调用任何平台命令（gh/API 都不用）。
 
 最后只输出一行 JSON（base_sha 填第 1 步记下的交付前 SHA，head_sha 填交付后当前 HEAD 的 SHA）：
 {"delivered": true 或 false, "base_sha": "<交付前 HEAD SHA>", "head_sha": "<交付后 HEAD SHA>", "summary": "<交付情况一句话，含是否 rebase 解冲突>"}

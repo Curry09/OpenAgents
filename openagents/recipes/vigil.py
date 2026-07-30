@@ -2880,8 +2880,9 @@ def _do_solve(
         # 主动打 needs-human，而不是硬着头皮 force-push 或空转到看门狗。
         context_text=_NEEDS_HUMAN_CONTRACT,
     )
-    # Spec-0017/T2: 不再确定性直调 github.mark_ready——转正归 deliver agent（其完成判据含「PR 非 draft」）；
-    # 万一那一枪脱靶，PR 残留 draft 由 `_classify` ⑪ 每 tick 复检、`_do_ready` 兜底转正（level-triggered）。
+    # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
+    # level-triggered 幂等）——deliver 提示词里原 `gh pr ready`（Spec-0017/T2）是平台命令，Gitea forge
+    # 下容器无 gh，agent 临场拼 REST 空转耗轮；转正零判断，机械归代码。
     _log(message=f"✓ issue #{number}：已开 PR #{pr.number}")
     return str(report.get("summary", ""))
 
