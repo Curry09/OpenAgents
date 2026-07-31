@@ -744,6 +744,7 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         ② 最新评论是人发的（无我方签名）............... ACTIONABLE: reply
         ③ 依赖未全关闭 ................................ QUIET(awaiting-blockers)
         ④ 还没有 PR ................................... ACTIONABLE: solve
+        ⑪ **is_draft**（有 PR、无条件）................ ACTIONABLE: ready   （转正先于整条合并流水线，见下）
         ⑤ mergeable_state = UNKNOWN / null ............ QUIET(awaiting-mergeability)
         ⑥ 冲突（mergeable_state = dirty）.............. ACTIONABLE: rebase
         ⑦ 当前 head 上 CI = pending / 零个 check ...... QUIET(awaiting-ci)
@@ -751,8 +752,9 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         ⑨ e2e 证据缺失 / head_sha 陈旧 ................ ACTIONABLE: e2e
         ⑩ 无 review-* label / 其 sha ≠ 当前 head /
           review-changes-requested ................... ACTIONABLE: review-or-fix
-        ⑪ 全绿 + approved@head + **is_draft** ......... ACTIONABLE: ready   （自愈转正，排在 merge 前）
         ⑫ 全绿 + approved@head + **非 draft** ......... ACTIONABLE: merge
+
+    （⑪ 是稳定语义 ID = draft 转正，物理上提到 ⑤ 之前；其余散落注释里的「分支⑪」仍指它。）
 
     **`needs-human` 是 agent 的一等出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」——CI 是
     上游 flaky、需求本身有歧义、要动的东西超出授权——它就**自己打 `needs-human` + 留一条说明理由的评论**，
@@ -771,8 +773,12 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     - **⑤⑥在⑦前**——conflict 在 CI 前是硬依赖：冲突的 PR 没有 merge ref → GitHub 不给它 check → ⑦会把
       「零个 check」读成「CI 还在跑」，然后 `awaiting-ci` 一直等到超时（见 `_sense` 坑 2）。
     - **⑦⑧只看当前 `head_sha`**——否则会派 agent 去修已经修好的代码（见 `_sense` 坑 1）。
-    - **⑪在⑫前**（Spec-0017）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人也被 draft 墙挡住
-      （#168 根因）：转正必须先于任何（agent 或 human 的）合并动作，故 `is_draft` 支排在 merge 之前。
+    - **⑪在⑤前**（Spec-0017 + Spec-0074 实证）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人
+      也被 draft 墙挡住（#168）：转正必须先于任何合并动作。**且必须先于 mergeable 判定**：Gitea 对 draft PR
+      恒报 `mergeable: false`（driver 映射为 DIRTY），若转正排在 ⑤⑥ 之后，draft PR 会永远卡在
+      `awaiting-mergeability`/`rebase`、到不了转正 → 死锁 → 看门狗误挂 needs-human。故转正必须先于**整条**
+      mergeable/CI/e2e/review/merge 流水线。据此 ⑪ 简化为**无条件** `is_draft`（不再等全绿+approved——先转正
+      再评估更对）。GitHub 侧 draft 与 mergeable 解耦、无此死锁，提早转正无害（PR 转正后照常走流水线）。
 
     `in_flight`（队列里有该 subject 的 claimed 行 = 我的 agent 正在跑它）**必须先于一切判定**——否则看门狗
     会把一个正在写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 needs-human。
@@ -794,6 +800,11 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         return _Verdict(kind=_QUIET, reason=_AWAITING_BLOCKERS)
     if facts.pr_number is None:
         return _Verdict(kind=_ACTIONABLE, action=_ACT_SOLVE)
+    # ⑪ draft → 无条件转正（Spec-0017 + Spec-0074 实证）。**必须先于 ⑤ mergeable 判定**：Gitea 对 draft PR
+    # 恒报 mergeable:false（driver 映射 DIRTY），排在 ⑤⑥ 之后 draft 会永远卡 awaiting/rebase 到不了转正
+    # → 死锁。先转正再评估合并流水线（转正后下一 tick 从非 draft 现态重判）。见 docstring「⑪在⑤前」。
+    if facts.is_draft:
+        return _Verdict(kind=_ACTIONABLE, action=_ACT_READY)
     if facts.mergeable_state in (None, _MERGE_UNKNOWN):
         return _Verdict(kind=_QUIET, reason=_AWAITING_MERGEABILITY)
     if facts.mergeable_state == _MERGE_DIRTY:
@@ -808,10 +819,6 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         sha=facts.head_sha
     ):
         return _Verdict(kind=_ACTIONABLE, action=_ACT_REVIEW_OR_FIX)
-    # ⑪ 全绿 + approved@head 但仍 draft → 先转正（Spec-0017）。**必须排在 ⑫ merge 前**：draft PR 合不了
-    # （GitHub 拒合 draft），且 `merge: human` 时人也被 draft 墙挡住（#168 根因）——转正必须先于任何合并动作。
-    if facts.is_draft:
-        return _Verdict(kind=_ACTIONABLE, action=_ACT_READY)
     return _Verdict(kind=_ACTIONABLE, action=_ACT_MERGE)
 
 

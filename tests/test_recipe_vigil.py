@@ -168,7 +168,24 @@ def test_classify_in_flight_precedes_everything_including_needs_human():
             _ACTIONABLE,
             None,
             _ACT_READY,
-        ),  # Spec-0017: 全绿+approved 但 draft → 转正
+        ),  # Spec-0017: draft → 转正
+        (
+            # Spec-0074 实证回归：Gitea 对 draft PR 恒报 mergeable:false（→DIRTY）。转正必须先于
+            # mergeable 判定，否则 draft 卡 rebase 永不转正 → 死锁。draft 支无条件、排在 ⑤⑥ 之前。
+            {"is_draft": True, "mergeable_state": "dirty"},
+            _ACTIONABLE,
+            None,
+            _ACT_READY,
+        ),
+        (
+            {
+                "is_draft": True,
+                "mergeable_state": "unknown",
+            },  # 同理：不被 awaiting-mergeability 挡住
+            _ACTIONABLE,
+            None,
+            _ACT_READY,
+        ),
         ({}, _ACTIONABLE, None, _ACT_MERGE),  # 非 draft 才落 merge
     ],
 )
@@ -177,13 +194,25 @@ def test_classify_branch_table(overrides, kind, reason, action):
     assert (verdict.kind, verdict.reason, verdict.action) == (kind, reason, action)
 
 
-def test_classify_draft_self_heal_precedes_merge_and_never_merges():
-    """Spec-0017: 全绿+approved@head 但仍 draft → **必落 ready、绝不 merge**（draft PR 合不了、#168 根因）。"""
-    draft = _facts(is_draft=True)  # 其余字段全绿、只欠转正
-    verdict = _classify(facts=draft, in_flight=False)
-    assert verdict.action == _ACT_READY
-    assert verdict.action != _ACT_MERGE  # 任何 PR 都不在 draft 态被合
-    # 非 draft 同一 facts → merge：证明 draft 自愈支严格排在 merge 分支之前。
+def test_classify_draft_promotion_precedes_whole_merge_pipeline():
+    """Spec-0017 + Spec-0074 实证：draft → **必落 ready**，且转正先于**整条** mergeable/CI/review 流水线。
+
+    #168：draft PR 合不了、merge:human 时人也被 draft 墙挡。Spec-0074：Gitea 对 draft 报 mergeable:false，
+    转正若排在 mergeable 判定之后会死锁——故 draft 支无条件、物理上排在 ⑤⑥⑦⑧⑨⑩⑫ 之前。
+    """
+    # 全绿 draft → ready（与旧行为一致）。
+    assert _classify(facts=_facts(is_draft=True), in_flight=False).action == _ACT_READY
+    # draft 叠加任一后续流水线态（脏/CI 红/未评审）都仍先转正——证明 draft 支物理居前、无条件。
+    for pipeline_state in (
+        {"mergeable_state": "dirty"},  # Gitea draft 的真实报告
+        {"mergeable_state": "unknown"},
+        {"ci": "failure"},
+        {"review_state": "REWORK", "review_commit_id": None},
+    ):
+        verdict = _classify(facts=_facts(is_draft=True, **pipeline_state), in_flight=False)
+        assert verdict.action == _ACT_READY, pipeline_state
+        assert verdict.action != _ACT_MERGE
+    # 非 draft 同一 facts → merge：证明转正支只对 draft 触发，非 draft 照常走到 merge。
     assert _classify(facts=_facts(is_draft=False), in_flight=False).action == _ACT_MERGE
 
 
