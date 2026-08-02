@@ -34,7 +34,9 @@ from openagents.agents import admitter, drafter, implementer, merger, reviewer, 
 from openagents.agents import deliver as deliver_agent
 from openagents.runtime import context, engine, gates
 from openagents.runtime.context import Context
-from openagents.utils import github
+
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 
 # Spec-0064/T2: drafter 起草模式字面量（承 recipes.rfc_lifecycle._MODE_*）——rfc 阶段 draft、backfill
 # recipe（T4）复用本函数传 backfill。仅这两种进本阶段函数（refine/implement/iterate 已由独立阶段承接）。
@@ -290,6 +292,9 @@ def merge(
         work_dir=Path(work_dir),
         context=context_text,
         pr_number=pr_number,
+        # Spec-0074/T1: 平台命令按当前 forge 注入（GitHub=gh 原命令零变化；Gitea=openagents merge-pr）。
+        merge_command=github.merge_command_text(pr_number=pr_number),
+        verify_command=github.merge_verify_command_text(pr_number=pr_number),
     )
 
 

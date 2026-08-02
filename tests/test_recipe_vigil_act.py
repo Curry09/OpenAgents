@@ -198,6 +198,12 @@ def rig(monkeypatch) -> _Rig:
     monkeypatch.setattr(gates, "assert_merge_allowed", lambda *, pr_number, head_sha: None)
 
     monkeypatch.setattr(git, "Workspace", _FakeWorkspace)
+    # Spec-0074: rfc:skip 态的确定性 seed 分支（空 commit+push）——打桩记录，不真碰 git。
+    monkeypatch.setattr(
+        git,
+        "seed_branch",
+        lambda *, work_dir, branch, message: probe.worktrees.append(("seed", branch)),
+    )
 
     def _gh(name: str, result=None):
         def _call(**kwargs):
@@ -310,7 +316,11 @@ def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
 
 
 def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):
-    """`rfc: skip` = 不设此闸 → 不派 drafter，但 PR/implement/deliver 照常（`skip` 关的是闸，不是活）。"""
+    """`rfc: skip` = 不设此闸 → 不派 drafter，但 PR/implement/deliver 照常（`skip` 关的是闸，不是活）。
+
+    Spec-0074 实证修复：skip 态没有 drafter 落「首个 commit + push」，远端无 head 分支 → create_pr
+    404。确定性 seed 分支（git.seed_branch 空 commit + push）必须在 create_pr 之前补位。
+    """
     _act(
         rig=rig,
         facts=_facts(pr_number=None),
@@ -318,6 +328,13 @@ def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):
         config=_config(stages=_stages_policy(rfc="skip")),
     )
     assert rig.agent_names() == ["implementer", "deliver"]
+    assert ("seed", "openagents/issue-5") in rig.worktrees  # 无它 create_pr 404
+
+
+def test_act_solve_agent_rfc_does_not_seed_branch(rig, tmp_path):
+    """rfc=agent 态首个 commit+push 归 drafter 交付协议——seed 分支不该多此一举。"""
+    _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path)
+    assert all(record[0] != "seed" for record in rig.worktrees)
 
 
 def test_act_rebase_tries_mechanical_update_branch_before_any_agent(rig, tmp_path, monkeypatch):

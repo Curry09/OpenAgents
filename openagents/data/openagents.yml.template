@@ -12,6 +12,15 @@
 
 version: 1
 
+# 托管平台(forge)选择(Spec-0074)：github(gh CLI，默认) / gitea(REST，token 从环境变量读)。
+# 缺省整段可省 = github，存量用户零感知。gitea 时必须带同级 gitea 连接段：
+# forge: gitea
+# gitea:
+#   base_url: http://localhost:3000
+#   owner: your-org
+#   repo: your-repo
+#   token_env: GITEA_TOKEN   # 可省，默认 GITEA_TOKEN；OpenAgents 不存 token 本体
+
 # 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。
 # 缺省角色回落 claude_code。可用角色：triager / drafter / implementer / reviewer / replier / deliver。
 agents:

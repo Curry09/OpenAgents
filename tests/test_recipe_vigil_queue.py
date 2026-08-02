@@ -400,6 +400,34 @@ def test_run_claimed_requeues_the_row_when_the_action_raises(tmp_path, monkeypat
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
+def test_run_claimed_clean_release_on_merge_not_ready(tmp_path, monkeypatch):
+    """Spec-0074 实证：合并前 CI 仍在跑（`gates.MergeNotReady`）→ **删行干净收工、不烧 attempts、不 park**。
+
+    与普通异常（回队 attempts+1）严格不同：pending 是暂态、不是失败，累计重试会在 CI 的
+    pending→success 窗口内烧光 `_MAX_ATTEMPTS` → 误挂 needs-human。删行后生产者下轮 CI 绿了重判即合。
+    """
+    from openagents.runtime import gates
+
+    _, conn = _db(tmp_path)
+    row, fd = _claim_one(tmp_path, conn, subject="issue:5")
+    parked: list[str] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_reconcile",
+        lambda **kwargs: (_ for _ in ()).throw(gates.MergeNotReady("CI pending")),
+    )
+    monkeypatch.setattr(
+        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+    )
+    _run_it(tmp_path, conn, row, fd)  # 不上抛
+
+    assert _count(conn) == 0, (
+        "CI 暂态 pending 当干净收工删行，绝不回队累计（否则窗口内烧光重试误交人）"
+    )
+    assert parked == [], "pending 不是失败——不 park"
+    _assert_lock_released(tmp_path, subject="issue:5")
+
+
 def test_run_claimed_parks_and_never_requeues_on_act_timeout(tmp_path, monkeypatch):
     """`_ActTimeout`（agent 挂死被强杀）→ **删行 + park 交人**，绝不回队。
 

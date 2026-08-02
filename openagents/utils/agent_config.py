@@ -35,6 +35,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from openagents.utils import github
+from openagents.utils.forge import FORGE_GITEA, FORGE_GITHUB
 
 # Spec-0064/T1: 三态所有者字面量——`stages` 每闸的合法取值取自它们的子集（见 _STAGE_VALID_OWNERS）。
 OWNER_AGENT = (
@@ -128,6 +129,20 @@ _AGENTS_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
+# Spec-0074/T1: `gitea` 段 schema——forge=gitea 时的连接四元组。token 本体只从环境变量读
+# （token_env 声明变量名，缺省 GITEA_TOKEN）——延续「OpenAgents 不存 token」纪律（gh 委托改 env 委托）。
+_GITEA_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "base_url": {"type": "string"},
+        "owner": {"type": "string"},
+        "repo": {"type": "string"},
+        "token_env": {"type": "string"},
+    },
+    "required": ["base_url", "owner", "repo"],
+    "additionalProperties": False,
+}
+
 # Spec-0064/T1: 单个 `repos[]` 项——必填 path + 可选 name/base/interval/labels + 每仓 stages 覆盖。
 _REPO_SCHEMA: dict = {
     "type": "object",
@@ -149,6 +164,9 @@ AGENT_CONFIG_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "version": {"type": "integer"},
+        # Spec-0074/T1: 托管平台选择（缺省 github，存量零感知）；gitea 时须带同级 gitea 连接段。
+        "forge": {"enum": [FORGE_GITHUB, FORGE_GITEA]},
+        "gitea": _GITEA_SCHEMA,
         "agents": _AGENTS_SCHEMA,
         "stages": _STAGES_SCHEMA,
         "release": {"enum": [RELEASE_MANUAL, RELEASE_AUTO]},
@@ -231,6 +249,10 @@ class AgentConfig:
     base: str
     labels: list[str]
     repos: list[RepoPlan]
+    # Spec-0074/T1: 托管平台声明（forge 分发层按此选 driver；gitea 为该 driver 的连接设置）。
+    # 带默认值置于末位——既有构造点（default_config/_build_config/测试）零改动仍可实例化。
+    forge: str = FORGE_GITHUB
+    gitea: dict | None = None
 
 
 def default_config() -> AgentConfig:
@@ -356,6 +378,12 @@ def _validate(*, data: dict) -> None:
             location = "/".join(str(part) for part in error.absolute_path) or "<root>"
             lines.append(f"  {location}: {error.message}")
         raise AgentConfigError("openagents 配置校验失败：\n" + "\n".join(lines))
+    # Spec-0074/T1: forge=gitea 必须带 gitea 连接段——缺了 driver 无从打 API，装载期就拦（fail-loud，
+    # 绝不静默拿 gh 打一个 Gitea 项目）。schema 管形状，这里管跨字段依赖。
+    if data.get("forge") == FORGE_GITEA and not data.get("gitea"):
+        raise AgentConfigError(
+            "forge=gitea 需要同级 gitea 段（base_url/owner/repo，可选 token_env）"
+        )
     # 「不许零闸」跨字段守卫——顶层与每仓合并后的 stages 都要过（override 后仍不许零闸）。
     _guard_no_zero_gate(
         stages=_merge_stages(base=None, override=data.get("stages")), scope="<root>"
@@ -426,6 +454,9 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
         base=base,
         labels=labels,
         repos=repos,
+        # Spec-0074/T1: 托管平台声明透传（forge 分发层与消费方装载用；缺省 github）。
+        forge=data.get("forge", FORGE_GITHUB),
+        gitea=data.get("gitea"),
     )
 
 

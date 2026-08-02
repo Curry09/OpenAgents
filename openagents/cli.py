@@ -33,7 +33,8 @@ try:
 except ImportError:  # pragma: no cover - argcomplete 是声明依赖；缺失时补全静默降级
     argcomplete = None
 
-from openagents.utils import github
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 from openagents.utils.config import ProjectContext, ensure_project, resolve_project
 
 # Spec-0065/T2: `--parallel K` 的上限。每个 worker 是一条常驻线程 + 一条私有 sqlite 连接 + 一个 agent 子进程，
@@ -183,6 +184,15 @@ def build_parser() -> argparse.ArgumentParser:
     # 出口，删了会破坏防自循环闭环（约束③）。仍走 identity.post_signed_comment。**不传 `help=`**：argparse
     # 只在提供 help 时才把子命令登进帮助清单，故省略 help 使它从 `--help` 列表隐去、但仍可解析分发（不占
     # 人心智；help=SUPPRESS 反而会打印字面 "==SUPPRESS==" 噪声）。
+    # Spec-0074/T1：merge-pr 隐藏内部命令——merger agent 落合并的**平台无关**出口（与 reply-comment 同
+    # 定位：不传 help= 从帮助清单隐去、仍可解析分发）。GitHub 侧 merger 仍直接跑 gh pr merge（零变化）；
+    # Gitea 侧的 $merge_command 即本命令，token 处理留在 driver 内、凭证不进提示词。
+    p_merge_pr = sub.add_parser("merge-pr")
+    p_merge_pr.add_argument("--pr", type=int, required=True, metavar="N", help="要合并的 PR 编号")
+    p_merge_pr.add_argument(
+        "--method", default="merge", choices=["merge", "squash", "rebase"], help="合并方式"
+    )
+
     p_reply = sub.add_parser("reply-comment")
     # Spec-0016/T5：--pr / --issue 二选一（互斥必选组）——issue #149 把签名回复从 PR 扩到 issue 页，
     # 手动出口对称补 --issue。仍不传 help=（隐藏内部命令，Spec-0064/T5 定位不变）。
@@ -404,6 +414,18 @@ def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
+def _cmd_merge_pr(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    # Spec-0074/T1：merger agent 的平台无关落合并出口——转发 forge.merge_pr（已合并幂等视为成功）。
+    # 完成判据是输出含 "MERGED"（merger 提示词的 $verify_command 契约）；未合并成功以非零退出。
+    if not github.is_merged(pr_number=args.pr):
+        github.merge_pr(pr_number=args.pr, method=args.method)
+    if github.is_merged(pr_number=args.pr):
+        print(f"✓ PR #{args.pr} state: MERGED")
+        return 0
+    print(f"✗ PR #{args.pr} 未能合并（合并后复读仍非 MERGED）", file=sys.stderr)
+    return 1
+
+
 def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0023/T4：确定性发版动作、无 agent——预检通过则物化 release/vX.Y.Z 分支 + tag。
     from openagents.utils.release import release
@@ -537,6 +559,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "backfill-rfc": _cmd_backfill_rfc,
         "issue": _cmd_issue,
         "reply-comment": _cmd_reply_comment,
+        "merge-pr": _cmd_merge_pr,
         "release": _cmd_release,
     }
     return handlers[args.command](args, ctx)

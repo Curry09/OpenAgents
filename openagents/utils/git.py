@@ -27,7 +27,14 @@ from openagents.utils.workspace import Workspace, WorkspaceError
 # 不抽成三模块共享常量：git.py 已 import workspace.py，反向 import 成循环依赖（见 spec Rationale 备选 1）。
 _GIT_NET_TIMEOUT_SECONDS = 30
 
-__all__ = ["Workspace", "WorkspaceError", "head_sha", "porcelain", "remote_branch_exists"]
+__all__ = [
+    "Workspace",
+    "WorkspaceError",
+    "head_sha",
+    "porcelain",
+    "remote_branch_exists",
+    "seed_branch",
+]
 
 
 def head_sha(*, work_dir: Path) -> str:
@@ -67,6 +74,35 @@ def remote_branch_exists(*, work_dir: Path, branch: str) -> bool:
     except subprocess.TimeoutExpired:
         return True
     return bool(result.stdout.strip())
+
+
+def seed_branch(*, work_dir: Path, branch: str, message: str) -> None:
+    """Spec-0074 实证修复：落一个空 seed commit 并推送分支——`rfc: skip` 时开 PR 的前置。
+
+    `rfc: agent` 态「首个 commit + push 分支」由 drafter 的交付协议完成；skip 态没人做这两件事，
+    远端没有 head 分支 → `create_pr` 404（生产实证）。此处以**确定性空提交**补位（`--allow-empty`：
+    不制造内容，只让远端有分支、PR 有锚点；显式 `-c` 身份，不依赖宿主全局 git 配置）。副带收益：
+    远端分支落地后进程重启也能经 `pr_for_branch` 重新感知（level-triggered 自愈成立）。
+    这是编排 git（框架动作，非 agent 判断），归本确定性层；失败抛 WorkspaceError 交调用方消化。
+    """
+    commit = _git(
+        args=[
+            "-c",
+            "user.name=openagents",
+            "-c",
+            "user.email=openagents@local",
+            "commit",
+            "--allow-empty",
+            "-m",
+            message,
+        ],
+        cwd=Path(work_dir),
+    )
+    if commit.returncode != 0:
+        raise WorkspaceError(f"seed commit 失败：{(commit.stderr or '').strip()[:200]}")
+    push = _git(args=["push", "-u", "origin", branch], cwd=Path(work_dir))
+    if push.returncode != 0:
+        raise WorkspaceError(f"seed 分支推送失败：{(push.stderr or '').strip()[:200]}")
 
 
 def _git(*, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:

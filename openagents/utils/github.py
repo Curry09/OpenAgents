@@ -493,6 +493,20 @@ def merge_pr(*, pr_number: int, method: str = "merge") -> None:
     _run_gh(["pr", "merge", str(pr_number), f"--{method}"], allow_returncodes=set())
 
 
+def merge_command_text(*, pr_number: int) -> str:
+    """Spec-0074/T1：merger agent 落合并动作的命令文本——GitHub 侧即既有 gh 命令（行为零变化）。
+
+    merger 提示词的平台命令参数化为 $merge_command 占位符后，由 stages.merge 经本函数注入；
+    Gitea driver 的同名函数返回 `openagents merge-pr --pr N`（token 处理留在 driver 内，不进提示词）。
+    """
+    return f"gh pr merge {pr_number} --merge"
+
+
+def merge_verify_command_text(*, pr_number: int) -> str:
+    """Spec-0074/T1：merger agent 验证合并完成的命令文本——输出含 MERGED 即视为已合并。"""
+    return f"gh pr view {pr_number} --json state"
+
+
 def add_label(*, pr_number: int, name: str) -> None:
     """RFC-0012 决策 1/3：给 PR 打标签（`gh pr edit <n> --add-label <name>`）。
 

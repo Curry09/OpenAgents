@@ -148,9 +148,12 @@ from typing import Any
 
 from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
-from openagents.runtime import context, engine, timing
+from openagents.runtime import context, engine, gates, timing
 from openagents.runtime.state import RuntimeState
-from openagents.utils import agent_config, git, github, identity, proc, streams
+from openagents.utils import agent_config, git, identity, proc, streams
+
+# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+from openagents.utils import forge as github
 
 # Spec-0065/T2: 单 issue → 单分支命名（承旧串行 vigil 一致）。
 _BRANCH_PREFIX = "openagents/issue-"
@@ -741,6 +744,7 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         ② 最新评论是人发的（无我方签名）............... ACTIONABLE: reply
         ③ 依赖未全关闭 ................................ QUIET(awaiting-blockers)
         ④ 还没有 PR ................................... ACTIONABLE: solve
+        ⑪ **is_draft**（有 PR、无条件）................ ACTIONABLE: ready   （转正先于整条合并流水线，见下）
         ⑤ mergeable_state = UNKNOWN / null ............ QUIET(awaiting-mergeability)
         ⑥ 冲突（mergeable_state = dirty）.............. ACTIONABLE: rebase
         ⑦ 当前 head 上 CI = pending / 零个 check ...... QUIET(awaiting-ci)
@@ -748,8 +752,9 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         ⑨ e2e 证据缺失 / head_sha 陈旧 ................ ACTIONABLE: e2e
         ⑩ 无 review-* label / 其 sha ≠ 当前 head /
           review-changes-requested ................... ACTIONABLE: review-or-fix
-        ⑪ 全绿 + approved@head + **is_draft** ......... ACTIONABLE: ready   （自愈转正，排在 merge 前）
         ⑫ 全绿 + approved@head + **非 draft** ......... ACTIONABLE: merge
+
+    （⑪ 是稳定语义 ID = draft 转正，物理上提到 ⑤ 之前；其余散落注释里的「分支⑪」仍指它。）
 
     **`needs-human` 是 agent 的一等出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」——CI 是
     上游 flaky、需求本身有歧义、要动的东西超出授权——它就**自己打 `needs-human` + 留一条说明理由的评论**，
@@ -768,8 +773,12 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     - **⑤⑥在⑦前**——conflict 在 CI 前是硬依赖：冲突的 PR 没有 merge ref → GitHub 不给它 check → ⑦会把
       「零个 check」读成「CI 还在跑」，然后 `awaiting-ci` 一直等到超时（见 `_sense` 坑 2）。
     - **⑦⑧只看当前 `head_sha`**——否则会派 agent 去修已经修好的代码（见 `_sense` 坑 1）。
-    - **⑪在⑫前**（Spec-0017）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人也被 draft 墙挡住
-      （#168 根因）：转正必须先于任何（agent 或 human 的）合并动作，故 `is_draft` 支排在 merge 之前。
+    - **⑪在⑤前**（Spec-0017 + Spec-0074 实证）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人
+      也被 draft 墙挡住（#168）：转正必须先于任何合并动作。**且必须先于 mergeable 判定**：Gitea 对 draft PR
+      恒报 `mergeable: false`（driver 映射为 DIRTY），若转正排在 ⑤⑥ 之后，draft PR 会永远卡在
+      `awaiting-mergeability`/`rebase`、到不了转正 → 死锁 → 看门狗误挂 needs-human。故转正必须先于**整条**
+      mergeable/CI/e2e/review/merge 流水线。据此 ⑪ 简化为**无条件** `is_draft`（不再等全绿+approved——先转正
+      再评估更对）。GitHub 侧 draft 与 mergeable 解耦、无此死锁，提早转正无害（PR 转正后照常走流水线）。
 
     `in_flight`（队列里有该 subject 的 claimed 行 = 我的 agent 正在跑它）**必须先于一切判定**——否则看门狗
     会把一个正在写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 needs-human。
@@ -791,6 +800,11 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         return _Verdict(kind=_QUIET, reason=_AWAITING_BLOCKERS)
     if facts.pr_number is None:
         return _Verdict(kind=_ACTIONABLE, action=_ACT_SOLVE)
+    # ⑪ draft → 无条件转正（Spec-0017 + Spec-0074 实证）。**必须先于 ⑤ mergeable 判定**：Gitea 对 draft PR
+    # 恒报 mergeable:false（driver 映射 DIRTY），排在 ⑤⑥ 之后 draft 会永远卡 awaiting/rebase 到不了转正
+    # → 死锁。先转正再评估合并流水线（转正后下一 tick 从非 draft 现态重判）。见 docstring「⑪在⑤前」。
+    if facts.is_draft:
+        return _Verdict(kind=_ACTIONABLE, action=_ACT_READY)
     if facts.mergeable_state in (None, _MERGE_UNKNOWN):
         return _Verdict(kind=_QUIET, reason=_AWAITING_MERGEABILITY)
     if facts.mergeable_state == _MERGE_DIRTY:
@@ -805,10 +819,6 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
         sha=facts.head_sha
     ):
         return _Verdict(kind=_ACTIONABLE, action=_ACT_REVIEW_OR_FIX)
-    # ⑪ 全绿 + approved@head 但仍 draft → 先转正（Spec-0017）。**必须排在 ⑫ merge 前**：draft PR 合不了
-    # （GitHub 拒合 draft），且 `merge: human` 时人也被 draft 墙挡住（#168 根因）——转正必须先于任何合并动作。
-    if facts.is_draft:
-        return _Verdict(kind=_ACTIONABLE, action=_ACT_READY)
     return _Verdict(kind=_ACTIONABLE, action=_ACT_MERGE)
 
 
@@ -2432,6 +2442,21 @@ def _run_claimed(
             agent_id=agent_id,
         )
         return
+    except gates.MergeNotReady as exc:
+        # Spec-0074 实证：合并前 CI 仍在跑（pending）——不是失败、是「还没好」。当干净收工处理（park=None
+        # 删行、**不烧 attempts**），生产者下轮 CI 绿了重判即合。并入下面的 Exception 分支会回队累计、在
+        # CI 窗口内烧光 _MAX_ATTEMPTS → 误挂 needs-human（见 gates.MergeNotReady docstring）。
+        _log(message=f"⏳ {subject}：{exc} → 交还 slot，等 CI 转绿")
+        _finish(
+            conn=conn,
+            task_id=row["id"],
+            fd=fd,
+            park=None,
+            subject=subject,
+            reason="",
+            agent_id=agent_id,
+        )
+        return
     except Exception as exc:  # noqa: BLE001 —— 单 subject 崩不该杀整条 worker
         _log(message=f"✗ {subject}：认领内失败：{exc}")
         _finish(
@@ -2843,7 +2868,13 @@ def _do_solve(
         owner=config.stages.owner_of(stage=agent_config.STAGE_RFC),
         on_agent=_draft,
         on_human=_draft,
-        on_skip=lambda: None,
+        # Spec-0074 实证修复：skip 态没有 drafter 落「首个 commit + push」，远端无 head 分支 →
+        # 下面的 create_pr 404。确定性空 seed commit 补位（编排 git 归 utils.git，本层零直调）。
+        on_skip=lambda: git.seed_branch(
+            work_dir=worktree,
+            branch=branch,
+            message=f"chore: open delivery branch for issue #{number} (rfc skipped)",
+        ),
     )
     pr = github.create_pr(
         branch=branch,
@@ -2871,8 +2902,9 @@ def _do_solve(
         # 主动打 needs-human，而不是硬着头皮 force-push 或空转到看门狗。
         context_text=_NEEDS_HUMAN_CONTRACT,
     )
-    # Spec-0017/T2: 不再确定性直调 github.mark_ready——转正归 deliver agent（其完成判据含「PR 非 draft」）；
-    # 万一那一枪脱靶，PR 残留 draft 由 `_classify` ⑪ 每 tick 复检、`_do_ready` 兜底转正（level-triggered）。
+    # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
+    # level-triggered 幂等）——deliver 提示词里原 `gh pr ready`（Spec-0017/T2）是平台命令，Gitea forge
+    # 下容器无 gh，agent 临场拼 REST 空转耗轮；转正零判断，机械归代码。
     _log(message=f"✓ issue #{number}：已开 PR #{pr.number}")
     return str(report.get("summary", ""))
 
