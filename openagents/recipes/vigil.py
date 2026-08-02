@@ -148,7 +148,7 @@ from typing import Any
 
 from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
-from openagents.runtime import context, engine, timing
+from openagents.runtime import context, engine, gates, timing
 from openagents.runtime.state import RuntimeState
 from openagents.utils import agent_config, git, identity, proc, streams
 
@@ -2439,6 +2439,21 @@ def _run_claimed(
             park=True,
             subject=subject,
             reason=f"agent 调用挂死并被强杀（{exc}）",
+            agent_id=agent_id,
+        )
+        return
+    except gates.MergeNotReady as exc:
+        # Spec-0074 实证：合并前 CI 仍在跑（pending）——不是失败、是「还没好」。当干净收工处理（park=None
+        # 删行、**不烧 attempts**），生产者下轮 CI 绿了重判即合。并入下面的 Exception 分支会回队累计、在
+        # CI 窗口内烧光 _MAX_ATTEMPTS → 误挂 needs-human（见 gates.MergeNotReady docstring）。
+        _log(message=f"⏳ {subject}：{exc} → 交还 slot，等 CI 转绿")
+        _finish(
+            conn=conn,
+            task_id=row["id"],
+            fd=fd,
+            park=None,
+            subject=subject,
+            reason="",
             agent_id=agent_id,
         )
         return

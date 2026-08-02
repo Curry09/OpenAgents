@@ -119,17 +119,32 @@ def test_merge_allowed_raises_when_ci_failing(monkeypatch):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
-def test_merge_allowed_raises_when_ci_pending(monkeypatch):
+def test_merge_pending_is_not_ready_not_a_violation(monkeypatch):
+    # Spec-0074 实证：CI 仍在跑（pending，count>0）不是红线、是暂态——抛 MergeNotReady 而非 GateError，
+    # 供 _run_claimed 当干净收工（不烧 attempts），避免 pending→success 窗口内误挂 needs-human。
     _stub_merge_facts(
         monkeypatch, ci_state="pending", ci_count=3, labels=("review-approved:a1b2c3d",)
     )
+    with pytest.raises(gates.MergeNotReady):
+        gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
+    assert not issubclass(
+        gates.MergeNotReady, GateError
+    )  # 与红线严格区分（不被 except GateError 吞）
+
+
+def test_merge_allowed_raises_when_zero_checks(monkeypatch):
+    # 零个 check「不算绿」（比照 vigil _ci_state）——防合并一份没跑过 CI 的代码。硬红线 GateError，
+    # 且**先于 pending 判**：count==0 时 state 即便是 pending 也是「根本没 CI」不是「CI 在跑」。
+    _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=0, labels=("review-approved:a1b2c3d",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
-def test_merge_allowed_raises_when_zero_checks(monkeypatch):
-    # 零个 check「不算绿」（比照 vigil _ci_state）——防合并一份没跑过 CI 的代码。
-    _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=0, labels=("review-approved:a1b2c3d",))
+def test_merge_zero_checks_with_pending_state_is_hard_block(monkeypatch):
+    # count==0 且 state=pending（Gitea 空 combined 的形态）：仍是硬红线（没 CI），不是 MergeNotReady。
+    _stub_merge_facts(
+        monkeypatch, ci_state="pending", ci_count=0, labels=("review-approved:a1b2c3d",)
+    )
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 

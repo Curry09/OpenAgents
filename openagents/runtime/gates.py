@@ -51,6 +51,17 @@ class GateError(Exception):
     """# Spec-0060/T3: 最小硬闸判定客观事实不成立（未交付 / 死循环 / PR 不存在 / 戳不匹配）时抛出。"""
 
 
+class MergeNotReady(Exception):
+    """Spec-0074 实证：合并前 CI 仍在跑（pending）——**不是红线，是「还没好」**。
+
+    与 `GateError`（客观违规：CI 失败 / 零 check / 裁决作废 → 真挡、该交人）严格区分：pending 是**暂态**，
+    下一 tick CI 绿了就能合。故本异常由 `_run_claimed` 当「干净收工」处理（删行、**不累计 attempts**），
+    等生产者下轮重判——与 `_classify` ⑦ awaiting-ci 的 QUIET 语义一致。若并入 GateError 走回队重试，会在
+    CI 的 pending→success 窗口内烧光 `_MAX_ATTEMPTS` → 误挂 needs-human（GitHub check-runs 翻转快躲过，
+    Gitea Actions 落得慢才暴露；这是所有平台的潜伏问题）。
+    """
+
+
 def snapshot_head(*, workspace: Path) -> str:
     """确定性记录 worktree 当前 HEAD SHA——**由 harness 侧调用**，作交付前的客观基点。
 
@@ -97,7 +108,19 @@ def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
     的 labels 里存在 `review-approved:<当前 head 的 sha7>`。任一不满足 → GateError（合并不发生）。
     """
     checks = github.check_snapshot(pr_number=pr_number)
-    if checks.state != "pass" or checks.count == 0:
+    # 零 check = 没跑过 CI → 硬挡（决不合未过 CI 的代码）；顺序在 pending 之前——count==0 时 state 可能也是
+    # pending（Gitea 空 combined），但那是「根本没 CI」不是「CI 在跑」，必须走硬红线。
+    if checks.count == 0:
+        raise GateError(
+            f"合并硬闸未放行：PR #{pr_number} 当前 head 零个 check——决不合并未过 CI 的代码"
+        )
+    # Spec-0074 实证：CI 仍在跑（pending）不是红线、是暂态——抛 MergeNotReady（`_run_claimed` 当干净收工、
+    # 不烧 attempts），等下一 tick CI 绿了再合。并入 GateError 会在 pending→success 窗口烧光重试 → 误交人。
+    if checks.state == "pending":
+        raise MergeNotReady(
+            f"PR #{pr_number} 当前 head CI 仍在跑（pending）——非红线，等下一 tick 重判"
+        )
+    if checks.state != "pass":
         raise GateError(
             f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
             f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
