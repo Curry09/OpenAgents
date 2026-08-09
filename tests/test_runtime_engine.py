@@ -14,7 +14,7 @@ import pytest
 
 from openagents.backends.base import AgentResult
 from openagents.runtime import engine
-from openagents.runtime.engine import AgentOutputError
+from openagents.runtime.engine import AgentOutputError, NeedsHumanRequest
 
 
 class _FakeAgent:
@@ -97,3 +97,29 @@ def test_int_schema_rejects_bool():
     backend = _CaptureBackend(summary='{"n": true}')
     with pytest.raises(AgentOutputError):
         engine.run_agent(_NumAgent, backend=backend, work_dir=".", x="1")
+
+
+def test_needs_human_envelope_precedes_role_schema_validation():
+    backend = _CaptureBackend(summary='{"needs_human": true, "reason": "  上游服务持续 503  "}')
+
+    with pytest.raises(NeedsHumanRequest, match="上游服务持续 503") as raised:
+        engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+
+    assert raised.value.reason == "上游服务持续 503"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"needs_human": false, "reason": "x"}',
+        '{"needs_human": true}',
+        '{"needs_human": true, "reason": "   "}',
+        '{"needs_human": true, "reason": 123}',
+        '{"needs_human": true, "reason": "x", "subject": 7}',
+    ],
+)
+def test_invalid_needs_human_envelope_is_protocol_error(payload):
+    backend = _CaptureBackend(summary=payload)
+
+    with pytest.raises(AgentOutputError, match="needs-human"):
+        engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")

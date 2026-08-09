@@ -562,7 +562,7 @@ def test_act_parks_needs_human_when_the_gate_belongs_to_a_human(rig, tmp_path, s
     ],
 )
 def test_needs_human_contract_reaches_every_agent_invoking_branch(rig, tmp_path, overrides, agent):
-    """**主路径收口的前提**：agent 看不到这条契约，就不会自己打 `needs-human`——兜底当场变成主路径。
+    """**主路径收口的前提**：agent 看不到这条契约，就不会返回结构化交人请求——兜底当场变成主路径。
 
     断言打在 `engine.run_agent` 这个唯一的派 agent 出口上（stage 内部怎么组占位符都逃不掉）。`_do_reply`
     与 `_do_rebase` 曾漏掉它——它们分别是「答不了人的提问」和「解不动冲突」，恰恰是最该主动交人的两支。
@@ -585,9 +585,11 @@ def test_needs_human_contract_reaches_the_conflict_resolver(rig, tmp_path):
     assert _NEEDS_HUMAN_CONTRACT in rig.context_of(agent="deliver")
 
 
-def test_needs_human_contract_names_the_label_and_the_stop_semantics():
-    """契约本身必须**指名那个 label**——agent 打错名字（`blocked`/`help-wanted`）等于没打，护栏也就白设了。"""
-    assert vigil_module._LABEL_NEEDS_HUMAN in _NEEDS_HUMAN_CONTRACT
+def test_needs_human_contract_uses_structured_exit_and_forbids_forge_writes():
+    """Agent 只报告控制意图；标签、评论与签名统一归 Vigil。"""
+    assert '"needs_human": true' in _NEEDS_HUMAN_CONTRACT
+    assert '"reason"' in _NEEDS_HUMAN_CONTRACT
+    assert "不要自行调用 forge" in _NEEDS_HUMAN_CONTRACT
     assert vigil_module._LABEL_NEEDS_HUMAN == github.BLOCKED_LABEL
 
 

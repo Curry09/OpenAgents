@@ -123,6 +123,7 @@ def test_issue_add_label_resolves_id(monkeypatch):
     gitea._label_ids["ready"] = 5
     fake = _install(monkeypatch, (200, [], ""))
     gitea.issue_add_label(number=9, name="ready")
+    assert fake.calls[0]["method"] == "POST"
     assert fake.calls[0]["path"] == "repos/own/rep/issues/9/labels"
     assert fake.calls[0]["body"] == {"labels": [5]}
 

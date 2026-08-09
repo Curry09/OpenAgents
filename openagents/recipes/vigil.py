@@ -36,12 +36,11 @@ frozen dataclass，结构上不可能漂移。`_Clock`（时间戳）**绝不进
 `_classify` 保持**纯粹的机械分支表**、不需要吃 config，而「闸归谁」的策略只在两处出现：`_sense`（skip）
 与 `_act`（agent / human）。
 
-## 收口：主路径是 agent 自己打 `needs-human`，护栏只兜它看不见的三种死法
+## 收口：主路径是 Agent 返回结构化 `needs-human`，Vigil 统一落 forge 副作用
 
-**agent 干不动时的正常收口是它自己打 `needs-human`**（一等出口，不是快路径、不是脚注）：CI 是上游 flaky、
-需求本身有歧义、要动的东西超出授权——它打 label + 留一条说明理由的评论，`_classify` 分支①当场判 TERMINAL，
-**轮询立刻停止**。不烧多余的 LLM 调用、不等任何超时、理由直接写在 issue 上给人看。人摘掉 label，谓词自动
-重新活过来（level-triggered 白送的自愈）。这条契约必须写进每个分支的 agent 提示词。
+**agent 干不动时的正常收口是返回 `{"needs_human": true, "reason": "..."}`**（一等出口，不是快路径、
+不是脚注）：Vigil 捕获控制信号、复核标签完整性，再经 `_park_needs_human` 追加 label + 签名理由评论，
+`_classify` 分支①随后判 TERMINAL。人摘掉 label，谓词自动重新活过来。这条契约必须写进每个分支的提示词。
 
 **只有 agent 自己看不见的死法才需要护栏。** level-triggered 自带三个，共同点是**在日志里跟「一切正常」长得
 一模一样**：
@@ -63,7 +62,7 @@ frozen dataclass，结构上不可能漂移。`_Clock`（时间戳）**绝不进
    `_act` 的硬超时（`_AGENT_TIMEOUT_SECONDS`）+ IN_FLIGHT 告警（`_INFLIGHT_ALARM_SECONDS`）兜；反复领取
    不收工则由 `work_queue.attempts` 计数收口——**这是唯一必须计数的死法**。
 
-三道护栏与主路径**同一个收尾**：`needs-human` → TERMINAL → 轮询停止。区别只在**谁**打的这个 label。
+三道护栏与主路径**同一个收尾**：Vigil 追加 `needs-human` → TERMINAL → 轮询停止。
 
 ## 存储职责：两个存储，各管一层，无重叠
 
@@ -218,10 +217,9 @@ _E2E_MARKER = "<!-- openagents:e2e head="
 #   - 「CI 绿不绿」「有没有冲突」是 **GitHub 自己维护的事实**——本就绑在 sha 上、一次读到；再复制一份成
 #     label 就是造第二份真相，然后要负责让两份不打架（CI 重跑了谁去改 label？）。故**不打**。
 #
-# `needs-human` = agent 的**一等出口**（不是脚注）：任一分支里 agent 判断「我没辙 / 这要人来定」→ 打它 +
-# 留一条说明理由的评论 → `_classify` 判 TERMINAL → **轮询立刻停止**，不再叫任何 agent。人摘掉 label，
-# 谓词自动重新活过来（level-triggered 白送的自愈）。看门狗与 attempt 戳都只是**兜底**（防 agent 忘了打、
-# 判错了、或压根没意识到自己在空转），正常路径根本走不到它们。
+# `needs-human` = agent 的**一等结构化出口**（不是脚注）：Agent 返回控制 envelope，Vigil 统一追加 label +
+# 签名理由 → `_classify` 判 TERMINAL → **轮询立刻停止**。人摘掉 label，谓词自动重新活过来。看门狗与
+# attempt 戳只兜 Agent 没意识到自己在空转或根本没被叫起的路径。
 _LABEL_NEEDS_HUMAN = github.BLOCKED_LABEL  # "needs-human"，与全仓同源（github 是标签单一来源）
 _LABEL_READY = "ready"  # 准入令牌（三态门控审过）
 # Spec-0065/T2: `triage: human` 的准入提问评论的标记——「我问过了吗」的唯一真相（读 GitHub 现态，零本地
@@ -451,6 +449,16 @@ class _Verdict:
 
 class _ActTimeout(RuntimeError):
     """Spec-0065/T2: 单次 `_act` 超 `_AGENT_TIMEOUT_SECONDS`——子进程已被杀，行交 `_requeue_or_park`。"""
+
+
+@dataclass(frozen=True)
+class _LabelTargetSnapshot:
+    """一个 Agent 动作可能触达的 forge 对象及其当前标签。"""
+
+    kind: str
+    number: int
+    labels: frozenset[str]
+    terminal: bool = False
 
 
 def run_vigil(
@@ -756,11 +764,9 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
 
     （⑪ 是稳定语义 ID = draft 转正，物理上提到 ⑤ 之前；其余散落注释里的「分支⑪」仍指它。）
 
-    **`needs-human` 是 agent 的一等出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」——CI 是
-    上游 flaky、需求本身有歧义、要动的东西超出授权——它就**自己打 `needs-human` + 留一条说明理由的评论**，
-    ①当场判 TERMINAL、**轮询立刻停止**。这是最快、最准、最便宜的收口：不烧一次多余的 LLM 调用，不等任何
-    超时，理由直接写在 issue 上给人看。人摘掉 label，谓词自动重新活过来。护栏二（看门狗超时）与护栏一
-    （attempt 戳）都只是**兜底**——防 agent 忘了打、判错了、或压根没意识到自己在空转。
+    **`needs-human` 是 agent 的一等结构化出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」时
+    返回统一控制 envelope；Vigil 当轮追加 `needs-human` 与签名理由，下一次分类即 TERMINAL。Agent 不拥有
+    forge 标签写入语义；护栏二（看门狗）与护栏一（attempt 戳）仍只兜它没意识到自己在空转的死法。
 
     **⑩⑪ 的 review 裁决从 `review-*:<sha7>` label 读，而 sha 必须参与匹配。** 裁决是「绑在某个 commit 上的
     判断」：审的时候 head=abc123，审完 agent 又 push 了 def456 修 CI——若 label 是光秃秃的 `review-approved`，
@@ -2254,8 +2260,8 @@ def _park(*, facts: _Facts, verdict: _Verdict, clock: _Clock, now: datetime, age
     `needs-human` 是 TERMINAL → **轮询停止**。人摘掉 label，`_classify` 自动重新活过来——这是 level-triggered
     白送的自愈（无历史 → 无需清理任何本地残留状态）。park 完全可逆，这也是敢把阈值设宽的前提。
 
-    注意 agent **也能主动**打 `needs-human`（它一眼看出要人来定，不用干等超时）——那是**主路径**；看门狗是
-    **兜底**（防它忘了、判错了、或根本没被叫起）。
+    Agent 主动返回结构化 `needs-human` 是**主路径**；Vigil 负责真正追加 label 与签名评论。看门狗只兜
+    Agent 没意识到问题、判错了或根本没被叫起的情况。
     """
     age = (
         int((now - clock.last_progress_at).total_seconds())
@@ -2605,8 +2611,8 @@ def _reconcile(
     **为什么推进到卡住、而非推一步**：一个 CI 绿、e2e 齐、review 已过的 PR 应该在**一次认领**里走完⑨⑩⑪合掉，
     而不是烧掉三个 tick（每 tick 只走一支）。停止条件全是纯函数判断，不需要任何计数器。
 
-    **正常的「干不动」不从这里收口，从 `needs-human` 收口。** agent 在 `_act` 里判断没辙 → 自己打 label +
-    留理由 → 下一圈 `_sense` 读到 → 分支① TERMINAL → 上面第一个 `return`。**这是主路径。**
+    **正常的「干不动」从结构化 `needs-human` 收口。** agent 在 `_act` 里抛出控制信号，当前动作边界先检查并
+    恢复标签完整性，再由 `_park_needs_human` 统一追加 label 与签名理由。**这是主路径。**
 
     **`fp == last_fp` 是兜底**，专防 agent **没意识到自己在空转**的那一类：它以为自己干了活（rerun 了 CI 但
     没触发、改了个无关文件、发了条「等 CI 重跑就好」的评论然后收工），所以不会去打 `needs-human`；而它每轮
@@ -2648,17 +2654,40 @@ def _reconcile(
             verdict=verdict,
             now=now_fn(),
         )
-        last_summary = _act(
-            backend=backend,
-            state=state,
-            work_dir=Path(work_dir),
-            config=config,
-            observed=observed,
-            verdict=verdict,
-            agent_id=agent_id,
-            now=now_fn(),
-            lock_fd=lock_fd,
+        label_baseline = _capture_label_targets(facts=observed.facts)
+        needs_human: engine.NeedsHumanRequest | None = None
+        try:
+            last_summary = _act(
+                backend=backend,
+                state=state,
+                work_dir=Path(work_dir),
+                config=config,
+                observed=observed,
+                verdict=verdict,
+                agent_id=agent_id,
+                now=now_fn(),
+                lock_fd=lock_fd,
+            )
+        except engine.NeedsHumanRequest as request:
+            needs_human = request
+            last_summary = request.reason
+
+        integrity_body = _restore_label_integrity(
+            baseline=label_baseline,
+            allowed_removals=_allowed_label_removals(facts=observed.facts, verdict=verdict),
         )
+        if integrity_body is not None:
+            if needs_human is not None:
+                integrity_body += f"\n\nAgent 同时请求人工介入：{needs_human.reason}"
+            _park_needs_human(subject=subject, body=integrity_body, agent_id=agent_id)
+            return
+        if needs_human is not None:
+            _park_needs_human(
+                subject=subject,
+                body=f"⏸ Agent 请求人工介入：{needs_human.reason}",
+                agent_id=agent_id,
+            )
+            return
         _log(message=f"↻ {subject}：第 {round_index + 1}/{_MAX_RECONCILE_ROUNDS} 轮推进完成")
 
     # 轮数到顶仍 ACTIONABLE：不是「卡在外部」（那会 QUIET 交还 slot），也不是「零进展」（那 fp 会重复）——
@@ -2673,6 +2702,105 @@ def _reconcile(
         ),
         agent_id=agent_id,
     )
+
+
+def _capture_label_targets(*, facts: _Facts) -> dict[tuple[str, int], _LabelTargetSnapshot]:
+    """动作前读取所有可能被 Agent 触达的对象，避免 issue/PR 标签混成一组后恢复到错误对象。
+
+    issue 已有关联 PR 时两边都守：真实事故中 Agent 同时 replace 了需求票和交付 PR 的 labels。
+    solve 尚未创建的新 PR 不在 baseline 中，不需要恢复不存在对象的标签。
+    """
+    kind, number = _split_subject(subject=facts.subject)
+    keys = [(kind, number)]
+    if kind == _KIND_ISSUE and facts.pr_number is not None:
+        keys.append((_KIND_PR, facts.pr_number))
+    return {key: _read_label_target(kind=key[0], number=key[1]) for key in keys}
+
+
+def _read_label_target(*, kind: str, number: int) -> _LabelTargetSnapshot:
+    """从 forge 真源读取单个 issue/PR 的 labels；PR 同时携带终态。"""
+    if kind == _KIND_ISSUE:
+        issue = github.get_issue(number=number)
+        return _LabelTargetSnapshot(
+            kind=kind, number=number, labels=frozenset(issue.labels), terminal=False
+        )
+    snapshot = github.pr_snapshot(pr_number=number)
+    return _LabelTargetSnapshot(
+        kind=kind,
+        number=number,
+        labels=frozenset(snapshot.labels),
+        terminal=snapshot.state in {"MERGED", "CLOSED"},
+    )
+
+
+def _allowed_label_removals(
+    *, facts: _Facts, verdict: _Verdict
+) -> dict[tuple[str, int], frozenset[str]]:
+    """返回本动作由框架明确拥有的精确删除集合；默认 Agent 无权删除任何既有 label。"""
+    if verdict.action != _ACT_REVIEW_OR_FIX or facts.pr_number is None:
+        return {}
+    fixing_current_review = (
+        facts.review_state == _REVIEW_CHANGES_REQUESTED
+        and facts.review_commit_id == _short(sha=facts.head_sha)
+    )
+    if fixing_current_review:
+        return {}
+    stale = frozenset(
+        label
+        for label in facts.labels
+        if label.startswith((_LABEL_REVIEW_APPROVED_PREFIX, _LABEL_REVIEW_CHANGES_PREFIX))
+    )
+    return {(_KIND_PR, facts.pr_number): stale} if stale else {}
+
+
+def _restore_label_integrity(
+    *,
+    baseline: dict[tuple[str, int], _LabelTargetSnapshot],
+    allowed_removals: dict[tuple[str, int], frozenset[str]],
+) -> str | None:
+    """检测 Agent 动作造成的非预期删除，二次读取后用 additive API 逐项恢复。
+
+    新增标签永远保留；恢复前再读一次，避免并发方已经补回时重复操作。PR 已进入终态则不复活标签。
+    返回给 `_park_needs_human` 的机械诊断；无违规返回 ``None``。
+    """
+    violations: dict[tuple[str, int], frozenset[str]] = {}
+    for key, before in baseline.items():
+        after = _read_label_target(kind=before.kind, number=before.number)
+        if after.terminal:
+            continue
+        missing = before.labels - after.labels - allowed_removals.get(key, frozenset())
+        if missing:
+            violations[key] = frozenset(missing)
+    if not violations:
+        return None
+
+    restored: dict[tuple[str, int], list[str]] = {}
+    for key, originally_missing in violations.items():
+        latest = _read_label_target(kind=key[0], number=key[1])
+        if latest.terminal:
+            continue
+        still_missing = sorted(originally_missing - latest.labels)
+        for label in still_missing:
+            if key[0] == _KIND_ISSUE:
+                github.issue_add_label(number=key[1], name=label)
+            else:
+                github.add_label(pr_number=key[1], name=label)
+        restored[key] = still_missing
+
+    details = []
+    for key, missing in sorted(violations.items()):
+        target = f"{key[0]}:{key[1]}"
+        restored_labels = restored.get(key, [])
+        details.append(
+            f"- `{target}` 非预期丢失：{', '.join(f'`{label}`' for label in sorted(missing))}；"
+            f"additive 恢复：{', '.join(f'`{label}`' for label in restored_labels) or '无需（并发方已补回/对象已终态）'}"
+        )
+    body = (
+        "⏸ OpenAgents 检测到 Agent 动作破坏了标签完整性。为避免来源、优先级、轮次或流程平面静默丢失，"
+        "已复读 forge 并只补回仍缺失的标签；本轮停止自动推进。\n\n" + "\n".join(details)
+    )
+    _log(message="⚠ 检测到 Agent 非预期删除 labels，已执行 additive 恢复并交人")
+    return body
 
 
 def _act(
@@ -2710,12 +2838,9 @@ def _act(
     round_cap）**恒机器、`skip` 关不掉**（内嵌在 `stages` 的交付段里）。动作幂等（已 merged 再合、已回过的
     评论再回都是 no-op）。
 
-    **每个分支都有第二个出口：`needs-human`。** agent 在任一分支里判断「我没辙 / 这要人来定」——CI 是上游
-    flaky、需求本身有歧义、要动的东西超出授权、连试两次都推不动——它就**打 `_LABEL_NEEDS_HUMAN` + 留一条
-    说明理由的评论**，然后正常返回。`_reconcile` 下一圈 `_sense` 就读到该 label → 分支① TERMINAL → 收工，
-    **轮询就此停止**。这是**一等出口，不是快路径**：正常的「干不动」都该从这里走完，护栏一（attempt 戳）与
-    护栏二（看门狗）只兜「agent 忘了打 / 判错了 / 没意识到自己在空转」这三种它自己看不见的死法。这条契约由
-    `_NEEDS_HUMAN_CONTRACT` 拼进每个分支的 agent 提示词（`context_text`），否则兜底会变成主路径。
+    **每个分支都有第二个出口：结构化 `needs-human`。** agent 判断需交人时返回统一 JSON envelope，不自行写
+    forge。`_reconcile` 捕获后先做动作前后标签完整性复核，再调用 `_park_needs_human`，当轮停止。该契约由
+    `_NEEDS_HUMAN_CONTRACT` 拼进每个分支的 agent 提示词。
 
     **硬超时**：整个动作（含其内部的 agent 子进程）超 `_AGENT_TIMEOUT_SECONDS` → 杀子进程 + 抛
     `_ActTimeout` → `_worker_loop` 捕获 → 持有者**自己**走 `_requeue_or_park`（释放行与锁，claimed 行永不
@@ -2781,10 +2906,11 @@ def _act(
 # 护栏兜（多烧一次 LLM 调用 + 多等一个看门狗阈值，且理由只能靠机械诊断猜），兜底就变成了主路径。
 _NEEDS_HUMAN_CONTRACT = (
     "\n\n---\n"
-    f"【一等出口】若你判断自己没辙、或这件事该由人来定（CI 是上游 flaky、需求本身有歧义、要动的东西超出"
-    f"授权、连试两次都推不动），**不要空转、不要假装修好**：给该 issue/PR 打上 `{_LABEL_NEEDS_HUMAN}` "
-    "label，并留一条说明理由的评论，然后正常收工。守夜会当场判定终态、停止轮询、把理由交给人——这比让"
-    "看门狗超时叫人快得多，也便宜得多。"
+    "【一等出口】若你判断自己没辙、或这件事该由人来定（CI 是上游 flaky、需求本身有歧义、要动的东西超出"
+    "授权、连试两次都推不动），**不要空转、不要假装修好，也不要自行调用 forge 修改标签或发送交接评论**。"
+    "请把最后一行输出为且仅为 JSON："
+    '{"needs_human": true, "reason": "具体阻塞原因与已核实事实"}。'
+    "守夜会用安全的追加标签 API 和签名评论完成交接、停止轮询。"
 )
 
 
@@ -2928,8 +3054,7 @@ def _do_solve(
         branch=branch,
         pr_number=pr.number,
         issue_number=number,
-        # Spec-0065/T2: 交付段同样要给一等出口——推不上去（保护分支/权限/反复 rebase 打架）时，agent 得能
-        # 主动打 needs-human，而不是硬着头皮 force-push 或空转到看门狗。
+        # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 交人，不直接写 forge。
         context_text=_NEEDS_HUMAN_CONTRACT,
     )
     # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
@@ -2988,7 +3113,7 @@ def _do_e2e(*, backend: Any, work_dir: Path, facts: _Facts, agent_id: str) -> st
     （张冠李戴：拿旧版的绿证据放行新版代码），Spec-0055 已踩过。
 
     tester 判 REWORK（e2e 没过）时**不盖戳**——盖了就等于用一份失败的证据放行。让 fp 保持不变 → 下一圈
-    `_reconcile` 见零进展 → 盖 attempt 戳 → 看门狗兜底叫人（或 agent 自己打 needs-human，那是主路径）。
+    `_reconcile` 见零进展 → 盖 attempt 戳 → 看门狗兜底叫人；Agent 能识别时应走结构化交人主路径。
     """
     pr_number = facts.pr_number or 0
     verdict = engine.run_agent(

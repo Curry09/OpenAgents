@@ -36,10 +36,11 @@ def test_prompt_has_no_hardcoded_gh():
     assert "gh pr view" not in merger.PROMPT.template
 
 
-def test_prompt_has_needs_human_exit():
-    # Spec-0017/T3: 一等出口——察觉硬闸没覆盖的异常时主动打 needs-human，绝不硬合。
+def test_prompt_has_structured_needs_human_exit():
+    # Spec-0075/T3: 一等出口只报告控制意图，不直接修改 forge。
     text = merger.PROMPT.substitute(**_KW)
-    assert "needs-human" in text
+    assert '"needs_human": true' in text
+    assert "不要自行修改 forge 标签" in text
 
 
 def test_output_schema_is_merged_and_summary():

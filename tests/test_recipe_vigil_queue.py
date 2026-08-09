@@ -1002,6 +1002,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
         return _Observed(facts=facts, clock=_Clock(last_progress_at=_NOW))
 
     monkeypatch.setattr(vigil_module, "_sense", _fake_sense)
+    monkeypatch.setattr(vigil_module, "_capture_label_targets", lambda *, facts: {})
     monkeypatch.setattr(
         vigil_module,
         "_act",

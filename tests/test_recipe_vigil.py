@@ -10,7 +10,7 @@
   IN_FLIGHT 告警阈值，也只 `_park`、绝不回收）；持有者被 `kill -9` → 内核放锁 → 行**立刻**回 queued（不
   等任何超时）；同进程两 fd 互斥（**用 `lockf` 这条会失败**——钉死必须 flock）；收工**先删行后 close(fd)**。
 - **卡死**：`_act` 硬超时 → 杀子进程 + 抛出 → 持有者自己 `_requeue_or_park`；`attempts` 到顶 → needs-human。
-- **收口**：agent 自己打 `needs-human` → 下一圈当场 TERMINAL、**零后续 agent 调用**（主路径，不等阈值）；
+- **收口**：agent 返回结构化 `needs-human` → Vigil 当轮统一 park、**零后续 agent 调用**；
   `review-approved:<sha7>` 的 sha 必须等于当前 head 才 merge，陈旧 sha / 裸 label 一律降回 review-or-fix。
 
 全程假 backend + 打桩 github/git/stages，不触真实 LLM/网络/仓库。
@@ -78,6 +78,7 @@ from openagents.recipes.vigil import (
     route,
     run_vigil,
 )
+from openagents.runtime import engine
 from openagents.utils import agent_config, github
 
 _NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
@@ -811,6 +812,7 @@ def _stub_reconcile(monkeypatch, *, facts_seq: list[_Facts]) -> list[str]:
 
     monkeypatch.setattr(vigil_module, "_sense", _fake_sense)
     monkeypatch.setattr(vigil_module, "_act", _fake_act)
+    monkeypatch.setattr(vigil_module, "_capture_label_targets", lambda *, facts: {})
     return seen
 
 
@@ -872,24 +874,80 @@ def test_reconcile_stamps_and_stops_when_agent_made_zero_progress(monkeypatch, t
     assert stamps == [(_fingerprint(facts=stuck), "结论")]
 
 
-def test_reconcile_stops_immediately_when_agent_self_labels_needs_human(monkeypatch, tmp_path):
-    """**主路径收口**：agent 在 `_act` 里自己打 `needs-human` → 下一圈当场 TERMINAL、**零后续 agent 调用**。
-
-    不烧多余 LLM 调用、不等任何阈值——护栏一/二只兜「它没意识到自己在空转」那类它自己看不见的死法。
-    """
-    seen = _stub_reconcile(
-        monkeypatch,
-        facts_seq=[_facts(ci="failure"), _facts(ci="failure", labels=frozenset({"needs-human"}))],
-    )
-    stamps: list[str] = []
+def test_reconcile_centrally_parks_structured_needs_human(monkeypatch, tmp_path):
+    """结构化出口由 Vigil 当轮 park；Agent 不接触 forge，也不烧下一轮或 attempt。"""
+    _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="failure")])
     monkeypatch.setattr(
         vigil_module,
-        "_post_attempt_stamp",
-        lambda *, facts, fp, conclusion, agent_id: stamps.append(fp),
+        "_act",
+        lambda **kwargs: (_ for _ in ()).throw(engine.NeedsHumanRequest(reason="上游 503")),
+    )
+    parked: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_park_needs_human",
+        lambda *, subject, body, agent_id: parked.append((subject, body, agent_id)),
     )
     _reconcile_once(tmp_path)
-    assert seen == [_ACT_FIX_CI]  # 出手一次，然后 agent 自己叫了人
-    assert stamps == [], "TERMINAL 收口不该再盖 attempt 戳，更不该再叫 agent"
+    assert parked == [("issue:5", "⏸ Agent 请求人工介入：上游 503", "a")]
+
+
+def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
+    """raw PUT 型替换会被动作边界发现：二次读取、逐项 additive 恢复、当轮交人。"""
+    _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="failure")])
+    baseline = vigil_module._LabelTargetSnapshot(
+        kind="issue",
+        number=5,
+        labels=frozenset({"ready", "from-synthesize", "P1", "round-1"}),
+    )
+    monkeypatch.setattr(
+        vigil_module, "_capture_label_targets", lambda *, facts: {("issue", 5): baseline}
+    )
+    reads = iter(
+        [
+            vigil_module._LabelTargetSnapshot(
+                kind="issue", number=5, labels=frozenset({"needs-human"})
+            ),
+            vigil_module._LabelTargetSnapshot(
+                kind="issue", number=5, labels=frozenset({"needs-human", "P1"})
+            ),
+        ]
+    )
+    monkeypatch.setattr(vigil_module, "_read_label_target", lambda *, kind, number: next(reads))
+    restored: list[str] = []
+    monkeypatch.setattr(
+        vigil_module.github,
+        "issue_add_label",
+        lambda *, number, name: restored.append(name),
+    )
+    parked: list[str] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_park_needs_human",
+        lambda *, subject, body, agent_id: parked.append(body),
+    )
+
+    _reconcile_once(tmp_path)
+
+    assert restored == ["from-synthesize", "ready", "round-1"]
+    assert len(parked) == 1
+    assert "标签完整性" in parked[0]
+    assert "`P1`" in parked[0], "并发方已补回的标签仍应出现在事故诊断中"
+
+
+def test_review_refresh_allows_only_framework_owned_stale_verdict_removal():
+    facts = _facts(
+        labels=frozenset({"ready", "review-approved:oldsha1"}),
+        review_state=None,
+        review_commit_id=None,
+    )
+
+    allowed = vigil_module._allowed_label_removals(
+        facts=facts,
+        verdict=_Verdict(kind=_ACTIONABLE, action=_ACT_REVIEW_OR_FIX),
+    )
+
+    assert allowed == {("pr", 12): frozenset({"review-approved:oldsha1"})}
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1287,11 +1345,19 @@ def _run_once(tmp_path, *, concurrency, subjects) -> list[str]:
 
     import openagents.recipes.vigil as mod
 
-    saved = (mod._sense, mod._act, mod._intake, mod._subjects, mod._has_attempt_stamp)
+    saved = (
+        mod._sense,
+        mod._act,
+        mod._intake,
+        mod._subjects,
+        mod._has_attempt_stamp,
+        mod._capture_label_targets,
+    )
     mod._sense, mod._act = _fake_sense, _fake_act
     mod._intake = lambda **kw: None
     mod._subjects = lambda *, config: list(subjects)
     mod._has_attempt_stamp = lambda *, facts, fp: False
+    mod._capture_label_targets = lambda *, facts: {}
     try:
         run_vigil(
             backend=None,
@@ -1303,7 +1369,14 @@ def _run_once(tmp_path, *, concurrency, subjects) -> list[str]:
             agent_id="a",
         )
     finally:
-        (mod._sense, mod._act, mod._intake, mod._subjects, mod._has_attempt_stamp) = saved
+        (
+            mod._sense,
+            mod._act,
+            mod._intake,
+            mod._subjects,
+            mod._has_attempt_stamp,
+            mod._capture_label_targets,
+        ) = saved
     return acted
 
 
