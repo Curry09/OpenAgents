@@ -55,7 +55,7 @@ _TRANSIENT_STATUSES = {502, 503, 504}
 _WIP_PREFIXES = ("WIP:", "[WIP]")
 _WIP_CANONICAL = "WIP: "
 
-# 列表端点单页上限（Gitea 默认分页 30/页；守夜的工作集远小于此，超出属异常规模，先不做翻页）。
+# 列表端点单页上限（Gitea 默认分页 30/页；driver 自己翻页，不能让服务端默认值截断发现集）。
 _LIST_LIMIT = 50
 
 _DEFAULT_TOKEN_ENV = "GITEA_TOKEN"
@@ -193,15 +193,37 @@ def _repo_path(*, suffix: str) -> str:
 
 
 def _refresh_label_cache() -> None:
-    result = _request(
-        method="GET",
-        path=_repo_path(suffix="labels"),
-        body=None,
-        query={"limit": _LIST_LIMIT},
-        allow=(),
-    )
-    for item in result.data or []:
-        _label_ids[str(item.get("name") or "")] = int(item.get("id") or 0)
+    """# Spec-0074/T2: 完整刷新标签名→id 缓存；服务端忽略 page 时按重复页收敛。
+
+    Gitea 允许同名标签，故按 API 顺序保留第一个 id；调用侧只需一个稳定 id 来 add/remove，发现过滤则
+    直接看 issue 响应里的标签名，不再依赖这里挑中了哪一个重复项。
+    """
+    page = 1
+    seen_ids: set[int] = set()
+    while True:
+        result = _request(
+            method="GET",
+            path=_repo_path(suffix="labels"),
+            body=None,
+            query={"limit": _LIST_LIMIT, "page": page},
+            allow=(),
+        )
+        rows = result.data or []
+        if not rows:
+            return
+        added = 0
+        for item in rows:
+            label_id = int(item.get("id") or 0)
+            name = str(item.get("name") or "")
+            if not label_id or label_id in seen_ids:
+                continue
+            seen_ids.add(label_id)
+            added += 1
+            if name:
+                _label_ids.setdefault(name, label_id)
+        if len(rows) < _LIST_LIMIT or not added:
+            return
+        page += 1
 
 
 def _label_id(*, name: str) -> int:
@@ -213,15 +235,16 @@ def _label_id(*, name: str) -> int:
     return _label_ids[name]
 
 
-def _known_label_id(*, name: str) -> int | None:
-    """标签名→id 的非抛版：未知名刷新一次缓存后仍无 → None（查询侧按「零匹配」处理，不报错）。"""
+def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> None:
+    """# Spec-0074/T2: 先读后建；已存在零 POST，409/422 竞态再刷新兜底。
+
+    Gitea 1.22 允许创建多个同名标签，因此不能把「POST 会报 already exists」当幂等保证。vigil 每 tick
+    都会 ensure ready；只有 POST 前先完整读缓存并直接返回，才能阻止重复标签持续累积。
+    """
     if name not in _label_ids:
         _refresh_label_cache()
-    return _label_ids.get(name)
-
-
-def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> None:
-    """幂等建标签：已存在（409/422）→ 刷新缓存复用（与 github.ensure_label 吞 already exists 同风格）。"""
+    if name in _label_ids:
+        return
     normalized = color if color.startswith("#") else f"#{color}"
     result = _request(
         method="POST",
@@ -265,35 +288,96 @@ def get_issue(*, number: int) -> Issue:
     return _issue_from(raw=result.data)
 
 
-def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
-    """列 issue（`type=issues` 排除 PR——Gitea 的 issues 列表默认混含 PR）。
-
-    多标签按 gh 的 OR 语义处理：逐标签查询后按 number 去重合并（Gitea 的 labels 查询参数是 AND 语义，
-    不能直接逗号拼接）。labels 为空 = 不过滤。
-
-    Spec-0074 实证修复（Unresolved 1 命中）：1.22 的 `labels` 查询参数按 label **ID** 过滤——与
-    swagger「comma separated list of labels」的文案不符，传名恒零匹配（vigil 发现段因此静默空转）。
-    名→id 经缓存解析；**未知标签 = 零匹配**（跳过该次查询），绝不能把过滤参数整个省掉——那会退化成
-    「全量发现」，把仓里所有 issue 都当发现集吃进去。
-    """
-    queries: list[dict] = []
-    if labels:
-        for label in labels:
-            label_id = _known_label_id(name=label)
-            if label_id is None:
-                continue  # 未知标签 → 零匹配（见 docstring：不许退化成无过滤）
-            queries.append(
-                {"state": state, "type": "issues", "limit": _LIST_LIMIT, "labels": label_id}
-            )
-    else:
-        queries = [{"state": state, "type": "issues", "limit": _LIST_LIMIT}]
+def _list_issue_pages(
+    *, path: str, query: dict, wanted: set[str], repo_full_name: str | None
+) -> list[Issue]:
+    """# Spec-0074/T2: 翻页读取 issue；响应侧复核仓库、标签与 PR 类型，服务端异常时 fail-closed。"""
     seen: dict[int, Issue] = {}
-    for query in queries:
+    raw_seen: set[tuple[str, int]] = set()
+    page = 1
+    while True:
+        page_query = dict(query)
+        page_query.update({"limit": _LIST_LIMIT, "page": page})
         result = _request(
-            method="GET", path=_repo_path(suffix="issues"), body=None, query=query, allow=()
+            method="GET",
+            path=path,
+            body=None,
+            query=page_query,
+            allow=(),
         )
-        for raw in result.data or []:
+        rows = result.data or []
+        if not rows:
+            break
+        added = 0
+        for raw in rows:
+            number = int(raw["number"])
+            raw_repo = str((raw.get("repository") or {}).get("full_name") or "")
+            raw_key = (raw_repo, number)
+            if raw_key not in raw_seen:
+                raw_seen.add(raw_key)
+                added += 1
+            if repo_full_name is not None and raw_repo.casefold() != repo_full_name.casefold():
+                continue
+            if raw.get("pull_request") is not None:
+                continue
             issue = _issue_from(raw=raw)
+            if wanted and wanted.isdisjoint(issue.labels):
+                continue
+            seen.setdefault(issue.number, issue)
+        if len(rows) < _LIST_LIMIT or not added:
+            break
+        page += 1
+    return list(seen.values())
+
+
+def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
+    """# Spec-0074/T2: 已知标签交 Gitea search API 做服务端 OR 过滤，响应侧 fail-closed 复核。
+
+    仓库端点 `/repos/{owner}/{repo}/issues` 的 1.22.6 实现有两处陷阱：不存在标签会被静默丢弃并退化
+    成未过滤；重复同名标签会展开成多个 id 后按 AND 查询。全局 `/repos/issues/search` 则走
+    `IncludedAnyLabelIDs`，按标签名执行真正 OR，且响应携带 repository，可在本地收窄到目标仓库。
+
+    查询前完整读取仓库标签：未知名直接零匹配，不把无效过滤交给服务端。响应仍按仓库、标签名和 PR 字段
+    复核，防服务端回归造成全量发现。逗号是 API 的标签分隔符，标签名本身含逗号时无法无歧义传输，才回退
+    到仓库端点分页后本地匹配。labels 为空仍表示列出该 state 的全部 issue。
+    """
+    if not labels:
+        return _list_issue_pages(
+            path=_repo_path(suffix="issues"),
+            query={"state": state, "type": "issues"},
+            wanted=set(),
+            repo_full_name=None,
+        )
+
+    _refresh_label_cache()
+    known = list(dict.fromkeys(label for label in labels if label in _label_ids))
+    if not known:
+        return []
+
+    _, owner, repo = _ensure_configured()
+    server_labels = [label for label in known if "," not in label]
+    fallback_labels = {label for label in known if "," in label}
+    seen: dict[int, Issue] = {}
+    if server_labels:
+        for issue in _list_issue_pages(
+            path="repos/issues/search",
+            query={
+                "owner": owner,
+                "state": state,
+                "type": "issues",
+                "labels": ",".join(server_labels),
+            },
+            wanted=set(server_labels),
+            repo_full_name=f"{owner}/{repo}",
+        ):
+            seen.setdefault(issue.number, issue)
+    if fallback_labels:
+        for issue in _list_issue_pages(
+            path=_repo_path(suffix="issues"),
+            query={"state": state, "type": "issues"},
+            wanted=fallback_labels,
+            repo_full_name=None,
+        ):
             seen.setdefault(issue.number, issue)
     return list(seen.values())
 

@@ -58,15 +58,17 @@ def test_token_missing_fails_loud(monkeypatch):
 
 
 def test_ensure_prerequisites_probes_repo_and_labels(monkeypatch):
-    labels_ok = (201, {"id": 1, "name": "x"}, "")
+    existing = [
+        {"id": index, "name": name} for index, name in enumerate(gitea.PROCESS_LABELS, start=1)
+    ]
     fake = _install(
         monkeypatch,
         (200, {"full_name": "own/rep"}, ""),  # GET repos/own/rep
-        *([labels_ok] * len(gitea.PROCESS_LABELS)),
+        (200, existing, ""),  # 首个 ensure 完整预读；其余全部命中缓存，零 POST
     )
     gitea.ensure_prerequisites()
     assert fake.calls[0] == {"method": "GET", "path": "repos/own/rep", "body": None, "query": None}
-    assert all(call["path"] == "repos/own/rep/labels" for call in fake.calls[1:])
+    assert [call["method"] for call in fake.calls] == ["GET", "GET"]
 
 
 # --------------------------------------------------------------------------------------------------
@@ -75,28 +77,53 @@ def test_ensure_prerequisites_probes_repo_and_labels(monkeypatch):
 
 
 def test_ensure_label_creates_with_hash_color(monkeypatch):
-    fake = _install(monkeypatch, (201, {"id": 7, "name": "ready"}, ""))
+    fake = _install(
+        monkeypatch,
+        (200, [], ""),  # POST 前完整预读，确实不存在
+        (201, {"id": 7, "name": "ready"}, ""),
+    )
     gitea.ensure_label(name="ready")
-    assert fake.calls[0]["method"] == "POST"
-    assert fake.calls[0]["body"] == {"name": "ready", "color": "#ededed", "description": ""}
+    assert [call["method"] for call in fake.calls] == ["GET", "POST"]
+    assert fake.calls[1]["body"] == {"name": "ready", "color": "#ededed", "description": ""}
     assert gitea._label_ids["ready"] == 7
 
 
-def test_ensure_label_already_exists_refreshes_cache(monkeypatch):
+def test_ensure_label_existing_name_never_posts(monkeypatch):
+    fake = _install(monkeypatch, (200, [{"id": 3, "name": "ready"}], ""))
+    gitea.ensure_label(name="ready")
+    assert gitea._label_ids["ready"] == 3
+    assert [call["method"] for call in fake.calls] == ["GET"]
+
+
+def test_ensure_label_creation_race_refreshes_cache(monkeypatch):
     fake = _install(
         monkeypatch,
+        (200, [], ""),  # 预读时尚不存在
         (409, None, "already exists"),
         (200, [{"id": 3, "name": "ready"}], ""),  # 回退 GET labels
     )
     gitea.ensure_label(name="ready")
     assert gitea._label_ids["ready"] == 3
-    assert [call["method"] for call in fake.calls] == ["POST", "GET"]
+    assert [call["method"] for call in fake.calls] == ["GET", "POST", "GET"]
+
+
+def test_ensure_label_reads_all_pages_before_creating(monkeypatch):
+    monkeypatch.setattr(gitea, "_LIST_LIMIT", 2)
+    fake = _install(
+        monkeypatch,
+        (200, [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}], ""),
+        (200, [{"id": 3, "name": "ready"}], ""),
+    )
+    gitea.ensure_label(name="ready")
+    assert [call["query"]["page"] for call in fake.calls] == [1, 2]
+    assert all(call["method"] == "GET" for call in fake.calls)
 
 
 def test_issue_add_label_resolves_id(monkeypatch):
     gitea._label_ids["ready"] = 5
     fake = _install(monkeypatch, (200, [], ""))
     gitea.issue_add_label(number=9, name="ready")
+    assert fake.calls[0]["method"] == "POST"
     assert fake.calls[0]["path"] == "repos/own/rep/issues/9/labels"
     assert fake.calls[0]["body"] == {"labels": [5]}
 
@@ -127,32 +154,168 @@ def test_get_issue_parses_labels(monkeypatch):
     assert issue.number == 3 and issue.labels == ("ready",)
 
 
-def test_list_issues_filters_prs_and_unions_labels(monkeypatch):
-    # Spec-0074 实证修复：labels 查询参数按 label **ID** 过滤（传名恒零匹配），名→id 经缓存解析。
-    gitea._label_ids.update({"openagents": 11, "ready": 12})
+def test_list_issues_uses_server_search_and_revalidates_response(monkeypatch):
+    """# Spec-0074/T2: 标签过滤交 search API；若服务端混回脏数据，响应复核仍 fail-closed。"""
     fake = _install(
         monkeypatch,
-        (200, [{"number": 1, "title": "a", "body": "", "labels": []}], ""),
+        (200, [{"id": 11, "name": "openagents"}], ""),
         (
             200,
             [
-                {"number": 1, "title": "a", "body": "", "labels": []},
-                {"number": 2, "title": "b", "body": "", "labels": []},
+                {
+                    "number": 1,
+                    "title": "wanted",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+                {
+                    "number": 2,
+                    "title": "must-not-leak",
+                    "body": "",
+                    "labels": [{"name": "needs-triage"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+                {
+                    "number": 3,
+                    "title": "pr",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "pull_request": {"merged": False},
+                    "repository": {"full_name": "own/rep"},
+                },
+                {
+                    "number": 4,
+                    "title": "other-repo",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "repository": {"full_name": "own/another"},
+                },
             ],
             "",
         ),
     )
-    issues = gitea.list_issues(labels=["openagents", "ready"])
-    assert [issue.number for issue in issues] == [1, 2]  # 按 number 去重合并（OR 语义）
-    assert all(call["query"]["type"] == "issues" for call in fake.calls)  # 排除 PR
-    assert [call["query"]["labels"] for call in fake.calls] == [11, 12]  # ID 而非名
+    issues = gitea.list_issues(labels=["openagents"])
+    assert [issue.number for issue in issues] == [1]
+    assert fake.calls[1]["path"] == "repos/issues/search"
+    assert fake.calls[1]["query"] == {
+        "owner": "own",
+        "state": "open",
+        "type": "issues",
+        "labels": "openagents",
+        "limit": gitea._LIST_LIMIT,
+        "page": 1,
+    }
+
+
+def test_list_issues_multiple_labels_are_one_server_side_or_query(monkeypatch):
+    fake = _install(
+        monkeypatch,
+        (200, [{"id": 11, "name": "openagents"}, {"id": 12, "name": "ready"}], ""),
+        (
+            200,
+            [
+                {
+                    "number": 1,
+                    "title": "a",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+                {
+                    "number": 2,
+                    "title": "b",
+                    "body": "",
+                    "labels": [{"name": "ready"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+            ],
+            "",
+        ),
+    )
+    assert [issue.number for issue in gitea.list_issues(labels=["openagents", "ready"])] == [1, 2]
+    assert fake.calls[1]["query"]["labels"] == "openagents,ready"
+    assert len(fake.calls) == 2
 
 
 def test_list_issues_unknown_label_is_zero_match_not_unfiltered(monkeypatch):
     """未知标签必须是「零匹配」——绝不能把 labels 参数省掉退化成全量发现（vigil 会吃进所有 issue）。"""
-    fake = _install(monkeypatch, (200, [{"id": 3, "name": "other"}], ""))  # 仅缓存刷新的 GET labels
+    fake = _install(
+        monkeypatch,
+        (200, [{"id": 3, "name": "other"}], ""),
+    )
     assert gitea.list_issues(labels=["ghost"]) == []
-    assert [call["path"] for call in fake.calls] == ["repos/own/rep/labels"]  # 无 issues 查询发出
+    assert [call["path"] for call in fake.calls] == ["repos/own/rep/labels"]
+
+
+def test_list_issues_paginates_without_losing_matches(monkeypatch):
+    monkeypatch.setattr(gitea, "_LIST_LIMIT", 2)
+    fake = _install(
+        monkeypatch,
+        (200, [{"id": 11, "name": "openagents"}], ""),
+        (
+            200,
+            [
+                {
+                    "number": 1,
+                    "title": "a",
+                    "body": "",
+                    "labels": [{"name": "other"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+                {
+                    "number": 2,
+                    "title": "b",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "repository": {"full_name": "own/rep"},
+                },
+            ],
+            "",
+        ),
+        (
+            200,
+            [
+                {
+                    "number": 3,
+                    "title": "c",
+                    "body": "",
+                    "labels": [{"name": "openagents"}],
+                    "repository": {"full_name": "own/rep"},
+                }
+            ],
+            "",
+        ),
+    )
+    assert [issue.number for issue in gitea.list_issues(labels=["openagents"])] == [2, 3]
+    assert [call["query"]["page"] for call in fake.calls[1:]] == [1, 2]
+
+
+def test_list_issues_without_labels_uses_repository_endpoint(monkeypatch):
+    fake = _install(
+        monkeypatch,
+        (200, [{"number": 1, "title": "a", "body": "", "labels": []}], ""),
+    )
+    assert [issue.number for issue in gitea.list_issues(labels=[])] == [1]
+    assert fake.calls[0]["path"] == "repos/own/rep/issues"
+    assert "labels" not in fake.calls[0]["query"]
+
+
+def test_list_issues_label_containing_comma_falls_back_to_local_filter(monkeypatch):
+    fake = _install(
+        monkeypatch,
+        (200, [{"id": 11, "name": "team,a"}], ""),
+        (
+            200,
+            [{"number": 1, "title": "a", "body": "", "labels": [{"name": "team,a"}]}],
+            "",
+        ),
+    )
+    assert [issue.number for issue in gitea.list_issues(labels=["team,a"])] == [1]
+    assert [call["path"] for call in fake.calls] == [
+        "repos/own/rep/labels",
+        "repos/own/rep/issues",
+    ]
 
 
 def test_create_issue_maps_label_names_to_ids(monkeypatch):

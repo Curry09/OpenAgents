@@ -20,6 +20,7 @@
 Exports:
     run_agent -- 填占位符 → 派 backend → 校验末行 JSON → 返回结构化 dict。
     AgentOutputError -- agent 输出不合 OUTPUT_SCHEMA 契约（坏 JSON / 缺键 / 类型不符）时抛出。
+    NeedsHumanRequest -- agent 以结构化控制结果请求 Vigil 停止自动推进、交给人处理。
 """
 
 from __future__ import annotations
@@ -33,6 +34,18 @@ class AgentOutputError(Exception):
 
     Spec-0060/T2: agent 输出不合契约（坏 JSON / 末行非 JSON 对象 / 缺 schema 键 / 键类型不符）时抛出。
     """
+
+
+class NeedsHumanRequest(Exception):
+    """Agent 主动请求控制面停止自动推进并交给人处理。
+
+    Spec-0075/T2：这是所有角色 OUTPUT_SCHEMA 之外的统一控制 envelope。Agent 只负责给出原因；
+    forge 标签、评论、签名和 subject 归属全部由 Vigil 处理。
+    """
+
+    def __init__(self, *, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[str, Any]:
@@ -51,8 +64,30 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
     result = backend.run(work_dir=work_dir, task=prompt, context=context)
 
     parsed = _parse_last_json(text=result.summary)
+    _raise_needs_human(payload=parsed)
     _validate(payload=parsed, schema=agent_module.OUTPUT_SCHEMA)
     return parsed
+
+
+def _raise_needs_human(*, payload: dict[str, Any]) -> None:
+    """识别统一 needs-human envelope；形状不完整时 fail-visible。
+
+    只要 payload 声明了 ``needs_human``，它就不能再退回普通角色 schema：否则拼错控制结果会被某个
+    恰好兼容的角色静默接受。合法形状固定为 ``{"needs_human": true, "reason": "..."}``。
+    """
+    if "needs_human" not in payload:
+        return
+    if payload.get("needs_human") is not True:
+        raise AgentOutputError(f"agent needs-human 控制结果要求 needs_human=true：{payload!r}")
+    unexpected = set(payload) - {"needs_human", "reason"}
+    if unexpected:
+        raise AgentOutputError(
+            f"agent needs-human 控制结果含未知键 {sorted(unexpected)!r}：{payload!r}"
+        )
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise AgentOutputError(f"agent needs-human 控制结果缺少非空 reason：{payload!r}")
+    raise NeedsHumanRequest(reason=reason.strip())
 
 
 def _parse_last_json(*, text: str) -> dict[str, Any]:
