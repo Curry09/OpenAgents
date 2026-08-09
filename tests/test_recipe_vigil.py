@@ -756,6 +756,13 @@ def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(mon
         "list_issues",
         lambda *, labels: [github.Issue(number=5, title="标题", body="正文", labels=())],
     )
+    monkeypatch.setattr(
+        vigil_module.github,
+        "get_issue",
+        lambda *, number: github.Issue(
+            number=number, title="标题", body="正文", labels=("openagents",)
+        ),
+    )
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
     monkeypatch.setattr(
         vigil_module.stages,

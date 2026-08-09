@@ -5,7 +5,7 @@
 「合并」这一个几乎零判断的机械动作（跑一条平台命令），换来的是架构一致性（生命周期动作全归
 agent 层）+ 一个最后关头的 `needs-human` 一等出口（察觉硬闸没覆盖的异常时主动交人，绝不硬合）。
 
-Spec-0074/T1：平台命令参数化——`gh pr merge` / `gh pr view` 硬编码改 `$merge_command` /
+Spec-0074/T1：平台命令参数化——原 GitHub CLI 合并/查看硬编码改 `$merge_command` /
 `$verify_command` 占位符，由 stages.merge 经当前 forge driver 的 merge_command_text /
 merge_verify_command_text 注入（GitHub 侧仍是原 gh 命令，行为零变化；Gitea 侧是
 `openagents merge-pr --pr N`，token 处理留在 driver 内、凭证不进提示词）。

@@ -44,6 +44,17 @@ def _issue(*, number: int) -> github.Issue:
     return github.Issue(number=number, title="标题", body="正文", labels=())
 
 
+def _keep_discovered(monkeypatch) -> None:
+    """# Spec-0074/T1: 准入测试的最新现态仍带 discovery label。"""
+    monkeypatch.setattr(
+        vigil_module.github,
+        "get_issue",
+        lambda *, number: github.Issue(
+            number=number, title="标题", body="正文", labels=("openagents",)
+        ),
+    )
+
+
 # --------------------------------------------------------------------------------------------------
 # T4-A：`_intake` 在拉带标签 issue **之前**打一行进度——卡在拉 issue 时输出停在这行。
 # --------------------------------------------------------------------------------------------------
@@ -85,6 +96,7 @@ def test_intake_behaviour_unchanged_admits_and_orders_edges(monkeypatch, tmp_pat
     # 逐字节不变：进度行不改控制流——issue 照常过 triager 准入、打 ready、admitted>0 才排边。
     monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
     monkeypatch.setattr(vigil_module.github, "list_issues", lambda *, labels: [_issue(number=5)])
+    _keep_discovered(monkeypatch)
     labels: list[tuple[int, str]] = []
     monkeypatch.setattr(
         vigil_module.github,
@@ -114,6 +126,7 @@ def test_intake_behaviour_unchanged_admits_and_orders_edges(monkeypatch, tmp_pat
 
 def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
     order: list[str] = []
+    _keep_discovered(monkeypatch)
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
 
     def _triage(*, backend, work_dir, issue):
@@ -134,6 +147,7 @@ def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
         work_dir=tmp_path,
         issue=_issue(number=9),
         agent_id="vigil-1",
+        discovery_labels=("openagents",),
     )
 
     assert admitted == 1, "既有返回值不变：actionable → 准入（返回 1）"
@@ -141,6 +155,7 @@ def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
 
 
 def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_path, capsys):
+    _keep_discovered(monkeypatch)
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
     monkeypatch.setattr(
         vigil_module.stages,
@@ -154,6 +169,7 @@ def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_pat
         work_dir=tmp_path,
         issue=_issue(number=42),
         agent_id="vigil-1",
+        discovery_labels=("openagents",),
     )
 
     err = capsys.readouterr().err
@@ -164,6 +180,7 @@ def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_pat
 
 def test_admit_skip_route_does_not_log_triage_progress(monkeypatch, tmp_path, capsys):
     # 回归：skip 态直接放行、不调 triager，故不该打「调 LLM」的进度行（进度只属于真会慢的 agent 态）。
+    _keep_discovered(monkeypatch)
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
 
     admitted = _admit(
@@ -172,7 +189,38 @@ def test_admit_skip_route_does_not_log_triage_progress(monkeypatch, tmp_path, ca
         work_dir=tmp_path,
         issue=_issue(number=7),
         agent_id="vigil-1",
+        discovery_labels=("openagents",),
     )
 
     assert admitted == 1
     assert "自检分诊方向(LLM)" not in capsys.readouterr().err, "skip 不叫 LLM → 不该打分诊进度行"
+
+
+def test_intake_does_not_grant_ready_after_discovery_label_is_removed(monkeypatch, tmp_path):
+    """# Spec-0074/T1: list 后到 grant 前摘标，旧快照不得继续派单，也不得触发 curator。"""
+    discovered = github.Issue(number=5, title="标题", body="正文", labels=("openagents",))
+    removed = github.Issue(number=5, title="标题", body="正文", labels=("bug",))
+    monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
+    monkeypatch.setattr(vigil_module.github, "list_issues", lambda *, labels: [discovered])
+    monkeypatch.setattr(vigil_module.github, "get_issue", lambda *, number: removed)
+    granted: list[tuple[int, str]] = []
+    monkeypatch.setattr(
+        vigil_module.github,
+        "issue_add_label",
+        lambda *, number, name: granted.append((number, name)),
+    )
+    ordered: list[bool] = []
+    monkeypatch.setattr(
+        vigil_module, "_order_edges", lambda *, backend, work_dir, agent_id: ordered.append(True)
+    )
+
+    _intake(
+        backend=object(),
+        work_dir=tmp_path,
+        config=_config(stages=_stages(triage="skip")),
+        agent_id="vigil-1",
+        now=_NOW,
+    )
+
+    assert granted == [], "discovery label 已摘除却仍打 ready = 用旧快照绕过 owner"
+    assert ordered == [], "零准入不应触发 curator"

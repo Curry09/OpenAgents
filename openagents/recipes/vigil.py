@@ -1784,6 +1784,7 @@ def _intake(
                 work_dir=Path(work_dir),
                 issue=issue,
                 agent_id=agent_id,
+                discovery_labels=tuple(config.labels),
             )
         except Exception as exc:  # noqa: BLE001 —— 单 issue 准入失败不拖垮整轮（含 _ActTimeout）
             _log(message=f"✗ issue #{issue.number} 准入失败，跳过：{exc}")
@@ -1791,7 +1792,15 @@ def _intake(
         _order_edges(backend=timed, work_dir=Path(work_dir), agent_id=agent_id)
 
 
-def _admit(*, owner: str, backend: Any, work_dir: Path, issue: Any, agent_id: str) -> int:
+def _admit(
+    *,
+    owner: str,
+    backend: Any,
+    work_dir: Path,
+    issue: Any,
+    agent_id: str,
+    discovery_labels: tuple[str, ...],
+) -> int:
     """单个新 issue 的三态准入：`skip` 直接放行 / `agent` 派 triager 判 / `human` **在评论里跟人对话确认**。
 
     返回准入数（0/1）。`human` 态是一场**跨 tick 的对话**，不是一次挂起——见 `_ask_human`。
@@ -1802,7 +1811,7 @@ def _admit(*, owner: str, backend: Any, work_dir: Path, issue: Any, agent_id: st
         _log(message=f"… issue #{issue.number} 自检分诊方向(LLM)…")
         verdict = stages.triage(backend=backend, work_dir=work_dir, issue=issue)
         if verdict["actionable"]:
-            return _grant_ready(issue=issue)
+            return _grant_ready(issue=issue, discovery_labels=discovery_labels)
         _park_needs_human(
             subject=f"{_KIND_ISSUE}:{issue.number}",
             body=f"⏸ openagents 分诊：本 issue 暂不可直接派单，请对齐后再触发。\n\n{verdict['reason']}",
@@ -1814,13 +1823,24 @@ def _admit(*, owner: str, backend: Any, work_dir: Path, issue: Any, agent_id: st
         owner=owner,
         on_agent=_on_agent,
         on_human=lambda: _ask_human(
-            backend=backend, work_dir=work_dir, issue=issue, agent_id=agent_id
+            backend=backend,
+            work_dir=work_dir,
+            issue=issue,
+            agent_id=agent_id,
+            discovery_labels=discovery_labels,
         ),
-        on_skip=lambda: _grant_ready(issue=issue),
+        on_skip=lambda: _grant_ready(issue=issue, discovery_labels=discovery_labels),
     )
 
 
-def _ask_human(*, backend: Any, work_dir: Path, issue: Any, agent_id: str) -> int:
+def _ask_human(
+    *,
+    backend: Any,
+    work_dir: Path,
+    issue: Any,
+    agent_id: str,
+    discovery_labels: tuple[str, ...],
+) -> int:
     """`triage: human` 的准入：**在 issue 评论里跟人对话确认**，人点头才打 `ready`。返回准入数（0/1）。
 
     三个状态，全部从 GitHub 现态推出来（level-triggered，零本地记忆——重启/换机器都不影响）：
@@ -1892,7 +1912,7 @@ def _ask_human(*, backend: Any, work_dir: Path, issue: Any, agent_id: str) -> in
         _post_admit_verdict(issue=issue, verdict=verdict, reply_key=reply_key, agent_id=agent_id)
     if verdict["approved"]:
         _log(message=f"✓ issue #{issue.number}：人已点头（准入对话）→ 准入")
-        return _grant_ready(issue=issue)
+        return _grant_ready(issue=issue, discovery_labels=discovery_labels)
     _park_needs_human(
         subject=subject,
         body=(
@@ -2067,9 +2087,19 @@ def _latest_marked(*, comments: list[github.Comment], mark: str) -> github.Comme
     return max(marked, key=lambda comment: comment.created_at)
 
 
-def _grant_ready(*, issue: Any) -> int:
-    """准入令牌落 GitHub：打 `ready` label（幂等）。返回 1（供 `_intake` 计准入数）。"""
-    github.issue_add_label(number=issue.number, name=_LABEL_READY)
+def _grant_ready(*, issue: Any, discovery_labels: tuple[str, ...]) -> int:
+    """# Spec-0074/T1: 重读 issue 后才发 `ready`，关闭发现→准入之间的 TOCTOU 窗口。
+
+    discovery labels 是 OR 语义；若人在 triage/admit 对话期间摘掉最后一个发现标签，守夜必须尊重最新现态，
+    不能拿旧快照继续派单。并发流程已打 ready / needs-human 时也不重复推进 curator。
+    """
+    latest = github.get_issue(number=issue.number)
+    if _LABEL_READY in latest.labels or _LABEL_NEEDS_HUMAN in latest.labels:
+        return 0
+    if discovery_labels and set(discovery_labels).isdisjoint(latest.labels):
+        _log(message=f"↷ issue #{issue.number}：发现标签已被摘除，取消准入")
+        return 0
+    github.issue_add_label(number=latest.number, name=_LABEL_READY)
     _log(message=f"✓ issue #{issue.number}：过准入门控，已打 {_LABEL_READY}")
     return 1
 

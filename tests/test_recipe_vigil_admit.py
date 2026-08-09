@@ -80,6 +80,7 @@ class _AdmitWorld:
         self.dialogues: list[str] = []
         self.reads = 0  # 读了几次评论流
         self.label_failures = 0  # 还要让 issue_add_label 抛几次（模拟 gh 429）
+        self.issue_labels = ("openagents",)  # `_grant_ready` 临门复读时仍在发现集
         self.clock = 100  # 评论时间戳游标（分钟）：新增的评论恒新于任何预置评论
 
     def add(self, *, body: str, author: str) -> None:
@@ -115,6 +116,13 @@ def _world(monkeypatch, *, comments: list[github.Comment], verdict: dict | None)
         raise AssertionError("F1：准入对话上叫 triager = 人闸退化成一台偏向「是」的 agent 闸")
 
     monkeypatch.setattr(vigil_module.github, "list_issue_comments", _read)
+    monkeypatch.setattr(
+        vigil_module.github,
+        "get_issue",
+        lambda *, number: github.Issue(
+            number=number, title="标题", body="issue 正文", labels=world.issue_labels
+        ),
+    )
     monkeypatch.setattr(vigil_module.github, "issue_comment", _post)
     monkeypatch.setattr(vigil_module.github, "issue_add_label", _add_label)
     monkeypatch.setattr(vigil_module.stages, "admit", _admit_stage)
@@ -125,7 +133,11 @@ def _world(monkeypatch, *, comments: list[github.Comment], verdict: dict | None)
 def _tick(*, work_dir: Path, number: int) -> int:
     """跑一个 tick 的 `_ask_human`（现态全在 `_world` 打的桩里——level-triggered，本函数无需带状态）。"""
     return _ask_human(
-        backend=object(), work_dir=work_dir, issue=_issue(number=number), agent_id=_AGENT_ID
+        backend=object(),
+        work_dir=work_dir,
+        issue=_issue(number=number),
+        agent_id=_AGENT_ID,
+        discovery_labels=("openagents",),
     )
 
 
@@ -459,11 +471,29 @@ def test_skip_and_agent_routes_never_touch_the_dialogue(monkeypatch, tmp_path):
     )
     issue = _issue(number=5)
 
-    assert _admit(owner="skip", backend=object(), work_dir=tmp_path, issue=issue, agent_id="v") == 1
+    assert (
+        _admit(
+            owner="skip",
+            backend=object(),
+            work_dir=tmp_path,
+            issue=issue,
+            agent_id="v",
+            discovery_labels=("openagents",),
+        )
+        == 1
+    )
     assert triaged == [], "skip = 直接放行，连 LLM 都不叫"
 
     assert (
-        _admit(owner="agent", backend=object(), work_dir=tmp_path, issue=issue, agent_id="v") == 1
+        _admit(
+            owner="agent",
+            backend=object(),
+            work_dir=tmp_path,
+            issue=issue,
+            agent_id="v",
+            discovery_labels=("openagents",),
+        )
+        == 1
     )
     assert triaged == [issue], "agent 态判的是原始 issue，没有对话可拼"
 
