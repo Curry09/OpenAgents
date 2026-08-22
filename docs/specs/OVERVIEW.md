@@ -254,6 +254,9 @@ OpenAgents 的全部平台操作走 utils/github.py（gh CLI 薄封装），编�
 ### 0075 needs-human 结构化交接与标签完整性守卫
 Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和签名评论，并在每次动作后检测、恢复非预期标签删除，防止 Gitea PUT 覆盖流程元数据。
 
+### 0076 交付面技术架构决策与实现前质量闸
+将已确认需求转化为可审查的技术架构决策，在实现前验证干预层、备选方案与行为证据，并在合并前复核全局仓库不变量。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -539,6 +542,11 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0075 | 0075/T2 | 增加结构化 needs-human 控制结果 | done | T1 | openagents/runtime/engine.py<br>tests/test_runtime_engine.py |
 | 0075 | 0075/T3 | 由 Vigil 统一交接并守卫标签完整性 | done | T2 | openagents/recipes/vigil.py<br>openagents/agents/merger.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_agents_merger.py |
 | 0075 | 0075/T4 | 锁定 Gitea 追加标签契约并完成 E2E | done | T3 | openagents/utils/gitea.py<br>tests/test_gitea_driver.py<br>scripts/e2e-spec-0075-needs-human-label-integrity.sh |
+| 0076 | 0076/T1 | Spec 架构决策与行为验收契约 | pending | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/mutate.py<br>openagents/spec/validate.py<br>tests/test_spec_model.py<br>tests/test_spec_mutate.py<br>tests/test_spec_validate.py |
+| 0076 | 0076/T2 | Drafter 技术架构产出契约与 skill 接线 | pending | T1 | openagents/agents/drafter.py<br>openagents/runtime/context.py<br>tests/test_agents_drafter.py<br>tests/test_runtime_context.py |
+| 0076 | 0076/T3 | 独立 Architect 角色与架构裁决 | pending | T1, T2 | openagents/agents/architect.py<br>tests/test_agents_architect.py |
+| 0076 | 0076/T4 | Vigil 实现前架构闸与最终集成闸 | pending | T1, T3 | openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/state.py<br>openagents/utils/agent_config.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state.py<br>tests/test_utils_agent_config.py |
+| 0076 | 0076/T5 | 行为证据清单、实现评审与端到端反证 | pending | T3, T4 | openagents/agents/tester.py<br>openagents/agents/reviewer.py<br>openagents/runtime/evidence.py<br>tests/test_agents_tester.py<br>tests/test_agents_reviewer.py<br>tests/test_runtime_evidence.py<br>scripts/e2e-spec-0076-architecture-decision-gate.sh |
 
 ## 跨 feature 关系图
 
@@ -969,6 +977,13 @@ graph LR
         n0075_T3["T3 由 Vigil 统一交接并守卫标签完整性"]
         n0075_T4["T4 锁定 Gitea 追加标签契约并完成 E2E"]
     end
+    subgraph G0076[0076 architecture-decision-gate]
+        n0076_T1["T1 Spec 架构决策与行为验收契约"]
+        n0076_T2["T2 Drafter 技术架构产出契约与 skill 接线"]
+        n0076_T3["T3 独立 Architect 角色与架构裁决"]
+        n0076_T4["T4 Vigil 实现前架构闸与最终集成闸"]
+        n0076_T5["T5 行为证据清单、实现评审与端到端反证"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1202,6 +1217,13 @@ graph LR
     n0075_T2 --> n0075_T1
     n0075_T3 --> n0075_T2
     n0075_T4 --> n0075_T3
+    n0076_T2 --> n0076_T1
+    n0076_T3 --> n0076_T1
+    n0076_T3 --> n0076_T2
+    n0076_T4 --> n0076_T1
+    n0076_T4 --> n0076_T3
+    n0076_T5 --> n0076_T3
+    n0076_T5 --> n0076_T4
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1220,11 +1242,13 @@ graph LR
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
 | openagents/agents/deliver.py | 0017, 0060 |
-| openagents/agents/drafter.py | 0059, 0062 |
+| openagents/agents/drafter.py | 0059, 0062, 0076 |
 | openagents/agents/implementer.py | 0059, 0060 |
 | openagents/agents/merger.py | 0017, 0074, 0075 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061 |
+| openagents/agents/reviewer.py | 0060, 0076 |
+| openagents/agents/tester.py | 0060, 0076 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073 |
@@ -1252,26 +1276,26 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076 |
 | openagents/runtime/engine.py | 0059, 0060, 0075 |
-| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074 |
-| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065 |
+| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
-| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072 |
-| openagents/spec/mutate.py | 0014, 0015 |
+| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
+| openagents/spec/mutate.py | 0014, 0015, 0076 |
 | openagents/spec/render.py | 0014, 0015, 0040, 0055 |
-| openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055, 0072 |
+| openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/spec/signpost.py | 0024, 0028, 0055 |
-| openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072 |
+| openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067, 0074 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076 |
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
@@ -1292,6 +1316,7 @@ graph LR
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/conftest.py | 0065, 0070 |
 | tests/test_agent_config.py | 0064, 0067 |
+| tests/test_agents_drafter.py | 0062, 0076 |
 | tests/test_agents_merger.py | 0017, 0074, 0075 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
 | tests/test_backfill.py | 0025, 0029 |
@@ -1326,9 +1351,9 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076 |
 | tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075 |
-| tests/test_recipe_vigil_act.py | 0017, 0065, 0075 |
+| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076 |
 | tests/test_recipe_vigil_admit.py | 0065, 0074 |
 | tests/test_recipe_vigil_discovery.py | 0035, 0074 |
 | tests/test_recipe_vigil_queue.py | 0065, 0075 |
@@ -1336,15 +1361,15 @@ graph LR
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
-| tests/test_runtime_context.py | 0060, 0065 |
+| tests/test_runtime_context.py | 0060, 0065, 0076 |
 | tests/test_runtime_engine.py | 0060, 0075 |
-| tests/test_runtime_gates.py | 0017, 0060 |
+| tests/test_runtime_gates.py | 0017, 0060, 0076 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
-| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072 |
-| tests/test_spec_mutate.py | 0014, 0015, 0024 |
+| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
+| tests/test_spec_mutate.py | 0014, 0015, 0024, 0076 |
 | tests/test_spec_render.py | 0014, 0015, 0040, 0055 |
 | tests/test_spec_signpost.py | 0024, 0055 |
-| tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055, 0072 |
+| tests/test_spec_validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | tests/test_state.py | 0001, 0003, 0005, 0007, 0011, 0012, 0021, 0029, 0055, 0063 |
 | tests/test_state_closed_at.py | 0042, 0063 |
 | tests/test_state_code_fingerprint.py | 0053, 0063 |
@@ -3367,4 +3392,39 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0076 交付面技术架构决策与实现前质量闸（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 Spec 架构决策与行为验收契约"]
+    nT2["T2 Drafter 技术架构产出契约与 skill 接线"]
+    nT3["T3 独立 Architect 角色与架构裁决"]
+    nT4["T4 Vigil 实现前架构闸与最终集成闸"]
+    nT5["T5 行为证据清单、实现评审与端到端反证"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT3 --> nT4
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
+    class v_T4_1 st_pending;
+    class v_T5_1 st_pending;
 ```
