@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import Group, Metadata, Task
+from openagents.spec.model import ArchitectureDecision, Group, Metadata, Task, VerificationPlan
 from openagents.spec.render import write_overview
 
 
@@ -32,7 +32,14 @@ def create_group(
         raise FileExistsError(f"spec 组已存在：{path}")
     group = Group(
         number=group_number,
-        metadata=Metadata(title=title, issue=issue, slug=slug, summary=summary),
+        metadata=Metadata(
+            title=title,
+            issue=issue,
+            slug=slug,
+            summary=summary,
+            architecture=ArchitectureDecision(),
+            verification=VerificationPlan(),
+        ),
         tasks=[],
         history={},
     )

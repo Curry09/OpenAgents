@@ -9,7 +9,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from openagents.spec import model
-from openagents.spec.model import E2EPlan, Group, Metadata, Overview, RelatesTo, Task
+from openagents.spec.model import (
+    ArchitectureCandidate,
+    ArchitectureDecision,
+    BehaviorCase,
+    E2EPlan,
+    Group,
+    Metadata,
+    Overview,
+    RelatesTo,
+    Task,
+    VerificationPlan,
+)
 from openagents.spec.validate import validate
 
 
@@ -359,3 +370,37 @@ def test_seven_tasks_with_rationale_is_silent(tmp_path: Path) -> None:
     report = validate(specs_root=tmp_path)
     assert report.ok is True
     assert not any("软上限" in m for m in _warnings(report))
+
+
+def test_architecture_requires_selected_candidate_and_opposite_cases(tmp_path: Path) -> None:
+    group = Group(
+        number="0001",
+        metadata=Metadata(
+            title="a",
+            issue=1,
+            slug="a",
+            summary="s",
+            architecture=ArchitectureDecision(
+                objective="o",
+                candidates=[ArchitectureCandidate("runtime", "runtime")],
+                selected="prompt",
+            ),
+            verification=VerificationPlan(
+                behavior_cases=[BehaviorCase("p", "positive", "x", "y", "replay")]
+            ),
+        ),
+        tasks=[_task()],
+        overview=_overview(),
+    )
+    model.dump_group(
+        group=group, path=model.group_path(specs_root=tmp_path, number="0001", slug="a")
+    )
+    errors = _errors(validate(specs_root=tmp_path))
+    assert any("selected" in item for item in errors)
+    assert any("positive/negative" in item for item in errors)
+
+
+def test_duplicate_group_number_is_repository_error(tmp_path: Path) -> None:
+    _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task()])
+    _group(root=tmp_path, number="0001", slug="beta", issue=2, tasks=[_task(id="T2")])
+    assert any("重复 number" in item for item in _errors(validate(specs_root=tmp_path)))

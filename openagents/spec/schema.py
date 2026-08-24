@@ -78,6 +78,69 @@ E2E_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
+ARCHITECTURE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "objective": {"type": "string", "minLength": 1},
+        "constraints": {"type": "array", "items": {"type": "string"}},
+        "non-goals": {"type": "array", "items": {"type": "string"}},
+        "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "layer": {"type": "string", "minLength": 1},
+                    "boundary": {"type": "array", "items": {"type": "string"}},
+                    "evidence": {"type": "array", "items": {"type": "string"}},
+                    "tradeoffs": {"type": "string"},
+                },
+                "required": ["id", "layer", "boundary", "evidence", "tradeoffs"],
+                "additionalProperties": False,
+            },
+        },
+        "selected": {"type": "string", "minLength": 1},
+        "affected-components": {"type": "array", "items": {"type": "string"}},
+        "failure-modes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "objective",
+        "constraints",
+        "non-goals",
+        "candidates",
+        "selected",
+        "affected-components",
+        "failure-modes",
+    ],
+    "additionalProperties": False,
+}
+
+VERIFICATION_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "behavior-cases": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "polarity": {"enum": ["positive", "negative"]},
+                    "stimulus": {"type": "string", "minLength": 1},
+                    "expected": {"type": "string", "minLength": 1},
+                    "observation": {"type": "string", "minLength": 1},
+                },
+                "required": ["id", "polarity", "stimulus", "expected", "observation"],
+                "additionalProperties": False,
+            },
+        },
+        "repository-invariants": {"type": "array", "items": {"type": "string"}},
+        "exemptions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["behavior-cases", "repository-invariants", "exemptions"],
+    "additionalProperties": False,
+}
+
 # 2026-06-24 spec-markdown-form：组 markdown 文件的 frontmatter schema（取代 metadata + history）。
 # 组元数据 number/title/issue/slug + tasks 列表（每项复用 TASK_SCHEMA）。
 GROUP_FRONTMATTER_SCHEMA: dict = {
@@ -95,6 +158,8 @@ GROUP_FRONTMATTER_SCHEMA: dict = {
         "oversized-rationale": {"type": "string"},
         # Spec-0040/T1：组级 e2e 粗规划（可选，不进 required——无 e2e 块的既有 spec 零回归）。
         "e2e": E2E_SCHEMA,
+        "architecture": ARCHITECTURE_SCHEMA,
+        "verification": VERIFICATION_SCHEMA,
         "tasks": {"type": "array", "items": TASK_SCHEMA},
     },
     "required": ["number", "title", "issue", "slug", "tasks"],

@@ -77,6 +77,9 @@ def validate(*, specs_root: Path) -> ValidationReport:
     # 后续语义校验基于 model 加载的结构化对象。
     groups = model.load_all(specs_root=specs_root)
 
+    issues.extend(_identity_checks(groups=groups))
+    issues.extend(_architecture_checks(groups=groups))
+
     # 2. status 与 history 自洽。
     issues.extend(_status_checks(groups=groups))
     # 3. 同组 files 不重叠（error）；6. 跨组 files 重叠（warning）。
@@ -98,6 +101,66 @@ def validate(*, specs_root: Path) -> ValidationReport:
 
     ok = not any(issue.level == _ERROR for issue in issues)
     return ValidationReport(ok=ok, issues=issues)
+
+
+def _identity_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """Reject duplicate group numbers and slugs in the candidate tree."""
+    issues: list[ValidationIssue] = []
+    for attr in ("number", "slug"):
+        seen: dict[str, list[str]] = {}
+        for group in groups:
+            value = group.number if attr == "number" else group.metadata.slug
+            seen.setdefault(value, []).append(f"{group.number}-{group.metadata.slug}")
+        for value, identities in seen.items():
+            if len(identities) > 1:
+                issues.append(
+                    ValidationIssue(_ERROR, "repository", f"重复 {attr} {value!r}：{identities}")
+                )
+    return issues
+
+
+def _architecture_checks(*, groups: list[Group]) -> list[ValidationIssue]:
+    """Validate architecture/verification cross-field invariants."""
+    issues: list[ValidationIssue] = []
+    for group in groups:
+        architecture = group.metadata.architecture
+        verification = group.metadata.verification
+        if architecture is None and verification is None:
+            continue
+        if architecture is None or verification is None:
+            issues.append(
+                ValidationIssue(
+                    _ERROR,
+                    f"{group.number}/architecture",
+                    "architecture 与 verification 必须同时声明",
+                )
+            )
+            continue
+        ids = [candidate.id for candidate in architecture.candidates]
+        if len(ids) != len(set(ids)):
+            issues.append(
+                ValidationIssue(_ERROR, f"{group.number}/architecture", "candidate id 必须唯一")
+            )
+        if architecture.selected not in ids:
+            issues.append(
+                ValidationIssue(
+                    _ERROR, f"{group.number}/architecture", "selected 必须引用已有 candidate id"
+                )
+            )
+        polarities = {case.polarity for case in verification.behavior_cases}
+        if not verification.exemptions and polarities != {"positive", "negative"}:
+            issues.append(
+                ValidationIssue(
+                    _ERROR,
+                    f"{group.number}/verification",
+                    "须同时声明 positive/negative case，或给出豁免理由",
+                )
+            )
+        if any(not reason.strip() for reason in verification.exemptions):
+            issues.append(
+                ValidationIssue(_ERROR, f"{group.number}/verification", "exemption 理由不得为空")
+            )
+    return issues
 
 
 def _e2e_checks(*, groups: list[Group]) -> list[ValidationIssue]:

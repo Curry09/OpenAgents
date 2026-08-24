@@ -13,7 +13,18 @@ import jsonschema
 import pytest
 
 from openagents.spec import model, schema
-from openagents.spec.model import E2EPlan, Group, Metadata, Overview, RelatesTo, Task
+from openagents.spec.model import (
+    ArchitectureCandidate,
+    ArchitectureDecision,
+    BehaviorCase,
+    E2EPlan,
+    Group,
+    Metadata,
+    Overview,
+    RelatesTo,
+    Task,
+    VerificationPlan,
+)
 
 
 def _sample_overview() -> Overview:
@@ -247,3 +258,46 @@ def test_e2e_from_mapping_none_returns_none() -> None:
     assert model.e2e_from_mapping(data=None) is None
     plan = model.e2e_from_mapping(data={"intent": "x", "method": "跑一下看结果"})
     assert plan == E2EPlan(intent="x", method="跑一下看结果")
+
+
+def test_architecture_round_trip_and_design_digest_ignore_status(tmp_path: Path) -> None:
+    group = _sample_group()
+    architecture = ArchitectureDecision(
+        objective="preserve user-visible output",
+        constraints=["compatible"],
+        non_goals=[],
+        candidates=[ArchitectureCandidate("runtime", "runtime", ["entry"], ["entry.py"], "cost")],
+        selected="runtime",
+        affected_components=["entry"],
+        failure_modes=["concurrency"],
+    )
+    verification = VerificationPlan(
+        behavior_cases=[
+            BehaviorCase("p", "positive", "input", "output", "replay"),
+            BehaviorCase("n", "negative", "other", "unchanged", "replay"),
+        ],
+        repository_invariants=["unique ids"],
+        exemptions=[],
+    )
+    group = Group(
+        number=group.number,
+        metadata=Metadata(
+            title=group.metadata.title,
+            issue=group.metadata.issue,
+            slug=group.metadata.slug,
+            summary=group.metadata.summary,
+            architecture=architecture,
+            verification=verification,
+        ),
+        tasks=group.tasks,
+        overview=group.overview,
+    )
+    path = _write_group(root=tmp_path, group=group)
+    loaded = model.load_group(path=path)
+    assert loaded.metadata.architecture == architecture
+    assert loaded.metadata.verification == verification
+    before = model.design_digest(group=loaded)
+    loaded.tasks[0].status = "done"
+    assert model.design_digest(group=loaded) == before
+    loaded.tasks[0].acceptance = "different behavior"
+    assert model.design_digest(group=loaded) != before
