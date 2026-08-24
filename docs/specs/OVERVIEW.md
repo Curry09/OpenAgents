@@ -257,6 +257,9 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 ### 0076 交付面技术架构决策与实现前质量闸
 将已确认需求转化为可审查的技术架构决策，在实现前验证干预层、备选方案与行为证据，并在合并前复核全局仓库不变量。
 
+### 0077 跨角色可传递仓库证据
+将角色已核实的客观仓库事实保存为有界证据包并沿交付链传递，使后续角色按差异渐进取证，减少重复扫描而不复用判断结论。
+
 ### 0078 Agent 调用协议保真与隐私遥测
 将供机器解析的完整输出与面向人的限长摘要分离，并只记录工具名称序列以统计取证预算，使结构化协议可靠且实验耗时可解释。
 
@@ -550,6 +553,9 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0076 | 0076/T3 | 独立 Architect 角色与架构裁决 | pending | T1, T2 | openagents/agents/architect.py<br>tests/test_agents_architect.py |
 | 0076 | 0076/T4 | Vigil 实现前架构闸与最终集成闸 | pending | T1, T3 | openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/state.py<br>openagents/utils/agent_config.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state.py<br>tests/test_utils_agent_config.py |
 | 0076 | 0076/T5 | 行为证据清单、实现评审与端到端反证 | pending | T3, T4 | openagents/agents/tester.py<br>openagents/agents/reviewer.py<br>openagents/runtime/evidence.py<br>tests/test_agents_tester.py<br>tests/test_agents_reviewer.py<br>tests/test_runtime_evidence.py<br>scripts/e2e-spec-0076-architecture-decision-gate.sh |
+| 0077 | 0077/T1 | 有界客观证据包模型 | pending | — | openagents/runtime/research.py<br>tests/test_runtime_research.py |
+| 0077 | 0077/T2 | 角色协议与渐进取证契约 | pending | T1 | openagents/agents/drafter.py<br>openagents/agents/implementer.py<br>tests/test_agents_prompts.py |
+| 0077 | 0077/T3 | 证据状态传递与角色接线 | pending | T1, T2 | openagents/runtime/state.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>tests/test_runtime_state.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py |
 | 0078 | 0078/T1 | 完整机器协议输出 | done | — | openagents/backends/base.py<br>openagents/backends/claude_code.py<br>openagents/runtime/engine.py<br>openagents/utils/align.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py<br>tests/test_runtime_engine.py |
 | 0078 | 0078/T2 | 最小化工具调用遥测 | done | T1 | openagents/runtime/tool_usage.py<br>tests/test_runtime_tool_usage.py |
 | 0078 | 0078/T3 | 后端事件接线与报告 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_timing.py |
@@ -990,6 +996,11 @@ graph LR
         n0076_T4["T4 Vigil 实现前架构闸与最终集成闸"]
         n0076_T5["T5 行为证据清单、实现评审与端到端反证"]
     end
+    subgraph G0077[0077 transferable-repository-evidence]
+        n0077_T1["T1 有界客观证据包模型"]
+        n0077_T2["T2 角色协议与渐进取证契约"]
+        n0077_T3["T3 证据状态传递与角色接线"]
+    end
     subgraph G0078[0078 agent-invocation-observability]
         n0078_T1["T1 完整机器协议输出"]
         n0078_T2["T2 最小化工具调用遥测"]
@@ -1235,6 +1246,9 @@ graph LR
     n0076_T4 --> n0076_T3
     n0076_T5 --> n0076_T3
     n0076_T5 --> n0076_T4
+    n0077_T2 --> n0077_T1
+    n0077_T3 --> n0077_T1
+    n0077_T3 --> n0077_T2
     n0078_T2 --> n0078_T1
     n0078_T3 --> n0078_T1
     n0078_T3 --> n0078_T2
@@ -1256,8 +1270,8 @@ graph LR
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
 | openagents/agents/deliver.py | 0017, 0060 |
-| openagents/agents/drafter.py | 0059, 0062, 0076 |
-| openagents/agents/implementer.py | 0059, 0060 |
+| openagents/agents/drafter.py | 0059, 0062, 0076, 0077 |
+| openagents/agents/implementer.py | 0059, 0060, 0077 |
 | openagents/agents/merger.py | 0017, 0074, 0075 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061 |
@@ -1290,8 +1304,8 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -1299,7 +1313,7 @@ graph LR
 | openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076 |
 | openagents/runtime/engine.py | 0059, 0060, 0075, 0078 |
 | openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076 |
-| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/spec/mutate.py | 0014, 0015, 0076 |
@@ -1333,6 +1347,7 @@ graph LR
 | tests/test_agent_config.py | 0064, 0067 |
 | tests/test_agents_drafter.py | 0062, 0076 |
 | tests/test_agents_merger.py | 0017, 0074, 0075 |
+| tests/test_agents_prompts.py | 0060, 0077 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029, 0078 |
@@ -1367,9 +1382,9 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064, 0076 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077 |
 | tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075 |
-| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076 |
+| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077 |
 | tests/test_recipe_vigil_admit.py | 0065, 0074 |
 | tests/test_recipe_vigil_discovery.py | 0035, 0074 |
 | tests/test_recipe_vigil_queue.py | 0065, 0075 |
@@ -1380,6 +1395,7 @@ graph LR
 | tests/test_runtime_context.py | 0060, 0065, 0076 |
 | tests/test_runtime_engine.py | 0060, 0075, 0078 |
 | tests/test_runtime_gates.py | 0017, 0060, 0076 |
+| tests/test_runtime_state.py | 0076, 0077 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024, 0076 |
@@ -3443,6 +3459,31 @@ graph LR
     class v_T3_1 st_pending;
     class v_T4_1 st_pending;
     class v_T5_1 st_pending;
+```
+
+### 0077 跨角色可传递仓库证据（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 有界客观证据包模型"]
+    nT2["T2 角色协议与渐进取证契约"]
+    nT3["T3 证据状态传递与角色接线"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_pending;
+    class v_T3_1 st_pending;
 ```
 
 ### 0078 Agent 调用协议保真与隐私遥测（issue #0）
