@@ -257,6 +257,9 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 ### 0076 交付面技术架构决策与实现前质量闸
 将已确认需求转化为可审查的技术架构决策，在实现前验证干预层、备选方案与行为证据，并在合并前复核全局仓库不变量。
 
+### 0078 Agent 调用协议保真与隐私遥测
+将供机器解析的完整输出与面向人的限长摘要分离，并只记录工具名称序列以统计取证预算，使结构化协议可靠且实验耗时可解释。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -547,6 +550,9 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0076 | 0076/T3 | 独立 Architect 角色与架构裁决 | pending | T1, T2 | openagents/agents/architect.py<br>tests/test_agents_architect.py |
 | 0076 | 0076/T4 | Vigil 实现前架构闸与最终集成闸 | pending | T1, T3 | openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/state.py<br>openagents/utils/agent_config.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state.py<br>tests/test_utils_agent_config.py |
 | 0076 | 0076/T5 | 行为证据清单、实现评审与端到端反证 | pending | T3, T4 | openagents/agents/tester.py<br>openagents/agents/reviewer.py<br>openagents/runtime/evidence.py<br>tests/test_agents_tester.py<br>tests/test_agents_reviewer.py<br>tests/test_runtime_evidence.py<br>scripts/e2e-spec-0076-architecture-decision-gate.sh |
+| 0078 | 0078/T1 | 完整机器协议输出 | done | — | openagents/backends/base.py<br>openagents/backends/claude_code.py<br>openagents/runtime/engine.py<br>openagents/utils/align.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py<br>tests/test_runtime_engine.py |
+| 0078 | 0078/T2 | 最小化工具调用遥测 | done | T1 | openagents/runtime/tool_usage.py<br>tests/test_runtime_tool_usage.py |
+| 0078 | 0078/T3 | 后端事件接线与报告 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_timing.py |
 
 ## 跨 feature 关系图
 
@@ -984,6 +990,11 @@ graph LR
         n0076_T4["T4 Vigil 实现前架构闸与最终集成闸"]
         n0076_T5["T5 行为证据清单、实现评审与端到端反证"]
     end
+    subgraph G0078[0078 agent-invocation-observability]
+        n0078_T1["T1 完整机器协议输出"]
+        n0078_T2["T2 最小化工具调用遥测"]
+        n0078_T3["T3 后端事件接线与报告"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1224,6 +1235,9 @@ graph LR
     n0076_T4 --> n0076_T3
     n0076_T5 --> n0076_T3
     n0076_T5 --> n0076_T4
+    n0078_T2 --> n0078_T1
+    n0078_T3 --> n0078_T1
+    n0078_T3 --> n0078_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1250,11 +1264,11 @@ graph LR
 | openagents/agents/reviewer.py | 0060, 0076 |
 | openagents/agents/tester.py | 0060, 0076 |
 | openagents/backends/__init__.py | 0001, 0029 |
-| openagents/backends/base.py | 0001, 0029 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073 |
+| openagents/backends/base.py | 0001, 0029, 0078 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1283,7 +1297,7 @@ graph LR
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
 | openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076 |
-| openagents/runtime/engine.py | 0059, 0060, 0075 |
+| openagents/runtime/engine.py | 0059, 0060, 0075, 0078 |
 | openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076 |
 | openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
@@ -1296,6 +1310,7 @@ graph LR
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
 | openagents/utils/agent_config.py | 0064, 0067, 0074, 0076 |
+| openagents/utils/align.py | 0062, 0078 |
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
@@ -1318,12 +1333,13 @@ graph LR
 | tests/test_agent_config.py | 0064, 0067 |
 | tests/test_agents_drafter.py | 0062, 0076 |
 | tests/test_agents_merger.py | 0017, 0074, 0075 |
-| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078 |
 | tests/test_backfill.py | 0025, 0029 |
-| tests/test_base.py | 0001, 0029 |
+| tests/test_base.py | 0001, 0029, 0078 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
 | tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064 |
+| tests/test_cli_timing.py | 0066, 0078 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
 | tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
@@ -1362,7 +1378,7 @@ graph LR
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
 | tests/test_runtime_context.py | 0060, 0065, 0076 |
-| tests/test_runtime_engine.py | 0060, 0075 |
+| tests/test_runtime_engine.py | 0060, 0075, 0078 |
 | tests/test_runtime_gates.py | 0017, 0060, 0076 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
@@ -3427,4 +3443,29 @@ graph LR
     class v_T3_1 st_pending;
     class v_T4_1 st_pending;
     class v_T5_1 st_pending;
+```
+
+### 0078 Agent 调用协议保真与隐私遥测（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 完整机器协议输出"]
+    nT2["T2 最小化工具调用遥测"]
+    nT3["T3 后端事件接线与报告"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```

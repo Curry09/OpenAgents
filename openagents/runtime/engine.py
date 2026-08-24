@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from openagents.runtime import tool_usage
+
 
 class AgentOutputError(Exception):
     """Raise when an agent's output breaks the OUTPUT_SCHEMA contract.
@@ -62,10 +64,20 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
 
     prompt = agent_module.PROMPT.substitute(**placeholders)
     result = backend.run(work_dir=work_dir, task=prompt, context=context)
-
-    parsed = _parse_last_json(text=result.summary)
+    # Human-facing summaries are intentionally bounded. Machine protocol parsing must use the complete backend result.
+    parsed = _parse_last_json(text=getattr(result, "protocol_output", result.summary))
     _raise_needs_human(payload=parsed)
     _validate(payload=parsed, schema=agent_module.OUTPUT_SCHEMA)
+    tool_events = getattr(result, "tool_events", ())
+    if tool_events:
+        module_name = getattr(agent_module, "__name__", agent_module.__class__.__name__)
+        reason = parsed.get("lookup_exception_reason", "")
+        tool_usage.record(
+            work_dir=work_dir,
+            role=str(module_name).rsplit(".", 1)[-1],
+            tool_names=tool_events,
+            lookup_exception_reason=reason if isinstance(reason, str) else "",
+        )
     return parsed
 
 

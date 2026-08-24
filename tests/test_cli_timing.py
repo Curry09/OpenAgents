@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from openagents.cli import build_parser, main
-from openagents.runtime import timing
+from openagents.runtime import timing, tool_usage
 from openagents.utils.config import ProjectContext
 
 
@@ -96,6 +96,25 @@ def test_report_distinguishes_ci_wait_from_review_wait(tmp_path, monkeypatch, ca
     assert "awaiting-ci" in out
     assert "review-or-fix" in out
     assert "30m0s" in out  # review 长尾清晰可见
+
+
+def test_report_includes_tool_lookup_budget_metrics(tmp_path, monkeypatch, capsys):
+    _patch_report_ctx(monkeypatch, repo_root=tmp_path)
+    monkeypatch.setattr("openagents.cli._report_interval", lambda *, ctx, args: 60)
+    path = tmp_path / ".openagents" / tool_usage.TOOL_USAGE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"role":"implementer","tool_count":9,"lookup_before_first_edit":8,'
+        '"lookup_budget_exceeded":true}\n',
+        encoding="utf-8",
+    )
+
+    assert main(["report"]) == 0
+    out = capsys.readouterr().out
+    assert "工具与取证预算" in out
+    assert "implementer" in out
+    assert "8.0" in out
+    assert "缺原因" in out
 
 
 # --------------------------------------------------------------------------------------------------

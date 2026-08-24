@@ -34,6 +34,41 @@ class _CaptureBackend:
         return AgentResult(changed=True, summary=self._summary)
 
 
+class _SplitOutputBackend:
+    name = "split-output"
+
+    def __init__(self, *, summary, raw_output):
+        self.summary = summary
+        self.raw_output = raw_output
+
+    def run(self, *, work_dir, task, context):
+        return AgentResult(changed=False, summary=self.summary, raw_output=self.raw_output)
+
+
+class _ToolEventBackend:
+    name = "tool-events"
+
+    def run(self, *, work_dir, task, context):
+        return AgentResult(
+            changed=True,
+            summary='{"verdict":"PASS","reason":"ok"}',
+            tool_events=("Read", "Edit"),
+        )
+
+
+class _LookupExceptionBackend:
+    name = "lookup-exception"
+
+    def run(self, *, work_dir, task, context):
+        return AgentResult(
+            changed=True,
+            summary=(
+                '{"verdict":"PASS","reason":"ok","lookup_exception_reason":"现场版本与证据不一致"}'
+            ),
+            tool_events=("Read",) * 7 + ("Edit",),
+        )
+
+
 def test_fills_placeholders_and_passes_reserved_to_backend():
     backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
     out = engine.run_agent(
@@ -59,10 +94,44 @@ def test_last_line_json_parsed_even_with_trailing_prose():
     assert out["verdict"] == "REWORK"
 
 
+def test_parses_full_protocol_output_when_display_summary_was_truncated():
+    raw = "analysis " * 400 + '\n{"verdict":"REWORK","reason":"架构边界未闭合"}'
+    backend = _SplitOutputBackend(summary=raw[:2000], raw_output=raw)
+
+    out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+
+    assert out == {"verdict": "REWORK", "reason": "架构边界未闭合"}
+
+
 def test_context_defaults_empty_when_omitted():
     backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
     engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
     assert backend.calls[0]["context"] == ""
+
+
+def test_records_structured_tool_usage_for_backend_events(tmp_path):
+    out = engine.run_agent(
+        _FakeAgent,
+        backend=_ToolEventBackend(),
+        work_dir=tmp_path,
+        pr_number=1,
+        issue_body="x",
+    )
+    assert out["verdict"] == "PASS"
+    metric = tmp_path / ".openagents" / "tool-usage.jsonl"
+    assert '"lookup_before_first_edit": 1' in metric.read_text(encoding="utf-8")
+
+
+def test_records_structured_lookup_exception_reason(tmp_path):
+    engine.run_agent(
+        _FakeAgent,
+        backend=_LookupExceptionBackend(),
+        work_dir=tmp_path,
+        pr_number=1,
+        issue_body="x",
+    )
+    metric = tmp_path / ".openagents" / "tool-usage.jsonl"
+    assert '"lookup_exception_reason": "现场版本与证据不一致"' in metric.read_text(encoding="utf-8")
 
 
 def test_bad_json_raises():

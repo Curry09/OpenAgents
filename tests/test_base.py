@@ -7,6 +7,13 @@ def test_agent_result_holds_changed_and_summary():
     result = AgentResult(changed=True, summary="改了 foo.py")
     assert result.changed is True
     assert result.summary == "改了 foo.py"
+    assert result.protocol_output == "改了 foo.py"
+
+
+def test_agent_result_separates_protocol_output_from_display_summary():
+    result = AgentResult(changed=False, summary="short", raw_output="full structured output")
+    assert result.summary == "short"
+    assert result.protocol_output == "full structured output"
 
 
 def test_agent_result_is_frozen():

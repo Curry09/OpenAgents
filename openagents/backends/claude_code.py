@@ -204,6 +204,18 @@ def _lines_for_event(*, event):
     return lines
 
 
+def _tool_names_for_event(*, event) -> list[str]:
+    """Extract ordered tool names without retaining tool inputs or command text."""
+    if event.get("type") != "assistant":
+        return []
+    content = (event.get("message") or {}).get("content") or []
+    return [
+        str(block.get("name") or "tool")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    ]
+
+
 class ClaudeCodeBackend:
     """RFC-0001 T2: Claude Code coding agent 适配器，满足 AgentBackend 协议。"""
 
@@ -219,7 +231,7 @@ class ClaudeCodeBackend:
         work_dir_str = str(work_dir)
         prompt = _build_prompt(task=task, context=context)
 
-        result_text = self._run_claude_streaming(work_dir=work_dir, prompt=prompt)
+        result_text, tool_events = self._run_claude_streaming(work_dir=work_dir, prompt=prompt)
 
         status = subprocess.run(
             ["git", "-C", work_dir_str, "status", "--porcelain"],
@@ -231,9 +243,11 @@ class ClaudeCodeBackend:
         return AgentResult(
             changed=changed,
             summary=_summarize(stdout=result_text, changed=changed),
+            raw_output=result_text,
+            tool_events=tool_events,
         )
 
-    def _run_claude_streaming(self, *, work_dir: Path, prompt: str) -> str:
+    def _run_claude_streaming(self, *, work_dir: Path, prompt: str) -> tuple[str, tuple[str, ...]]:
         """RFC-0003 决策 6: 逐行解析 stream-json 事件、实时打印进度，返回最终结果文本。
 
         stderr 合并进 stdout；从 `result` 事件取 `result` 文本作摘要；非零退出抛
@@ -298,6 +312,7 @@ class ClaudeCodeBackend:
             watchdog.start()
 
         result_text = ""
+        tool_events: list[str] = []
         raw_tail: list[str] = []
         try:
             for raw in proc.stdout:
@@ -318,6 +333,7 @@ class ClaudeCodeBackend:
                 for human in _lines_for_event(event=event):
                     # Spec-0073/T1: 同上——事件文本落当前线程绑定 subject 的 buffer。
                     streams.emit(line=human)
+                tool_events.extend(_tool_names_for_event(event=event))
                 if event.get("type") == "result":
                     result_text = str(event.get("result") or "")
             returncode = proc.wait()
@@ -336,4 +352,4 @@ class ClaudeCodeBackend:
         if returncode != 0:
             detail = result_text.strip() or "\n".join(raw_tail).strip()
             raise RuntimeError(f"Claude Code CLI 调用失败（返回码 {returncode}）：{detail}")
-        return result_text or "\n".join(raw_tail)
+        return result_text or "\n".join(raw_tail), tuple(tool_events)
