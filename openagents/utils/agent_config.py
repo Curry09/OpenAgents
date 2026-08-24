@@ -49,6 +49,7 @@ OWNER_SKIP = "skip"  # 不设此闸（当 PASS 放行）
 # 或不写（skip），不存在「human 起草」（人要起草直接写代码，不走本框架的 agent 起草闸）。
 STAGE_TRIAGE = "triage"
 STAGE_RFC = "rfc"
+STAGE_ARCHITECTURE = "architecture"
 STAGE_CONFLICT = "conflict"
 STAGE_CI = "ci"
 STAGE_E2E = "e2e"
@@ -58,6 +59,7 @@ STAGE_MERGE = "merge"
 _STAGE_VALID_OWNERS: dict[str, tuple[str, ...]] = {
     STAGE_TRIAGE: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
     STAGE_RFC: (OWNER_AGENT, OWNER_SKIP),
+    STAGE_ARCHITECTURE: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
     STAGE_CONFLICT: (OWNER_AGENT, OWNER_HUMAN),
     STAGE_CI: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
     STAGE_E2E: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
@@ -72,7 +74,7 @@ _DEFAULT_STAGES: dict[str, str] = {stage: OWNER_AGENT for stage in _STAGE_VALID_
 
 # Spec-0064/T1: 已知 agent 角色 → 后端映射的默认（backends/ 目前只有 claude_code，理念 2 的声明面
 # 先留 schema 位、混接 codex/nexau 的实现另议）。角色齐全一份，`agents` 段可逐角色覆盖 backend。
-_ROLES = ("triager", "drafter", "implementer", "reviewer", "replier", "deliver")
+_ROLES = ("triager", "drafter", "architect", "implementer", "reviewer", "replier", "deliver")
 _DEFAULT_BACKEND = "claude_code"
 
 # Spec-0064/T1: 确定性硬闸名（`runtime.gates`）——恒机器、恒在、skip 关不掉（防 #140 空转的安全
@@ -401,6 +403,12 @@ def _guard_no_zero_gate(*, stages: dict[str, str], scope: str) -> None:
     """
     review = stages.get(STAGE_REVIEW, _DEFAULT_STAGES[STAGE_REVIEW])
     merge = stages.get(STAGE_MERGE, _DEFAULT_STAGES[STAGE_MERGE])
+    rfc = stages.get(STAGE_RFC, _DEFAULT_STAGES[STAGE_RFC])
+    architecture = stages.get(STAGE_ARCHITECTURE, _DEFAULT_STAGES[STAGE_ARCHITECTURE])
+    if rfc != OWNER_SKIP and architecture == OWNER_SKIP:
+        raise AgentConfigError(
+            f"{scope}: architecture:skip 仅可与 rfc:skip 配套；已起草的 Spec 必须经过架构评审"
+        )
     if review == OWNER_SKIP and merge == OWNER_AGENT:
         raise AgentConfigError(
             f"{scope}: 不许零闸——review:skip + merge:agent 会让未审代码自动盲合进 main；"
@@ -415,6 +423,10 @@ def _merge_stages(*, base: dict | None, override: dict | None) -> dict[str, str]
         merged.update(base)
     if override:
         merged.update(override)
+    explicitly_set = STAGE_ARCHITECTURE in (base or {}) or STAGE_ARCHITECTURE in (override or {})
+    if not explicitly_set:
+        rfc_owner = merged[STAGE_RFC]
+        merged[STAGE_ARCHITECTURE] = OWNER_SKIP if rfc_owner == OWNER_SKIP else OWNER_AGENT
     return merged
 
 

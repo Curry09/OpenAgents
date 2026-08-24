@@ -32,7 +32,7 @@ def test_missing_file_falls_back_to_builtin_defaults(tmp_path):
     # 整份可省——文件不存在 → 全默认（全 agent stages / claude_code / manual release / 单仓）。
     cfg = load_agent_config(path=tmp_path / "nope.yml")
     assert isinstance(cfg, AgentConfig)
-    for stage in ("triage", "rfc", "conflict", "ci", "e2e", "review", "merge"):
+    for stage in ("triage", "rfc", "architecture", "conflict", "ci", "e2e", "review", "merge"):
         assert cfg.stages.owner_of(stage=stage) == OWNER_AGENT
     assert cfg.agents.backend_for(role="implementer") == "claude_code"
     assert cfg.release.mode == RELEASE_MANUAL
@@ -248,7 +248,7 @@ def test_packaged_template_matches_builtin_defaults(tmp_path):
     assert scaffold_default_config(path=cfg_path, force=False) is True
     cfg = load_agent_config(path=cfg_path)
     builtin = default_config()
-    for stage in ("triage", "rfc", "conflict", "ci", "e2e", "review", "merge"):
+    for stage in ("triage", "rfc", "architecture", "conflict", "ci", "e2e", "review", "merge"):
         assert (
             cfg.stages.owner_of(stage=stage) == builtin.stages.owner_of(stage=stage) == OWNER_AGENT
         )
@@ -294,3 +294,13 @@ def test_scaffolded_file_loads_cleanly(tmp_path):
     cfg = load_agent_config(path=cfg_path)
     assert isinstance(cfg, AgentConfig)
     assert cfg.stages.owner_of(stage="merge") == OWNER_AGENT
+
+
+def test_architecture_owner_is_inferred_and_cannot_bypass_rfc(tmp_path) -> None:
+    with pytest.warns(UserWarning):
+        skipped = load_agent_config(path=_write(tmp_path, "stages:\n  rfc: skip\n"))
+    assert skipped.stages.owner_of(stage="architecture") == OWNER_SKIP
+
+    path = _write(tmp_path, "stages:\n  rfc: agent\n  architecture: skip\n")
+    with pytest.raises(AgentConfigError, match="architecture:skip"):
+        load_agent_config(path=path)

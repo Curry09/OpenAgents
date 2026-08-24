@@ -57,7 +57,7 @@ def test_prompt_module_has_no_logic(path):
 def test_prompt_placeholders_substitute():
     # Template 可被延后 substitute（占位符齐全即不抛），验证 prompt 字符串形态合法。
     reviewer.PROMPT.substitute(pr_number=1, issue_body="x")
-    deliver.PROMPT.substitute(branch="openagents/issue-1", pr_number=1)
+    deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=1)
     drafter.PROMPT.substitute(mode="draft", target="issue #1", branch="b", detail="d")
     implementer.PROMPT.substitute(issue_number=1, pr_number=1, feedback="")
     tester.PROMPT.substitute(pr_number=1, issue_body="x")

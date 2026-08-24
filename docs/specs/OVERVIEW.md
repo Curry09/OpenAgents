@@ -548,14 +548,14 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0075 | 0075/T2 | 增加结构化 needs-human 控制结果 | done | T1 | openagents/runtime/engine.py<br>tests/test_runtime_engine.py |
 | 0075 | 0075/T3 | 由 Vigil 统一交接并守卫标签完整性 | done | T2 | openagents/recipes/vigil.py<br>openagents/agents/merger.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_agents_merger.py |
 | 0075 | 0075/T4 | 锁定 Gitea 追加标签契约并完成 E2E | done | T3 | openagents/utils/gitea.py<br>tests/test_gitea_driver.py<br>scripts/e2e-spec-0075-needs-human-label-integrity.sh |
-| 0076 | 0076/T1 | Spec 架构决策与行为验收契约 | pending | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/mutate.py<br>openagents/spec/validate.py<br>tests/test_spec_model.py<br>tests/test_spec_mutate.py<br>tests/test_spec_validate.py |
-| 0076 | 0076/T2 | Drafter 技术架构产出契约与 skill 接线 | pending | T1 | openagents/agents/drafter.py<br>openagents/runtime/context.py<br>tests/test_agents_drafter.py<br>tests/test_runtime_context.py |
-| 0076 | 0076/T3 | 独立 Architect 角色与架构裁决 | pending | T1, T2 | openagents/agents/architect.py<br>tests/test_agents_architect.py |
-| 0076 | 0076/T4 | Vigil 实现前架构闸与最终集成闸 | pending | T1, T3 | openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/state.py<br>openagents/utils/agent_config.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state.py<br>tests/test_utils_agent_config.py |
-| 0076 | 0076/T5 | 行为证据清单、实现评审与端到端反证 | pending | T3, T4 | openagents/agents/tester.py<br>openagents/agents/reviewer.py<br>openagents/runtime/evidence.py<br>tests/test_agents_tester.py<br>tests/test_agents_reviewer.py<br>tests/test_runtime_evidence.py<br>scripts/e2e-spec-0076-architecture-decision-gate.sh |
-| 0077 | 0077/T1 | 有界客观证据包模型 | pending | — | openagents/runtime/research.py<br>tests/test_runtime_research.py |
-| 0077 | 0077/T2 | 角色协议与渐进取证契约 | pending | T1 | openagents/agents/drafter.py<br>openagents/agents/implementer.py<br>tests/test_agents_prompts.py |
-| 0077 | 0077/T3 | 证据状态传递与角色接线 | pending | T1, T2 | openagents/runtime/state.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>tests/test_runtime_state.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py |
+| 0076 | 0076/T1 | Spec 架构决策与行为验收契约 | done | — | openagents/spec/schema.py<br>openagents/spec/model.py<br>openagents/spec/mutate.py<br>openagents/spec/validate.py<br>tests/test_spec_model.py<br>tests/test_spec_mutate.py<br>tests/test_spec_validate.py |
+| 0076 | 0076/T2 | Drafter 技术架构产出契约与 skill 接线 | done | T1 | openagents/agents/drafter.py<br>openagents/runtime/context.py<br>tests/test_agents_drafter.py<br>tests/test_runtime_context.py |
+| 0076 | 0076/T3 | 独立 Architect 角色与架构裁决 | done | T1, T2 | openagents/agents/architect.py<br>tests/test_agents_architect.py |
+| 0076 | 0076/T4 | Vigil 实现前架构闸与最终集成闸 | done | T1, T3 | openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/state.py<br>openagents/utils/agent_config.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state.py<br>tests/test_agent_config.py |
+| 0076 | 0076/T5 | 行为证据清单、实现评审与端到端反证 | done | T3, T4 | openagents/agents/tester.py<br>openagents/agents/reviewer.py<br>openagents/runtime/evidence.py<br>tests/test_runtime_evidence.py<br>scripts/e2e-spec-0076-architecture-decision-gate.sh |
+| 0077 | 0077/T1 | 有界客观证据包模型 | done | — | openagents/runtime/research.py<br>tests/test_runtime_research.py |
+| 0077 | 0077/T2 | 角色协议与渐进取证契约 | done | T1 | openagents/agents/drafter.py<br>openagents/agents/implementer.py<br>tests/test_agents_prompts.py |
+| 0077 | 0077/T3 | 证据状态传递与角色接线 | done | T1, T2 | openagents/runtime/state.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>tests/test_runtime_state.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py |
 | 0078 | 0078/T1 | 完整机器协议输出 | done | — | openagents/backends/base.py<br>openagents/backends/claude_code.py<br>openagents/runtime/engine.py<br>openagents/utils/align.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py<br>tests/test_runtime_engine.py |
 | 0078 | 0078/T2 | 最小化工具调用遥测 | done | T1 | openagents/runtime/tool_usage.py<br>tests/test_runtime_tool_usage.py |
 | 0078 | 0078/T3 | 后端事件接线与报告 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_timing.py |
@@ -1344,7 +1344,7 @@ graph LR
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | tests/conftest.py | 0065, 0070 |
-| tests/test_agent_config.py | 0064, 0067 |
+| tests/test_agent_config.py | 0064, 0067, 0076 |
 | tests/test_agents_drafter.py | 0062, 0076 |
 | tests/test_agents_merger.py | 0017, 0074, 0075 |
 | tests/test_agents_prompts.py | 0060, 0077 |
@@ -3453,12 +3453,12 @@ graph LR
     v_T3_1["T3 v1"]
     v_T4_1["T4 v1"]
     v_T5_1["T5 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
-    class v_T4_1 st_pending;
-    class v_T5_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
 ```
 
 ### 0077 跨角色可传递仓库证据（issue #0）
@@ -3480,10 +3480,10 @@ graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
     v_T3_1["T3 v1"]
-    classDef st_pending fill:#eeeeee;
-    class v_T1_1 st_pending;
-    class v_T2_1 st_pending;
-    class v_T3_1 st_pending;
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```
 
 ### 0078 Agent 调用协议保真与隐私遥测（issue #0）

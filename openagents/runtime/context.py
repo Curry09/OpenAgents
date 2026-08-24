@@ -128,6 +128,19 @@ def for_triage(*, work_dir: Path, issue: object) -> dict:
     }
 
 
+def for_architecture(
+    *, work_dir: Path, issue_number: int, design_digest: str, spec_text: str
+) -> dict:
+    """Build the pre-implementation architecture review context."""
+    return {
+        "work_dir": Path(work_dir),
+        "context": spec_text,
+        "issue_number": issue_number,
+        "design_digest": design_digest,
+        "spec_text": spec_text,
+    }
+
+
 def for_admit(*, work_dir: Path, issue: object, dialogue: str) -> dict:
     """准入裁决占位符：issue 正文 + **准入对话逐字稿**，供 recipes.vigil 派 admitter agent。
 

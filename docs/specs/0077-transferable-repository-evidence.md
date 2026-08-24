@@ -62,7 +62,7 @@ verification:
 tasks:
   - id: T1
     title: 有界客观证据包模型
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -75,7 +75,7 @@ tasks:
     acceptance: 单元测试覆盖非法条目丢弃、字段截断、24 条上限、相同路径与符号的后到记录刷新，以及 Unicode 紧凑渲染。
   - id: T2
     title: 角色协议与渐进取证契约
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -90,7 +90,7 @@ tasks:
     acceptance: Prompt 契约测试证明 evidence_pack 字段、客观性边界、六次首次编辑前补充取证预算及例外理由均存在，且获批 Spec 仍是实现权威输入。
   - id: T3
     title: 证据状态传递与角色接线
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:

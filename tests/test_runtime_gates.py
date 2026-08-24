@@ -76,6 +76,24 @@ def test_evidence_stamp_raises_on_mismatch():
         gates.assert_evidence_stamp(head_sha="abc123", claimed="def456")
 
 
+def test_integration_stamp_requires_every_version_to_match():
+    approved = gates.IntegrationStamp(
+        base_sha="base-a", head_sha="head-a", design_digest="design-a"
+    )
+    gates.assert_integration_stamp(approved=approved, current=approved)
+    for field in ("base_sha", "head_sha", "design_digest"):
+        changed = {
+            "base_sha": approved.base_sha,
+            "head_sha": approved.head_sha,
+            "design_digest": approved.design_digest,
+        }
+        changed[field] += "-changed"
+        with pytest.raises(GateError):
+            gates.assert_integration_stamp(
+                approved=approved, current=gates.IntegrationStamp(**changed)
+            )
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0017/T3: assert_merge_allowed —— 合并不可逆红线硬闸（CI 全绿 + review-approved:<head sha7>@head）。
 # 纯读客观事实、假快照注入、不触网。四情形：全绿+approved@head 放行；否则各抛 GateError。
@@ -110,6 +128,37 @@ def _stub_merge_facts(monkeypatch, *, ci_state, ci_count, labels):
 def test_merge_allowed_passes_when_green_and_approved_at_head(monkeypatch):
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("review-approved:a1b2c3d",))
     gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)  # 不抛即通过
+
+
+def test_merge_allowed_skips_ci_but_still_requires_approved_head(monkeypatch):
+    _stub_merge_facts(
+        monkeypatch,
+        ci_state="pending",
+        ci_count=1,
+        labels=("review-approved:a1b2c3d",),
+    )
+    monkeypatch.setattr(
+        gates.github,
+        "check_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("ci:skip must not read checks")),
+    )
+    gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD, require_ci=False)
+
+    monkeypatch.setattr(
+        gates.github,
+        "pr_snapshot",
+        lambda *, pr_number: ugithub.PRSnapshot(
+            number=pr_number,
+            state="OPEN",
+            head_sha=_HEAD,
+            labels=("openagents",),
+            mergeable="MERGEABLE",
+            merge_state_status="CLEAN",
+            head_pushed_at="",
+        ),
+    )
+    with pytest.raises(GateError):
+        gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD, require_ci=False)
 
 
 def test_merge_allowed_raises_when_ci_failing(monkeypatch):

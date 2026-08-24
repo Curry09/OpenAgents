@@ -147,7 +147,7 @@ from typing import Any
 
 from openagents.agents import curator, replier, tester
 from openagents.recipes import stages
-from openagents.runtime import context, engine, gates, timing
+from openagents.runtime import context, engine, evidence, gates, research, timing
 from openagents.runtime.state import RuntimeState
 from openagents.utils import agent_config, git, identity, proc, streams
 
@@ -2860,7 +2860,9 @@ def _act(
     if action == _ACT_REBASE:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CONFLICT),
-            on_agent=lambda: _do_rebase(backend=timed, work_dir=work_dir, facts=facts),
+            on_agent=lambda: _do_rebase(
+                backend=timed, work_dir=work_dir, base=config.base, facts=facts
+            ),
             on_human=lambda: _park_gate(facts=facts, gate="conflict", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="conflict", agent_id=agent_id),
         )
@@ -2875,7 +2877,7 @@ def _act(
         return route(
             owner=stage_owner(stage=agent_config.STAGE_E2E),
             on_agent=lambda: _do_e2e(
-                backend=timed, work_dir=work_dir, facts=facts, agent_id=agent_id
+                backend=timed, state=state, work_dir=work_dir, facts=facts, agent_id=agent_id
             ),
             on_human=lambda: _park_gate(facts=facts, gate="e2e", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="e2e", agent_id=agent_id),
@@ -2883,7 +2885,9 @@ def _act(
     if action == _ACT_REVIEW_OR_FIX:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_REVIEW),
-            on_agent=lambda: _do_review_or_fix(backend=timed, work_dir=work_dir, facts=facts),
+            on_agent=lambda: _do_review_or_fix(
+                backend=timed, state=state, work_dir=work_dir, facts=facts
+            ),
             on_human=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
         )
@@ -2895,7 +2899,13 @@ def _act(
     if action == _ACT_MERGE:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_MERGE),
-            on_agent=lambda: _do_merge(backend=timed, state=state, work_dir=work_dir, facts=facts),
+            on_agent=lambda: _do_merge(
+                backend=timed,
+                state=state,
+                work_dir=work_dir,
+                facts=facts,
+                require_ci=stage_owner(stage=agent_config.STAGE_CI) != _SKIP,
+            ),
             on_human=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
             on_skip=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
         )
@@ -3008,8 +3018,8 @@ def _do_solve(
         issue_number=number, branch=branch, base=config.base
     )
 
-    def _draft() -> None:
-        stages.rfc(
+    def _draft() -> dict:
+        return stages.rfc(
             backend=backend,
             worktree=worktree,
             mode=stages.MODE_DRAFT,
@@ -3020,7 +3030,7 @@ def _do_solve(
             require_delivered=False,
         )
 
-    route(
+    draft_report = route(
         owner=config.stages.owner_of(stage=agent_config.STAGE_RFC),
         on_agent=_draft,
         on_human=_draft,
@@ -3032,6 +3042,43 @@ def _do_solve(
             message=f"chore: open delivery branch for issue #{number} (rfc skipped)",
         ),
     )
+    evidence_pack = draft_report.get("evidence_pack", []) if isinstance(draft_report, dict) else []
+
+    approved_design_digest = ""
+    architecture_owner = config.stages.owner_of(stage=agent_config.STAGE_ARCHITECTURE)
+    if architecture_owner == _HUMAN:
+        raise engine.NeedsHumanRequest(reason="候选 Spec 已起草，等待实现前技术架构批准")
+    if architecture_owner == _AGENT:
+        architecture_verdict = stages.architecture(
+            backend=backend,
+            work_dir=worktree,
+            issue_number=number,
+            context_text=_NEEDS_HUMAN_CONTRACT,
+            evidence_pack=evidence_pack,
+        )
+        if architecture_verdict["verdict"] == "PASS":
+            approved_design_digest = architecture_verdict["design_digest"]
+        else:
+            refine_report = stages.rfc(
+                backend=backend,
+                worktree=worktree,
+                mode="refine",
+                target=architecture_verdict["spec_path"],
+                branch=branch,
+                detail=architecture_verdict["reason"],
+                context_text=issue.body + _NEEDS_HUMAN_CONTRACT,
+                require_delivered=False,
+                evidence_pack=evidence_pack,
+            )
+            if isinstance(refine_report, dict):
+                evidence_pack = research.merge(
+                    evidence_pack, refine_report.get("evidence_pack", [])
+                )
+            # 轻量架构闸：一次独立评审 + 一次定向修订。修订后只跑确定性
+            # Spec 校验并重新绑定 digest，不再消耗 LLM 做循环式复审。
+            approved_design_digest = stages.design_snapshot(work_dir=worktree, issue_number=number)[
+                "design_digest"
+            ]
     pr = github.create_pr(
         branch=branch,
         base=config.base,
@@ -3039,24 +3086,44 @@ def _do_solve(
         body=f"Closes #{issue.number}\n\nopenagents 守夜自动求解，待评审。",
         draft=True,
     )
-    state.set_run(issue_number=number, status="pr-open", branch=branch, pr_number=pr.number)
-    stages.implement(
+    state.set_run(
+        issue_number=number,
+        status="pr-open",
+        branch=branch,
+        pr_number=pr.number,
+        design_digest=approved_design_digest,
+        evidence_pack=evidence_pack,
+    )
+    implementation_before = gates.snapshot_head(workspace=worktree)
+    implementation_report = stages.implement(
         backend=backend,
         work_dir=worktree,
         issue_number=number,
         pr_number=pr.number,
         feedback="",
         context_text=issue.body + _NEEDS_HUMAN_CONTRACT,
+        evidence_pack=evidence_pack,
     )
-    report = stages.deliver(
-        backend=backend,
-        worktree=worktree,
-        branch=branch,
-        pr_number=pr.number,
-        issue_number=number,
-        # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 交人，不直接写 forge。
-        context_text=_NEEDS_HUMAN_CONTRACT,
-    )
+    implementation_after = gates.snapshot_head(workspace=worktree)
+    if implementation_after != implementation_before:
+        # Implementer may complete the delivery protocol itself.  In that case a
+        # second delivery agent sees an already-clean branch and cannot advance
+        # HEAD, which used to be misclassified as an empty delivery.  Verify the
+        # remote branch instead and avoid the redundant model call.
+        git.Workspace(work_dir=work_dir).assert_delivered(worktree=worktree, branch=branch)
+        report = implementation_report
+    else:
+        # HEAD unchanged can still mean the Implementer left valid uncommitted
+        # edits.  The delivery role remains responsible for commit and push.
+        report = stages.deliver(
+            backend=backend,
+            worktree=worktree,
+            branch=branch,
+            pr_number=pr.number,
+            issue_number=number,
+            # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 交人，不直接写 forge。
+            context_text=_NEEDS_HUMAN_CONTRACT,
+        )
     # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
     # level-triggered 幂等）——deliver 提示词里原 `gh pr ready`（Spec-0017/T2）是平台命令，Gitea forge
     # 下容器无 gh，agent 临场拼 REST 空转耗轮；转正零判断，机械归代码。
@@ -3064,7 +3131,7 @@ def _do_solve(
     return str(report.get("summary", ""))
 
 
-def _do_rebase(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
+def _do_rebase(*, backend: Any, work_dir: Path, base: str, facts: _Facts) -> str:
     """分支⑥：冲突 / base 前移 → 先试机械 `update_branch`（零 LLM），不行再下放 agent 解冲突。
 
     `update_branch` 只在「没冲突、只是落后」时成功；真冲突时它会失败 → 落到 `stages.conflict`（agent 按
@@ -3081,10 +3148,11 @@ def _do_rebase(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
     _, number = _split_subject(subject=facts.subject)
     result = stages.conflict(
         backend=backend,
-        work_dir=work_dir,
+        work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
         pr_number=pr_number,
         issue_number=number if facts.subject.startswith(_KIND_ISSUE) else 0,
         branch=github.pr_head_branch(pr_number=pr_number),
+        base=base,
         context_text=_NEEDS_HUMAN_CONTRACT,  # 解不动冲突正是该主动交人的场景（一等出口，见 `_act`）
     )
     return str(result.get("summary", ""))
@@ -3105,7 +3173,9 @@ def _do_fix_ci(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
     return str(report.get("summary", ""))
 
 
-def _do_e2e(*, backend: Any, work_dir: Path, facts: _Facts, agent_id: str) -> str:
+def _do_e2e(
+    *, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts, agent_id: str
+) -> str:
     """分支⑨：e2e 证据缺失 / 陈旧 → 派 tester 跑 e2e，贴一条**带 head_sha 溯源戳**的证据评论。
 
     戳里的 head 就是**这一版代码**的 head（`facts.head_sha`）——下一圈 `_sense` 读回来与当前 head 比对：
@@ -3120,9 +3190,12 @@ def _do_e2e(*, backend: Any, work_dir: Path, facts: _Facts, agent_id: str) -> st
         tester,
         backend=backend,
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
-        context=_NEEDS_HUMAN_CONTRACT,
+        context=f"{_NEEDS_HUMAN_CONTRACT}{_evidence_context(state=state, facts=facts)}",
         pr_number=pr_number,
         issue_body="",
+    )
+    evidence.validate_manifest(
+        verdict=verdict["verdict"], evidence=verdict["evidence"], require_behavior=True
     )
     if verdict["verdict"] != "PASS":
         _log(message=f"✗ PR #{pr_number}：e2e 未过（{verdict['reason']}），不盖证据戳")
@@ -3139,7 +3212,7 @@ def _do_e2e(*, backend: Any, work_dir: Path, facts: _Facts, agent_id: str) -> st
     return str(verdict["reason"])
 
 
-def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
+def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts) -> str:
     """分支⑩：无裁决 / 裁决陈旧 → 派 reviewer 审；已是 CHANGES_REQUESTED@当前 head → 派 implementer 改。
 
     裁决落 label 时**把当前 head 的 sha7 嵌进 label 名**（`review-approved:<sha7>`）——裁决绑 commit，不是
@@ -3147,6 +3220,7 @@ def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
     被承认），但会让人在 UI 上看到一排互相矛盾的裁决。
     """
     pr_number = facts.pr_number or 0
+    evidence_pack = _evidence_pack(state=state, facts=facts)
     if facts.review_state == _REVIEW_CHANGES_REQUESTED and facts.review_commit_id == _short(
         sha=facts.head_sha
     ):
@@ -3157,6 +3231,7 @@ def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
             pr_number=pr_number,
             feedback="[review] 评审要求返工，请据上一轮 review 意见修改",
             context_text=_NEEDS_HUMAN_CONTRACT,
+            evidence_pack=evidence_pack,
         )
         return str(report.get("summary", ""))
 
@@ -3165,7 +3240,7 @@ def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
         pr_number=pr_number,
         issue_body=_issue_body_of(facts=facts),
-        context_text=_NEEDS_HUMAN_CONTRACT,
+        context_text=f"{_NEEDS_HUMAN_CONTRACT}{_render_evidence(evidence_pack)}",
     )
     _clear_review_labels(pr_number=pr_number, labels=facts.labels)
     prefix = (
@@ -3178,6 +3253,25 @@ def _do_review_or_fix(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
     github.add_label(pr_number=pr_number, name=label)
     _log(message=f"✓ PR #{pr_number}：评审裁决 {label}")
     return str(verdict["reason"])
+
+
+def _evidence_pack(*, state: RuntimeState, facts: _Facts) -> list[dict[str, str]]:
+    issue_number = _issue_number_of(facts=facts)
+    if not issue_number:
+        return []
+    run = state.get_run(issue_number=issue_number) or {}
+    return research.normalize(run.get("evidence_pack", []))
+
+
+def _render_evidence(evidence_pack: list | None) -> str:
+    rendered = research.render(evidence_pack)
+    if rendered == "[]":
+        return ""
+    return f"\n\n--- repository evidence_pack (objective facts only) ---\n{rendered}"
+
+
+def _evidence_context(*, state: RuntimeState, facts: _Facts) -> str:
+    return _render_evidence(_evidence_pack(state=state, facts=facts))
 
 
 def _do_ready(*, facts: _Facts) -> str:
@@ -3194,7 +3288,14 @@ def _do_ready(*, facts: _Facts) -> str:
     return "已转正（mark ready）"
 
 
-def _do_merge(*, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts) -> str:
+def _do_merge(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    work_dir: Path,
+    facts: _Facts,
+    require_ci: bool = True,
+) -> str:
     """分支⑫：全绿 + `review-approved:<当前 head 的 sha7>` + 非 draft → 下放 merger agent 合（**不可逆**）+ 关 issue + 置 done。
 
     Spec-0017/T2：合并动作经 `stages.merge` 下放 merger agent——但先经确定性 `gates.assert_merge_allowed`
@@ -3202,14 +3303,26 @@ def _do_merge(*, backend: Any, state: RuntimeState, work_dir: Path, facts: _Fact
     `gh pr merge`。`head_sha` 绑当前 head（防 `_sense→_act` 间 head 前移的 TOCTOU）。
     """
     pr_number = facts.pr_number or 0
+    candidate_worktree = _pr_worktree(work_dir=work_dir, facts=facts)
+    gates.assert_repository_integrity(workspace=candidate_worktree)
+    issue_number = _issue_number_of(facts=facts)
+    run = state.get_run(issue_number=issue_number) if issue_number else None
+    approved_digest = str((run or {}).get("design_digest", ""))
+    if approved_digest:
+        gates.assert_design_approved(
+            workspace=candidate_worktree,
+            issue_number=issue_number,
+            approved_digest=approved_digest,
+        )
     stages.merge(
         backend=backend,
         pr_number=pr_number,
         head_sha=facts.head_sha or "",
-        work_dir=work_dir,
+        work_dir=candidate_worktree,
         context_text=_NEEDS_HUMAN_CONTRACT,
+        require_ci=require_ci,
     )
-    number = _issue_number_of(facts=facts)
+    number = issue_number
     if number:
         state.set_run(
             issue_number=number,

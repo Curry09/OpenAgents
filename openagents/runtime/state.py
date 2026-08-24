@@ -26,6 +26,8 @@ import os
 import threading
 from pathlib import Path
 
+from openagents.runtime import research
+
 # Spec-0060/T5: 新栈状态文件名——与旧 state.json 独立命名空间，避免文件级冲突。
 RUNTIME_STATE_FILENAME = "runtime-state.json"
 
@@ -72,6 +74,8 @@ class RuntimeState:
         branch: str,
         pr_number: int | None,
         closed_at: str = "",
+        design_digest: str = "",
+        evidence_pack: list | None = None,
     ) -> None:
         """写/覆盖某 issue 的 run 记录（status/branch/pr_number）。
 
@@ -80,9 +84,18 @@ class RuntimeState:
         """
         with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行（K 个 worker 并发写会丢更新）
             data = self._load()
+            previous = data.get("runs", {}).get(str(issue_number), {})
             record: dict = {"status": status, "branch": branch, "pr_number": pr_number}
             if closed_at:
                 record["closed_at"] = closed_at
+            if design_digest:
+                record["design_digest"] = design_digest
+            elif previous.get("design_digest"):
+                record["design_digest"] = previous["design_digest"]
+            if evidence_pack is not None:
+                record["evidence_pack"] = research.normalize(evidence_pack)
+            elif previous.get("evidence_pack"):
+                record["evidence_pack"] = previous["evidence_pack"]
             data.setdefault("runs", {})[str(issue_number)] = record
             self._save(data=data)
 

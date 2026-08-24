@@ -22,8 +22,9 @@ version: 1
 #   token_env: GITEA_TOKEN   # 可省，默认 GITEA_TOKEN；OpenAgents 不存 token 本体
 
 # 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。
-# 缺省角色回落 claude_code。可用角色：triager / drafter / implementer / reviewer / replier / deliver。
+# 缺省角色回落 claude_code。可用角色：triager / drafter / architect / implementer / reviewer / replier / deliver。
 agents:
+  architect:   { backend: claude_code }
   implementer: { backend: claude_code }
   reviewer:    { backend: claude_code }
 
@@ -36,6 +37,7 @@ agents:
 stages:
   triage:   agent      # 准入门控        取值: agent / human / skip
   rfc:      agent      # RFC 起草        取值: agent / skip (skip 会告警——撞理念4「先改 RFC 再改代码」)
+  architecture: agent  # 实现前架构评审 取值: agent / human / skip (skip 仅与 rfc:skip 配套)
   conflict: agent      # 解冲突          取值: agent / human (不可 skip)
   ci:       agent      # 等 CI 全绿      取值: agent / human / skip
   e2e:      agent      # 端到端取证      取值: agent / human / skip

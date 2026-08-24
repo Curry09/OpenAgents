@@ -21,6 +21,7 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 |----|----|
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
 | `admitter.py` | # Spec-0065/T1: agents.admitter —— 读人在准入对话里的回话 → 人到底点头没有（零逻辑）。 |
+| `architect.py` | Review an admitted objective's implementation architecture before coding. |
 | `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
 | `drafter.py` | # Spec-0062/T1: agents.drafter —— RFC 生命周期起草判断 → 结构化交付报告的提示词（零逻辑）。 |
@@ -70,9 +71,12 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `__init__.py` | # Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 最小硬闸 + 上下文/状态）。 |
 | `context.py` | # Spec-0060/T5: runtime.context —— 组装占位符的值，供 recipe 传给 engine.run_agent。 |
 | `engine.py` | Fill an agent's prompt placeholders, dispatch to a backend, and return validated output. |
+| `evidence.py` | Validate head-bound behavioral evidence emitted by Tester. |
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
+| `research.py` | Normalize and render bounded, objective repository evidence for role reuse. |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
 | `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
+| `tool_usage.py` | Privacy-preserving, append-only tool-usage telemetry for agent invocations. |
 
 ### openagents.spec
 
@@ -129,6 +133,7 @@ graph LR
     nopenagents["openagents"]
     nopenagents_agents["openagents.agents"]
     nopenagents_agents_admitter["agents.admitter"]
+    nopenagents_agents_architect["agents.architect"]
     nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
     nopenagents_agents_drafter["agents.drafter"]
@@ -151,9 +156,12 @@ graph LR
     nopenagents_runtime["openagents.runtime"]
     nopenagents_runtime_context["runtime.context"]
     nopenagents_runtime_engine["runtime.engine"]
+    nopenagents_runtime_evidence["runtime.evidence"]
     nopenagents_runtime_gates["runtime.gates"]
+    nopenagents_runtime_research["runtime.research"]
     nopenagents_runtime_state["runtime.state"]
     nopenagents_runtime_timing["runtime.timing"]
+    nopenagents_runtime_tool_usage["runtime.tool_usage"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
     nopenagents_spec_graph["spec.graph"]
@@ -210,6 +218,7 @@ graph LR
     nopenagents_cli --> nopenagents_runtime_gates
     nopenagents_cli --> nopenagents_runtime_state
     nopenagents_cli --> nopenagents_runtime_timing
+    nopenagents_cli --> nopenagents_runtime_tool_usage
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_agent_config
     nopenagents_cli --> nopenagents_utils_align
@@ -231,6 +240,7 @@ graph LR
     nopenagents_recipes_backfill --> nopenagents_utils_git
     nopenagents_recipes_stages --> nopenagents_agents
     nopenagents_recipes_stages --> nopenagents_agents_admitter
+    nopenagents_recipes_stages --> nopenagents_agents_architect
     nopenagents_recipes_stages --> nopenagents_agents_deliver
     nopenagents_recipes_stages --> nopenagents_agents_drafter
     nopenagents_recipes_stages --> nopenagents_agents_implementer
@@ -241,6 +251,10 @@ graph LR
     nopenagents_recipes_stages --> nopenagents_runtime_context
     nopenagents_recipes_stages --> nopenagents_runtime_engine
     nopenagents_recipes_stages --> nopenagents_runtime_gates
+    nopenagents_recipes_stages --> nopenagents_runtime_research
+    nopenagents_recipes_stages --> nopenagents_spec
+    nopenagents_recipes_stages --> nopenagents_spec_model
+    nopenagents_recipes_stages --> nopenagents_spec_validate
     nopenagents_recipes_stages --> nopenagents_utils
     nopenagents_recipes_stages --> nopenagents_utils_forge
     nopenagents_recipes_vigil --> nopenagents
@@ -254,7 +268,9 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_runtime
     nopenagents_recipes_vigil --> nopenagents_runtime_context
     nopenagents_recipes_vigil --> nopenagents_runtime_engine
+    nopenagents_recipes_vigil --> nopenagents_runtime_evidence
     nopenagents_recipes_vigil --> nopenagents_runtime_gates
+    nopenagents_recipes_vigil --> nopenagents_runtime_research
     nopenagents_recipes_vigil --> nopenagents_runtime_state
     nopenagents_recipes_vigil --> nopenagents_runtime_timing
     nopenagents_recipes_vigil --> nopenagents_utils
@@ -268,12 +284,18 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_streams
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_forge
+    nopenagents_runtime_engine --> nopenagents_runtime
+    nopenagents_runtime_engine --> nopenagents_runtime_tool_usage
     nopenagents_runtime_gates --> nopenagents_spec
     nopenagents_runtime_gates --> nopenagents_spec_model
     nopenagents_runtime_gates --> nopenagents_spec_ownership
+    nopenagents_runtime_gates --> nopenagents_spec_render
+    nopenagents_runtime_gates --> nopenagents_spec_validate
     nopenagents_runtime_gates --> nopenagents_utils
     nopenagents_runtime_gates --> nopenagents_utils_forge
     nopenagents_runtime_gates --> nopenagents_utils_git
+    nopenagents_runtime_state --> nopenagents_runtime
+    nopenagents_runtime_state --> nopenagents_runtime_research
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph
     nopenagents_spec_cli --> nopenagents_spec_model

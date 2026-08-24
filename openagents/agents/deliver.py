@@ -19,9 +19,10 @@ PROMPT = Template(
     """你是交付 agent。把本工作分支 $branch（对应 PR #$pr_number）的改动真正推上远端，直到成果落到 PR head：
 1. 先记下交付前的本地基点：base_sha = 当前 `HEAD` 的 SHA（仅供 harness 交叉校验；head 前移由 harness 自记基点判定，不信你这个值）；
 2. `git add -A && git commit -m "<语义化信息>"`（不同阶段用不同措辞，别堆固定消息）；
-3. 先记下远端基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch`（BASE 必须在 fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
-4. 与远端分叉就 `git rebase origin/$branch`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、`git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；
-5. `git push --force-with-lease=$branch:$$BASE origin $branch`；禁止裸 `git push --force`，`--force-with-lease` 仅限本工作分支 $branch，绝不作用于 main/受保护分支/他人分支。
+3. 先记下远端工作分支基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch $rebase_onto`（BASE 必须在 fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
+4. 将工作分支 rebase 到本次明确的集成目标 `origin/$rebase_onto`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、`git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；
+5. 若仓库含 `docs/specs/` 且提供 `spec` CLI，推送前必须依次运行 `spec validate`、`spec render`、`spec graph`，将生成物纳入本次提交，再重跑受影响的验证；不得手工猜测或拼接生成文档；
+6. `git push --force-with-lease=$branch:$$BASE origin $branch`；禁止裸 `git push --force`，`--force-with-lease` 仅限本工作分支 $branch，绝不作用于 main/受保护分支/他人分支。
 完成判据：`git rev-parse origin/$branch` == 你的 `HEAD`（改动落到 head）。PR 的 draft 转正**不归你**——
 守夜会在评审通过后机械转正，你不需要也不应该调用任何平台命令（gh/API 都不用）。
 

@@ -58,10 +58,21 @@ _SHA7 = _HEAD[:7]
 
 # Spec-0065/T2: 各 agent 的 OUTPUT_SCHEMA 合规的假裁决（engine 被打桩，故这里就是「agent 说了什么」）。
 _AGENT_OUTPUTS: dict[str, dict] = {
-    "drafter": {"delivered": True, "head_sha": _HEAD, "summary": "spec 已起草"},
+    "drafter": {
+        "delivered": True,
+        "head_sha": _HEAD,
+        "summary": "spec 已起草",
+        "evidence_pack": [],
+    },
     "implementer": {"summary": "已按反馈修改"},
     "reviewer": {"verdict": "PASS", "reason": "看着没问题"},
-    "tester": {"verdict": "PASS", "reason": "e2e 全绿"},
+    "tester": {
+        "verdict": "PASS",
+        "reason": "e2e 全绿",
+        "evidence": [
+            {"case_id": "p", "kind": "behavior", "observed": "ok", "expected": "ok", "path": "log"}
+        ],
+    },
     "replier": {"reply": "已回应你的问题", "resolved": True},
     "deliver": {"delivered": True, "base_sha": "0" * 40, "head_sha": _HEAD, "summary": "已 push"},
     "merger": {"merged": True, "summary": "已合并"},  # Spec-0017/T3: 合并动作下放 merger agent
@@ -122,10 +133,33 @@ class _Rig:
         self.cursors: list[tuple] = []  # state.set_cursor
         self.comments: list[tuple] = []  # identity.post_signed_comment
         self.worktrees: list[tuple] = []  # Workspace.prepare / ensure
+        self.run_records: dict[int, dict] = {}
 
     # --- RuntimeState 替身（vigil 只用这三个方法） ---
-    def set_run(self, *, issue_number: int, status: str, branch: str, pr_number: int) -> None:
+    def set_run(
+        self,
+        *,
+        issue_number: int,
+        status: str,
+        branch: str,
+        pr_number: int,
+        design_digest: str = "",
+        evidence_pack: list | None = None,
+    ) -> None:
         self.runs.append((issue_number, status, branch, pr_number))
+        previous = self.run_records.get(issue_number, {})
+        self.run_records[issue_number] = {
+            "status": status,
+            "branch": branch,
+            "pr_number": pr_number,
+            "design_digest": design_digest or previous.get("design_digest", ""),
+            "evidence_pack": (
+                evidence_pack if evidence_pack is not None else previous.get("evidence_pack", [])
+            ),
+        }
+
+    def get_run(self, *, issue_number: int) -> dict | None:
+        return self.run_records.get(issue_number)
 
     def get_cursor(self, *, pr_number: int) -> str:
         return ""
@@ -157,6 +191,9 @@ class _FakeWorkspace:
     def ensure(self, *, issue_number: int, branch: str) -> Path:
         _RIG.worktrees.append(("ensure", issue_number, branch))
         return self._path(issue_number=issue_number)
+
+    def assert_delivered(self, *, worktree: Path, branch: str) -> None:
+        _RIG.worktrees.append(("assert-delivered", Path(worktree), branch))
 
     def _path(self, *, issue_number: int) -> Path:
         return self._work_dir / ".openagents" / "worktrees" / f"issue-{issue_number}"
@@ -194,8 +231,23 @@ def rig(monkeypatch) -> _Rig:
     monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: "0" * 40)
     monkeypatch.setattr(gates, "assert_head_advanced", lambda *, before, workspace: _HEAD)
     monkeypatch.setattr(gates, "assert_evidence_stamp", lambda *, head_sha, claimed: None)
+    monkeypatch.setattr(gates, "assert_repository_integrity", lambda *, workspace: None)
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "architecture",
+        lambda **kwargs: {
+            "verdict": "PASS",
+            "reason": "ok",
+            "design_digest": "d",
+            "spec_path": "docs/specs/0001-x.md",
+        },
+    )
     # Spec-0017/T3: 合并硬闸——本文件不测它（T3 test_runtime_gates 已钉），放行即可；只验合并动作下放 merger。
-    monkeypatch.setattr(gates, "assert_merge_allowed", lambda *, pr_number, head_sha: None)
+    monkeypatch.setattr(
+        gates,
+        "assert_merge_allowed",
+        lambda *, pr_number, head_sha, require_ci=True: None,
+    )
 
     monkeypatch.setattr(git, "Workspace", _FakeWorkspace)
     # Spec-0074: rfc:skip 态的确定性 seed 分支（空 commit+push）——打桩记录，不真碰 git。
@@ -315,6 +367,20 @@ def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
     assert rig.runs == [(5, "pr-open", "openagents/issue-5", 12)]
 
 
+def test_act_solve_skips_delivery_agent_when_implementer_already_pushed(rig, tmp_path, monkeypatch):
+    heads = iter(["draft-before", "draft-after", "impl-before", "impl-after"])
+    monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: next(heads))
+
+    _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path)
+
+    assert rig.agent_names() == ["drafter", "implementer"]
+    assert (
+        "assert-delivered",
+        _issue_worktree(tmp_path, 5),
+        "openagents/issue-5",
+    ) in rig.worktrees
+
+
 def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):
     """`rfc: skip` = 不设此闸 → 不派 drafter，但 PR/implement/deliver 照常（`skip` 关的是闸，不是活）。
 
@@ -337,6 +403,74 @@ def test_act_solve_agent_rfc_does_not_seed_branch(rig, tmp_path):
     assert all(record[0] != "seed" for record in rig.worktrees)
 
 
+def test_architecture_human_stops_before_implementer(rig, tmp_path) -> None:
+    with pytest.raises(engine.NeedsHumanRequest, match="架构批准"):
+        _act(
+            rig=rig,
+            facts=_facts(pr_number=None),
+            work_dir=tmp_path,
+            config=_config(stages=_stages_policy(architecture="human")),
+        )
+    assert rig.agent_names() == ["drafter"]
+
+
+def test_architecture_rework_refines_before_implementer(rig, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "architecture",
+        lambda **kwargs: {
+            "verdict": "REWORK",
+            "reason": "wrong layer",
+            "design_digest": "a",
+            "spec_path": "docs/specs/0001-x.md",
+        },
+    )
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "design_snapshot",
+        lambda **kwargs: {"design_digest": "b", "spec_path": "docs/specs/0001-x.md"},
+    )
+    _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path)
+    assert rig.agent_names()[:3] == ["drafter", "drafter", "implementer"]
+
+
+def test_solve_reuses_drafter_evidence_for_architect_and_implementer(
+    rig, tmp_path, monkeypatch
+) -> None:
+    evidence_pack = [
+        {
+            "fact": "timeout is polled",
+            "path": "entry.py",
+            "symbol": "_run_supervised",
+            "verification": "read body",
+        }
+    ]
+    monkeypatch.setitem(_AGENT_OUTPUTS["drafter"], "evidence_pack", evidence_pack)
+    captured = {}
+
+    def _architecture(**kwargs):
+        captured.update(kwargs)
+        return {
+            "verdict": "PASS",
+            "reason": "ok",
+            "design_digest": "approved",
+            "spec_path": "docs/specs/0001-x.md",
+        }
+
+    monkeypatch.setattr(vigil_module.stages, "architecture", _architecture)
+    _act(
+        rig=rig,
+        facts=_facts(pr_number=None),
+        work_dir=tmp_path,
+        config=_config(stages=_stages_policy(architecture="agent")),
+    )
+
+    assert captured["evidence_pack"] == evidence_pack
+    implement_call = next(payload for name, payload in rig.agents if name == "implementer")
+    assert "timeout is polled" in implement_call["context"]
+    assert rig.run_records[5]["evidence_pack"] == evidence_pack
+
+
 def test_act_rebase_tries_mechanical_update_branch_before_any_agent(rig, tmp_path, monkeypatch):
     """分支⑥：只是 base 前移（无真冲突）→ 机械 `update_branch` 就够 → **零 LLM 调用**。"""
     monkeypatch.setattr(github, "update_branch", lambda *, pr_number, rebase: True)
@@ -357,6 +491,8 @@ def test_act_rebase_falls_back_to_deliver_agent_when_update_branch_fails(rig, tm
     placeholders = rig.agents[0][1]
     assert placeholders["pr_number"] == 12
     assert placeholders["branch"] == "branch-of-pr-12"
+    assert placeholders["rebase_onto"] == "main"
+    assert placeholders["work_dir"] == _issue_worktree(tmp_path, 5)
 
 
 def test_act_fix_ci_feeds_failing_check_logs_to_implementer(rig, tmp_path):
@@ -377,12 +513,14 @@ def test_act_fix_ci_feeds_failing_check_logs_to_implementer(rig, tmp_path):
 def test_act_e2e_stamps_evidence_with_the_head_it_was_run_against(rig, tmp_path):
     """分支⑨：派 tester；PASS → 贴一条**带 head 溯源戳**的证据评论（戳里的 head 就是这一版代码的 head）。"""
     facts = _facts(e2e_head_sha=None)
+    rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
     assert _classify(facts=facts, in_flight=False).action == _ACT_E2E
 
     _act(rig=rig, facts=facts, work_dir=tmp_path)
 
     assert rig.agent_names() == ["tester"]
     assert rig.agents[0][1]["work_dir"] == _issue_worktree(tmp_path, 5)
+    assert "timeout is polled" in rig.agents[0][1]["context"]
     assert len(rig.comments) == 1
     pr_number, body, agent_id = rig.comments[0]
     assert (pr_number, agent_id) == (12, "bot")
@@ -391,7 +529,9 @@ def test_act_e2e_stamps_evidence_with_the_head_it_was_run_against(rig, tmp_path)
 
 def test_act_e2e_never_stamps_evidence_when_the_run_failed(rig, tmp_path, monkeypatch):
     """tester 判 REWORK → **不盖戳**（盖了就等于用一份失败的证据放行——张冠李戴的另一面）。"""
-    monkeypatch.setitem(_AGENT_OUTPUTS, "tester", {"verdict": "REWORK", "reason": "e2e 挂了"})
+    monkeypatch.setitem(
+        _AGENT_OUTPUTS, "tester", {"verdict": "REWORK", "reason": "e2e 挂了", "evidence": []}
+    )
     _act(rig=rig, facts=_facts(e2e_head_sha=None), work_dir=tmp_path)
     assert rig.agent_names() == ["tester"]
     assert rig.comments == [], "e2e 没过还盖证据戳 = 拿失败的证据放行"
@@ -400,12 +540,14 @@ def test_act_e2e_never_stamps_evidence_when_the_run_failed(rig, tmp_path, monkey
 def test_act_review_dispatches_reviewer_and_binds_the_verdict_to_the_head_sha(rig, tmp_path):
     """分支⑩：无裁决 → 派 reviewer；裁决落 label 时**把当前 head 的 sha7 嵌进 label 名**（裁决绑 commit）。"""
     facts = _facts(review_state=None, review_commit_id=None, labels=frozenset())
+    rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
     assert _classify(facts=facts, in_flight=False).action == _ACT_REVIEW_OR_FIX
 
     _act(rig=rig, facts=facts, work_dir=tmp_path)
 
     assert rig.agent_names() == ["reviewer"]
     assert rig.agents[0][1]["work_dir"] == _issue_worktree(tmp_path, 5)
+    assert "timeout is polled" in rig.agents[0][1]["context"]
     added = [call for call in rig.gh if call[0] == "add_label"]
     assert added == [("add_label", {"pr_number": 12, "name": f"review-approved:{_SHA7}"})]
 
@@ -435,12 +577,14 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
         review_commit_id=_SHA7,
         labels=frozenset({f"review-changes-requested:{_SHA7}"}),
     )
+    rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
     assert _classify(facts=facts, in_flight=False).action == _ACT_REVIEW_OR_FIX
 
     _act(rig=rig, facts=facts, work_dir=tmp_path)
 
     assert rig.agent_names() == ["implementer"]
     assert "[review]" in rig.agents[0][1]["feedback"]
+    assert "timeout is polled" in rig.agents[0][1]["context"]
 
 
 def test_act_ready_promotes_residual_draft_via_mark_ready(rig, tmp_path):

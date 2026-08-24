@@ -4,10 +4,72 @@ title: 交付面技术架构决策与实现前质量闸
 issue: 0
 slug: architecture-decision-gate
 summary: 将已确认需求转化为可审查的技术架构决策，在实现前验证干预层、备选方案与行为证据，并在合并前复核全局仓库不变量。
+architecture:
+  objective: 在不重做产品准入的前提下，为 OpenAgents 建立实现前技术架构决策和可验证质量闸。
+  constraints:
+    - 兼容既有无 architecture 字段的 Spec 快照
+    - 保留 Vigil 无人值守运行与 needs-human 收口
+    - 不以关键词规则替代技术判断
+  non-goals:
+    - 重新判断需求的产品价值
+    - 针对单次实验缺陷写特例
+  candidates:
+    - id: prompt-only
+      layer: role-prompt
+      boundary:
+        - Drafter
+      evidence:
+        - 现有 Prompt 已包含 Rationale 与备选要求但实验仍出现机械扩写
+      tradeoffs: 改动小，但没有状态闸和确定性不变量，无法防止遗漏或并发冲突。
+    - id: contract-and-gates
+      layer: spec-contract-agent-workflow-runtime-gates
+      boundary:
+        - Spec model and validator
+        - Drafter and Architect
+        - Vigil and merge gates
+        - Tester and Reviewer
+      evidence:
+        - 当前 _do_solve 在起草后立即调用 Implementer
+        - 当前 Reviewer 只对照已生成 Spec 验收
+        - 并发实验产生重复 Spec 编号并进入 main
+      tradeoffs: 增加一次架构评审与结构化数据成本，但能在实现前和合并前分别阻断错误。
+  selected: contract-and-gates
+  affected-components:
+    - openagents.spec
+    - openagents.agents
+    - openagents.recipes.vigil
+    - openagents.runtime.gates
+  failure-modes:
+    - Drafter 把 issue 实现建议当作不可变需求
+    - Architect 与 Drafter 形成相关性偏差
+    - 设计变化后沿用陈旧批准
+    - 并发分支局部校验通过但合并后破坏全局唯一性
+verification:
+  behavior-cases:
+    - id: architecture-rework
+      polarity: positive
+      stimulus: Architect 对错误干预层返回 REWORK
+      expected: Drafter 限定修订一次，确定性 Spec 校验通过后调用 Implementer，不再模型复审
+      observation: scripted Vigil 调用顺序记录
+    - id: architecture-human-stop
+      polarity: negative
+      stimulus: architecture stage 配置为 human
+      expected: 流程在 Drafter 后停止且不调用 Implementer
+      observation: Runtime needs-human 异常与 agent 调用记录
+    - id: presence-only-evidence
+      polarity: negative
+      stimulus: Tester 仅提交 grep/static 存在性证据并声称 PASS
+      expected: evidence validator 拒绝放行
+      observation: 确定性单元测试异常
+  repository-invariants:
+    - Spec number 与 slug 在候选树中唯一
+    - OVERVIEW 与候选 Spec 源一致
+    - 设计语义变化使 design digest 改变，Task status 变化不改变摘要
+  exemptions: []
 tasks:
   - id: T1
     title: Spec 架构决策与行为验收契约
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on: []
@@ -25,7 +87,7 @@ tasks:
     acceptance: 正反 schema 测试证明候选与选择关系、行为正反例或显式豁免、设计摘要稳定边界及编号/slug 唯一性；Task 状态和派生物变化不改变摘要，设计字段或验收语义变化必改变摘要；既有 Spec 兼容迁移策略明确且全量 validate 无 error。
   - id: T2
     title: Drafter 技术架构产出契约与 skill 接线
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -41,7 +103,7 @@ tasks:
     acceptance: scripted 正反测试证明 Drafter 保持 issue 目标但可替换错误实现建议，输出包含仓库证据和可证伪行为验收；Prompt 引用的 skill 名与实际安装名称一致；backfill/implement/iterate 既有模式契约不回归。
   - id: T3
     title: 独立 Architect 角色与架构裁决
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -56,7 +118,7 @@ tasks:
     acceptance: 角色输出 schema 与值域可机检；正例通过，机械接受 issue 实现建议、只有关键词验收、忽略进程/并发所有权或缺少反例的设计均 REWORK；证据不足可走统一 needs-human，不能静默 PASS。
   - id: T4
     title: Vigil 实现前架构闸与最终集成闸
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -74,12 +136,12 @@ tasks:
       - tests/test_recipe_vigil_act.py
       - tests/test_runtime_gates.py
       - tests/test_runtime_state.py
-      - tests/test_utils_agent_config.py
+      - tests/test_agent_config.py
     scope: 拆开当前 draft 后立即 implement 的竖切路径；新增独立 architecture stage 执行 agent/human/skip 设计评审并保存绑定 design digest 的批准；实现和合并均拒绝陈旧批准；在最新 base+head 候选树上运行全局 Spec/生成物/DAG 检查并将结果绑定 base、head、design 三元组。
     acceptance: 配置测试证明 architecture 缺省值兼容推导且非法 rfc/architecture 组合被拒绝；状态机测试证明未批准设计不调用 Implementer、REWORK 返回 refine、human 真暂停、设计变化使批准失效；并发分支复用 Spec 编号时后合入者在最新 base 上被拒绝；base/head/design 任一变化使 integration stamp 失效；现有代码 review、CI 配置和 needs-human 语义不回归。
   - id: T5
     title: 行为证据清单、实现评审与端到端反证
-    status: pending
+    status: done
     priority: P0
     tags: []
     depends-on:
@@ -91,8 +153,6 @@ tasks:
       - openagents/agents/tester.py
       - openagents/agents/reviewer.py
       - openagents/runtime/evidence.py
-      - tests/test_agents_tester.py
-      - tests/test_agents_reviewer.py
       - tests/test_runtime_evidence.py
       - scripts/e2e-spec-0076-architecture-decision-gate.sh
     scope: 让 Tester 按 Spec 行为案例生成绑定当前 head 的 evidence manifest，Reviewer 核对实现与已批准设计及证据覆盖；静态存在性检查只能证明格式，不能单独放行行为主张；提供完全离线的全链路反证脚本。
@@ -193,15 +253,18 @@ Spec frontmatter 增加 `architecture` 与 `verification` 两个结构化对象�
 - `reason/findings`：可执行的修订意见。
 
 Architect 与 Drafter 使用不同角色契约；配置允许使用不同 backend。相同模型仍可运行，但 trace 必须保留
-角色、模型、设计摘要和裁决，便于识别相关性偏差。Architect 的 REWORK 返回 Drafter refine，超过预算或
-无法取得必要证据时走现有 `needs-human` 控制出口，不降级为 PASS。
+角色、模型、设计摘要和裁决，便于识别相关性偏差。Architect 的 REWORK 返回 Drafter 做一次限定
+refine；修订后跑确定性 `spec validate` 并重新绑定 design digest，然后继续实现，不循环
+调用 Architect。无法取得必要证据、Architect 明确请求人工，或修订后确定性校验失败时，
+才走现有 `needs-human` 控制出口。
 
 ### 实现前状态闸
 
 Vigil 不再在 `_do_solve` 内无条件连续执行 draft 与 implement。`rfc` stage 继续只决定 Spec 由谁起草；
 创建 draft PR 后计算设计摘要，再路由新增的 `architecture` 闸：
 
-- `agent`：派 Architect；PASS 后写入 `design-approved:<digest>` 证据，REWORK 后修订 Spec 并重新计算；
+- `agent`：派 Architect 一次；PASS 后写入 `design-approved:<digest>` 证据，REWORK 后限定修订
+  Spec、跑确定性校验并重新计算 digest，不再消耗模型复审；
 - `human`：停在 draft PR，人工批准必须绑定当前 design digest；
 - `skip`：仅当 `rfc: skip` 时合法，不创建虚假的批准证据，按配置明确走无 Spec 路径。
 
@@ -240,7 +303,7 @@ DAG/文件所有权和项目配置的仓库级检查。结果绑定 `(base_sha, 
 
 各 Task 的文件所有权见 frontmatter，互不重叠。端到端验证脚本为
 `scripts/e2e-spec-0076-architecture-decision-gate.sh`：使用临时仓库和 scripted backend，覆盖建议实现被
-替换、架构 REWORK 后再审、Spec 改动使批准失效、仅 grep 证据不能放行，以及两个并行分支复用编号时第二个
+替换、架构 REWORK 后一次限定修订与确定性校验、Spec 改动使批准失效、仅 grep 证据不能放行，以及两个并行分支复用编号时第二个
 合并被 integration gate 拒绝。默认测试不调用真实模型或外部 forge。
 
 ## Drawbacks
