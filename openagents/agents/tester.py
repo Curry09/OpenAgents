@@ -12,12 +12,16 @@ PROMPT = Template(
 - 按 method 描述真跑（浏览器导航/截图断言，或离线确定性脚本，视工具与改动类别而定）；
 - 产品对外行为必须有真 app 证据，纯内部改动相称自动化测试即可；不许拿「慢/flaky」当跳过借口，真跑不起来就诚实判 REWORK 并写清阻塞原因。
 
+逐项执行 behavior-cases，evidence 每项填写 case_id、kind（behavior/static）、observed、expected、path、passed。
+其中 expected 是验收条件，observed 是实际观测，两者不要求文字相同；passed 是根据实际观测是否满足验收
+条件得出的布尔值。任何一项 passed=false 时，总 verdict 必须为 REWORK。
+行为变化的 PASS 必须包含实际 behavior 观测；grep、关键词和字段存在性只能记为 static，不能单独放行。
 裁决二选一：证据充分且通过 → PASS；未跑通/证据不足/有失败 → REWORK。
-最后只输出一行 JSON：{"verdict": "PASS" 或 "REWORK", "reason": "<判读理由，含证据落点>"}
+最后只输出一行 JSON：{"verdict":"PASS 或 REWORK","reason":"判读理由","evidence":[{"case_id":"...","kind":"behavior","observed":"实际观测","expected":"验收条件","path":"证据位置","passed":true}]}
 
 issue 原文：
 $issue_body
 """
 )
 
-OUTPUT_SCHEMA = {"verdict": str, "reason": str}
+OUTPUT_SCHEMA = {"verdict": str, "reason": str, "evidence": list}

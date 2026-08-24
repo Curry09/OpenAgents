@@ -30,10 +30,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from openagents.agents import admitter, drafter, implementer, merger, reviewer, triager
+from openagents.agents import admitter, architect, drafter, implementer, merger, reviewer, triager
 from openagents.agents import deliver as deliver_agent
-from openagents.runtime import context, engine, gates
+from openagents.runtime import context, engine, gates, research
 from openagents.runtime.context import Context
+from openagents.spec import model as spec_model
+from openagents.spec import validate as spec_validate
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
@@ -95,6 +97,7 @@ def rfc(
     detail: str,
     context_text: str,
     require_delivered: bool,
+    evidence_pack: list | None = None,
 ) -> dict:
     """起草阶段（drafter agent，**单一起草函数**）：据 issue 起草 / 据代码反推 spec，返回 {delivered, head_sha, summary}。
 
@@ -108,7 +111,7 @@ def rfc(
         backend=backend,
         worktree=Path(worktree),
         placeholders={
-            "context": context_text,
+            "context": _with_evidence(context_text=context_text, evidence_pack=evidence_pack),
             "mode": mode,
             "target": target,
             "branch": branch,
@@ -126,6 +129,7 @@ def implement(
     pr_number: int,
     feedback: str,
     context_text: str,
+    evidence_pack: list | None = None,
 ) -> dict:
     """实现阶段（implementer agent）：按获批 spec 写码 / 据反馈迭代，返回 {summary}。承 solve_issue 的 implement/iterate。
 
@@ -137,10 +141,63 @@ def implement(
         implementer,
         backend=backend,
         work_dir=Path(work_dir),
-        context=context_text,
+        context=_with_evidence(context_text=context_text, evidence_pack=evidence_pack),
         issue_number=issue_number,
         pr_number=pr_number,
         feedback=feedback,
+    )
+
+
+def design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, str]:
+    """Validate and identify the single candidate Spec for an issue."""
+    specs_root = Path(work_dir) / "docs" / "specs"
+    report = spec_validate.validate(specs_root=specs_root)
+    if not report.ok:
+        details = "; ".join(
+            f"{item.where}: {item.message}" for item in report.issues if item.level == "error"
+        )
+        raise gates.GateError(f"issue #{issue_number} 的候选 Spec 校验失败：{details}")
+    candidates = [
+        g for g in spec_model.load_all(specs_root=specs_root) if g.metadata.issue == issue_number
+    ]
+    if len(candidates) != 1:
+        raise gates.GateError(
+            f"issue #{issue_number} 必须恰好对应一个候选 Spec，实际 {len(candidates)} 个"
+        )
+    group = candidates[0]
+    digest = spec_model.design_digest(group=group)
+    spec_path = spec_model.group_path(
+        specs_root=specs_root, number=group.number, slug=group.metadata.slug
+    )
+    return {"design_digest": digest, "spec_path": str(spec_path)}
+
+
+def architecture(
+    *,
+    backend: Any,
+    work_dir: Path,
+    issue_number: int,
+    context_text: str = "",
+    evidence_pack: list | None = None,
+) -> dict:
+    """Review the issue's candidate Spec before any implementation is dispatched."""
+    snapshot = design_snapshot(work_dir=work_dir, issue_number=issue_number)
+    return (
+        engine.run_agent(
+            architect,
+            backend=backend,
+            **context.for_architecture(
+                work_dir=Path(work_dir),
+                issue_number=issue_number,
+                design_digest=snapshot["design_digest"],
+                spec_text=_with_evidence(
+                    context_text=Path(snapshot["spec_path"]).read_text(encoding="utf-8")
+                    + context_text,
+                    evidence_pack=evidence_pack,
+                ),
+            ),
+        )
+        | snapshot
     )
 
 
@@ -174,6 +231,7 @@ def deliver(
     branch: str,
     pr_number: int,
     issue_number: int,
+    rebase_onto: str | None = None,
     context_text: str = "",
 ) -> dict:
     """交付阶段（deliver agent）：commit/push 把改动落到 PR head，返回交付报告 {delivered, head_sha, ...}。承 solve_issue 的 deliver。
@@ -191,6 +249,7 @@ def deliver(
         pr_number=pr_number,
     )
     placeholders = ctx.for_deliver(issue_number=issue_number)
+    placeholders["rebase_onto"] = rebase_onto or branch
     placeholders["context"] = f"{placeholders['context']}{context_text}"
     return _deliver_gated(
         agent_module=deliver_agent,
@@ -208,6 +267,7 @@ def conflict(
     pr_number: int,
     issue_number: int,
     branch: str,
+    base: str = "main",
     context_text: str = "",
 ) -> dict:
     """冲突解决阶段（deliver agent 去 rebase）：读冲突/判双方意图/自测下放 agent，返回 {delivered, reason}。承 merge_pr._resolve_conflict。
@@ -226,6 +286,7 @@ def conflict(
         branch=resolved_branch,
         pr_number=pr_number,
         issue_number=issue_number,
+        rebase_onto=base,
         context_text=context_text,  # Spec-0065/T2: 透传一等出口契约（守夜传，其它调用方缺省空串）
     )
     if report["delivered"]:
@@ -274,6 +335,7 @@ def merge(
     head_sha: str,
     work_dir: Path,
     context_text: str,
+    require_ci: bool = True,
 ) -> dict:
     """合并阶段（Spec-0017/T3：确定性硬闸兜底 + 下放 merger agent）：返回 merger 报告 {merged, summary}。
 
@@ -285,7 +347,10 @@ def merge(
 
     「要不要停下等人」（hold/merge:human）由调用方在调本函数前判；本函数只在闸放行后落合并动作、零业务判断。
     """
-    gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha)
+    if require_ci:
+        gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha)
+    else:
+        gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha, require_ci=False)
     return engine.run_agent(
         merger,
         backend=backend,
@@ -301,6 +366,14 @@ def merge(
 # --------------------------------------------------------------------------------------------------
 # 内部：交付类阶段共用的三道硬闸兜底骨架 + e2e 证据 seam + github 薄引用。
 # --------------------------------------------------------------------------------------------------
+
+
+def _with_evidence(*, context_text: str, evidence_pack: list | None) -> str:
+    """Append a bounded objective evidence pack without changing agent schemas."""
+    rendered = research.render(evidence_pack)
+    if rendered == "[]":
+        return context_text
+    return f"{context_text}\n\n--- repository evidence_pack (objective facts only) ---\n{rendered}"
 
 
 def _deliver_gated(

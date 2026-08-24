@@ -19,11 +19,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from openagents.spec import model as spec_model
 from openagents.spec import ownership
 from openagents.spec.model import Group
+from openagents.spec.render import render as render_specs
+from openagents.spec.validate import validate as validate_specs
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
@@ -31,6 +35,36 @@ from openagents.utils import git
 
 # Spec-0060/T3: 评审循环默认轮次上限——超此仍未 PASS 视作死循环，兜底 raise（可由调用方覆盖）。
 DEFAULT_MAX_ROUNDS = 10
+
+
+def assert_repository_integrity(*, workspace: Path) -> None:
+    """Reject a merge candidate whose complete Spec snapshot is inconsistent."""
+    specs_root = Path(workspace) / "docs" / "specs"
+    report = validate_specs(specs_root=specs_root)
+    errors = [f"{item.where}: {item.message}" for item in report.issues if item.level == "error"]
+    if errors:
+        raise GateError("仓库级 Spec 完整性失败：" + "; ".join(errors))
+    overview = specs_root / "OVERVIEW.md"
+    actual = overview.read_text(encoding="utf-8") if overview.exists() else ""
+    if actual != render_specs(specs_root=specs_root):
+        raise GateError("仓库级 Spec 完整性失败：OVERVIEW.md 与候选树不一致")
+
+
+def assert_design_approved(*, workspace: Path, issue_number: int, approved_digest: str) -> None:
+    """Reject implementation or merge after approved design semantics changed."""
+    groups = [
+        group
+        for group in spec_model.load_all(specs_root=Path(workspace) / "docs" / "specs")
+        if group.metadata.issue == issue_number
+    ]
+    if len(groups) != 1:
+        raise GateError(f"issue #{issue_number} 无唯一 Spec，设计批准不可验证")
+    current = spec_model.design_digest(group=groups[0])
+    if current != approved_digest:
+        raise GateError(
+            f"issue #{issue_number} 的设计已变化：approved={approved_digest[:12]} current={current[:12]}"
+        )
+
 
 # Spec-0062/T2: 合并流水线（recipes.merge_pr）的确定性判读原语——只**读客观事实分类**、不判「能不能合」。
 # 复活窗口默认阈值：对齐旧 messages.REOPEN_REVIVE_WINDOW_SECONDS（7 天）——closed run 超此即硬化真终态。
@@ -49,6 +83,23 @@ _SHA_LABEL_LEN = 7
 
 class GateError(Exception):
     """# Spec-0060/T3: 最小硬闸判定客观事实不成立（未交付 / 死循环 / PR 不存在 / 戳不匹配）时抛出。"""
+
+
+@dataclass(frozen=True)
+class IntegrationStamp:
+    """The exact repository/design versions covered by an integration check."""
+
+    base_sha: str
+    head_sha: str
+    design_digest: str
+
+
+def assert_integration_stamp(*, approved: IntegrationStamp, current: IntegrationStamp) -> None:
+    """Reject reuse of an integration result after any observed input changed."""
+    if not all((current.base_sha, current.head_sha, current.design_digest)):
+        raise GateError("集成校验戳不完整")
+    if current != approved:
+        raise GateError("集成校验已失效：base、head 或 design digest 在校验后发生变化")
 
 
 class MergeNotReady(Exception):
@@ -92,7 +143,7 @@ def assert_head_advanced(*, before: str, workspace: Path) -> str:
     return after
 
 
-def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
+def assert_merge_allowed(*, pr_number: int, head_sha: str, require_ci: bool = True) -> None:
     """合并红线硬闸（Spec-0017/T3）：**实时复读** CI + labels，非「全绿 ∧ review-approved:<head sha7>@head」即抛。
 
     合并**不可逆**——当初把 `merge_pr` 留在确定性层，就是防「觉得可以合了」就合掉一份没审过的代码。把合并
@@ -107,24 +158,22 @@ def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
     check 不算绿，比照 vigil `_ci_state`——防合并一份没跑过 CI 的代码）；review-approved = `pr_snapshot`
     的 labels 里存在 `review-approved:<当前 head 的 sha7>`。任一不满足 → GateError（合并不发生）。
     """
-    checks = github.check_snapshot(pr_number=pr_number)
-    # 零 check = 没跑过 CI → 硬挡（决不合未过 CI 的代码）；顺序在 pending 之前——count==0 时 state 可能也是
-    # pending（Gitea 空 combined），但那是「根本没 CI」不是「CI 在跑」，必须走硬红线。
-    if checks.count == 0:
-        raise GateError(
-            f"合并硬闸未放行：PR #{pr_number} 当前 head 零个 check——决不合并未过 CI 的代码"
-        )
-    # Spec-0074 实证：CI 仍在跑（pending）不是红线、是暂态——抛 MergeNotReady（`_run_claimed` 当干净收工、
-    # 不烧 attempts），等下一 tick CI 绿了再合。并入 GateError 会在 pending→success 窗口烧光重试 → 误交人。
-    if checks.state == "pending":
-        raise MergeNotReady(
-            f"PR #{pr_number} 当前 head CI 仍在跑（pending）——非红线，等下一 tick 重判"
-        )
-    if checks.state != "pass":
-        raise GateError(
-            f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
-            f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
-        )
+    if require_ci:
+        checks = github.check_snapshot(pr_number=pr_number)
+        # 零 check = 没跑过 CI → 硬挡（决不合未过 CI 的代码）；顺序在 pending 之前。
+        if checks.count == 0:
+            raise GateError(
+                f"合并硬闸未放行：PR #{pr_number} 当前 head 零个 check——决不合并未过 CI 的代码"
+            )
+        if checks.state == "pending":
+            raise MergeNotReady(
+                f"PR #{pr_number} 当前 head CI 仍在跑（pending）——非红线，等下一 tick 重判"
+            )
+        if checks.state != "pass":
+            raise GateError(
+                f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
+                f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
+            )
     labels = github.pr_snapshot(pr_number=pr_number).labels
     expected = f"{_REVIEW_APPROVED_LABEL_PREFIX}{head_sha[:_SHA_LABEL_LEN]}"
     if expected not in labels:

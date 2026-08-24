@@ -94,7 +94,14 @@ def test_rfc_only_depends_on_drafter(monkeypatch):
     # 交付前后 head 不同 → head 前移闸放行；证据戳与交付后 head 一致。
     _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
     backend = _Backend(
-        payloads={"drafter": {"delivered": True, "head_sha": "AFTER", "summary": "drafted"}}
+        payloads={
+            "drafter": {
+                "delivered": True,
+                "head_sha": "AFTER",
+                "summary": "drafted",
+                "evidence_pack": [],
+            }
+        }
     )
     verdict = stages.rfc(
         backend=backend,
@@ -113,7 +120,16 @@ def test_rfc_only_depends_on_drafter(monkeypatch):
 def test_rfc_backfill_require_delivered_shortcircuits(monkeypatch):
     # backfill 未过 validate（delivered=false）→ 原样返回、不进硬闸（caller 据此不开 PR）。
     _seq_head_sha(monkeypatch, values=["SAME", "SAME"])  # head 没动，但 require_delivered 先短路
-    backend = _Backend(payloads={"drafter": {"delivered": False, "head_sha": "", "summary": "no"}})
+    backend = _Backend(
+        payloads={
+            "drafter": {
+                "delivered": False,
+                "head_sha": "",
+                "summary": "no",
+                "evidence_pack": [],
+            }
+        }
+    )
     verdict = stages.rfc(
         backend=backend,
         worktree="/wt",
@@ -125,6 +141,79 @@ def test_rfc_backfill_require_delivered_shortcircuits(monkeypatch):
         require_delivered=True,
     )
     assert verdict["delivered"] is False
+
+
+def test_architecture_dispatches_before_implementation(tmp_path, monkeypatch):
+    from openagents.spec import model
+    from openagents.spec.model import Group, Metadata, Overview
+
+    root = tmp_path / "docs" / "specs"
+    model.dump_group(
+        group=Group(
+            number="0001",
+            metadata=Metadata(title="x", issue=7, slug="x", summary="s"),
+            tasks=[],
+            overview=Overview(
+                summary="s", motivation="m", reference_level="r", rationale_alternatives="a"
+            ),
+        ),
+        path=root / "0001-x.md",
+    )
+    captured = {}
+    monkeypatch.setattr(
+        stages.engine,
+        "run_agent",
+        lambda module, *, backend, **kwargs: (
+            captured.update(kwargs)
+            or {
+                "verdict": "PASS",
+                "objective_fidelity": "ok",
+                "intervention_fit": "ok",
+                "boundary_integrity": "ok",
+                "verification_strength": "ok",
+                "reason": "ok",
+                "findings": [],
+            }
+        ),
+    )
+    result = stages.architecture(
+        backend=object(),
+        work_dir=tmp_path,
+        issue_number=7,
+        evidence_pack=[
+            {
+                "fact": "timeout is polled",
+                "path": "entry.py",
+                "symbol": "_run_supervised",
+                "verification": "read body",
+                "decision": "must not cross the role boundary",
+            }
+        ],
+    )
+    assert result["verdict"] == "PASS"
+    assert result["design_digest"] == captured["design_digest"]
+    assert "timeout is polled" in captured["spec_text"]
+    assert "decision" not in captured["spec_text"]
+
+
+def test_implement_receives_normalized_evidence_pack(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        stages.engine,
+        "run_agent",
+        lambda module, *, backend, **kwargs: captured.update(kwargs) or {"summary": "done"},
+    )
+    stages.implement(
+        backend=object(),
+        work_dir=".",
+        issue_number=1,
+        pr_number=2,
+        feedback="",
+        context_text="c",
+        evidence_pack=[{"fact": "f", "path": "entry.py", "judgment": "choose A"}],
+    )
+    assert '"fact":"f"' in captured["context"]
+    assert "judgment" not in captured["context"]
 
 
 # ---- 交付类硬闸 ----
@@ -178,8 +267,16 @@ def test_conflict_delivered_resolved(monkeypatch):
             "deliver": {"delivered": True, "base_sha": "x", "head_sha": "AFTER", "summary": "s"}
         }
     )
-    out = stages.conflict(backend=backend, work_dir="/wt", pr_number=1, issue_number=1, branch="b")
+    out = stages.conflict(
+        backend=backend,
+        work_dir="/wt",
+        pr_number=1,
+        issue_number=1,
+        branch="b",
+        base="trunk",
+    )
     assert out["reason"] == "resolved"
+    assert backend.calls == ["deliver"]
 
 
 # ---- 机械段 ci / e2e / merge ----
@@ -222,7 +319,9 @@ def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
     monkeypatch.setattr(
         stages.gates,
         "assert_merge_allowed",
-        lambda *, pr_number, head_sha: gate_calls.update(pr=pr_number, head=head_sha),
+        lambda *, pr_number, head_sha, require_ci=True: gate_calls.update(
+            pr=pr_number, head=head_sha, require_ci=require_ci
+        ),
     )
 
     def _fake_run_agent(agent_module, *, backend, **kw):
@@ -238,7 +337,7 @@ def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
         work_dir="/tmp/wt",
         context_text="ctx",
     )
-    assert gate_calls == {"pr": 42, "head": "abc123"}  # 闸先被调、绑 head sha
+    assert gate_calls == {"pr": 42, "head": "abc123", "require_ci": True}  # 闸先被调、绑 head sha
     assert len(agent_calls) == 1 and agent_calls[0][0].endswith("merger")  # 放行后才派 merger
     assert out == {"merged": True, "summary": "已合并"}
 
@@ -247,7 +346,7 @@ def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
     # Spec-0017/T3: 闸抛 GateError → **决不派 agent**（agent 只能在闸放行后落合并动作，防合未审代码）。
     agent_calls = []
 
-    def _boom(*, pr_number, head_sha):
+    def _boom(*, pr_number, head_sha, require_ci=True):
         raise GateError("CI 非全绿")
 
     monkeypatch.setattr(stages.gates, "assert_merge_allowed", _boom)
