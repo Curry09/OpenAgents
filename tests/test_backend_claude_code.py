@@ -141,6 +141,21 @@ def test_summary_comes_from_result_event(monkeypatch, tmp_path):
     assert "done editing foo" in result.summary
 
 
+def test_long_result_is_only_truncated_for_display(monkeypatch, tmp_path):
+    raw = "analysis " * 400 + '{"verdict":"PASS"}'
+    _patch(
+        monkeypatch,
+        claude_lines=[_result(raw)],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert len(result.summary) == 2000
+    assert result.protocol_output == raw
+
+
 def test_changed_false_when_git_clean(monkeypatch, tmp_path):
     _patch(
         monkeypatch,

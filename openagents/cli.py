@@ -441,12 +441,22 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _cmd_report(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0066/T3：读 timing.jsonl → timing 聚合器 → stdout 文本报告。薄路由：解析路径 + 取 interval，
     # 聚合/重建全在 runtime.timing（单 issue 时间线 + 跨 issue p50/p90 + 最长尾）。空/缺文件友好提示、退出码 0。
-    from openagents.runtime import timing
+    from openagents.runtime import timing, tool_usage
 
     path = ctx.repo_root / ".openagents" / timing.TIMING_FILENAME
     events = timing.load_events(path=path)
+    usage_path = ctx.repo_root / ".openagents" / tool_usage.TOOL_USAGE_FILENAME
+    usage_events = tool_usage.load_events(path=usage_path)
     interval = _report_interval(ctx=ctx, args=args)
-    print(_render_report(events=events, interval=interval, path=path))
+    print(
+        _render_report(
+            events=events,
+            interval=interval,
+            path=path,
+            usage_events=usage_events,
+            usage_path=usage_path,
+        )
+    )
     return 0
 
 
@@ -463,41 +473,66 @@ def _report_interval(*, ctx: ProjectContext, args: argparse.Namespace) -> int:
         return 60  # 缺配置不该让报告失败——回落内建默认轮询间隔
 
 
-def _render_report(*, events: list, interval: int, path: Path) -> str:
+def _render_report(
+    *,
+    events: list,
+    interval: int,
+    path: Path,
+    usage_events: list | None = None,
+    usage_path: Path | None = None,
+) -> str:
     # Spec-0066/T3：把聚合结果排成 stdout 文本表。**显式标注墙钟精度下限 = 轮询 interval**（issue 验收项）。
-    from openagents.runtime import timing
+    from openagents.runtime import timing, tool_usage
 
-    if not events:
+    usage_events = usage_events or []
+    if not events and not usage_events:
         return (
             f"（timing.jsonl 为空或不存在：{path}）\n"
             "跑一轮 `oa vigil` 后各阶段信号会落到此文件，再来看报告。"
         )
 
-    lines = timing.timelines(events=events)
-    stats = timing.phase_stats(events=events, interval=interval)
     out: list[str] = []
-    out.append("═══ openagents 阶段墙钟时延报告 ═══")
-    out.append(
-        f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
-    )
-    out.append("")
-    out.append("── 单 subject 时间线（各阶段墙钟停留）──")
-    for line in lines:
-        head = f"{line.subject}"
-        if line.pr is not None:
-            head += f"（PR #{line.pr}）"
-        out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
-        for segment in line.segments:
-            out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
-    out.append("")
-    out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
-    out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
-    for stat in stats.phases:
+    if events:
+        lines = timing.timelines(events=events)
+        stats = timing.phase_stats(events=events, interval=interval)
+        out.append("═══ openagents 阶段墙钟时延报告 ═══")
         out.append(
-            f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
-            f"{_fmt_duration(seconds=stat.p90):>10}   "
-            f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+            f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
         )
+        out.append("")
+        out.append("── 单 subject 时间线（各阶段墙钟停留）──")
+        for line in lines:
+            head = f"{line.subject}"
+            if line.pr is not None:
+                head += f"（PR #{line.pr}）"
+            out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
+            for segment in line.segments:
+                out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
+        out.append("")
+        out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
+        out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
+        for stat in stats.phases:
+            out.append(
+                f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
+                f"{_fmt_duration(seconds=stat.p90):>10}   "
+                f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+            )
+    if usage_events:
+        if out:
+            out.append("")
+        out.append("═══ agent 工具与取证预算报告 ═══")
+        out.append(f"数据：{usage_path or tool_usage.TOOL_USAGE_FILENAME}（只含工具名，不含参数）")
+        out.append(
+            f"    {'role':<18} {'调用':>6} {'编辑前取证均值':>14} {'最大':>8} "
+            f"{'超预算':>8} {'缺原因':>8}"
+        )
+        for row in tool_usage.aggregate(events=usage_events):
+            out.append(
+                f"    {row['role']:<18} {row['invocations']:>6} "
+                f"{row['average_lookup_before_edit']:>14.1f} "
+                f"{row['max_lookup_before_edit']:>8} {row['budget_exceeded']:>8} "
+                f"{row['exceeded_without_reason']:>8}"
+            )
     return "\n".join(out)
 
 

@@ -16,11 +16,19 @@ class AgentResult:
     """一次 agent 运行的结果。
 
     changed: 是否产生了代码改动。
-    summary: 对本次改动的简短说明（供 PR 正文/评论使用）。
+    summary: 对本次改动的简短说明（供 PR 正文/评论使用，可限长）。
+    raw_output: 后端的完整最终输出，供结构化协议解析；旧后端不提供时回退 summary。
     """
 
     changed: bool
     summary: str
+    raw_output: str | None = None
+    tool_events: tuple[str, ...] = ()
+
+    @property
+    def protocol_output(self) -> str:
+        """Return the unabridged machine-protocol payload when available."""
+        return self.summary if self.raw_output is None else self.raw_output
 
 
 @runtime_checkable

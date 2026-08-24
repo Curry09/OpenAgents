@@ -70,7 +70,7 @@ def restate(*, draft: Draft, backend: AgentBackend) -> Alignment:
         task=_RESTATE_TASK,
         context=f"标题：{draft.title}\n正文：{draft.body}",
     )
-    return _parse_alignment(text=result.summary)
+    return _parse_alignment(text=getattr(result, "protocol_output", result.summary))
 
 
 def is_confirmed(*, answer: str) -> bool:
