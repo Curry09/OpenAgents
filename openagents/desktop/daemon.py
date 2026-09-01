@@ -9,7 +9,7 @@
 **奥卡姆（理念 1）**：用 stdlib `http.server`，不引 web 框架。请求处理里的**纯逻辑**（`read_work_queue` /
 `build_board` / `pending_category`）与 socket 解耦，可脱离 HTTP 直接单测；HTTP 层只做路由与序列化。
 
-**待看优先级（与前端 `nav/pending.ts` 同序）**：① `needs-human` 挂起 > ② PR 等合并 > ③ 人类新评论待回 >
+**待看优先级（与前端 `nav/pending.ts` 同序）**：① `automation-failed` 挂起 > ② PR 等合并 > ③ 人类新评论待回 >
 ④ 刚变状态。无类别 → 不在待看集（`pending=None`）。GitHub 富化是**可选钩子**：离线（`enrich=None`）时
 只凭 work_queue 出 board，富化字段缺省即各 pending 判据为假——退化为「只呈现队列状态」，行为明确不静默。
 """
@@ -27,12 +27,12 @@ from pathlib import Path
 from openagents.utils import streams
 
 # 待看四类（高→低优先级）。
-PENDING_NEEDS_HUMAN = "needs-human"
+PENDING_AUTOMATION_FAILED = "automation-failed"
 PENDING_PR_TO_MERGE = "pr-to-merge"
 PENDING_NEW_COMMENT = "new-comment"
 PENDING_JUST_CHANGED = "just-changed"
 PENDING_ORDER = [
-    PENDING_NEEDS_HUMAN,
+    PENDING_AUTOMATION_FAILED,
     PENDING_PR_TO_MERGE,
     PENDING_NEW_COMMENT,
     PENDING_JUST_CHANGED,
@@ -48,14 +48,14 @@ class DaemonError(RuntimeError):
 
 def pending_category(
     *,
-    needs_human: bool,
+    automation_failed: bool,
     pr_ready_to_merge: bool,
     has_new_human_comment: bool,
     just_changed: bool,
 ) -> str | None:
     """按四级优先级把一个 subject 的状态归到一个待看类别；都不满足返回 None（不在待看集）。"""
-    if needs_human:
-        return PENDING_NEEDS_HUMAN
+    if automation_failed:
+        return PENDING_AUTOMATION_FAILED
     if pr_ready_to_merge:
         return PENDING_PR_TO_MERGE
     if has_new_human_comment:
@@ -84,7 +84,7 @@ def read_work_queue(*, db_path: Path) -> list[dict]:
 def build_board(*, rows: list[dict], enrich: Callable[[str], dict] | None) -> list[dict]:
     """把 work_queue 行 + 可选 GitHub 富化合成 board 条目，并算每 subject 的待看类别。纯函数、易测。
 
-    `enrich(subject)` 返回一个 dict，可含 `pr` / `labels` / `needs_human` / `pr_ready_to_merge` /
+    `enrich(subject)` 返回一个 dict，可含 `pr` / `labels` / `automation_failed` / `pr_ready_to_merge` /
     `has_new_human_comment` / `just_changed` 等前端字段；`None` = 离线，全部缺省为假。
     """
     board: list[dict] = []
@@ -99,7 +99,7 @@ def build_board(*, rows: list[dict], enrich: Callable[[str], dict] | None) -> li
         }
         entry.update(extra)
         entry["pending"] = pending_category(
-            needs_human=bool(extra.get("needs_human")),
+            automation_failed=bool(extra.get("automation_failed")),
             pr_ready_to_merge=bool(extra.get("pr_ready_to_merge")),
             has_new_human_comment=bool(extra.get("has_new_human_comment")),
             just_changed=bool(extra.get("just_changed")),

@@ -64,7 +64,7 @@ _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 # 从此 re-import 的别名，所有调用点零改动（见 RFC-0015 决策 2）。
 DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
 APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
-BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
+AUTOMATION_FAILED_LABEL: str = "automation-failed"  # 有界自动推进耗尽后的机器终态
 # Spec-0039/T1：第 4 个流程标签——跨后端可见的「已派发/认领中」信号。某后端判 fresh 决定派单
 # 时给 issue 打上它，其它后端在发现段读到即跳过，把多后端重复派单的时间窗从「起草时长（分钟
 # 级）」压到「建 worktree（秒级）」。并入 PROCESS_LABELS 同源管理，即被 ensure_prerequisites
@@ -73,7 +73,7 @@ DISPATCH_LABEL: str = "openagents-dispatching"  # issue 已被某后端认领、
 PROCESS_LABELS: tuple[str, ...] = (
     DISCOVERY_LABEL,
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISPATCH_LABEL,
 )
 
@@ -510,7 +510,7 @@ def merge_verify_command_text(*, pr_number: int) -> str:
 def add_label(*, pr_number: int, name: str) -> None:
     """RFC-0012 决策 1/3：给 PR 打标签（`gh pr edit <n> --add-label <name>`）。
 
-    供 reviewer 闸自动打 rfc-approved（RFC 全票 PASS）、或卡住兜底打 needs-human（决策 5）。
+    供 reviewer 闸自动打 rfc-approved（RFC 全票 PASS）、或卡住兜底打 automation-failed（决策 5）。
     与 has_label 对称：标签是结构化信号，不与讨论评论混淆。
     """
     _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
@@ -519,7 +519,7 @@ def add_label(*, pr_number: int, name: str) -> None:
 def remove_label(*, pr_number: int, name: str) -> None:
     """Spec-0032/T2：摘掉 PR 上的标签（`gh pr edit <n> --remove-label <name>`），与 add_label 对称。
 
-    供解挂分支自动摘 needs-human（检测到人回新评论时）。幂等容错：标签本就不在时 gh 以非零退出
+    供解挂分支自动摘 automation-failed（检测到人回新评论时）。幂等容错：标签本就不在时 gh 以非零退出
     并报「not found / does not have ... label」之类——吞掉视为成功 no-op（与 ensure_label 吞
     "already exists"、close_issue 吞 "already closed" 同一容错风格），使「人已先手动摘了标签、
     框架又摘一次」不报错。其它 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
@@ -598,7 +598,7 @@ def ensure_prerequisites() -> None:
     """Spec-0023/T1：幂等确保流程结构性 prerequisite 就位：全部流程标签。
 
     单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/release/vigil 三入口统一
-    调用，根除各入口零散且不完整的兜底（缺 needs-human/rfc-approved 标签致 add_label 报
+    调用，根除各入口零散且不完整的兜底（缺 automation-failed/rfc-approved 标签致 add_label 报
     not found）。
 
     test 分支门控退役后（Spec-0023），日常 base 改为恒存在的默认分支 main，无需任何分支

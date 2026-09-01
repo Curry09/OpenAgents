@@ -1,130 +1,9 @@
-"""# Spec-0065/T2: recipes.vigil —— 图驱动的并行守夜 `run_vigil`（**level-triggered reconcile**，K=1 即串行）。
+"""Autonomous, level-triggered Vigil orchestration.
 
-本文件是旧串行守夜的深模块化重写（旧实现已随本次重写删除——git history 是唯一回退点，不留死代码副本）。
-**只一个入口 `run_vigil`、只一个文件**：守夜天生按「subject 为并发单元」调度，`concurrency`(=K) 是并发
-上限；**串行不是另一种模式，而是 `concurrency=1` 的退化**。故不拆 serial/parallel 两函数两文件——那是把
-同一件事摊成浅模块（Ousterhout：深模块 = 简单接口 + 大量功能，https://milkov.tech/assets/psd.pdf）。
-
-## 感知模型：level-triggered，不做变更检测
-
-谓词**无历史**：不问「跟上一轮比变了没」，只问「现在该不该动手」。每 tick 对每个 subject 重算，丢一轮丢
-一百轮都能自愈。这是 Kubernetes 的架构第一原则，原文：*"Functionality must be level-based, meaning the
-system must operate correctly given the desired state and the current/observed state, **regardless of how
-many intermediate state updates may have been missed**. Edge-triggered behavior must be just an
-optimization."*
-(https://github.com/kubernetes/design-proposals-archive/blob/main/architecture/principles.md)
-
-**为什么不能靠「记住上一轮状态、变了就叫 agent」**：进程崩在「检测到 CI 变绿」和「真的去合并」之间，
-那个边沿就永久消失了——PR 会绿着躺到宇宙热寂。而漏一个边沿 = 一个 PR 永久停摆。
-
-三个纯函数吃**同一个**不可变结构，这是本文件的骨架：
-
-    observed = _sense(subject)                          # 唯一的副作用：读一次 GitHub
-    verdict  = _classify(observed.facts, in_flight=…)   # 纯函数 → 四值判定
-    fp       = _fingerprint(observed.facts)             # 纯函数 → 哈希
-
-（`in_flight` = 「队列里有该 subject 的 claimed 行」，是唯一非-GitHub 的输入，由调用侧喂。**生产者**据实传；
-**worker 恒传 `False`**——它自己就是那个 in-flight 的持有者，传 True 会让每个 worker 领到活就判「有人在干」
-并立刻收工，系统一动不动。见 `_classify`。）
-
-**不变式：`_fingerprint` 的字段集 ≡ `_classify` 的输入字段集 ≡ `_Facts` 的全部字段。** 二者吃同一个
-frozen dataclass，结构上不可能漂移。`_Clock`（时间戳）**绝不进 fp**——一个 check run 开始跑会刷新
-`started_at`，若混进 fp 就会把 agent 反复叫起，而分支表根本不看这个字段。
-
-**三态 `skip` 在 `_sense` 里归一成「事实上已过闸」**（`OWNER_SKIP` = 不设此闸、当 PASS 放行）：`ci: skip`
-→ facts.ci 记 success，`e2e: skip` → 证据戳记当前 head，`review: skip` → 裁决记 APPROVED@head。这样
-`_classify` 保持**纯粹的机械分支表**、不需要吃 config，而「闸归谁」的策略只在两处出现：`_sense`（skip）
-与 `_act`（agent / human）。
-
-## 收口：主路径是 Agent 返回结构化 `needs-human`，Vigil 统一落 forge 副作用
-
-**agent 干不动时的正常收口是返回 `{"needs_human": true, "reason": "..."}`**（一等出口，不是快路径、
-不是脚注）：Vigil 捕获控制信号、复核标签完整性，再经 `_park_needs_human` 追加 label + 签名理由评论，
-`_classify` 分支①随后判 TERMINAL。人摘掉 label，谓词自动重新活过来。这条契约必须写进每个分支的提示词。
-
-**只有 agent 自己看不见的死法才需要护栏。** level-triggered 自带三个，共同点是**在日志里跟「一切正常」长得
-一模一样**：
-
-1. **agent 没意识到自己在空转**——它以为干了活（rerun 了 CI 但没触发、改了个无关文件、发条「等 CI 重跑就
-   好」的评论就收工），所以**不会**去打 `needs-human`；而它每轮留的评论还会刷新时间戳，**看门狗也永远不
-   响**。除了机械比对，没有任何东西拦得住它无限重跑、无限烧钱。护栏 = worker 零进展收工时盖一条**带 `fp`
-   的 attempt 戳**（签名评论）；生产者见到 fp 相同的戳，就把 ACTIONABLE 降级为 `QUIET(awaiting-effect)`、
-   不入队。记忆存 **GitHub**。`fp` 没变 ⟺ 分支表关心的每个字段都没动 ⟺ **零进展**——agent 怎么说的不算数。
-   故只需**一个 bit**（有/无），不需要计数。（**盖戳本身必须不改 fp**，否则这道护栏会自毁成死循环：见
-   `_Facts` 为什么不含 comment id。）
-2. **状态该动却不动**（CI 永不启动：workflow 没匹配 / base 不是 main / Actions 被禁 → 谁都不叫 agent →
-   PR 静默烂掉，日志里跟「正常等 CI」长得一模一样）。这里连 agent 都没被叫起，自然不可能自己打 label。
-   护栏 = **看门狗**：QUIET 的 age 超阈值 → 打 `needs-human` + 贴机械诊断。而「卡了多久」是**当前态的纯
-   函数**——每个 GitHub 对象都自带时间戳，`age = now − last_progress_at`。**零本地记忆**：重启、丢库、换
-   机器都不影响。
-3. **agent 没能收工**（崩溃 / 被 kill / 挂死在一个不返回的调用上）——它在 GitHub 上**不留任何痕迹**：既没
-   打 label、没盖戳、也没刷新任何时间戳。fp 判不出来，age 也判不出来。崩溃由 `flock` 判死（§6.1），挂死由
-   `_act` 的硬超时（`_AGENT_TIMEOUT_SECONDS`）+ IN_FLIGHT 告警（`_INFLIGHT_ALARM_SECONDS`）兜；反复领取
-   不收工则由 `work_queue.attempts` 计数收口——**这是唯一必须计数的死法**。
-
-三道护栏与主路径**同一个收尾**：Vigil 追加 `needs-human` → TERMINAL → 轮询停止。
-
-## 存储职责：两个存储，各管一层，无重叠
-
-- **GitHub** = 领域真相：依赖结构（原生 `blocked_by`）+ 我们做的**决定**（label：`ready` 准入 /
-  `needs-human` 终态 / `review-approved:<sha7>` 裁决）+ GitHub 自己维护的**事实**（checks / mergeable，
-  读原生、**不复制成 label**）+ e2e 证据评论 + **已出手过的状态**（attempt 戳）。
-
-  **分界线：决定打 label，事实读原生。** 「人来接手」「审过了」GitHub 没有别的地方表达，故落 label；
-  「CI 绿不绿」它自己就绑在 sha 上、一次读到，再复制一份成 label 就是造第二份真相，然后要负责让两份不打架
-  （CI 重跑了谁去改 label？）。而 review 裁决落 label 时**必须把 head sha 带进 label 名**——裁决绑 commit，
-  光秃秃的 `review-approved` 会在 agent 审后又 push 时留在原地 → **合并一份没人审过的代码**，且不可逆。
-- **SQLite `work_queue`** = 只存 GitHub **表达不了**的三样：①谁原子地领走了这个 subject ②领了几次没收工
-  ③领取时的定序。**丢了无害**——`queued` 行一 tick 从 GitHub 重建，`claimed` 行由 `_reclaim_dead` 凭 flock
-  回收。
-- **`claims/{subject}.lock`（flock）** = 持有者的**存活证明**，由内核持有：进程一死，锁自动释放。
-
-**为什么认领必须落 DB、而不能用 GitHub label。** GitHub REST 对不安全方法**不支持条件请求**（原文：
-*"Conditional requests for unsafe methods, such as POST, PUT, PATCH, and DELETE are not supported unless
-otherwise noted."*），且 label POST 是**追加**语义——两个并发认领**都会成功、都不报错**。即无 CAS。
-`runtime/state.py` 的整文件 JSON 读改写同样会丢更新（#137 明列的「State 并发写」风险）。DB 事务根治。
-(https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
-
-## 队列形态：一行 = 一个 subject
-
-`subject` 列 **UNIQUE**，一根柱子同时扛三件事：**幂等入队**（每 tick 无脑 `INSERT OR IGNORE`，重复是
-no-op）、**同-subject 串行**（一个 subject 最多一行 → 同一个 PR 上永远只有一个 agent）、**去重**。故
-`_claim_next` **不需要** `NOT EXISTS` 同-subject 子查询——互斥已在**入队时**结构性保证。
-
-对标 Multica 的 `agent_task_queue`：`ClaimAgentTask`（`UPDATE … WHERE id=(SELECT … FOR UPDATE SKIP
-LOCKED) RETURNING *`）+ `MaxConcurrentTasks` slot 背压。差异：Multica 是**多 daemon 进程**领同一队列故须
-Postgres；本仓是**单机 K 线程**，SQLite `BEGIN IMMEDIATE`（立刻取写锁、序列化并发写；抢不到走
-`busy_timeout` 重试）是 `SKIP LOCKED` 的单机等价物，零外部依赖。**且本仓不用租约**：死亡不靠猜（见下）。
-
-## 回收：凭 flock 判死，不凭租约猜死
-
-认领时对 `.openagents/claims/{subject}.lock` 取一把 `fcntl.flock(LOCK_EX | LOCK_NB)`，**持到收工**。flock
-绑在**打开文件描述**上，**进程一死内核自动释放**（`kill -9` / OOM / 段错误 / 断电全算）。于是回收判据变成
-一次无阻塞抢锁：抢得到 ⇒ 内核已回收持有者的锁 ⇒ 它**确已死** → 行立刻回 `queued`；抢不到（EWOULDBLOCK）
-⇒ 持有者**确实活着** → **永不回收**（无论它跑了多久）。**双跑是结构性的零，不是小概率**；`_reclaim_dead`
-没有任何阈值参数，也就没有任何可以调错的旋钮。
-
-**必须是 flock，不能是 `fcntl.lockf`（POSIX `F_SETLK`）**：后者的锁是 **per-process** 的，同一进程内两个
-fd 对同一文件加锁**不互斥**——而本模块是「一个进程 K 条 worker 线程」，用 `lockf` 会让互斥**静默失效**。
-
-**收工必须先删行、再 `close(fd)`**（`_mark_done` / `_requeue_or_park` 同理）。反过来会开一个窗口：锁已放、
-行还挂着 `claimed` → 另一个 `_reclaim_dead` 抢到锁、判「死了」、把行打回 `queued` → 被重领 → **双跑**。
-
-「活着但卡死」是另一件事（flock 只回答**存在**）：由 `_act` 的硬超时（超时杀子进程 + 抛出，持有者自己
-`_requeue_or_park` 释放行与锁）+ IN_FLIGHT 看门狗（超龄只 `_park` 打 needs-human，**绝不动行**）兜。
-
-**SQLite 与 flock 同把部署钉在单机。** sqlite.org 明文禁止跨网络文件系统共享同一个库，而且是**数据损坏**
-级别：*"file locking logic is buggy in many network filesystem implementations… resulting in corruption."*
-（https://www.sqlite.org/whentouse.html ; https://www.sqlite.org/useovernet.html）；NFS 上 flock 被模拟成
-`fcntl` 字节范围锁，「同进程多 fd 互斥」这条我们赖以成立的性质会静默失效——**两者是同一条边界**。多机时的
-替换点收在 4 个函数里：`_claim_next` / `_reclaim_dead` / `_mark_done` / `_requeue_or_park`（GitHub 恰好有
-真 CAS：`POST /git/refs` ref 已存在则 422）。**本版不预先建这个抽象**（奥卡姆：不为「可能」付费）。
-- SQLite WAL：https://www.sqlite.org/wal.html ；`RETURNING`：https://www.sqlite.org/lang_returning.html
-- Postgres `SKIP LOCKED`：https://www.postgresql.org/docs/current/sql-select.html
-- Airflow pools（K 槽限并发 + priority 在可运行集内定序）：
-  https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html
-
-依赖（backend / github / git / engine / stages）仍可注入或 monkeypatch，hermetic 可测。
+Each subject is classified from current forge facts, queued exactly once, and processed under
+a process-liveness lock. Agent/backend/protocol failures are bounded and projected to the signed
+``automation-failed`` machine terminal; a material fact change clears that projection and revives
+the subject. Dynamic agent material is supplied once through the runtime context contract.
 """
 
 from __future__ import annotations
@@ -134,6 +13,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -169,11 +49,11 @@ _CLAIMS_DIRNAME = "claims"
 # 回答不了「进程活着但挂死在一个不返回的调用上」——那要靠这道闸。
 _AGENT_TIMEOUT_SECONDS = 1800
 
-# Spec-0065/T2: IN_FLIGHT 告警阈值（秒）：claimed 行的 `claimed_at` 超龄 → `_park`（打 needs-human + 诊断）。
+# Spec-0065/T2: IN_FLIGHT 告警阈值（秒）：claimed 行的 `claimed_at` 超龄 → `_park`（打 automation-failed + 诊断）。
 # **只告警、绝不回收行**——回收一个活着的持有者的行，定义上就是双跑。
 _INFLIGHT_ALARM_SECONDS = 7200
 
-# Spec-0065/T2: 同一 subject 领取-失败重排上限；超它不再回队、打 needs-human 交人。
+# Spec-0065/T2: 同一 subject 领取-失败重排上限；超它不再回队、打 automation-failed 收口为机器失败。
 # **这是唯一必须计数的护栏**——agent 崩/被 kill 时它没盖 attempt 戳、也没刷新任何 GitHub 时间戳，
 # 在 GitHub 上零痕迹：fp 判不出、age 也判不出，只能在队列行里数（见模块头「第三种死法」）。
 _MAX_ATTEMPTS = 3
@@ -195,7 +75,7 @@ _BUSY_TIMEOUT_MS = 30000
 # Spec-0065/T2: 单次认领内 `_reconcile` 的推进轮数上限。停止条件本该全是纯函数判断（QUIET/TERMINAL/fp 未变），
 # 这道计数只兜**振荡**：fp 每轮都在变、却在两个状态间来回跳（review 打回 → implement 推新 head → review 又
 # 打回 → …）。`fp == last_fp` 只记得**上一轮**，识别不了周期 ≥2 的环，于是它会一轮一次 LLM 地无限转下去，
-# 直到 2 小时后 IN_FLIGHT 告警才有人管。到顶 → park 交人（振荡本就是「机器判不了、该人来定」）。
+# 直到 2 小时后 IN_FLIGHT 告警才有人管。到顶 → park 收口为机器失败（振荡本就是「机器判不了、该停止自动重试」）。
 _MAX_RECONCILE_ROUNDS = 8
 
 # Spec-0065/T2: `once=True` 排空的硬上限（秒）。排空是尽力而为的同步点、不是正确性来源（真相在 GitHub），
@@ -217,34 +97,11 @@ _E2E_MARKER = "<!-- openagents:e2e head="
 #   - 「CI 绿不绿」「有没有冲突」是 **GitHub 自己维护的事实**——本就绑在 sha 上、一次读到；再复制一份成
 #     label 就是造第二份真相，然后要负责让两份不打架（CI 重跑了谁去改 label？）。故**不打**。
 #
-# `needs-human` = agent 的**一等结构化出口**（不是脚注）：Agent 返回控制 envelope，Vigil 统一追加 label +
-# 签名理由 → `_classify` 判 TERMINAL → **轮询立刻停止**。人摘掉 label，谓词自动重新活过来。看门狗与
-# attempt 戳只兜 Agent 没意识到自己在空转或根本没被叫起的路径。
-_LABEL_NEEDS_HUMAN = github.BLOCKED_LABEL  # "needs-human"，与全仓同源（github 是标签单一来源）
-_LABEL_READY = "ready"  # 准入令牌（三态门控审过）
-# Spec-0065/T2: `triage: human` 的准入提问评论的标记——「我问过了吗」的唯一真相（读 GitHub 现态，零本地
-# 记忆）。不能靠「有没有我方签名评论」来判：attempt 戳、park 理由也都是我方评论，会把「问过」误判成 True。
-_ADMIT_ASK_MARK = "<!-- openagents:admit-ask -->"
-# Spec-0065/T2: 准入裁决的落地戳——「人这句话我已经判过了」的唯一真相。裁决先盖戳、再打 label：label
-# 那步若挂了（`gh` 429/403），下一 tick 读回这条戳直接重试打 label，**不必再叫一次 agent**；否则 `gh`
-# 每失败一轮就重判一轮，一条人类回复能烧掉 N 次 LLM。approved/refused 写进标记本身（读一条评论即可判）。
-#
-# 戳**挂在人那条评论的 comment id 上**，不挂时间戳。曾经拿 `stamp.created_at >= reply.created_at` 当判据，
-# 有一个洞：GitHub 的 createdAt 只到**秒**，人的新回话与我们的裁决戳落在同一秒时 `>=` 恒成立 → 旧的
-# refused 戳把新话彻底盖住 → **人再也无法点头**（fail-closed 从「谨慎」退化成「永久拒绝」）。改成 `>`
-# 也不对（同秒的自己判自己 → 每 tick 重判）。id 是身份、不是刻度，比时间戳精确：换一句话就换一个 id。
-_ADMIT_VERDICT_MARK = "<!-- openagents:admit-verdict:"
-_ADMIT_APPROVED = "approved"
-_ADMIT_REFUSED = "refused"
-# Spec-0065/T2: 「人这句话已经烧过一次 agent」的戳——**在叫 agent 之前**盖，是 LLM 花费的准入券。
-# 没有它，`stages.admit` 抛出（agent 输出不是 JSON / `_ActTimeout` / 429）就什么持久痕迹都不留：issue 既
-# 没 `ready` 也没 `needs-human` → 下一 tick `_intake` 又扫到它 → **每 tick 烧一次 LLM，永远**。盖了它，
-# 一条人类回复至多烧一次 agent：下一 tick 看到「有 try 戳、无裁决戳」即知上一轮判崩了 → 零 LLM 转人工。
-_ADMIT_TRY_MARK = "<!-- openagents:admit-try:"
-# Spec-0065/T2: 谁说的话算「人拍板」——GitHub 原生 authorAssociation。人闸若不认人，就不是人闸：任何路人
-# 在公开仓库回一句「可以，做吧」都能把活派出去（准入闸对外部输入敞开，admitter 的提示词拦不住——它连
-# 「该听谁的」都不知道）。fail-closed：关系读不到 / 是 CONTRIBUTOR / NONE ⇒ 这句话不算拍板，只当噪声。
-_MAINTAINER_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+# ``automation-failed`` 是机器失败终态：Vigil 负责追加签名诊断与 label，
+# `_classify` 随后判 TERMINAL。同一事实幂等停机，事实发生实质变化则当轮自动复活。
+_LABEL_AUTOMATION_FAILED = github.AUTOMATION_FAILED_LABEL
+_FAILURE_MARKER = "<!-- openagents:automation-failed"
+_LABEL_READY = "ready"  # 自动准入令牌
 
 # review 裁决落 label，但**必须把 head sha 带进 label 名**——裁决是「绑在某个 commit 上的判断」，不是
 # 一个恒真的属性。若打成光秃秃的 `review-approved`：审的时候 head=abc123，审完 agent 又 push 了 def456 去
@@ -260,9 +117,9 @@ _REVIEW_CHANGES_REQUESTED = "CHANGES_REQUESTED"
 
 # ------------------------------ 四值判定的取值（见 `_Verdict`） ------------------------------
 # 队列里有该 subject 的 claimed 行 = 我的 agent 正在跑它。**必须是第一道判定**，否则看门狗会把一个正在
-# 写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 needs-human。
+# 写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 automation-failed。
 _IN_FLIGHT = "in-flight"
-# merged / closed / needs-human。轮询停止。人摘掉 needs-human，谓词自动重新活过来（level-triggered 白送）。
+# merged / closed / automation-failed。轮询停止。人摘掉 automation-failed，谓词自动重新活过来（level-triggered 白送）。
 _TERMINAL = "terminal"
 # 现在没我的活，等状态自己变。不入队；交 `_watchdog` 按 reason 的阈值判 age。
 _QUIET = "quiet"
@@ -294,7 +151,7 @@ _ACT_MERGE = "merge"  # 全绿 + APPROVED + 非 draft → 合
 # IN_FLIGHT 取 `_IN_FLIGHT`——故只有 TERMINAL 需要额外三个字面量。
 _PHASE_MERGED = "merged"  # 已合并收口
 _PHASE_CLOSED = "closed"  # 被关闭收口
-_PHASE_NEEDS_HUMAN = _LABEL_NEEDS_HUMAN  # needs-human 收口（"needs-human"，与全仓同源）
+_PHASE_AUTOMATION_FAILED = _LABEL_AUTOMATION_FAILED
 
 # ------------------------------ facts 的枚举取值（GitHub 事实的归一化投影） ------------------------------
 _MERGE_CLEAN = "clean"
@@ -310,7 +167,6 @@ _KIND_ISSUE = "issue"
 _KIND_PR = "pr"
 
 _AGENT = agent_config.OWNER_AGENT
-_HUMAN = agent_config.OWNER_HUMAN
 _SKIP = agent_config.OWNER_SKIP
 
 # Spec-0065/T2: 默认优先级——**先收尾在制品，再开新工**。一个近乎合完的 PR 正占着一条依赖链的下游；
@@ -328,7 +184,7 @@ _PRIORITY_DEFAULTS = {
 
 # Spec-0065/T2: 看门狗阈值（秒），按 QUIET 成因分档，可被 `run_vigil(watchdog_thresholds=…)` 覆盖。
 # **宁可给宽**：设窄了会把正常在跑的 CI 误 park，比不看门更糟；而 park 只是「打个 label + 贴条诊断」、
-# 完全可逆（人摘掉 label 系统立刻复活），所以晚叫人的代价远小于误杀。
+# 完全可逆（相关事实变化后系统自动复活），所以晚记录机器失败的代价远小于误杀。
 # `_AWAITING_BLOCKERS` 默认 None（关）：上游 blocker 有自己的看门狗，在下游重复计时只会误杀。
 _WATCHDOG_DEFAULTS: dict[str, int | None] = {
     _AWAITING_BLOCKERS: None,
@@ -392,7 +248,7 @@ class _Facts:
     head_sha: str | None
     merged: bool  # 分支①
     closed: bool  # 分支①
-    labels: frozenset[str]  # needs-human → 分支①（TERMINAL）；ready → 准入；review-* → 分支⑩⑪
+    labels: frozenset[str]  # automation-failed → 分支①（TERMINAL）；ready → 准入；review-* → 分支⑩⑪
     deps_done: bool  # blocked_by 的对端是否全部关闭 → 分支③
     mergeable_state: str | None  # clean | dirty | unknown | None → 分支⑤⑥（GitHub 事实，读原生）
     ci: str  # success | failure | pending | none —— **当前 head_sha 上的**（GitHub 事实，读原生）
@@ -407,6 +263,7 @@ class _Facts:
     is_draft: bool = (
         False  # Spec-0017/T2: PR 是否 draft（末位默认 False）→ 分支⑪ 自愈转正（排在 merge 前）。
     )
+    material_digest: str = ""  # issue title/body + human comments; machine diagnostics are excluded
     # 转正动作把它从 True→False，改 fp、记为**真进展**（与 push 改 head_sha 同类），故护栏一不误触；
     # 转正没成功则 is_draft 不变、fp 不变、attempt 戳照常兜底。是每 tick 复检的一等事实（level-triggered）。
 
@@ -552,7 +409,7 @@ def run_vigil(
         worker.start()
 
     # Spec-0065/T2: 「哪些 subject 的锁上一 tick 就被人持着」的跨 tick 记忆（`_sweep_stalled` 的闸 2）。
-    # 归生产者独有（单线程），故不需要锁；重启即清空，最坏是泄漏的行多等一个 `_STALE_LOCK_SECONDS` 才交人。
+    # 归生产者独有（单线程），故不需要锁；重启即清空，最坏是泄漏的行多等一个 `_STALE_LOCK_SECONDS` 才收口为机器失败。
     seen_locked: dict[str, datetime] = {}
     try:
         while True:
@@ -638,7 +495,7 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
 
     **三态 `skip` 在此归一**（`OWNER_SKIP` = 不设此闸、当 PASS 放行）：`ci: skip` → `ci=success`；
     `e2e: skip` → 证据戳记当前 head；`review: skip` → 裁决记 `APPROVED@head`。这让 `_classify` 保持纯粹的
-    机械分支表、不吃 config——策略只在 `_sense`（skip）与 `_act`（agent/human）两处出现。
+    机械分支表、不吃 config——策略只在 `_sense`（skip）与 `_act`（agent）两处出现。
 
     依赖读走 GitHub 原生 issue dependencies（2025-08 GA）：`GET /repos/{o}/{r}/issues/{n}/dependencies/
     blocked_by` 的响应**自带各 blocker 的 `state`**，故一次调用同时拿到「边」和「blocker 关没关」→
@@ -652,9 +509,11 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
     deps_done = True
     pr_number: int | None = None
     progress: list[str] = []
+    material_parts: list[str] = []
 
     if kind == _KIND_ISSUE:
         issue = github.get_issue(number=number)
+        material_parts.extend((str(issue.title), str(issue.body)))
         labels |= set(issue.labels)
         blockers = github.list_blocked_by(number=number)
         deps_done = all(blocker.state == "CLOSED" for blocker in blockers)
@@ -691,6 +550,11 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
             ci = _ci_state(snapshot=checks)
             progress.append(checks.latest_started_at)
         comments = github.list_comments(pr_number=pr_number)
+        material_parts.extend(
+            comment.body
+            for comment in comments
+            if identity.parse_agent_id(body=comment.body) is None
+        )
         e2e_head_sha = _latest_e2e_sha(comments=comments)
         latest_comment_is_ours = _latest_is_ours(comments=comments)
         progress.extend(comment.created_at for comment in comments)
@@ -699,14 +563,19 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
         # `progress` 恒空 → `last_progress_at` 恒 None → 护栏二（QUIET 看门狗）对整个 `solve` 阶段**永久
         # 失效**：一个空转的 solve（agent 跑完没推 PR → fp 没变 → `_reconcile` 盖同-fp attempt 戳 → 生产者
         # 降级 QUIET(awaiting-effect)）会**永远**卡在那里——`_watchdog` 因 `last_progress_at is None` 直接
-        # 返回 False，needs-human 永不触发。这正是 §5 表承诺「状态该动却不动 → 看门狗兜底」不可能发生的
+        # 返回 False，automation-failed 永不触发。这正是 §5 表承诺「状态该动却不动 → 看门狗兜底」不可能发生的
         # 静默永久卡死。attempt 戳与人类评论都落在 issue 上，读它们喂进度时钟（成因时钟一致：head 一推、
         # 有 PR 后自然改走 PR 分支）。
         issue_comments = github.list_issue_comments(number=number)
+        material_parts.extend(
+            comment.body
+            for comment in issue_comments
+            if identity.parse_agent_id(body=comment.body) is None
+        )
         progress.extend(comment.created_at for comment in issue_comments)
         # Spec-0016/T4: 已准入（ready）、尚无 PR 的 issue，其页面评论流也接进 reply 分支②（issue #149：
         # 把「新人类评论→agent 签名回复」从 PR 扩到 issue 页）。**只在 ready 时激活**：无 ready 的 issue
-        # 仍归**准入面** admitter（`_ask_human` 处理 triage:human 入闸对话），准入后才归本回复面——`ready`
+        # 仍归**准入面** triager（`_admit` 处理 retired manual triage owner 入闸对话），准入后才归本回复面——`ready`
         # 是这条边界的单一判据（见 §14）。复用既有纯函数 `_latest_is_ours`（最新一条非我方签名 → 有人有
         # 新话 → 分支②派 replier）；**不新增携 comment id 的字段**，fp 全集不变（护栏一不自毁，见 `_Facts`）。
         if _LABEL_READY in labels:
@@ -737,6 +606,7 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
         review_commit_id=review_commit_id,
         latest_comment_is_ours=latest_comment_is_ours,
         is_draft=is_draft,
+        material_digest=hashlib.sha256("\n\0\n".join(material_parts).encode()).hexdigest()[:16],
     )
     return _Observed(facts=facts, clock=_Clock(last_progress_at=_latest_ts(stamps=progress)))
 
@@ -748,7 +618,7 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     头上接了两支——「无 PR → solve」和「最新评论是人发的 → reply」。三趟全量扫看着是三件事，其实是同一个
     问题（「这个 subject 现在该做什么」）的三个切面。
 
-        ① merged / closed / **needs-human** ........... TERMINAL      ← agent 的一等出口，见下
+        ① merged / closed / **automation-failed** ........... TERMINAL      ← 机器失败投影
         ② 最新评论是人发的（无我方签名）............... ACTIONABLE: reply
         ③ 依赖未全关闭 ................................ QUIET(awaiting-blockers)
         ④ 还没有 PR ................................... ACTIONABLE: solve
@@ -764,9 +634,9 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
 
     （⑪ 是稳定语义 ID = draft 转正，物理上提到 ⑤ 之前；其余散落注释里的「分支⑪」仍指它。）
 
-    **`needs-human` 是 agent 的一等结构化出口，不是兜底。** 任一分支里 agent 判断「我没辙 / 这要人来定」时
-    返回统一控制 envelope；Vigil 当轮追加 `needs-human` 与签名理由，下一次分类即 TERMINAL。Agent 不拥有
-    forge 标签写入语义；护栏二（看门狗）与护栏一（attempt 戳）仍只兜它没意识到自己在空转的死法。
+    **`automation-failed` 是机器失败投影。** Agent 只返回本角色 JSON schema，不拥有
+    forge 标签写入语义。Vigil 对 backend/protocol/超时与零进展失败做有界重试，耗尽后写入
+    带 category、attempts 和 fingerprint 的签名诊断。
 
     **⑩⑪ 的 review 裁决从 `review-*:<sha7>` label 读，而 sha 必须参与匹配。** 裁决是「绑在某个 commit 上的
     判断」：审的时候 head=abc123，审完 agent 又 push 了 def456 修 CI——若 label 是光秃秃的 `review-approved`，
@@ -774,20 +644,19 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     落回⑩重审（见 `_LABEL_REVIEW_APPROVED_PREFIX`）。
 
     **四处顺序是正确性依赖，不是风格**（改动前先读这里）：
-    - **①在最前**——`needs-human` 一挂，任何分支都不许再动手（它是人接管的信号）。
+    - **①在最前**——`automation-failed` 一挂，任何分支都不许再动手（它是人接管的信号）。
     - **②在③之后一切之前**——人说「先别合，我有疑问」必须能抢在 merge 前面。**合并不可逆。**
     - **⑤⑥在⑦前**——conflict 在 CI 前是硬依赖：冲突的 PR 没有 merge ref → GitHub 不给它 check → ⑦会把
       「零个 check」读成「CI 还在跑」，然后 `awaiting-ci` 一直等到超时（见 `_sense` 坑 2）。
     - **⑦⑧只看当前 `head_sha`**——否则会派 agent 去修已经修好的代码（见 `_sense` 坑 1）。
-    - **⑪在⑤前**（Spec-0017 + Spec-0074 实证）——draft PR 合不了（GitHub 拒合 draft），`merge: human` 时人
-      也被 draft 墙挡住（#168）：转正必须先于任何合并动作。**且必须先于 mergeable 判定**：Gitea 对 draft PR
+    - **⑪在⑤前**（Spec-0017 + Spec-0074 实证）——draft PR 合不了（GitHub 拒合 draft），人工合并同样会被 draft 墙挡住（#168）：转正必须先于任何合并动作。**且必须先于 mergeable 判定**：Gitea 对 draft PR
       恒报 `mergeable: false`（driver 映射为 DIRTY），若转正排在 ⑤⑥ 之后，draft PR 会永远卡在
-      `awaiting-mergeability`/`rebase`、到不了转正 → 死锁 → 看门狗误挂 needs-human。故转正必须先于**整条**
+      `awaiting-mergeability`/`rebase`、到不了转正 → 死锁 → 看门狗误挂 automation-failed。故转正必须先于**整条**
       mergeable/CI/e2e/review/merge 流水线。据此 ⑪ 简化为**无条件** `is_draft`（不再等全绿+approved——先转正
       再评估更对）。GitHub 侧 draft 与 mergeable 解耦、无此死锁，提早转正无害（PR 转正后照常走流水线）。
 
     `in_flight`（队列里有该 subject 的 claimed 行 = 我的 agent 正在跑它）**必须先于一切判定**——否则看门狗
-    会把一个正在写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 needs-human。
+    会把一个正在写代码的 agent（跑 8 分钟很正常）当成「状态 5 分钟没动」而误挂 automation-failed。
 
     **`_reconcile` 调用本函数时必须传 `in_flight=False`**——worker 自己**就是**那个 in-flight 的持有者，若
     传 True，它领到活的第一件事就是判定「这活有人在干」→ 立刻收工 → **每个 worker 都空转，系统一动不动**。
@@ -798,7 +667,7 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     """
     if in_flight:
         return _Verdict(kind=_IN_FLIGHT)
-    if facts.merged or facts.closed or _LABEL_NEEDS_HUMAN in facts.labels:
+    if facts.merged or facts.closed or _LABEL_AUTOMATION_FAILED in facts.labels:
         return _Verdict(kind=_TERMINAL)
     if not facts.latest_comment_is_ours:
         return _Verdict(kind=_ACTIONABLE, action=_ACT_REPLY)
@@ -845,6 +714,9 @@ def _fingerprint(*, facts: _Facts) -> str:
     **`_Clock` 不进 fp**（见 `_Clock` docstring）。`facts.subject` 进 fp 是无害的（同 subject 内恒定）。
     """
     payload = {field.name: _stable(value=getattr(facts, field.name)) for field in fields(_Facts)}
+    # Failure projection is an output of this fingerprint, never an input. Otherwise applying the
+    # terminal label would immediately make its own marker stale and revive the subject every tick.
+    payload["labels"] = _stable(value=facts.labels - {_LABEL_AUTOMATION_FAILED})
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
@@ -855,7 +727,7 @@ def _phase_of(*, verdict: _Verdict, facts: _Facts) -> str:
     归一逻辑读 `_Verdict`/`_Facts` 类型，故留在 `vigil` 而非 `timing`——保 `timing` 对 `vigil` **零依赖**、
     杜绝循环 import。四值各自的 phase：
       - `IN_FLIGHT` → `in-flight`（生产者视角：有别的 worker 在干，看不出干哪一步）；
-      - `TERMINAL`  → 据 `facts` 细分 `merged`/`closed`/`needs-human`（收口原因，供报告区分）；
+      - `TERMINAL`  → 据 `facts` 细分 `merged`/`closed`/`automation-failed`（收口原因，供报告区分）；
       - `QUIET`     → `reason`（`awaiting-blockers`/`-mergeability`/`-ci`/`-effect`，天然细分合并段的等待相）；
       - `ACTIONABLE`→ `action`（`solve`/`rebase`/`fix-ci`/`e2e`/`review-or-fix`/`merge`/`reply`——worker 以
         `in_flight=False` 调 `_classify`，故 `_reconcile` 记的是**具体动作**，把生产者的泛 in-flight 解开）。
@@ -867,7 +739,7 @@ def _phase_of(*, verdict: _Verdict, facts: _Facts) -> str:
             return _PHASE_MERGED
         if facts.closed:
             return _PHASE_CLOSED
-        return _PHASE_NEEDS_HUMAN
+        return _PHASE_AUTOMATION_FAILED
     if verdict.kind == _QUIET:
         return verdict.reason or _QUIET
     return verdict.action or _ACTIONABLE
@@ -901,7 +773,7 @@ def _record_timing(
 def _watchdog(
     *, verdict: _Verdict, clock: _Clock, thresholds: dict[str, int | None], now: datetime
 ) -> bool:
-    """护栏二：QUIET 状态的 age 超过**该成因的**阈值 → 该 park（打 needs-human）。返回是否该 park。
+    """护栏二：QUIET 状态的 age 超过**该成因的**阈值 → 该 park（打 automation-failed）。返回是否该 park。
 
     「什么都没变」本身就可能是故障——CI 永不启动（workflow 没匹配 / base 不是 main / Actions 被禁）在日志里
     跟「正常等 CI」长得一模一样。而**判断「卡了多久」不需要任何本地记忆**：`age = now − last_progress_at`，
@@ -912,7 +784,7 @@ def _watchdog(
     自己的看门狗，重复计时只会误杀）。IN_FLIGHT / TERMINAL / ACTIONABLE 一律返回 False（不是本函数的职责）。
 
     **阈值宁可给宽。** 设窄了会把正常在跑的 CI 误 park，比不看门更糟；而 park 只是「打个 label + 贴条诊断」、
-    完全可逆（人摘掉 label 系统立刻复活），晚叫人的代价远小于误杀。
+    完全可逆（相关事实变化后系统自动复活），晚记录机器失败的代价远小于误杀。
     """
     if verdict.kind != _QUIET:
         return False
@@ -953,7 +825,7 @@ def _ci_state(*, snapshot: github.CheckSnapshot) -> str:
 
     `github.check_status` 把「无 check」归成 pass（无 CI 的仓库照常放行）——守夜不能沿用：一个 workflow
     从未启动的 PR（base 不是 main / Actions 被禁 / workflow 没匹配）会被读成「绿了」→ 直接合并一份没跑过
-    CI 的代码。故这里靠 `count` 把它分出来，落 `QUIET(awaiting-ci)`，超时由看门狗叫人（护栏二）。
+    CI 的代码。故这里靠 `count` 把它分出来，落 `QUIET(awaiting-ci)`，超时由看门狗记录机器失败（护栏二）。
     """
     if snapshot.count == 0:
         return _CI_NONE
@@ -1225,8 +1097,9 @@ def _sweep_stalled(
     seen_locked: dict[str, datetime],
     now: datetime,
     agent_id: str,
+    config: agent_config.AgentConfig | None = None,
 ) -> int:
-    """**queued 行的锁被人持着、且跨 tick 一直持着 ⇒ 存活证明泄漏了** → park 交人。返回本轮 park 数。
+    """**queued 行的锁被人持着、且跨 tick 一直持着 ⇒ 存活证明泄漏了** → park 收口为机器失败。返回本轮 park 数。
 
     这是 `hold_fd`（把 flock 的 fd 传给 agent 子进程继承）的**必要配套**。继承换来的是「孤儿 agent 还在跑 →
     行不会被回收 → 无双跑」，但代价是这把锁也会随之传给 agent 的**孙子**进程（`pass_fds` 在子进程里清掉了
@@ -1252,7 +1125,7 @@ def _sweep_stalled(
        抢不到就一个字都不说）。上面那次探锁是在快照上做的，而 park 要发两次 `gh`（**数秒**）——这期间一个
        worker 完全可能正常领走**另一行**并锁上它，轮到我们探它时锁当然是「被持着」的。只「复核一下再发 gh」
        是不够的：复核到发完 `gh` 之间那几秒里泄漏进程可能恰好死掉、锁一自由 worker 就合法领走并开跑，我们那条
-       `needs-human` 于是落在一个**健康且正在被执行**的 subject 上 → 下一圈 `_classify` 判 TERMINAL → worker
+       `automation-failed` 于是落在一个**健康且正在被执行**的 subject 上 → 下一圈 `_classify` 判 TERMINAL → worker
        掉头就走 → **永久停摆，正是本函数要防的东西**。行删得掉、话收不回，所以顺序只能是「先删行、再说话」。
     4. **删行即互斥**（`_claim_next` 只认 `queued`）。这与 `_requeue_or_park`「先落 label 再删行」相反——那边
        删的是自己的 `claimed` 行（没人能抢，丢 label 却会让 `attempts` 归零、无限重派烧 LLM）；这边删的是一个
@@ -1284,11 +1157,12 @@ def _sweep_stalled(
                 path=path,
                 held=held_seconds,
                 agent_id=agent_id,
+                config=config,
             )
         except Exception as exc:  # noqa: BLE001 —— 闸 5：一行 park 不成，不许拖垮整轮生产
             # 行或者还在（DELETE 就失败了、已回滚），或者已经没了（label 那步才失败）——两种都由下一 tick 的
             # `_intake` 从 GitHub 现态收敛回来，重新计时、重新 park。这里只管不让它掀掉整轮生产。
-            _log(message=f"✗ {subject}：交人未落地（下轮由 _intake 重新推导并重试）：{exc}")
+            _log(message=f"✗ {subject}：收口为机器失败未落地（下轮由 _intake 重新推导并重试）：{exc}")
     for subject in set(seen_locked) - still_locked:
         seen_locked.pop(subject, None)  # 锁放了/行没了 → 忘掉它，重新计时
     return parked
@@ -1302,6 +1176,7 @@ def _park_stalled(
     path: Path,
     held: float,
     agent_id: str,
+    config: agent_config.AgentConfig | None = None,
 ) -> int:
     """`_sweep_stalled` 判定泄漏后的落地：**先用 DELETE 把行抢下来，赢了才开口说话**。
 
@@ -1311,7 +1186,7 @@ def _park_stalled(
       而那条路上丢了 label 的代价是 `attempts` 归零、无限重派、白烧 LLM，所以 label 必须先落地。
     - 这边删的是一个 **`queued`** 行——它**随时可能被 worker 合法领走**。`_claim_next` 只认 `queued`，所以
       「删掉」就是把它从所有 worker 的视野里拿走，是这里唯一真正的互斥手段。先发 `gh`（两次网络往返、以秒计）
-      再删，就留出一个窗口：泄漏进程恰在此刻死掉 → 锁自由 → worker 合法领走并开跑 → 我们那条 `needs-human`
+      再删，就留出一个窗口：泄漏进程恰在此刻死掉 → 锁自由 → worker 合法领走并开跑 → 我们那条 `automation-failed`
       落在一个**健康且正在被执行**的 subject 上 → 下一圈 `_classify` 判 TERMINAL → worker 掉头就走、行被删 →
       这个 issue **再也不会被动手**。删行的守卫救得了行，救不了 label：话一旦说出去就收不回来。
 
@@ -1332,19 +1207,20 @@ def _park_stalled(
     if not won:
         # 探锁之后、动手之前被 worker 正常领走了（那把锁是它的，天经地义）→ 收手，一个字都不许说。
         return 0
-    _park_needs_human(
+    _fail_automation(
         subject=subject,
-        body=(
-            f"⏸ openagents 守夜：`{subject}` 已排在队里、且它的存活证明 `{path}` 被人持着超过 "
+        facts=_failure_facts(subject=subject, config=config),
+        category="stale_lock",
+        attempts=0,
+        reason=(
+            f"`{subject}` 已排在队里、且存活证明 `{path}` 被持有超过 "
             f"{int(held)}s —— 而没有任何 worker 在跑它，它永远领不走。\n\n"
             "几乎可以肯定是上一次 agent 调用**泄漏了长命子进程**（MCP server、它自己起的后台服务），"
-            "那个进程继承了锁的 fd 并一直持着。请查出并清掉它：\n\n"
-            f"```\nlsof {path}\n```\n\n"
-            "清掉后摘掉本 label，守夜会自动重新接管。"
+            f"那个进程继承了锁的 fd 并一直持着。可用 `lsof {path}` 定位。"
         ),
         agent_id=agent_id,
     )
-    _log(message=f"⏸ {subject}：存活证明被泄漏进程占着（queued 却领不走）→ 交人")
+    _log(message=f"⏸ {subject}：存活证明被泄漏进程占着（queued 却领不走）→ 收口为机器失败")
     return 1
 
 
@@ -1377,21 +1253,22 @@ def _requeue_or_park(
     subject: str,
     fd: int,
     agent_id: str,
+    config: agent_config.AgentConfig | None = None,
 ) -> None:
     """领取后失败（`_reconcile` 抛，含 `_act` 硬超时）的收尾：`attempts < _MAX_ATTEMPTS` → 回 queued；到顶 →
     删行 + park。**同样先写行、后释锁。**
 
-    park = 删该行 + 给该 subject 打 `needs-human`（→ 下一 tick `_classify` 判 TERMINAL → 轮询停止）。防毒丸
+    park = 删该行 + 给该 subject 打 `automation-failed`（→ 下一 tick `_classify` 判 TERMINAL → 轮询停止）。防毒丸
     活无限重试霸占槽。`attempts` 在 `_claim_next` 领取时已累加，这里只读它判上限。
 
     这是**三道护栏里唯一需要计数的那道**：agent 崩 / 被 kill 时它没盖 attempt 戳、也没刷新任何 GitHub 时间
     戳 → fp 判不出、age 也判不出 → 只能在队列行里数（见模块头）。**持有者自己走这条路**（不是别人来回收），
     故 claimed 行永不成孤儿。
 
-    **到顶时：先把 needs-human 落到 GitHub，再删行。** 反过来（先删行、后发 `gh`）会让一次 429/网络抖动把
+    **到顶时：先把 automation-failed 落到 GitHub，再删行。** 反过来（先删行、后发 `gh`）会让一次 429/网络抖动把
     「park」悄悄变成「重新派发」：行没了、label 也没打上，下一个 tick 生产者重新感知 → 还是 ACTIONABLE →
     重新入队 → **`attempts` 从 0 起算** → 毒丸活永远到不了上限，白烧模型。先打标的话，`gh` 抛出时行仍是
-    `claimed`、锁已还给内核 → `_reclaim_dead` 回收 → 重来一遍（幂等），最坏多跑一轮，不会丢掉「交人」。
+    `claimed`、锁已还给内核 → `_reclaim_dead` 回收 → 重来一遍（幂等），最坏多跑一轮，不会丢掉「收口为机器失败」。
 
     **fd 的所有权：进了这个函数就归它**——`finally` 保证 close 恰好一次（`_finish` 据此不再兜底重关；重复
     close 一个已被别的线程复用的 fd 号 = 放掉**别人**的 flock → 那个还在跑的 worker 被判死回收 → 双跑）。
@@ -1407,13 +1284,13 @@ def _requeue_or_park(
             )
             _log(message=f"↻ {subject}：本次认领未收工（第 {attempts} 次），已回队重排")
             return
-        _park_needs_human(  # 先落地交人（抛出 → 行留 claimed，回收兜底），再删行
+        facts = _failure_facts(subject=subject, config=config)
+        _fail_automation(
             subject=subject,
-            body=(
-                f"⏸ openagents 守夜：`{subject}` 连续 {attempts} 次认领未收工"
-                "（agent 崩溃 / 被 kill / 超时），已交人接手。\n\n"
-                "摘掉本 label 即可让守夜重新接管（谓词无历史，自动复活）。"
-            ),
+            facts=facts,
+            category="retry_exhausted",
+            attempts=attempts,
+            reason="agent 崩溃、被 kill、协议错误或超时，连续认领未收工",
             agent_id=agent_id,
         )
         conn.execute("DELETE FROM work_queue WHERE id=?", (task_id,))
@@ -1515,7 +1392,7 @@ def _producer_tick(
     """生产者单 tick：**只生产、不领活**。返回本 tick 新入队数。
 
         _reclaim_dead                                     # 凭 flock 判死，回收死持有者的行
-        _sweep_stalled                                    # queued 行的锁被泄漏进程占着 → park 交人
+        _sweep_stalled                                    # queued 行的锁被泄漏进程占着 → park 收口为机器失败
         _intake                                           # 准入面：三态审 → ready → curator 排边 → POST
         for subject in _subjects():
             observed = _sense(subject)                    # 唯一的 GitHub 读
@@ -1545,6 +1422,7 @@ def _producer_tick(
             seen_locked=seen_locked,
             now=now,
             agent_id=agent_id,
+            config=config,
         )
         _intake(
             backend=backend,
@@ -1589,45 +1467,42 @@ def _producer_tick(
         conn.close()
 
 
-def _unblock_if_replied(*, observed: _Observed, subject: str) -> _Observed:
-    """Spec-0058/T1: needs-human 死锁自愈——人类越水位线回复即撤 label，把 subject 从 TERMINAL 复位续跑。
-
-    `needs-human` 是 agent 的一等出口（`_classify` 分支①），但其唯一撤销路径本是**人手摘 label**——分支①
-    短路在分支②（人有新话 → reply）之前，人在被挂 subject 上回复评论却没手摘 label 时 subject 一动不动，
-    与决策5（agent 先 comment、人审核后流程续跑）及 park 卡点评论对用户的承诺相悖。这里补上闭环：
-
-    **「人在被挂 subject 上说了话」本身就是解挂信号。** park 的理由评论**必签名**（`_park_needs_human`）且
-    恒为 park 那一刻的最后一条，故「最新一条评论不是我方签名」（`facts.latest_comment_is_ours`，`_sense`
-    已算出）**恰好等价于**「park 之后有人越过水位线说话」——无需另存 `block_watermark`、无需第二次读。
-    撤掉 `needs-human` 后用 `dataclasses.replace` 把它从**本 tick 已读到的 facts** 里剥掉，`_classify` 当轮
-    即在「已无 needs-human」现态上从头重判（②reply → ③…⑪ 保守重进整条流水线，无需信任旧证据）。
-
-    **防自触发天然内建**：`latest_comment_is_ours` 靠签名判定（`_latest_is_ours` → `identity.parse_agent_id`），
-    机器自己后来盖的任何签名评论都把它顶回 True，解挂不自触发（也让本步骤幂等：撤一次后无更新的无签名评论，
-    下一 tick 不再重撤）。撤 label 是唯一状态复位（不写 state 字段）——新栈里 label 本身即终态单一真源，
-    人机对话记录留在 GitHub 评论流 + `_log` 行，即 issue 要的 `unblock_detail` 审计落处（GitHub 是领域真相）。
-    """
+def _refresh_failure_projection(*, observed: _Observed, subject: str) -> _Observed:
+    """Keep an unchanged machine failure terminal; revive automatically when material facts change."""
     facts = observed.facts
-    if _LABEL_NEEDS_HUMAN not in facts.labels:
-        return observed  # 没挂起 → 原样透传
-    # 最新是我方签名（含刚 park 的理由）→ 无人越水位线 → 不解挂（幂等 + 防自触发）
-    if facts.latest_comment_is_ours:
+    if _LABEL_AUTOMATION_FAILED not in facts.labels:
         return observed
-    # 有人在 park 理由评论之后越过水位线说话 → 撤 needs-human，本 tick 即从头重判续跑
-    _remove_needs_human(subject=subject)
-    _log(message=f"⟳ {subject}：人类越水位线回复，撤 {_LABEL_NEEDS_HUMAN}，复位续跑")
-    return replace(observed, facts=replace(facts, labels=facts.labels - {_LABEL_NEEDS_HUMAN}))
+    current_fp = _fingerprint(facts=facts)
+    recorded = None
+    for comment in reversed(_comments(facts=facts)):
+        match = re.search(r"<!-- openagents:automation-failed fp=([0-9a-f]{16})\b", comment.body)
+        if match and identity.parse_agent_id(body=comment.body) is not None:
+            recorded = match.group(1)
+            break
+    if recorded == current_fp:
+        return observed
+    _remove_automation_failed(subject=subject)
+    _log(message=f"⟳ {subject}：事实指纹变化（{recorded or 'missing'} → {current_fp}），自动复活")
+    return replace(
+        observed,
+        facts=replace(facts, labels=facts.labels - {_LABEL_AUTOMATION_FAILED}),
+    )
 
 
-def _remove_needs_human(*, subject: str) -> None:
-    """Spec-0058/T1: 撤掉 subject 的 `needs-human` label——PR 走 `remove_label`、issue 走 `issue_remove_label`
-    （由 `_split_subject` 分流，与 `_park_needs_human` 的打 label 分流对称）。两者皆幂等容错（label 本就不在时
-    吞掉视为 no-op），故与人手动摘 label 竞态无害。"""
+def _remove_automation_failed(*, subject: str) -> None:
+    """Idempotently clear the stale machine-failure projection from its forge object."""
     kind, number = _split_subject(subject=subject)
     if kind == _KIND_ISSUE:
-        github.issue_remove_label(number=number, name=_LABEL_NEEDS_HUMAN)
+        github.issue_remove_label(number=number, name=_LABEL_AUTOMATION_FAILED)
     else:
-        github.remove_label(pr_number=number, name=_LABEL_NEEDS_HUMAN)
+        github.remove_label(pr_number=number, name=_LABEL_AUTOMATION_FAILED)
+
+
+def _failure_facts(
+    *, subject: str, config: agent_config.AgentConfig | None = None
+) -> _Facts:
+    """Read the same canonical facts used by classification before persisting a failure marker."""
+    return _sense(config=config or agent_config.default_config(), subject=subject).facts
 
 
 def _consider(
@@ -1653,9 +1528,9 @@ def _consider(
     """
     observed = _sense(config=config, subject=subject)
     # Spec-0058/T1: 解挂预处理必须在 `_sense` 之后、`_classify` 之前——撤 label 是副作用（只能生产者侧做），
-    # 撤完把 needs-human 从本 tick 已感知的 facts 里剥掉，`_classify` 当轮即在「已无 needs-human」的现态上从头
+    # 撤完把 automation-failed 从本 tick 已感知的 facts 里剥掉，`_classify` 当轮即在「已无 automation-failed」的现态上从头
     # 重判（②reply → ③…⑪ 合并流水线保守重进），满足「守夜一轮内自动续跑」。`_classify` 保持纯函数不动。
-    observed = _unblock_if_replied(observed=observed, subject=subject)
+    observed = _refresh_failure_projection(observed=observed, subject=subject)
     verdict = _classify(facts=observed.facts, in_flight=subject in in_flight)
     fp = _fingerprint(facts=observed.facts)
 
@@ -1663,23 +1538,17 @@ def _consider(
         # 护栏一：我在**完全相同的状态**下已经出过手且一个字节没推动 → 别再叫 agent（零 LLM 调用）。
         verdict = _Verdict(kind=_QUIET, reason=_AWAITING_EFFECT)
 
-    # Spec-0066/T2: 生产者旁路盖阶段戳（等待段 awaiting-* / 终态 merged-closed-needs-human / 入队瞬间
+    # Spec-0066/T2: 生产者旁路盖阶段戳（等待段 awaiting-* / 终态 merged-closed-automation-failed / 入队瞬间
     # solve-merge / in-flight）。**旁路**：不改下方任何返回值/控制流/fp，写失败被 `_record_timing` 吞掉。
     _record_timing(
         work_dir=work_dir, subject=subject, facts=observed.facts, verdict=verdict, now=now
     )
 
     if verdict.kind == _IN_FLIGHT:
-        # IN_FLIGHT 超龄 → **只打 needs-human 告警，绝不动行**（回收活着的持有者的行 = 双跑）。
+        # A live holder is telemetry only: terminal projection here could race a healthy worker.
         claimed_at = _parse_ts(stamp=str(in_flight.get(subject) or ""))
         if claimed_at is not None and (now - claimed_at).total_seconds() > _INFLIGHT_ALARM_SECONDS:
-            _park(
-                facts=observed.facts,
-                verdict=verdict,
-                clock=observed.clock,
-                now=now,
-                agent_id=agent_id,
-            )
+            _log(message=f"⚠ {subject}：认领仍存活但已超时，仅告警、不写终态")
         return 0
     if verdict.kind == _TERMINAL:
         return 0
@@ -1699,7 +1568,7 @@ def _consider(
     if _watchdog(verdict=verdict, clock=observed.clock, thresholds=thresholds, now=now):
         # park 之前**临门再查一次队列**：`in_flight` 是本 tick 起头拍的快照，而 `_sense` 每个 subject 都要打
         # 好几个 GitHub 往返——快照之后才被 worker 领走的 subject，走到这里仍会被当成「没人管」而挨一发
-        # needs-human；那个正在跑的 agent 下一圈 `_sense` 就会读到终态、当场收工（白干一场）。
+        # automation-failed；那个正在跑的 agent 下一圈 `_sense` 就会读到终态、当场收工（白干一场）。
         if _is_claimed(conn=conn, subject=subject):
             return 0
         _park(
@@ -1753,13 +1622,13 @@ def _intake(
 
     对每个「无 `ready` label 的新 issue」（可攒一批）：
       1. **三态门控**——`skip` 直接准入 / `agent` 派 triager 判 actionable、过则准入 / `human` **在评论里
-         跟人对话确认**、人点头才准入（见 `_ask_human`；`stages.triage` 是分诊的单一策略源）。
+         跟人对话确认**、人点头才准入（见 `_admit`；`stages.triage` 是分诊的单一策略源）。
       2. **打 `ready` label**——准入令牌落 GitHub。
       3. **调 curator（T1）**——喂「当前所有 `ready` open issue 快照 + **已有依赖边（锚点）**」，出建议的
          `blocked_by` 边集。curator 是零逻辑 Template（agents/ 层约定）：只出结构化语义判断，不做调度、不落边。
       4. **validate**——本地用建议边重建内存 DAG，校验**无环** + 引用的都是真实 issue。
       5. **落边**——validate 过才为**新节点** `POST blocked_by`；**已有边（含人在 UI 手设的）作锚点不动**。
-         失败则不落任何边 + 打 `needs-human`。
+         失败则不落任何边 + 打 `automation-failed`。
 
     **为什么排边要 LLM，而路由不要。** 依赖是**语义判断**——机械手段（文件重叠分析）只能捕「文件冲突序」，
     捕不到「逻辑序」（A 定义了接口、B 才能用，两者可能不碰同一文件）。而 `_classify` 的每个谓词都是从
@@ -1781,11 +1650,12 @@ def _intake(
     # Spec-0035/T4: 发现段慢检查进度日志——拉带标签 issue 走网络，卡住时输出停在这行、一眼定位。
     _log(message="▶ 发现段：拉取带标签 issue…")
     for issue in github.list_issues(labels=config.labels):
-        if _LABEL_READY in issue.labels or _LABEL_NEEDS_HUMAN in issue.labels:
+        if _LABEL_READY in issue.labels or _LABEL_AUTOMATION_FAILED in issue.labels:
             continue
         try:
             admitted += _admit(
                 owner=owner,
+                config=config,
                 backend=timed,
                 work_dir=Path(work_dir),
                 issue=issue,
@@ -1795,22 +1665,22 @@ def _intake(
         except Exception as exc:  # noqa: BLE001 —— 单 issue 准入失败不拖垮整轮（含 _ActTimeout）
             _log(message=f"✗ issue #{issue.number} 准入失败，跳过：{exc}")
     if admitted:
-        _order_edges(backend=timed, work_dir=Path(work_dir), agent_id=agent_id)
+        _order_edges(
+            backend=timed, work_dir=Path(work_dir), config=config, agent_id=agent_id
+        )
 
 
 def _admit(
     *,
     owner: str,
+    config: agent_config.AgentConfig,
     backend: Any,
     work_dir: Path,
     issue: Any,
     agent_id: str,
     discovery_labels: tuple[str, ...],
 ) -> int:
-    """单个新 issue 的三态准入：`skip` 直接放行 / `agent` 派 triager 判 / `human` **在评论里跟人对话确认**。
-
-    返回准入数（0/1）。`human` 态是一场**跨 tick 的对话**，不是一次挂起——见 `_ask_human`。
-    """
+    """单个新 issue 的两态准入：skip 直接放行；agent 分诊并机器化收口拒绝。"""
 
     def _on_agent() -> int:
         # Spec-0035/T4: 发现段慢检查进度日志——triager LLM 分诊耗时且过程全哑，卡住时输出停在这行。
@@ -1818,9 +1688,13 @@ def _admit(
         verdict = stages.triage(backend=backend, work_dir=work_dir, issue=issue)
         if verdict["actionable"]:
             return _grant_ready(issue=issue, discovery_labels=discovery_labels)
-        _park_needs_human(
+        facts = _sense(config=config, subject=f"{_KIND_ISSUE}:{issue.number}").facts
+        _fail_automation(
             subject=f"{_KIND_ISSUE}:{issue.number}",
-            body=f"⏸ openagents 分诊：本 issue 暂不可直接派单，请对齐后再触发。\n\n{verdict['reason']}",
+            facts=facts,
+            category="triage_rejected",
+            attempts=1,
+            reason=verdict["reason"],
             agent_id=agent_id,
         )
         return 0
@@ -1828,279 +1702,18 @@ def _admit(
     return route(
         owner=owner,
         on_agent=_on_agent,
-        on_human=lambda: _ask_human(
-            backend=backend,
-            work_dir=work_dir,
-            issue=issue,
-            agent_id=agent_id,
-            discovery_labels=discovery_labels,
-        ),
         on_skip=lambda: _grant_ready(issue=issue, discovery_labels=discovery_labels),
     )
-
-
-def _ask_human(
-    *,
-    backend: Any,
-    work_dir: Path,
-    issue: Any,
-    agent_id: str,
-    discovery_labels: tuple[str, ...],
-) -> int:
-    """`triage: human` 的准入：**在 issue 评论里跟人对话确认**，人点头才打 `ready`。返回准入数（0/1）。
-
-    三个状态，全部从 GitHub 现态推出来（level-triggered，零本地记忆——重启/换机器都不影响）：
-
-    1. **还没问**（评论流里没有 `_ADMIT_ASK_MARK`）→ 发一条签名提问评论，返回。**零 LLM**。
-    2. **问了、人还没回话**（提问之后没有任何无签名评论）→ 什么都不做，返回。**零 LLM**——这是关键：
-       准入面每 tick 都会重新扫到这个 issue（它没有 `ready` 也没有 `needs-human`），若每轮都叫一次
-       agent，一个等着人回话的 issue 就成了一台按 tick 计费的印钞机。
-    3. **人回话了** → 若人最新那句话已经判过（有更新的裁决戳）就沿用（**零 LLM**，见 `_admit_verdict`），
-       否则把对话交 **admitter** 判 → 裁决先盖成一条签名评论、再落地：点头 → `_grant_ready`；没点头 →
-       `_park_needs_human`（带 admitter 的理由）。
-
-    **为什么不是「挂 `needs-human` 等人摘 label」。** 那是个死胡同：`needs-human` 在 `_classify` 里是
-    TERMINAL，`_intake` 也会跳过带它的 issue —— 挂上去之后守夜就再也不看这个 issue 了，人回什么话都没人
-    读，只能靠人手动摘 label。而 `human` 态的语义恰恰是「**这个决定得由人拍板**」，人拍板的自然方式是
-    **说话**，不是去操作 label。
-
-    **判「人点头没有」必须用 admitter，不能用 triager**（spec 原文写的是 replier，实现期两次改判）：
-    - **replier 不行**——它的提示词是 **PR 语境**的（`$pr_number` / `$branch` / 「若需要改代码就改，
-      commit+push」）：对着一个还没有 PR 的 issue 叫起来，等于叫它去改代码。
-    - **triager 更不行，而且是危险的那种不行**——它判的是另一个问题（issue 正文内部有没有自相矛盾），
-      且纪律是 **fail-open**（「拿不准就判可派单」）。人明说「先别做，这个方向我还没想清楚」并不属于它
-      那五类矛盾中的任何一类 → 它会照判 `actionable=true` → **在人明确否决之下把活派出去**。那道人闸会
-      当场退化成一台偏向「是」的 agent 闸——比原来那个死胡同更坏。
-    - 故新增 `admitter`（`stages.admit`），判据就是「人到底点头没有」，纪律 **fail-closed**：看不懂、
-      答非所问、路过说句话、拿不准 —— 一律当没点头。漏判只是多等一轮，误判是违背人的意愿开工。
-
-    **谁算「人回话了」也必须在代码里判死，不能交给 agent。** 只认**我们提问之后**发的、**没有我方签名**
-    的评论。少任何一个条件都会自触发：我方评论（park 理由、attempt 戳）若没签名就会被当成人的回话，
-    agent 于是对着自己写的话开会——`identity` 那套签名纪律存在的全部意义就是堵这个（故 `_park_needs_human`
-    也必须签名）。
-    """
-    subject = f"{_KIND_ISSUE}:{issue.number}"
-    comments = github.list_issue_comments(number=issue.number)
-    ask = _latest_marked(comments=comments, mark=_ADMIT_ASK_MARK)
-    if ask is None:
-        _post_admit_ask(issue=issue, agent_id=agent_id)
-        return 0
-    replies = _human_replies(comments=comments, ask=ask)
-    if not replies:
-        return 0  # 维护者还没回话 → 零 LLM 等着（下一 tick 再看）
-    reply_key = _reply_key(reply=replies[-1])
-    verdict = _admit_verdict(comments=comments, reply_key=reply_key)
-    if verdict is None:  # 人这句话还没判过
-        if _admit_tried(comments=comments, reply_key=reply_key):
-            # 有 try 戳、却没有裁决戳 ⇒ 上一轮在 agent 那里判崩了（输出不是 JSON / 超时 / 429）。**零 LLM**
-            # 转人工：一条人类回复只买一次 agent 调用，不然一个判不动的 issue 就是每 tick 一次的印钞机。
-            _park_needs_human(
-                subject=subject,
-                body=(
-                    "⏸ openagents 准入对话：上一轮的准入裁决**没能跑出结果**（agent 超时/输出不合约/"
-                    "`gh` 抖动），为免每轮重烧一次 LLM，先停在这里。\n\n"
-                    "想重来：**在下面再回一条评论**（哪怕只是把上一句重说一遍），然后摘掉本 label——"
-                    "守夜按新的那句话重判一次。"
-                ),
-                agent_id=agent_id,
-            )
-            return 0
-        # 花钱之前先盖戳（这一步就是 LLM 的准入券）：盖不上（`gh` 挂了）就抛在这里，**零 LLM**，下一 tick 重来。
-        _post_admit_try(issue=issue, reply_key=reply_key, agent_id=agent_id)
-        verdict = stages.admit(
-            backend=backend,
-            work_dir=work_dir,
-            issue=issue,
-            dialogue=_dialogue(comments=comments, ask=ask),
-        )
-        # 裁决**先落 GitHub 再落地**：打 label 那步若挂了（429/403），下一 tick 读回这条戳直接重试落地，
-        # 不必再叫一次 agent。否则 `gh` 每失败一轮就重判一次——又一台按 tick 计费的印钞机。
-        _post_admit_verdict(issue=issue, verdict=verdict, reply_key=reply_key, agent_id=agent_id)
-    if verdict["approved"]:
-        _log(message=f"✓ issue #{issue.number}：人已点头（准入对话）→ 准入")
-        return _grant_ready(issue=issue, discovery_labels=discovery_labels)
-    _park_needs_human(
-        subject=subject,
-        body=(
-            "⏸ openagents 准入对话：没读到你的明确点头，先停在这里（准入闸 fail-closed——"
-            "宁可多等你一句话，也不擅自开工）。\n\n"
-            f"{verdict['reason']}\n\n"
-            "想让它开工：**在下面回一条评论**说清楚，然后摘掉本 label——守夜会读你新说的这句话重判。"
-            "（只摘 label、不说话的话，你上一句还是那句，裁决也还是这个。）"
-        ),
-        agent_id=agent_id,
-    )
-    return 0
-
-
-def _post_admit_ask(*, issue: Any, agent_id: str) -> None:
-    """发那条「请你拍板」的**签名**提问评论。签名是必须的：不签就会被下一轮当成人的回话（自问自答）。"""
-    github.issue_comment(
-        number=issue.number,
-        body=identity.sign(
-            body=(
-                f"{_ADMIT_ASK_MARK}\n"
-                "🙋 openagents 准入：本 issue 被分诊为 `triage: human` —— 派不派单**由你拍板**。\n\n"
-                "请直接回话：说「可以」（或补齐你要的边界/取舍）我就打 `ready` 开始派单；说不行、"
-                "或讲清还缺什么，我就挂 `needs-human` 停在这里等你。\n\n"
-                "（拍板只认**本仓库维护者**（owner / member / collaborator）说的话——路人评论我会当噪声"
-                "略过。在维护者回话之前，守夜不会对这个 issue 做任何事，也不会再问第二遍。）"
-            ),
-            agent_id=agent_id,
-        ),
-    )
-    _log(message=f"🙋 issue #{issue.number}：`triage: human` → 已在评论里请人拍板，等回话")
-
-
-def _post_admit_try(*, issue: Any, reply_key: str, agent_id: str) -> None:
-    """**在叫 admitter 之前**盖的签名戳：「人这句话，我这就去判了」。这一步是 LLM 花费的准入券。
-
-    它必须先于 `stages.admit` 落到 GitHub 上：agent 那边任何形式的判崩（输出不是 JSON、`_ActTimeout`、
-    backend 429）都会把 `_ask_human` 整个抛掉，此时 issue 上既没有 `ready` 也没有 `needs-human`，下一 tick
-    `_intake` 照样扫到它 —— 没有这个戳，那就是**每 tick 烧一次 LLM，直到人来关掉守夜**。有了它，一条人类
-    回复至多买到一次 agent 调用；戳本身盖不上（`gh` 挂了）则当场抛出，**零 LLM**，下一 tick 原样重来。
-    """
-    github.issue_comment(
-        number=issue.number,
-        body=identity.sign(
-            body=(
-                f"{_ADMIT_TRY_MARK}{reply_key} -->\n"
-                "⏳ openagents 准入：读到你的回话了，正在判定是否点头。"
-            ),
-            agent_id=agent_id,
-        ),
-    )
-
-
-def _post_admit_verdict(*, issue: Any, verdict: dict, reply_key: str, agent_id: str) -> None:
-    """把准入裁决盖成一条**签名**评论——「人这句话已经判过了」的唯一持久痕迹（读 GitHub 现态，零本地记忆）。"""
-    flag = _ADMIT_APPROVED if verdict["approved"] else _ADMIT_REFUSED
-    github.issue_comment(
-        number=issue.number,
-        body=identity.sign(
-            body=(
-                f"{_ADMIT_VERDICT_MARK}{flag}:{reply_key} -->\n"
-                f"{'✓ 读到你的点头' if verdict['approved'] else '⏸ 没读到明确的点头'}："
-                f"{verdict['reason']}"
-            ),
-            agent_id=agent_id,
-        ),
-    )
-
-
-def _reply_key(*, reply: github.Comment) -> str:
-    """人那句话的身份：GitHub comment id（node id，永不复用）。id 读不到时退回 created_at 兜底。"""
-    return reply.id or reply.created_at
-
-
-def _is_our_stamp(*, comment: github.Comment) -> bool:
-    """这条评论算不算**我们盖的**准入戳（裁决 / try）——判据落在**外人伪造不了的那一位**上。
-
-    准入戳的标记串（`_ADMIT_VERDICT_MARK` 等）是公开的 HTML 注释，签名 `<!-- openagents:agent=… -->`
-    同样是**公开可抄的文本**——「有标记」「有签名」两条都挡不住伪造：公开仓库里任何路人都能贴一条
-    `<!-- openagents:admit-verdict:approved:<那人的评论 id> -->` + `<!-- openagents:agent=x -->`，
-    `_admit_verdict` 一读就当成「上一轮已判过、approved」→ **零 LLM 直接放行**，绕过维护者闸和 admitter
-    （`_human_replies` 认「谁在回话」时查了 `authorAssociation`，可这两个**读戳**的地方一处都没查——正是这道
-    非对称给了攻击面）。唯一伪造不了的是 `authorAssociation`：它由 GitHub 按**真实作者**算出、不进评论
-    正文、路人写不进去。故戳只在「维护者关联 **且** 带我方签名」两者俱全时才认——我们的 bot 恰是以维护者
-    身份（能打 label / 推分支 / 合并的账号必是 OWNER/MEMBER/COLLABORATOR）盖下这些戳的，NONE / CONTRIBUTOR
-    的路人伪造多少标记都过不了这一关。fail-closed：关联读不到（空串）一律不认。
-    """
-    return (
-        comment.author_association in _MAINTAINER_ASSOCIATIONS
-        and identity.parse_agent_id(body=comment.body) is not None
-    )
-
-
-def _admit_verdict(*, comments: list[github.Comment], reply_key: str) -> dict | None:
-    """读回**针对人这句话**的裁决戳（没有 → None，即这句话还没判过）。省掉一次重复的 agent 调用。
-
-    戳挂在**人那条评论的 id** 上，判据是精确相等，不是时间先后。两层意思：
-
-    - **人还能改主意**：refused 之后我们挂 `needs-human`（TERMINAL，`_intake` 跳过），人按提示回一句
-      「行，做吧」再摘掉 label —— 新话是一条新评论、新 id，旧裁决自动作废、重判。若戳挂在「我们的提问」
-      上，那条 refused 会一直命中、把新说的话彻底盖住，**人再也无法点头**。
-    - **不能拿时间戳当身份**：GitHub 的 createdAt 只到秒。`stamp.created_at >= reply.created_at` 在同秒时
-      恒成立 → 人新回的那句话被旧 refused 戳吞掉，又回到「永久拒绝」；换成 `>` 则我们自己盖的戳判不了
-      自己判过的那句话 → 每 tick 重判。id 是身份不是刻度，换一句话就换一个 id，两头都不漏。
-
-    人不开口（只摘 label，或 `gh` 抖动导致上一轮 label 没打上）→ 沿用旧裁决，**零 LLM**。
-    """
-    for comment in comments:
-        if not _is_our_stamp(
-            comment=comment
-        ):  # 伪造的戳（路人抄标记+签名）不算数——见 `_is_our_stamp`
-            continue
-        if f"{_ADMIT_VERDICT_MARK}{_ADMIT_APPROVED}:{reply_key} -->" in comment.body:
-            return {"approved": True, "reason": "（沿用上一轮已盖的准入裁决）"}
-        if f"{_ADMIT_VERDICT_MARK}{_ADMIT_REFUSED}:{reply_key} -->" in comment.body:
-            return {"approved": False, "reason": "（沿用上一轮已盖的准入裁决）"}
-    return None
-
-
-def _admit_tried(*, comments: list[github.Comment], reply_key: str) -> bool:
-    """人这句话是不是已经烧过一次 agent（有 try 戳）。有 try 无裁决 ⇒ 上一轮判崩了 ⇒ 零 LLM 转人工。"""
-    return any(
-        _is_our_stamp(comment=comment)  # 伪造的 try 戳（路人强推 park）不算数——见 `_is_our_stamp`
-        and f"{_ADMIT_TRY_MARK}{reply_key} -->" in comment.body
-        for comment in comments
-    )
-
-
-def _human_replies(*, comments: list[github.Comment], ask: github.Comment) -> list[github.Comment]:
-    """「**人**回话了」的判据（**代码里判死，不交给 agent**）。三个条件，缺一不可：
-
-    1. **发在我们提问之后**——少了它，提问前的旧评论会被当成回话，issue 一进 human 态就自动放行。
-    2. **没有我方签名**——少了它，我们自己发的评论（park 理由、try 戳、裁决戳）会被当成人的回话，agent
-       对着自己写的话开会（`identity` 签名纪律要堵的正是这个自问自答死循环）。
-    3. **说话的人是维护者**（`authorAssociation` ∈ OWNER/MEMBER/COLLABORATOR）——少了它，这道闸**谁都不
-       认**：公开仓库里任何一个路人回一句「可以，做吧」就能把活派出去。admitter 的提示词拦不住这个——
-       它读到的只是一段文本，压根不知道「该听谁的」；而这段文本恰恰是**外人可写**的。fail-closed：关系
-       读不到（空串）、或只是 CONTRIBUTOR / NONE ⇒ 不算拍板，当噪声略过。
-    """
-    return sorted(
-        (
-            comment
-            for comment in comments
-            if comment.created_at > ask.created_at
-            and identity.parse_agent_id(body=comment.body) is None
-            and comment.author_association in _MAINTAINER_ASSOCIATIONS
-        ),
-        key=lambda comment: comment.created_at,  # 排序，好让调用方取 [-1] 拿到「人最新那句话」
-    )
-
-
-def _dialogue(*, comments: list[github.Comment], ask: github.Comment) -> str:
-    """交给 admitter 的对话逐字稿：**我们问的那句 + 维护者的回话**（按时间序，标明谁说的）。
-
-    只放这两类，别的一律不进 prompt。路人评论、我们自己的 try/裁决/park 戳都被挡在外面：前者是外人可写
-    的文本，混进来等于把一道 fail-closed 的人闸暴露给提示词注入；后者会让 agent 读到自己上一轮的话，
-    在同一段对话里跟自己开会。判据是「谁说的」（`_human_replies` 已判死），不是「说了什么」。
-    """
-    turns = [ask, *_human_replies(comments=comments, ask=ask)]
-    return "\n\n".join(
-        f"- **{'openagents（我方提问）' if identity.parse_agent_id(body=t.body) else t.author}**："
-        f"{t.body.strip()}"
-        for t in turns
-    )
-
-
-def _latest_marked(*, comments: list[github.Comment], mark: str) -> github.Comment | None:
-    """带某个标记的最新一条评论（无 → None）。标记是「这件事做过没有」的唯一真相，读 GitHub 现态。"""
-    marked = [comment for comment in comments if mark in comment.body]
-    if not marked:
-        return None
-    return max(marked, key=lambda comment: comment.created_at)
 
 
 def _grant_ready(*, issue: Any, discovery_labels: tuple[str, ...]) -> int:
     """# Spec-0074/T1: 重读 issue 后才发 `ready`，关闭发现→准入之间的 TOCTOU 窗口。
 
     discovery labels 是 OR 语义；若人在 triage/admit 对话期间摘掉最后一个发现标签，守夜必须尊重最新现态，
-    不能拿旧快照继续派单。并发流程已打 ready / needs-human 时也不重复推进 curator。
+    不能拿旧快照继续派单。并发流程已打 ready / automation-failed 时也不重复推进 curator。
     """
     latest = github.get_issue(number=issue.number)
-    if _LABEL_READY in latest.labels or _LABEL_NEEDS_HUMAN in latest.labels:
+    if _LABEL_READY in latest.labels or _LABEL_AUTOMATION_FAILED in latest.labels:
         return 0
     if discovery_labels and set(discovery_labels).isdisjoint(latest.labels):
         _log(message=f"↷ issue #{issue.number}：发现标签已被摘除，取消准入")
@@ -2110,11 +1723,13 @@ def _grant_ready(*, issue: Any, discovery_labels: tuple[str, ...]) -> int:
     return 1
 
 
-def _order_edges(*, backend: Any, work_dir: Path, agent_id: str) -> None:
+def _order_edges(
+    *, backend: Any, work_dir: Path, config: agent_config.AgentConfig, agent_id: str
+) -> None:
     """调 curator（T1）排依赖 → validate（无环 + 真实 issue）→ 只为**新节点** POST `blocked_by`（受锚增量）。
 
     已有边（含人在 UI 手设的）**原样带进 prompt 作锚点、只读不改**——整张覆盖会抹掉人的改动。validate 不过
-    （成环 / 引用了不存在的 issue）→ **不落任何边** + 把涉事 issue 打 `needs-human` 交人（宁可停，也不要把
+    （成环 / 引用了不存在的 issue）→ **不落任何边** + 把涉事 issue 打 `automation-failed` 收口为机器失败（宁可停，也不要把
     一个错的依赖图写进 GitHub：错边会凭空冻住本可并行的流转，而且是持久的）。
     """
     ready = github.list_issues(labels=[_LABEL_READY])
@@ -2136,12 +1751,14 @@ def _order_edges(*, backend: Any, work_dir: Path, agent_id: str) -> None:
         curator,
         backend=backend,
         work_dir=Path(work_dir),
-        context=snapshot,
-        issue_snapshot=snapshot,
-        existing_edges=anchors,
+        context=context.sections(("ready issues", snapshot), ("existing edges", anchors)),
     )
     proposed = _proposed_edges(
-        edges=payload["edges"], known=known, existing=existing, agent_id=agent_id
+        edges=payload["edges"],
+        known=known,
+        existing=existing,
+        config=config,
+        agent_id=agent_id,
     )
     if proposed is None:
         return
@@ -2156,7 +1773,12 @@ def _blocker_numbers(*, number: int) -> list[int]:
 
 
 def _proposed_edges(
-    *, edges: list, known: set[int], existing: dict[int, list[int]], agent_id: str
+    *,
+    edges: list,
+    known: set[int],
+    existing: dict[int, list[int]],
+    agent_id: str,
+    config: agent_config.AgentConfig | None = None,
 ) -> list[tuple[int, int]] | None:
     """校验 curator 的建议边 → 该落的**新**边列表；validate 不过 → `None`（不落任何边 + park 涉事 issue）。
 
@@ -2191,14 +1813,15 @@ def _proposed_edges(
     cyclic = _cycle_members(graph=graph)
     if bad or cyclic or hallucinated:
         # **只 park 涉事的 issue**（坏边的宿主 + 环上的成员），不是整个 ready 集。一条坏边就把所有 ready
-        # issue 全打成 needs-human，等于让 curator 的一次幻觉冻结整条流水线——爆炸半径必须收敛到当事者。
+        # issue 全打成 automation-failed，等于让 curator 的一次幻觉冻结整条流水线——爆炸半径必须收敛到当事者。
         for number in sorted(bad | cyclic):
-            _park_needs_human(
-                subject=f"{_KIND_ISSUE}:{number}",
-                body=(
-                    "⏸ openagents 守夜：curator 排出的依赖图未过校验"
-                    "（成环 / 引用了不存在的 issue），本轮**未落任何边**，交人确认。"
-                ),
+            subject = f"{_KIND_ISSUE}:{number}"
+            _fail_automation(
+                subject=subject,
+                facts=_failure_facts(subject=subject, config=config),
+                category="dependency_validation",
+                attempts=1,
+                reason="curator 排出的依赖图未过校验（成环 / 引用了不存在的 issue），未落任何边",
                 agent_id=agent_id,
             )
         _log(message="✗ curator 依赖图未过校验（成环 / 幻觉编号），本轮不落任何边")
@@ -2210,7 +1833,7 @@ def _cycle_members(*, graph: dict[int, set[int]]) -> set[int]:
     """Kahn 拓扑排序：剥不掉的节点**就是**环上（及被环卡住）的那些。无环 → 空集。纯函数。
 
     返回**成员**而不只是一个 bool，是为了让 park 的爆炸半径收敛到当事者：一条 A↔B 的坏边只该冻结 A 和 B，
-    不该把整个 ready 集打成 needs-human（见 `_proposed_edges`）。
+    不该把整个 ready 集打成 automation-failed（见 `_proposed_edges`）。
     """
     pending = {node: set(blockers) for node, blockers in graph.items()}
     for blockers in graph.values():
@@ -2235,32 +1858,26 @@ def route(
     *,
     owner: str,
     on_agent: Callable[[], Any],
-    on_human: Callable[[], Any],
     on_skip: Callable[[], Any],
 ) -> Any:
-    """三态策略路由：owner=agent→on_agent() / human→on_human() / skip→on_skip()。编排点的唯一分支源。
-
-    高阶函数——各闸把「自动化怎么做 / 停等人怎么做 / 跳过怎么做」以三个零参 thunk 传入，本函数只据 config
-    的 owner 选一个执行（承旧串行 vigil 的 route）。注意 `_sense` 已把 `skip` 归一成「事实上已过闸」，故
-    `_act` 里的可配闸只会看到 agent / human 两态——`on_skip` 仍保留是为了 `_intake` 的 `triage: skip`。
-    """
+    """Two-state policy router: execute the agent or the explicit skip behavior."""
     if owner == _AGENT:
         return on_agent()
-    if owner == _HUMAN:
-        return on_human()
-    return on_skip()
+    if owner == _SKIP:
+        return on_skip()
+    raise ValueError(f"未知 stage owner：{owner!r}")
 
 
 def _park(*, facts: _Facts, verdict: _Verdict, clock: _Clock, now: datetime, agent_id: str) -> None:
-    """看门狗的收尾动作：给 subject 打 `needs-human` + 贴一条**机械诊断**评论（**不叫 LLM**）。
+    """看门狗收口为带事实指纹的机器失败（不调用模型）。
 
     诊断按 `verdict.reason` 组装成因假设，例如 `awaiting-ci`：「head `abc123` 推送 43 分钟仍无任何 check：
     base 不是 main？Actions 被禁？workflow 未匹配？」——这些是可枚举的机械假设，不需要模型来猜。
 
-    `needs-human` 是 TERMINAL → **轮询停止**。人摘掉 label，`_classify` 自动重新活过来——这是 level-triggered
+    `automation-failed` 是 TERMINAL → **轮询停止**。相关事实变化后 `_classify` 自动重新判断——这是 level-triggered
     白送的自愈（无历史 → 无需清理任何本地残留状态）。park 完全可逆，这也是敢把阈值设宽的前提。
 
-    Agent 主动返回结构化 `needs-human` 是**主路径**；Vigil 负责真正追加 label 与签名评论。看门狗只兜
+    Agent 只返回本角色 schema；Vigil 负责失败分类、有界重试和签名投影。看门狗只兜
     Agent 没意识到问题、判错了或根本没被叫起的情况。
     """
     age = (
@@ -2268,13 +1885,15 @@ def _park(*, facts: _Facts, verdict: _Verdict, clock: _Clock, now: datetime, age
         if clock.last_progress_at is not None
         else -1
     )
-    _park_needs_human(
+    _fail_automation(
         subject=facts.subject,
-        body=(
-            f"⏸ openagents 守夜看门狗：`{facts.subject}` 卡在 **{verdict.reason or verdict.kind}** "
+        facts=facts,
+        category="watchdog",
+        attempts=0,
+        reason=(
+            f"openagents 守夜看门狗：`{facts.subject}` 卡在 **{verdict.reason or verdict.kind}** "
             f"已 {age}s（head `{_short(sha=facts.head_sha) or '—'}`）。\n\n"
-            f"{_diagnosis(reason=verdict.reason or verdict.kind)}\n\n"
-            "这是机械诊断（未叫 agent）。处理后摘掉本 label，守夜会自动重新接管。"
+            f"{_diagnosis(reason=verdict.reason or verdict.kind)}"
         ),
         agent_id=agent_id,
     )
@@ -2371,7 +1990,7 @@ def _worker_loop(
     `claimed` 会**永远**留着——fd 还在本进程手里、flock 没释放，`_reclaim_dead` 判它「持有者活着」，于是永不
     回收、也永不重入队（`INSERT OR IGNORE` 撞 UNIQUE 成 no-op），该 subject 就此死掉。故：
 
-      - `_ActTimeout`（agent 挂死）→ **park 交人，不回队**：见 `_TimedBackend`（杀干净只是尽力而为，把可能
+      - `_ActTimeout`（agent 挂死）→ **park 收口为机器失败，不回队**：见 `_TimedBackend`（杀干净只是尽力而为，把可能
         还活着的 agent 的活重新发出去 = 双跑）。
       - 其它异常 → 回队重试（`attempts` 到顶自动 park）。
       - 收尾自身再抛 → `_release`（下面）兜底：**保证 close(fd)**。锁一放，这行最坏也只是被 `_reclaim_dead`
@@ -2438,7 +2057,7 @@ def _run_claimed(
     """
     subject = row["subject"]
     if int(row["attempts"]) > _MAX_ATTEMPTS:
-        _log(message=f"⏸ {subject}：第 {row['attempts']} 次领取仍未收工 → 不再叫 agent，直接交人")
+        _log(message=f"⏸ {subject}：第 {row['attempts']} 次领取仍未收工 → 不再叫 agent，直接收口为机器失败")
         _finish(
             conn=conn,
             task_id=row["id"],
@@ -2447,9 +2066,10 @@ def _run_claimed(
             subject=subject,
             reason=(
                 f"这一行被领取了 {row['attempts']} 次却一次都没能收工（上限 {_MAX_ATTEMPTS}）。"
-                "成因可能是 agent 反复崩、守夜进程被反复重启，或上一轮已判交人但 `gh` 没发出去"
+                "成因可能是 agent 反复崩、守夜进程被反复重启，或上一轮已判收口为机器失败但 `gh` 没发出去"
             ),
             agent_id=agent_id,
+            config=config,
         )
         return
     # Spec-0073/T1: 本次认领的 agent 输出分流到该 subject 的 ring buffer（喂 daemon 大窗 SSE）。领取时的
@@ -2467,21 +2087,22 @@ def _run_claimed(
             lock_fd=fd,  # Spec-0065/T2: 传给 agent 子进程继承——存活证明要跟着真正在干活的进程走
         )
     except _ActTimeout as exc:
-        _log(message=f"⏱ {subject}：agent 挂死（{exc}），不回队、直接交人")
+        _log(message=f"⏱ {subject}：agent 调用超时（{exc}），进入有界重试")
         _finish(
             conn=conn,
             task_id=row["id"],
             fd=fd,
-            park=True,
+            park=False,
             subject=subject,
             reason=f"agent 调用挂死并被强杀（{exc}）",
             agent_id=agent_id,
+            config=config,
         )
         return
     except gates.MergeNotReady as exc:
         # Spec-0074 实证：合并前 CI 仍在跑（pending）——不是失败、是「还没好」。当干净收工处理（park=None
         # 删行、**不烧 attempts**），生产者下轮 CI 绿了重判即合。并入下面的 Exception 分支会回队累计、在
-        # CI 窗口内烧光 _MAX_ATTEMPTS → 误挂 needs-human（见 gates.MergeNotReady docstring）。
+        # CI 窗口内烧光 _MAX_ATTEMPTS → 误挂 automation-failed（见 gates.MergeNotReady docstring）。
         _log(message=f"⏳ {subject}：{exc} → 交还 slot，等 CI 转绿")
         _finish(
             conn=conn,
@@ -2491,6 +2112,7 @@ def _run_claimed(
             subject=subject,
             reason="",
             agent_id=agent_id,
+            config=config,
         )
         return
     except Exception as exc:  # noqa: BLE001 —— 单 subject 崩不该杀整条 worker
@@ -2503,6 +2125,7 @@ def _run_claimed(
             subject=subject,
             reason=str(exc),
             agent_id=agent_id,
+            config=config,
         )
         return
     finally:
@@ -2516,6 +2139,7 @@ def _run_claimed(
         subject=subject,
         reason="",
         agent_id=agent_id,
+        config=config,
     )
 
 
@@ -2528,6 +2152,7 @@ def _finish(
     subject: str,
     reason: str,
     agent_id: str,
+    config: agent_config.AgentConfig | None = None,
 ) -> None:
     """收尾的**唯一出口**，保证 `close(fd)`：`park=None` 收工 / `False` 回队或到顶 park / `True` 直接 park。
 
@@ -2543,13 +2168,13 @@ def _finish(
     closed = False
     try:
         if park is True:
-            _park_needs_human(  # 先落地交人：`gh` 抛了就让行留在 claimed（回收兜底），绝不静默重新派发
+            facts = _failure_facts(subject=subject, config=config)
+            _fail_automation(
                 subject=subject,
-                body=(
-                    f"⏸ openagents 守夜：`{subject}` 已交人。\n\n原因：{reason}\n\n"
-                    "**未自动重试**——上一次 agent 调用是否已经改了/推了东西无法证明，重发一次可能双跑。"
-                    "请人确认现场后摘掉本 label，守夜会自动重新接管。"
-                ),
+                facts=facts,
+                category="deterministic_failure",
+                attempts=_MAX_ATTEMPTS,
+                reason=reason,
                 agent_id=agent_id,
             )
             conn.execute("DELETE FROM work_queue WHERE id=?", (task_id,))  # 自动提交（见 _connect）
@@ -2560,7 +2185,14 @@ def _finish(
             return
         if park is False:
             closed = True  # fd 的所有权移交（它的 finally 保证 close 一次）——这里不再兜底重关
-            _requeue_or_park(conn=conn, task_id=task_id, subject=subject, fd=fd, agent_id=agent_id)
+            _requeue_or_park(
+                conn=conn,
+                task_id=task_id,
+                subject=subject,
+                fd=fd,
+                agent_id=agent_id,
+                config=config,
+            )
             return
         closed = True  # 同上：所有权移交给 _mark_done
         _mark_done(conn=conn, task_id=task_id, fd=fd)
@@ -2611,11 +2243,11 @@ def _reconcile(
     **为什么推进到卡住、而非推一步**：一个 CI 绿、e2e 齐、review 已过的 PR 应该在**一次认领**里走完⑨⑩⑪合掉，
     而不是烧掉三个 tick（每 tick 只走一支）。停止条件全是纯函数判断，不需要任何计数器。
 
-    **正常的「干不动」从结构化 `needs-human` 收口。** agent 在 `_act` 里抛出控制信号，当前动作边界先检查并
-    恢复标签完整性，再由 `_park_needs_human` 统一追加 label 与签名理由。**这是主路径。**
+    Agent 只返回本角色 schema。backend/protocol/超时失败由 worker 边界分类，恢复标签完整性后
+    进入有界重试，耗尽再由 `_fail_automation` 统一追加 label 与签名理由。
 
     **`fp == last_fp` 是兜底**，专防 agent **没意识到自己在空转**的那一类：它以为自己干了活（rerun 了 CI 但
-    没触发、改了个无关文件、发了条「等 CI 重跑就好」的评论然后收工），所以不会去打 `needs-human`；而它每轮
+    没触发、改了个无关文件、发了条「等 CI 重跑就好」的评论然后收工），所以不会去打 `automation-failed`；而它每轮
     留的评论还会刷新 `last_progress_at`，**看门狗也永远不响**——除了机械比对 fp，没有任何东西拦得住它无限
     重跑。故此处盖 attempt 戳收工，生产者下一 tick 见到同 fp 的戳就不再入队。（盖戳本身不改 fp——`_Facts`
     不含 comment id，见 `_fingerprint`。）
@@ -2655,36 +2287,29 @@ def _reconcile(
             now=now_fn(),
         )
         label_baseline = _capture_label_targets(facts=observed.facts)
-        needs_human: engine.NeedsHumanRequest | None = None
-        try:
-            last_summary = _act(
-                backend=backend,
-                state=state,
-                work_dir=Path(work_dir),
-                config=config,
-                observed=observed,
-                verdict=verdict,
-                agent_id=agent_id,
-                now=now_fn(),
-                lock_fd=lock_fd,
-            )
-        except engine.NeedsHumanRequest as request:
-            needs_human = request
-            last_summary = request.reason
+        last_summary = _act(
+            backend=backend,
+            state=state,
+            work_dir=Path(work_dir),
+            config=config,
+            observed=observed,
+            verdict=verdict,
+            agent_id=agent_id,
+            now=now_fn(),
+            lock_fd=lock_fd,
+        )
 
         integrity_body = _restore_label_integrity(
             baseline=label_baseline,
             allowed_removals=_allowed_label_removals(facts=observed.facts, verdict=verdict),
         )
         if integrity_body is not None:
-            if needs_human is not None:
-                integrity_body += f"\n\nAgent 同时请求人工介入：{needs_human.reason}"
-            _park_needs_human(subject=subject, body=integrity_body, agent_id=agent_id)
-            return
-        if needs_human is not None:
-            _park_needs_human(
+            _fail_automation(
                 subject=subject,
-                body=f"⏸ Agent 请求人工介入：{needs_human.reason}",
+                facts=observed.facts,
+                category="label_integrity",
+                attempts=round_index + 1,
+                reason=integrity_body,
                 agent_id=agent_id,
             )
             return
@@ -2692,14 +2317,13 @@ def _reconcile(
 
     # 轮数到顶仍 ACTIONABLE：不是「卡在外部」（那会 QUIET 交还 slot），也不是「零进展」（那 fp 会重复）——
     # 是**振荡**：每轮都真的改了 GitHub（fp 每轮都变），却在两三个状态间兜圈子。这是护栏一识别不了的死法
-    # （它只记得上一轮的 fp），且每一圈都在烧 LLM。交人。
-    _park_needs_human(
+    # （它只记得上一轮的 fp），且每一圈都在烧 LLM。收口为机器失败。
+    _fail_automation(
         subject=subject,
-        body=(
-            f"⏸ openagents 守夜：`{subject}` 在一次认领内连推 {_MAX_RECONCILE_ROUNDS} 轮仍未收敛"
-            "（每轮都改了状态、却没走到终态——典型是 review 与 implement 互相打回的振荡）。\n\n"
-            "已停止自动推进以免空烧模型调用。请人看一眼卡在哪，处理后摘掉本 label，守夜会自动重新接管。"
-        ),
+        facts=observed.facts,
+        category="round_cap",
+        attempts=_MAX_RECONCILE_ROUNDS,
+        reason="每轮都改变状态但未收敛，疑似 review/implement 振荡",
         agent_id=agent_id,
     )
 
@@ -2761,7 +2385,7 @@ def _restore_label_integrity(
     """检测 Agent 动作造成的非预期删除，二次读取后用 additive API 逐项恢复。
 
     新增标签永远保留；恢复前再读一次，避免并发方已经补回时重复操作。PR 已进入终态则不复活标签。
-    返回给 `_park_needs_human` 的机械诊断；无违规返回 ``None``。
+    返回给 `_fail_automation` 的机械诊断；无违规返回 ``None``。
     """
     violations: dict[tuple[str, int], frozenset[str]] = {}
     for key, before in baseline.items():
@@ -2799,7 +2423,7 @@ def _restore_label_integrity(
         "⏸ OpenAgents 检测到 Agent 动作破坏了标签完整性。为避免来源、优先级、轮次或流程平面静默丢失，"
         "已复读 forge 并只补回仍缺失的标签；本轮停止自动推进。\n\n" + "\n".join(details)
     )
-    _log(message="⚠ 检测到 Agent 非预期删除 labels，已执行 additive 恢复并交人")
+    _log(message="⚠ 检测到 Agent 非预期删除 labels，已执行 additive 恢复并收口为机器失败")
     return body
 
 
@@ -2834,13 +2458,12 @@ def _act(
       - `reply` → 回一条评论（复用 `agents.replier` + 签名回帖）。
 
     各分支复用 `recipes.stages` 的竖切段 / 合并段。可配闸按 `config.stages` 三态内联路由（`skip` 已在
-    `_sense` 归一成「已过闸」，故这里只会看到 agent / human）；确定性硬闸（head 前移 / 证据溯源戳 /
+    `_sense` 归一成「已过闸」，故这里只会看到 agent）；确定性硬闸（head 前移 / 证据溯源戳 /
     round_cap）**恒机器、`skip` 关不掉**（内嵌在 `stages` 的交付段里）。动作幂等（已 merged 再合、已回过的
     评论再回都是 no-op）。
 
-    **每个分支都有第二个出口：结构化 `needs-human`。** agent 判断需交人时返回统一 JSON envelope，不自行写
-    forge。`_reconcile` 捕获后先做动作前后标签完整性复核，再调用 `_park_needs_human`，当轮停止。该契约由
-    `_NEEDS_HUMAN_CONTRACT` 拼进每个分支的 agent 提示词。
+    Agent 只返回本角色 schema，不自行写 forge。动作异常在 worker 边界重试，耗尽再调用
+    `_fail_automation`。`_AUTONOMOUS_CONTRACT` 拼进每个分支的 agent 上下文。
 
     **硬超时**：整个动作（含其内部的 agent 子进程）超 `_AGENT_TIMEOUT_SECONDS` → 杀子进程 + 抛
     `_ActTimeout` → `_worker_loop` 捕获 → 持有者**自己**走 `_requeue_or_park`（释放行与锁，claimed 行永不
@@ -2863,15 +2486,13 @@ def _act(
             on_agent=lambda: _do_rebase(
                 backend=timed, work_dir=work_dir, base=config.base, facts=facts
             ),
-            on_human=lambda: _park_gate(facts=facts, gate="conflict", agent_id=agent_id),
-            on_skip=lambda: _park_gate(facts=facts, gate="conflict", agent_id=agent_id),
+            on_skip=lambda: "conflict skipped",
         )
     if action == _ACT_FIX_CI:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CI),
             on_agent=lambda: _do_fix_ci(backend=timed, work_dir=work_dir, facts=facts),
-            on_human=lambda: _park_gate(facts=facts, gate="ci", agent_id=agent_id),
-            on_skip=lambda: _park_gate(facts=facts, gate="ci", agent_id=agent_id),
+            on_skip=lambda: "ci skipped",
         )
     if action == _ACT_E2E:
         return route(
@@ -2879,8 +2500,7 @@ def _act(
             on_agent=lambda: _do_e2e(
                 backend=timed, state=state, work_dir=work_dir, facts=facts, agent_id=agent_id
             ),
-            on_human=lambda: _park_gate(facts=facts, gate="e2e", agent_id=agent_id),
-            on_skip=lambda: _park_gate(facts=facts, gate="e2e", agent_id=agent_id),
+            on_skip=lambda: "e2e skipped",
         )
     if action == _ACT_REVIEW_OR_FIX:
         return route(
@@ -2888,8 +2508,7 @@ def _act(
             on_agent=lambda: _do_review_or_fix(
                 backend=timed, state=state, work_dir=work_dir, facts=facts
             ),
-            on_human=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
-            on_skip=lambda: _park_gate(facts=facts, gate="review", agent_id=agent_id),
+            on_skip=lambda: "review skipped",
         )
     if action == _ACT_READY:
         # Spec-0017: 转正自愈支——level-triggered 安全网（happy-path 转正归 deliver agent）。零判断的机械
@@ -2906,21 +2525,17 @@ def _act(
                 facts=facts,
                 require_ci=stage_owner(stage=agent_config.STAGE_CI) != _SKIP,
             ),
-            on_human=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
-            on_skip=lambda: _park_gate(facts=facts, gate="merge", agent_id=agent_id),
+            on_skip=lambda: "merge skipped",
         )
     raise ValueError(f"未知动作：{action!r}")
 
 
 # Spec-0065/T2: **一等出口契约**——拼进每个 `_act` 分支派出去的 agent 的上下文。没有它，「干不动」只能靠
 # 护栏兜（多烧一次 LLM 调用 + 多等一个看门狗阈值，且理由只能靠机械诊断猜），兜底就变成了主路径。
-_NEEDS_HUMAN_CONTRACT = (
+_AUTONOMOUS_CONTRACT = (
     "\n\n---\n"
-    "【一等出口】若你判断自己没辙、或这件事该由人来定（CI 是上游 flaky、需求本身有歧义、要动的东西超出"
-    "授权、连试两次都推不动），**不要空转、不要假装修好，也不要自行调用 forge 修改标签或发送交接评论**。"
-    "请把最后一行输出为且仅为 JSON："
-    '{"needs_human": true, "reason": "具体阻塞原因与已核实事实"}。'
-    "守夜会用安全的追加标签 API 和签名评论完成交接、停止轮询。"
+    "若无法完成，不要空转、假装成功或自行修改 forge 标签；请严格按本角色既有 JSON schema 返回"
+    "明确的失败结论与已核实事实，由编排层统一执行有限重试和机器失败收口。"
 )
 
 
@@ -2929,8 +2544,8 @@ def _do_reply(
 ) -> str:
     """分支②：最新评论是人发的 → 派 replier 回一条签名评论（承旧串行 vigil 的 _reply_one_pr）。
 
-    与其它分支一样拼上 `_NEEDS_HUMAN_CONTRACT`：人问的问题 replier 也可能答不了（要动的东西超出授权、需求
-    本身有歧义），它同样需要那个一等出口，否则「答不了」只能靠看门狗兜。
+    与其它分支一样拼上 `_AUTONOMOUS_CONTRACT`：答不了时仍须严格返回 replier schema，
+    由 worker 边界记录协议失败并执行有界重试。
 
     # Spec-0016/T4: 两条对称路径按 `pr_number` 分派——有 PR → PR 版原语（下），无 PR（且是已准入 issue）
     # → issue 版原语（`_do_reply_issue`）。issue #149：把回复从 PR 扩到 issue 页，只答疑不改代码。
@@ -2952,7 +2567,7 @@ def _do_reply(
         branch=github.pr_head_branch(pr_number=pr_number),
         comment=latest,
     )
-    placeholders["context"] = f"{placeholders['context']}{_NEEDS_HUMAN_CONTRACT}"
+    placeholders["context"] = f"{placeholders['context']}{_AUTONOMOUS_CONTRACT}"
     verdict = engine.run_agent(replier, backend=backend, **placeholders)
     identity.post_signed_comment(pr_number=pr_number, body=verdict["reply"], agent_id=agent_id)
     state.set_cursor(pr_number=pr_number, comment_id=latest.created_at)
@@ -2975,7 +2590,7 @@ def _do_reply_issue(
     与 `_do_reply`（PR 支）逐环对称，只是每一环都换 issue 版原语：读经 `new_human_comments_on_issue`
     （游标取 `state.get_issue_cursor`）、占位符经 `context.for_issue_reply`（issue 语境提示词
     `replier.ISSUE_PROMPT`——只答疑不改代码，见 T3）、回帖经 `identity.post_signed_comment_on_issue`、
-    游标推 `state.set_issue_cursor`。同样拼上 `_NEEDS_HUMAN_CONTRACT` 一等出口（答不了/超授权 → 主动叫人）。
+    游标推 `state.set_issue_cursor`。同样拼上 `_AUTONOMOUS_CONTRACT`，要求失败仍返回角色 schema。
     回帖后最新评论变我方签名 → 下一 tick `_sense` 的 `_latest_is_ours` True → 分支②停火（不重复回帖）。
     """
     kind, number = _split_subject(subject=facts.subject)
@@ -2988,7 +2603,7 @@ def _do_reply_issue(
         return ""
     latest = news[-1]
     placeholders = context.for_issue_reply(work_dir=work_dir, issue_number=number, comment=latest)
-    placeholders["context"] = f"{placeholders['context']}{_NEEDS_HUMAN_CONTRACT}"
+    placeholders["context"] = f"{placeholders['context']}{_AUTONOMOUS_CONTRACT}"
     verdict = engine.run_agent(_ISSUE_REPLIER, backend=backend, **placeholders)
     identity.post_signed_comment_on_issue(number=number, body=verdict["reply"], agent_id=agent_id)
     state.set_issue_cursor(number=number, comment_id=latest.created_at)
@@ -3026,14 +2641,13 @@ def _do_solve(
             target=f"issue #{issue.number}「{issue.title}」",
             branch=branch,
             detail=issue.body,
-            context_text=issue.body + _NEEDS_HUMAN_CONTRACT,
+            context_text=_AUTONOMOUS_CONTRACT,
             require_delivered=False,
         )
 
     draft_report = route(
         owner=config.stages.owner_of(stage=agent_config.STAGE_RFC),
         on_agent=_draft,
-        on_human=_draft,
         # Spec-0074 实证修复：skip 态没有 drafter 落「首个 commit + push」，远端无 head 分支 →
         # 下面的 create_pr 404。确定性空 seed commit 补位（编排 git 归 utils.git，本层零直调）。
         on_skip=lambda: git.seed_branch(
@@ -3046,14 +2660,14 @@ def _do_solve(
 
     approved_design_digest = ""
     architecture_owner = config.stages.owner_of(stage=agent_config.STAGE_ARCHITECTURE)
-    if architecture_owner == _HUMAN:
-        raise engine.NeedsHumanRequest(reason="候选 Spec 已起草，等待实现前技术架构批准")
+    if architecture_owner not in {_AGENT, _SKIP}:
+        raise ValueError(f"未知 stage owner：{architecture_owner!r}")
     if architecture_owner == _AGENT:
         architecture_verdict = stages.architecture(
             backend=backend,
             work_dir=worktree,
             issue_number=number,
-            context_text=_NEEDS_HUMAN_CONTRACT,
+            context_text=_AUTONOMOUS_CONTRACT,
             evidence_pack=evidence_pack,
         )
         if architecture_verdict["verdict"] == "PASS":
@@ -3066,7 +2680,7 @@ def _do_solve(
                 target=architecture_verdict["spec_path"],
                 branch=branch,
                 detail=architecture_verdict["reason"],
-                context_text=issue.body + _NEEDS_HUMAN_CONTRACT,
+                context_text=_AUTONOMOUS_CONTRACT,
                 require_delivered=False,
                 evidence_pack=evidence_pack,
             )
@@ -3101,7 +2715,7 @@ def _do_solve(
         issue_number=number,
         pr_number=pr.number,
         feedback="",
-        context_text=issue.body + _NEEDS_HUMAN_CONTRACT,
+        context_text=_AUTONOMOUS_CONTRACT,
         evidence_pack=evidence_pack,
     )
     implementation_after = gates.snapshot_head(workspace=worktree)
@@ -3121,8 +2735,8 @@ def _do_solve(
             branch=branch,
             pr_number=pr.number,
             issue_number=number,
-            # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 交人，不直接写 forge。
-            context_text=_NEEDS_HUMAN_CONTRACT,
+            # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 收口为机器失败，不直接写 forge。
+            context_text=_AUTONOMOUS_CONTRACT,
         )
     # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
     # level-triggered 幂等）——deliver 提示词里原 `gh pr ready`（Spec-0017/T2）是平台命令，Gitea forge
@@ -3153,7 +2767,7 @@ def _do_rebase(*, backend: Any, work_dir: Path, base: str, facts: _Facts) -> str
         issue_number=number if facts.subject.startswith(_KIND_ISSUE) else 0,
         branch=github.pr_head_branch(pr_number=pr_number),
         base=base,
-        context_text=_NEEDS_HUMAN_CONTRACT,  # 解不动冲突正是该主动交人的场景（一等出口，见 `_act`）
+        context_text=_AUTONOMOUS_CONTRACT,
     )
     return str(result.get("summary", ""))
 
@@ -3168,7 +2782,7 @@ def _do_fix_ci(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
         issue_number=_issue_number_of(facts=facts),
         pr_number=pr_number,
         feedback=f"[ci] CI 红了，请据失败日志修复：\n{logs}",
-        context_text=_NEEDS_HUMAN_CONTRACT,
+        context_text=_AUTONOMOUS_CONTRACT,
     )
     return str(report.get("summary", ""))
 
@@ -3183,16 +2797,18 @@ def _do_e2e(
     （张冠李戴：拿旧版的绿证据放行新版代码），Spec-0055 已踩过。
 
     tester 判 REWORK（e2e 没过）时**不盖戳**——盖了就等于用一份失败的证据放行。让 fp 保持不变 → 下一圈
-    `_reconcile` 见零进展 → 盖 attempt 戳 → 看门狗兜底叫人；Agent 能识别时应走结构化交人主路径。
+    `_reconcile` 见零进展 → 盖 attempt 戳 → 看门狗兜底记录机器失败；Agent 能识别时应走结构化收口为机器失败主路径。
     """
     pr_number = facts.pr_number or 0
     verdict = engine.run_agent(
         tester,
         backend=backend,
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
-        context=f"{_NEEDS_HUMAN_CONTRACT}{_evidence_context(state=state, facts=facts)}",
+        context=context.sections(
+            ("issue", _issue_body_of(facts=facts)),
+            ("runtime context", f"{_AUTONOMOUS_CONTRACT}{_evidence_context(state=state, facts=facts)}"),
+        ),
         pr_number=pr_number,
-        issue_body="",
     )
     evidence.validate_manifest(
         verdict=verdict["verdict"], evidence=verdict["evidence"], require_behavior=True
@@ -3230,7 +2846,7 @@ def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, fact
             issue_number=_issue_number_of(facts=facts),
             pr_number=pr_number,
             feedback="[review] 评审要求返工，请据上一轮 review 意见修改",
-            context_text=_NEEDS_HUMAN_CONTRACT,
+            context_text=_AUTONOMOUS_CONTRACT,
             evidence_pack=evidence_pack,
         )
         return str(report.get("summary", ""))
@@ -3240,7 +2856,7 @@ def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, fact
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
         pr_number=pr_number,
         issue_body=_issue_body_of(facts=facts),
-        context_text=f"{_NEEDS_HUMAN_CONTRACT}{_render_evidence(evidence_pack)}",
+        context_text=f"{_AUTONOMOUS_CONTRACT}{_render_evidence(evidence_pack)}",
     )
     _clear_review_labels(pr_number=pr_number, labels=facts.labels)
     prefix = (
@@ -3319,7 +2935,7 @@ def _do_merge(
         pr_number=pr_number,
         head_sha=facts.head_sha or "",
         work_dir=candidate_worktree,
-        context_text=_NEEDS_HUMAN_CONTRACT,
+        context_text=_AUTONOMOUS_CONTRACT,
         require_ci=require_ci,
     )
     number = issue_number
@@ -3333,19 +2949,6 @@ def _do_merge(
         github.close_issue(number=number)
     _log(message=f"✓ PR #{pr_number}：已合并")
     return "merged"
-
-
-def _park_gate(*, facts: _Facts, gate: str, agent_id: str) -> str:
-    """可配闸 owner=human → 挂 `needs-human` 停等人（`_classify` 下一圈判 TERMINAL、轮询停止）。"""
-    _park_needs_human(
-        subject=facts.subject,
-        body=(
-            f"⏸ openagents 守夜：`{gate}: human`——本闸归人，守夜停在这里等你。\n\n"
-            "处理完摘掉本 label，守夜会自动重新接管。"
-        ),
-        agent_id=agent_id,
-    )
-    return f"{gate}: human"
 
 
 def _clear_review_labels(*, pr_number: int, labels: frozenset[str]) -> None:
@@ -3394,7 +2997,7 @@ def _has_attempt_stamp(*, facts: _Facts, fp: str) -> bool:
 
     有 → 说明我在**完全相同的状态**下已经出过手且一个字节没推动 → 生产者把 ACTIONABLE 降级为
     `QUIET(awaiting-effect)`、不入队。**只需一个 bit，不需要计数**：同证据、同 prompt、再叫一次，期望收益
-    接近零；而 park 是廉价可逆的（人摘 label 即复活），早叫人几乎没代价。真正的瞬时故障重试属于 **agent
+    接近零；而 park 是廉价可逆的（人摘 label 即复活），早记录机器失败几乎没代价。真正的瞬时故障重试属于 **agent
     内部**的事，不该冒泡成编排层的一个可调参数。
 
     戳随 fp 变化自动作废——任何真实进展都会改 fp（见 `_fingerprint`），旧戳就此失配、subject 正常重新入队。
@@ -3438,31 +3041,39 @@ def _comments(*, facts: _Facts) -> list[github.Comment]:
     return github.list_issue_comments(number=_issue_number_of(facts=facts))
 
 
-def _park_needs_human(*, subject: str, body: str, agent_id: str) -> None:
-    """给 subject 打 `needs-human` + 贴**签名**理由评论（幂等）。`_classify` 下一圈判 TERMINAL → 轮询停止。
-
-    # Spec-0065/T2: 理由评论**必须签名**，否则我方评论会被当成人说的话。两处读评论流的地方都按
-    「有没有我方签名」区分人机：`_latest_is_ours`（守候段：最新一条不是我方 → 有人说话了 → 叫 replier）
-    与 `_human_replies`（准入段：无签名 → 人回话了 → 叫 admitter）。park 的理由评论恰恰是**最后一条**，
-    且每条 park 文案都在教人「说清楚后摘掉 label」——人照做（只摘 label、不评论）之后，谓词重新活过来，
-    读到的最新一条就是**我们自己写的 park 理由**：不签名 → 判成「人回话了」→ agent 对着自己写的话开会。
-    签名把这个自问自答的环从源头掐死（这正是 `identity` 签名纪律存在的理由）。
-
-    # Spec-0065/T2: 理由评论**同一段话只贴一次**。park 是 level-triggered 的：人摘掉 `needs-human` 却没
-    改变任何事实（读岔了、手滑、label 自动化），下一 tick 会原样再 park 一次——理由一字不差，却又是一条
-    新评论。label 本身幂等（打第二遍是空操作），评论不是。故先读回评论流，同一段理由已经贴过就只补 label。
-    """
+def _fail_automation(
+    *,
+    subject: str,
+    facts: _Facts,
+    category: str,
+    attempts: int,
+    reason: str,
+    agent_id: str,
+) -> None:
+    """Persist an idempotent, self-reviving machine-failure terminal projection."""
+    fp = _fingerprint(facts=facts)
+    marker = f"{_FAILURE_MARKER} fp={fp} category={category} -->"
+    body = (
+        f"{marker}\n"
+        f"⚠️ openagents 自动化失败\n\n"
+        f"- category: `{category}`\n"
+        f"- attempts: `{attempts}`\n"
+        f"- facts fingerprint: `{fp}`\n"
+        f"- at: `{datetime.now(UTC).isoformat()}`\n\n"
+        f"最后错误：{reason}\n\n"
+        "相同事实下不会再次调用模型；相关事实变化后守夜会自动清除失败态并重新判断。"
+    )
     kind, number = _split_subject(subject=subject)
     signed = identity.sign(body=body, agent_id=agent_id)
     if kind == _KIND_ISSUE:
-        github.issue_add_label(number=number, name=_LABEL_NEEDS_HUMAN)
-        if not _already_said(comments=github.list_issue_comments(number=number), body=body):
+        github.issue_add_label(number=number, name=_LABEL_AUTOMATION_FAILED)
+        if not any(marker in comment.body for comment in github.list_issue_comments(number=number)):
             github.issue_comment(number=number, body=signed)
     else:
-        github.add_label(pr_number=number, name=_LABEL_NEEDS_HUMAN)
-        if not _already_said(comments=github.list_comments(pr_number=number), body=body):
+        github.add_label(pr_number=number, name=_LABEL_AUTOMATION_FAILED)
+        if not any(marker in comment.body for comment in github.list_comments(pr_number=number)):
             github.post_comment(pr_number=number, body=signed)
-    _log(message=f"⏸ {subject}：已挂 {_LABEL_NEEDS_HUMAN}，交人接手")
+    _log(message=f"⚠ {subject}：已收敛为 {_LABEL_AUTOMATION_FAILED}（{category}, fp={fp}）")
 
 
 def _already_said(*, comments: list[github.Comment], body: str) -> bool:
@@ -3491,9 +3102,9 @@ class _TimedBackend:
     K 个 worker 也彼此并发：diff 会把别人的 `gh` 认成自己的 agent，于是超时时**杀错进程、真挂死的 agent
     还活着继续 push**，双跑就从这个洞里漏出来（而这道闸正是 flock 覆盖不到的那个洞）。
 
-    抛出后：`_worker_loop` 捕获 `_ActTimeout` → **直接 park 交人**（不回队重试）。因为「杀干净了」只是尽力
+    抛出后：`_worker_loop` 捕获 `_ActTimeout` → **直接 park 收口为机器失败**（不回队重试）。因为「杀干净了」只是尽力
     而为（in-proc backend / 没自报 PID 的 backend 杀不着），把一个可能还活着的 agent 的活重新发出去正是双跑；
-    而挂死 30 分钟本就是该叫人的事。其它异常（gh 抖动等）仍走回队重试。
+    而挂死 30 分钟本就是该记录机器失败的事。其它异常（gh 抖动等）仍走回队重试。
     """
 
     def __init__(self, *, inner: Any, timeout_seconds: int, lock_fd: int | None) -> None:
@@ -3565,6 +3176,9 @@ def _run_repo_inline(
     if ctx is None:
         raise RuntimeError(f"{repo.path} 不是 git 仓库，无法守夜")
     backend, state, agent_id = cli._vigil_deps_for(ctx=ctx)
+    from openagents.runtime import legacy
+
+    legacy.assert_migrated(state=state)
     run_vigil(
         backend=backend,
         state=state,

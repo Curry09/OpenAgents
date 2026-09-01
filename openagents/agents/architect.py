@@ -21,13 +21,13 @@ PROMPT = Template(
 架构结论。应复核影响干预层、状态边界或失败恢复的关键事实；仅在证据缺失、陈旧或相互矛盾时执行渐进式
 补充取证，避免重复进行全仓扫描。
 
-任一维度不成立即 REWORK；缺少判断所需证据时返回 needs-human，禁止用猜测 PASS。
+任一维度不成立即 REWORK；缺少判断所需证据时也返回 REWORK，并在 reason/findings 点明缺口，禁止用猜测 PASS。
 最后只输出一行 JSON：
 {"verdict":"PASS 或 REWORK","objective_fidelity":"结论","intervention_fit":"结论",
  "boundary_integrity":"结论","verification_strength":"结论","reason":"可执行意见","findings":[]}
 
-候选 Spec 与 issue 上下文：
-$spec_text
+完整候选 Spec、issue 上下文与 evidence_pack 由运行时在下方“上下文”区提供；只读取一次，
+不要把它重新复制到输出。
 """
 )
 

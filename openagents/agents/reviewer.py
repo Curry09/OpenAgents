@@ -17,8 +17,7 @@ PROMPT = Template(
 裁决二选一：全部满足 → PASS；有任一需返工项 → REWORK（reason 写清要改什么）。
 最后只输出一行 JSON：{"verdict": "PASS" 或 "REWORK", "reason": "<裁决理由>"}
 
-issue 原文：
-$issue_body
+issue 原文、PR 历史与 evidence 由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 

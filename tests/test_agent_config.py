@@ -9,7 +9,6 @@ import pytest
 
 from openagents.utils.agent_config import (
     OWNER_AGENT,
-    OWNER_HUMAN,
     OWNER_SKIP,
     RELEASE_AUTO,
     RELEASE_MANUAL,
@@ -54,11 +53,11 @@ def test_minimal_config_overrides_only_named_stages(tmp_path):
         """
 version: 1
 stages:
-  merge: human
+  e2e: skip
 """,
     )
     conf = load_agent_config(path=cfg)
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
     # 未覆盖的阶段仍回落内建默认 agent。
     assert conf.stages.owner_of(stage="ci") == OWNER_AGENT
     assert conf.stages.owner_of(stage="review") == OWNER_AGENT
@@ -79,8 +78,8 @@ stages:
   conflict: agent
   ci:       agent
   e2e:      skip
-  review:   human
-  merge:    human
+  review:   agent
+  merge:    agent
 release: auto
 defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
 """,
@@ -91,8 +90,8 @@ defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
     # 未声明角色回落默认。
     assert conf.agents.backend_for(role="replier") == "claude_code"
     assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
-    assert conf.stages.owner_of(stage="review") == OWNER_HUMAN
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    assert conf.stages.owner_of(stage="review") == OWNER_AGENT
+    assert conf.stages.owner_of(stage="merge") == OWNER_AGENT
     assert conf.release.mode == RELEASE_AUTO
     assert conf.interval == 120
     assert conf.base == "develop"
@@ -113,8 +112,7 @@ stages:
         load_agent_config(path=cfg)
 
 
-def test_review_skip_merge_human_allowed(tmp_path):
-    # merge:human 在（人兜住）→ 跳 agent-review 站得住，不撞守卫。
+def test_retired_human_owner_reports_exact_stage(tmp_path):
     cfg = _write(
         tmp_path,
         """
@@ -123,9 +121,8 @@ stages:
   merge:  human
 """,
     )
-    conf = load_agent_config(path=cfg)
-    assert conf.stages.owner_of(stage="review") == OWNER_SKIP
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    with pytest.raises(AgentConfigError, match="stages/merge.*已退役"):
+        load_agent_config(path=cfg)
 
 
 def test_conflict_skip_rejected(tmp_path):
@@ -141,9 +138,8 @@ def test_merge_skip_rejected(tmp_path):
 
 
 def test_rfc_human_rejected(tmp_path):
-    # rfc 仅 agent/skip，无 human。
     cfg = _write(tmp_path, "stages:\n  rfc: human\n")
-    with pytest.raises(AgentConfigError):
+    with pytest.raises(AgentConfigError, match="stages/rfc.*已退役"):
         load_agent_config(path=cfg)
 
 
@@ -154,7 +150,7 @@ def test_hardgate_name_in_stages_rejected(tmp_path):
 
 
 def test_always_agent_stage_in_stages_rejected(tmp_path):
-    cfg = _write(tmp_path, "stages:\n  implement: human\n")
+    cfg = _write(tmp_path, "stages:\n  implement: skip\n")
     with pytest.raises(AgentConfigError, match="恒派 agent"):
         load_agent_config(path=cfg)
 
@@ -171,22 +167,22 @@ def test_per_repo_stage_override_merges(tmp_path):
         tmp_path,
         """
 stages:
-  merge: human
+  e2e: skip
 repos:
   - path: .
   - path: ../other
     base: develop
-    stages: { merge: agent }
+    stages: { e2e: agent }
 """,
     )
     conf = load_agent_config(path=cfg)
     a, b = conf.repos
     assert a.name == tmp_path.resolve().name
-    # repo-a 继承顶层 merge:human。
-    assert a.stages.owner_of(stage="merge") == OWNER_HUMAN
+    # repo-a 继承顶层 e2e:skip。
+    assert a.stages.owner_of(stage="e2e") == OWNER_SKIP
     assert a.base == "main"
-    # repo-b 覆盖 merge:agent + base develop；其余阶段仍继承顶层/默认。
-    assert b.stages.owner_of(stage="merge") == OWNER_AGENT
+    # repo-b 覆盖 e2e:agent + base develop；其余阶段仍继承顶层/默认。
+    assert b.stages.owner_of(stage="e2e") == OWNER_AGENT
     assert b.stages.owner_of(stage="ci") == OWNER_AGENT
     assert b.base == "develop"
     assert b.path == (tmp_path / ".." / "other").resolve()
@@ -197,12 +193,9 @@ def test_per_repo_override_still_guarded(tmp_path):
     cfg = _write(
         tmp_path,
         """
-stages:
-  review: skip
-  merge:  human
 repos:
   - path: .
-    stages: { merge: agent }
+    stages: { review: skip }
 """,
     )
     with pytest.raises(AgentConfigError, match="不许零闸"):

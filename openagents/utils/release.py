@@ -6,8 +6,8 @@ test 分支门控退役后（Spec-0023），main 成为日常自动流转分支�
 release/vX.Y.Z 分支并打不可变 tag。
 
 预检（照搬 RFC-0012 决策 7「全过才扬升」，只把取绿对象从 test 换成 main）：
-  ① 无 STATUS_BLOCKED 的 run —— 没有"评审反复不过、挂起等人"的工作被悄悄带进发布；
-  ② 无带 needs-human 标签的 open PR —— 同①，从 GitHub 真源再确认一次；
+  ① 无 STATUS_FAILED 的 run —— 没有已终止的自动化失败被悄悄带进发布；
+  ② 无带 automation-failed 标签的 open PR —— 同①，从 GitHub 真源再确认一次；
   ③ github.branch_ci_green(main) —— main 分支 HEAD CI 全绿。
 通过 → ensure_prerequisites() 兜底流程标签 → 物化版本：
   · git push origin main:refs/heads/release/vX.Y.Z  （以 main HEAD 新建发布分支）
@@ -27,13 +27,13 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-# Spec-0063/T3: 改接新栈——STATUS_BLOCKED 从 runtime 权威词表、State→RuntimeState（list_runs 返回 dict）；
+# Spec-0063/T3: 发布预检从 runtime 权威词表读自动化失败状态。
 # BLOCKED_LABEL 从 utils.github 权威源直取（旧 state.py 只是再导出，随其删除退役）。
-from openagents.runtime.state import STATUS_BLOCKED, RuntimeState
+from openagents.runtime.state import STATUS_FAILED, RuntimeState
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
-from openagents.utils.github import BLOCKED_LABEL
+from openagents.utils.github import AUTOMATION_FAILED_LABEL
 
 # Spec-0035/T3: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
 # 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
@@ -66,23 +66,24 @@ def release(*, state: RuntimeState, bump: str = "patch", source: str = "main") -
     RFC-0012 决策 7，只把取绿对象从 test 换成 main）。
     """
     # Spec-0063/T3: list_runs() 返回 dict 记录（非 RunRecord），故用下标取 status/issue_number；
-    # 语义不变——挑出 status==STATUS_BLOCKED 的 run 拼 issue 号做发布前挂起预检。
-    blocked = [r for r in state.list_runs() if r["status"] == STATUS_BLOCKED]
-    if blocked:
-        issues = ", ".join(f"#{r['issue_number']}" for r in blocked)
+    failed = [r for r in state.list_runs() if r["status"] == STATUS_FAILED]
+    if failed:
+        issues = ", ".join(f"#{r['issue_number']}" for r in failed)
         return ReleaseResult(
-            released=False, version="", reason=f"存在挂起（{STATUS_BLOCKED}）的 run：{issues}"
+            released=False, version="", reason=f"存在自动化失败（{STATUS_FAILED}）的 run：{issues}"
         )
 
-    needs_human = [
+    automation_failed = [
         pr.number
         for pr in github.list_open_prs()
-        if github.has_label(pr_number=pr.number, name=BLOCKED_LABEL)
+        if github.has_label(pr_number=pr.number, name=AUTOMATION_FAILED_LABEL)
     ]
-    if needs_human:
-        prs = ", ".join(f"#{n}" for n in needs_human)
+    if automation_failed:
+        prs = ", ".join(f"#{n}" for n in automation_failed)
         return ReleaseResult(
-            released=False, version="", reason=f"存在待人介入（{BLOCKED_LABEL}）的 open PR：{prs}"
+            released=False,
+            version="",
+            reason=f"存在自动化失败（{AUTOMATION_FAILED_LABEL}）的 open PR：{prs}",
         )
 
     if not github.branch_ci_green(branch=source):

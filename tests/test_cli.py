@@ -452,8 +452,8 @@ def test_completion_covers_vigil_options():
         "--base",
         "--once",
         "--parallel",
-        "--hold",
         "--skip",
         "--config",
     ):
         assert expected in options
+    assert "--" + "hold" not in options

@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 
-from openagents.backends.base import AgentResult
+from openagents.backends.base import AgentResult, TokenUsage
 from openagents.utils import proc as proc_utils
 from openagents.utils import streams
 
@@ -216,6 +216,67 @@ def _tool_names_for_event(*, event) -> list[str]:
     ]
 
 
+def _usage_count(value: object) -> int | None:
+    """Accept only provider-reported non-negative integers (bool is not an integer here)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _token_usage_for_result_event(
+    *, event: dict, fallback_model: str | None = None
+) -> TokenUsage | None:
+    """Normalize Claude Code's final aggregate ``result.usage`` event.
+
+    Claude Code also emits ``assistant.message.usage`` for intermediate turns.  The final result
+    usage is already aggregated across the CLI invocation, so consuming both would double count.
+    """
+    if event.get("type") != "result":
+        return None
+    raw_usage = event.get("usage")
+    if not isinstance(raw_usage, dict):
+        return None
+
+    input_tokens = _usage_count(raw_usage.get("input_tokens"))
+    output_tokens = _usage_count(raw_usage.get("output_tokens"))
+    cache_read = _usage_count(raw_usage.get("cache_read_input_tokens"))
+    cache_creation = _usage_count(raw_usage.get("cache_creation_input_tokens"))
+    reasoning = _usage_count(raw_usage.get("reasoning_tokens"))
+    total = _usage_count(raw_usage.get("total_tokens"))
+    if all(
+        value is None
+        for value in (input_tokens, output_tokens, cache_read, cache_creation, reasoning, total)
+    ):
+        return None
+
+    total_source = "reported" if total is not None else None
+    total_components = (input_tokens, cache_read, cache_creation, output_tokens)
+    if total is None and any(value is not None for value in total_components):
+        # Claude Code 2.1.12 exposes mutually exclusive Anthropic-style input/cache/output
+        # components on the aggregate result event.  Reasoning, if a future version adds it,
+        # remains a subcomponent of output and is therefore not added again.
+        total = sum(value for value in total_components if value is not None)
+        total_source = "derived-components"
+
+    model_usage = event.get("modelUsage")
+    models = (
+        sorted(str(model) for model in model_usage)
+        if isinstance(model_usage, dict)
+        else []
+    )
+    model = ",".join(models) if models else fallback_model
+    return TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=cache_read,
+        cache_creation_input_tokens=cache_creation,
+        reasoning_tokens=reasoning,
+        total_tokens=total,
+        model=model,
+        total_source=total_source,
+    )
+
+
 class ClaudeCodeBackend:
     """RFC-0001 T2: Claude Code coding agent 适配器，满足 AgentBackend 协议。"""
 
@@ -231,7 +292,9 @@ class ClaudeCodeBackend:
         work_dir_str = str(work_dir)
         prompt = _build_prompt(task=task, context=context)
 
-        result_text, tool_events = self._run_claude_streaming(work_dir=work_dir, prompt=prompt)
+        result_text, tool_events, usage = self._run_claude_streaming(
+            work_dir=work_dir, prompt=prompt
+        )
 
         status = subprocess.run(
             ["git", "-C", work_dir_str, "status", "--porcelain"],
@@ -245,9 +308,12 @@ class ClaudeCodeBackend:
             summary=_summarize(stdout=result_text, changed=changed),
             raw_output=result_text,
             tool_events=tool_events,
+            usage=usage,
         )
 
-    def _run_claude_streaming(self, *, work_dir: Path, prompt: str) -> tuple[str, tuple[str, ...]]:
+    def _run_claude_streaming(
+        self, *, work_dir: Path, prompt: str
+    ) -> tuple[str, tuple[str, ...], TokenUsage | None]:
         """RFC-0003 决策 6: 逐行解析 stream-json 事件、实时打印进度，返回最终结果文本。
 
         stderr 合并进 stdout；从 `result` 事件取 `result` 文本作摘要；非零退出抛
@@ -264,12 +330,12 @@ class ClaudeCodeBackend:
             [
                 CLAUDE_BIN,
                 "-p",
-                prompt,
                 "--permission-mode",
                 effective_permission_mode(),
                 *_STREAM_ARGS,
             ],
             cwd=work_dir,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -282,6 +348,22 @@ class ClaudeCodeBackend:
         # Spec-0065/T2: 自报 PID + Popen 句柄给认领桶——守夜的 `_act` 硬超时据此**精确**杀掉这次调用起的
         # 进程树；句柄用于验明正身（PID 被 reap 后可能已被复用，裸 PID 杀过去就是杀无辜者，见 utils.proc）。
         proc_utils.publish(pid=proc.pid, handle=proc)
+
+        # Spec-0081/T1: prompt 是可能超过 Linux 单参数上限的大载荷，只经 stdin 传一次；argv
+        # 只留控制参数。独立 writer 让主线程立即消费 stream-json，避免 stdin/stdout 管道互相背压。
+        stdin_errors: list[Exception] = []
+
+        def _write_prompt() -> None:
+            try:
+                if proc.stdin is None:
+                    raise RuntimeError("Claude Code CLI stdin pipe 未建立")
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+            except Exception as exc:  # noqa: BLE001 - 跨线程带回主调用边界统一报告
+                stdin_errors.append(exc)
+
+        stdin_writer = threading.Thread(target=_write_prompt, daemon=True)
+        stdin_writer.start()
 
         # Spec-0046/T1: 起 idle 看门狗。last_activity 用单元素 list 做可变共享戳（monotonic，不受系统时间回拨
         # 影响）；watchdog_reason 由看门狗在触发时填入（「停顿超时」/「墙钟超时」），收尾据此抛 RuntimeError。
@@ -312,6 +394,8 @@ class ClaudeCodeBackend:
             watchdog.start()
 
         result_text = ""
+        result_usage = None
+        init_model = None
         tool_events: list[str] = []
         raw_tail: list[str] = []
         try:
@@ -334,14 +418,25 @@ class ClaudeCodeBackend:
                     # Spec-0073/T1: 同上——事件文本落当前线程绑定 subject 的 buffer。
                     streams.emit(line=human)
                 tool_events.extend(_tool_names_for_event(event=event))
+                if (
+                    event.get("type") == "system"
+                    and event.get("subtype") == "init"
+                    and isinstance(event.get("model"), str)
+                ):
+                    init_model = event["model"]
                 if event.get("type") == "result":
                     result_text = str(event.get("result") or "")
+                    result_usage = _token_usage_for_result_event(
+                        event=event,
+                        fallback_model=init_model,
+                    )
             returncode = proc.wait()
         finally:
             # Spec-0046/T1: 无论正常读完还是看门狗杀掉，都停表并回收看门狗线程（daemon，join 立即返回）。
             stop_event.set()
             if watchdog is not None:
                 watchdog.join()
+            stdin_writer.join(timeout=_TERMINATE_GRACE_SECONDS)
 
         if watchdog_reason:
             # Spec-0046/T1: 复用既有 RuntimeError（不新增异常类型）——上游 try/except Exception 零改动接住。
@@ -352,4 +447,6 @@ class ClaudeCodeBackend:
         if returncode != 0:
             detail = result_text.strip() or "\n".join(raw_tail).strip()
             raise RuntimeError(f"Claude Code CLI 调用失败（返回码 {returncode}）：{detail}")
-        return result_text or "\n".join(raw_tail), tuple(tool_events)
+        if stdin_errors:
+            raise RuntimeError(f"Claude Code CLI prompt 写入 stdin 失败：{stdin_errors[0]}")
+        return result_text or "\n".join(raw_tail), tuple(tool_events), result_usage

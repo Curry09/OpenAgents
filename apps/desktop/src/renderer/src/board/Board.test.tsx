@@ -23,13 +23,13 @@ function renderBoard(value: DesktopContextValue): void {
 describe('Board', () => {
   it('渲染 N 张卡，状态/徽标正确', () => {
     const board: BoardEntry[] = [
-      { subject: 'issue:1', status: 'claimed', pending: 'needs-human', needs_human: true },
+      { subject: 'issue:1', status: 'claimed', pending: 'automation-failed', automation_failed: true },
       { subject: 'pr:2', status: 'claimed', pending: 'pr-to-merge', pr: 2, pr_ready_to_merge: true }
     ]
     renderBoard(provide(board))
     expect(screen.getByText('issue:1')).toBeInTheDocument()
     expect(screen.getByText('pr:2')).toBeInTheDocument()
-    expect(screen.getByText('needs-human')).toBeInTheDocument()
+    expect(screen.getByText('automation-failed')).toBeInTheDocument()
     expect(screen.getByText('✅ PR#2 等合并')).toBeInTheDocument()
   })
 
@@ -48,9 +48,9 @@ describe('Board', () => {
 })
 
 describe('stageLabel', () => {
-  it('needs-human 优先于其它阶段', () => {
-    expect(stageLabel({ subject: 'issue:1', status: 'claimed', pending: null, needs_human: true })).toContain(
-      'needs-human'
+  it('automation-failed 优先于其它阶段', () => {
+    expect(stageLabel({ subject: 'issue:1', status: 'claimed', pending: null, automation_failed: true })).toContain(
+      'automation-failed'
     )
   })
   it('无 PR 且排队 → 排队中', () => {

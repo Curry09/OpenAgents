@@ -40,11 +40,7 @@ PROMPT = Template(
 {"edges": [{"issue": <被挡 issue 号>, "blocked_by": [<挡它的 issue 号>, ...], "rationale": "<为何这个序>"}, ...]}
 无任何新依赖时输出 {"edges": []}。
 
-当前 ready open issue 快照：
-$issue_snapshot
-
-已有依赖边（锚点，只读不改）：
-$existing_edges
+当前 ready open issue 快照与已有依赖边由运行时在下方“上下文”区分节提供，只读取一次。
 """
 )
 

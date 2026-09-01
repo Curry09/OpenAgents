@@ -20,15 +20,15 @@
 Exports:
     run_agent -- 填占位符 → 派 backend → 校验末行 JSON → 返回结构化 dict。
     AgentOutputError -- agent 输出不合 OUTPUT_SCHEMA 契约（坏 JSON / 缺键 / 类型不符）时抛出。
-    NeedsHumanRequest -- agent 以结构化控制结果请求 Vigil 停止自动推进、交给人处理。
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from openagents.runtime import tool_usage
+from openagents.runtime import token_usage, tool_usage
 
 
 class AgentOutputError(Exception):
@@ -36,18 +36,6 @@ class AgentOutputError(Exception):
 
     Spec-0060/T2: agent 输出不合契约（坏 JSON / 末行非 JSON 对象 / 缺 schema 键 / 键类型不符）时抛出。
     """
-
-
-class NeedsHumanRequest(Exception):
-    """Agent 主动请求控制面停止自动推进并交给人处理。
-
-    Spec-0075/T2：这是所有角色 OUTPUT_SCHEMA 之外的统一控制 envelope。Agent 只负责给出原因；
-    forge 标签、评论、签名和 subject 归属全部由 Vigil 处理。
-    """
-
-    def __init__(self, *, reason: str) -> None:
-        self.reason = reason
-        super().__init__(reason)
 
 
 def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[str, Any]:
@@ -61,45 +49,39 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         raise AgentOutputError("run_agent 缺少必填保留字占位符 work_dir")
     work_dir = placeholders.pop("work_dir")
     context = placeholders.pop("context", "")
+    module_name = getattr(agent_module, "__name__", agent_module.__class__.__name__)
+    role = str(module_name).rsplit(".", 1)[-1]
+    backend_name = str(getattr(backend, "name", backend.__class__.__name__))
 
     prompt = agent_module.PROMPT.substitute(**placeholders)
-    result = backend.run(work_dir=work_dir, task=prompt, context=context)
-    # Human-facing summaries are intentionally bounded. Machine protocol parsing must use the complete backend result.
-    parsed = _parse_last_json(text=getattr(result, "protocol_output", result.summary))
-    _raise_needs_human(payload=parsed)
-    _validate(payload=parsed, schema=agent_module.OUTPUT_SCHEMA)
-    tool_events = getattr(result, "tool_events", ())
-    if tool_events:
-        module_name = getattr(agent_module, "__name__", agent_module.__class__.__name__)
-        reason = parsed.get("lookup_exception_reason", "")
-        tool_usage.record(
+    _assert_single_copy(task=prompt, context=context, values=placeholders, role=role)
+    result = None
+    status = "backend_error"
+    try:
+        result = backend.run(work_dir=work_dir, task=prompt, context=context)
+        status = "protocol_error"
+        # Display summaries are bounded; machine protocol parsing uses the complete backend result.
+        parsed = _parse_last_json(text=getattr(result, "protocol_output", result.summary))
+        _validate(payload=parsed, schema=agent_module.OUTPUT_SCHEMA)
+        tool_events = getattr(result, "tool_events", ())
+        if tool_events:
+            reason = parsed.get("lookup_exception_reason", "")
+            tool_usage.record(
+                work_dir=work_dir,
+                role=role,
+                tool_names=tool_events,
+                lookup_exception_reason=reason if isinstance(reason, str) else "",
+            )
+        status = "success"
+        return parsed
+    finally:
+        token_usage.record(
             work_dir=work_dir,
-            role=str(module_name).rsplit(".", 1)[-1],
-            tool_names=tool_events,
-            lookup_exception_reason=reason if isinstance(reason, str) else "",
+            role=role,
+            backend=backend_name,
+            status=status,
+            usage=getattr(result, "usage", None),
         )
-    return parsed
-
-
-def _raise_needs_human(*, payload: dict[str, Any]) -> None:
-    """识别统一 needs-human envelope；形状不完整时 fail-visible。
-
-    只要 payload 声明了 ``needs_human``，它就不能再退回普通角色 schema：否则拼错控制结果会被某个
-    恰好兼容的角色静默接受。合法形状固定为 ``{"needs_human": true, "reason": "..."}``。
-    """
-    if "needs_human" not in payload:
-        return
-    if payload.get("needs_human") is not True:
-        raise AgentOutputError(f"agent needs-human 控制结果要求 needs_human=true：{payload!r}")
-    unexpected = set(payload) - {"needs_human", "reason"}
-    if unexpected:
-        raise AgentOutputError(
-            f"agent needs-human 控制结果含未知键 {sorted(unexpected)!r}：{payload!r}"
-        )
-    reason = payload.get("reason")
-    if not isinstance(reason, str) or not reason.strip():
-        raise AgentOutputError(f"agent needs-human 控制结果缺少非空 reason：{payload!r}")
-    raise NeedsHumanRequest(reason=reason.strip())
 
 
 def _parse_last_json(*, text: str) -> dict[str, Any]:
@@ -118,6 +100,45 @@ def _parse_last_json(*, text: str) -> dict[str, Any]:
         if isinstance(obj, dict):
             return obj
     raise AgentOutputError(f"agent 输出末尾未找到合法 JSON 对象：{text[-200:]!r}")
+
+
+_DYNAMIC_TEXT_MIN = 32
+
+
+def _normalized_text(*, text: str) -> str:
+    """Normalize whitespace for deterministic prompt-overlap checks."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _assert_single_copy(
+    *, task: str, context: str, values: dict[str, Any], role: str
+) -> None:
+    """Reject non-trivial dynamic payloads duplicated across task and context.
+
+    Spec-0081/T1: ``task`` owns stable role instructions and short routing scalars while
+    ``context`` owns issue bodies, comments, specs, feedback, snapshots, and evidence.  Check both
+    rendered string placeholders and context paragraphs so a new role cannot silently reintroduce
+    the old double-payload pattern.  Short values are ignored to allow identifiers and branch names
+    to appear naturally in both halves.
+    """
+    normalized_task = _normalized_text(text=task)
+    normalized_context = _normalized_text(text=context)
+    if not normalized_context:
+        return
+
+    candidates = [value for value in values.values() if isinstance(value, str)]
+    candidates.extend(re.split(r"\n\s*\n", context))
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = _normalized_text(text=candidate)
+        if len(normalized) < _DYNAMIC_TEXT_MIN or normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized in normalized_task and normalized in normalized_context:
+            excerpt = normalized[:120]
+            raise AgentOutputError(
+                f"{role} 的动态 prompt 载荷同时出现在 task/context：{excerpt!r}"
+            )
 
 
 def _validate(*, payload: dict[str, Any], schema: dict[str, type]) -> None:

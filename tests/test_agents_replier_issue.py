@@ -13,9 +13,9 @@ from openagents.agents import replier
 
 
 def test_issue_prompt_substitutes_placeholders():
-    text = replier.ISSUE_PROMPT.substitute(issue_number=149, comment_body="能不能也支持 codex？")
+    text = replier.ISSUE_PROMPT.substitute(issue_number=149)
     assert "149" in text
-    assert "能不能也支持 codex？" in text
+    assert "下方“上下文”区" in text
 
 
 def test_issue_prompt_has_no_branch_or_code_change_intent():
@@ -33,11 +33,10 @@ def test_issue_prompt_reuses_output_schema():
 
 
 def test_pr_prompt_unchanged():
-    # 零回归：PR 版 PROMPT 占位符仍是 pr_number / branch / comment_body。
-    text = replier.PROMPT.substitute(
-        pr_number=7, branch="openagents/issue-7", comment_body="改一下"
-    )
-    assert "7" in text and "openagents/issue-7" in text and "改一下" in text
+    # Spec-0081/T1：PR 版只保留 pr_number / branch，评论正文归 context。
+    text = replier.PROMPT.substitute(pr_number=7, branch="openagents/issue-7")
+    assert "7" in text and "openagents/issue-7" in text
+    assert "下方“上下文”区" in text
 
 
 if __name__ == "__main__":

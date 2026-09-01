@@ -56,13 +56,12 @@ PROMPT = Template(
 2. 先记远端基点 `BASE=$$(git rev-parse origin/$branch)`，再 `git fetch origin $branch`（BASE 必须在
    fetch 之前求值，否则 fetch 刷新跟踪 ref 会让 lease 保护退化成等价裸 force）；
 3. 与远端分叉就 `git rebase origin/$branch`：有冲突自己读 `<<<<<<<` 标记按双方意图语义解决、
-   `git add -A && git rebase --continue`，直到走完（不许 abort、不甩 needs-human）；
+   `git add -A && git rebase --continue`，直到走完（不许 abort、不甩 automation-failed）；
 4. `git push --force-with-lease=$branch:$$BASE origin $branch`；禁止裸 `git push --force`，
    `--force-with-lease` 仅限本工作分支 $branch，绝不作用于 main/受保护分支/他人分支。
 完成判据：`git rev-parse origin/$branch` == 你的 `HEAD`，不相等就继续处理直到相等。
 
-本轮 detail（评审意见 / 反馈 / issue 正文；无则为空）：
-$detail
+本轮 detail、issue 正文与 evidence 由运行时在下方“上下文”区提供，只读取一次。
 
 交付时附带 evidence_pack，仅记录可供后续角色复用的客观仓库证据。字段为 fact/path/symbol/verification，
 并尽可能填写 source_revision（Git SHA 或依赖版本）、line_range、interface（实现所需签名/输入输出摘要）和

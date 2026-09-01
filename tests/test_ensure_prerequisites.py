@@ -18,7 +18,7 @@ from openagents import cli
 from openagents.utils import github
 from openagents.utils.github import (
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISCOVERY_LABEL,
     DISPATCH_LABEL,
     PROCESS_LABELS,
@@ -83,10 +83,15 @@ def test_label_constants_are_aliases_of_github():
 def test_process_labels_cover_all_four():
     # Spec-0039/T1：认领标签 openagents-dispatching 并入 PROCESS_LABELS（第 4 个流程标签），
     # 由 ensure_prerequisites 一并幂等自举。
-    assert PROCESS_LABELS == (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL, DISPATCH_LABEL)
-    assert (DISCOVERY_LABEL, APPROVAL_LABEL, BLOCKED_LABEL, DISPATCH_LABEL) == (
+    assert PROCESS_LABELS == (
+        DISCOVERY_LABEL,
+        APPROVAL_LABEL,
+        AUTOMATION_FAILED_LABEL,
+        DISPATCH_LABEL,
+    )
+    assert (DISCOVERY_LABEL, APPROVAL_LABEL, AUTOMATION_FAILED_LABEL, DISPATCH_LABEL) == (
         "openagents",
         "rfc-approved",
-        "needs-human",
+        "automation-failed",
         "openagents-dispatching",
     )

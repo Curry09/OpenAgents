@@ -143,6 +143,71 @@ def test_rfc_backfill_require_delivered_shortcircuits(monkeypatch):
     assert verdict["delivered"] is False
 
 
+def test_rfc_retry_accepts_unchanged_already_delivered_head(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["EXISTING", "EXISTING"])
+    delivered = {}
+    monkeypatch.setattr(
+        stages.Workspace,
+        "assert_delivered",
+        lambda self, *, worktree, branch: delivered.update(branch=branch),
+    )
+    monkeypatch.setattr(
+        stages.Workspace, "remote_branch_exists", lambda self, *, branch: True
+    )
+    backend = _Backend(
+        payloads={
+            "drafter": {
+                "delivered": True,
+                "head_sha": "EXISTING",
+                "summary": "validated existing artifact",
+                "evidence_pack": [],
+            }
+        }
+    )
+
+    verdict = stages.rfc(
+        backend=backend,
+        worktree="/wt",
+        mode=stages.MODE_DRAFT,
+        target="issue #1",
+        branch="openagents/issue-1",
+        detail="d",
+        context_text="c",
+        require_delivered=False,
+    )
+
+    assert verdict["head_sha"] == "EXISTING"
+    assert delivered == {"branch": "openagents/issue-1"}
+
+
+def test_design_snapshot_prefers_branch_changed_spec_on_duplicate_issue(tmp_path, monkeypatch):
+    from openagents.spec import model
+    from openagents.spec.model import Group, Metadata, Overview
+
+    root = tmp_path / "docs" / "specs"
+    for number, slug in (("0001", "seed"), ("0004", "candidate")):
+        model.dump_group(
+            group=Group(
+                number=number,
+                metadata=Metadata(title=slug, issue=7, slug=slug, summary="s"),
+                tasks=[],
+                overview=Overview(
+                    summary="s", motivation="m", reference_level="r", rationale_alternatives="a"
+                ),
+            ),
+            path=root / f"{number}-{slug}.md",
+        )
+    monkeypatch.setattr(
+        stages.Workspace,
+        "changed_spec_group",
+        lambda self, *, worktree, base: root / "0004-candidate.md",
+    )
+
+    snapshot = stages.design_snapshot(work_dir=tmp_path, issue_number=7)
+
+    assert snapshot["spec_path"].endswith("0004-candidate.md")
+
+
 def test_architecture_dispatches_before_implementation(tmp_path, monkeypatch):
     from openagents.spec import model
     from openagents.spec.model import Group, Metadata, Overview
@@ -192,8 +257,9 @@ def test_architecture_dispatches_before_implementation(tmp_path, monkeypatch):
     )
     assert result["verdict"] == "PASS"
     assert result["design_digest"] == captured["design_digest"]
-    assert "timeout is polled" in captured["spec_text"]
-    assert "decision" not in captured["spec_text"]
+    assert "timeout is polled" in captured["context"]
+    assert "decision" not in captured["context"]
+    assert "spec_text" not in captured
 
 
 def test_implement_receives_normalized_evidence_pack(monkeypatch) -> None:

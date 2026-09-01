@@ -29,7 +29,7 @@ from typing import Any
 # Spec-0074/T2: 公共面契约复用——数据类/错误/流程标签常量与 github.py 同一份定义。
 from openagents.utils.github import (  # noqa: F401  re-export 供直接 import 本模块的调用方
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISCOVERY_LABEL,
     DISPATCH_LABEL,
     PR,
@@ -536,7 +536,7 @@ def add_blocked_by(*, number: int, blocker_number: int) -> None:
     「文档字段名 ≠ 实现」）。传 `name` 会被吞空 → 按空仓名查找 → 404 IsErrRepoNotExist。
     注意仅此端点如此：建 label / 建 repo 的 `name` 是各自结构体的正确 key，别动。
     404 仍保留降级为 no-op——`enable_issue_dependencies` 可按实例关闭，依赖边是**建议性**的
-    （curator 契约：正确性由执行面 deps_done 机械复核兜底），可选特性失败不该把票挂死到 needs-human。
+    （curator 契约：正确性由执行面 deps_done 机械复核兜底），可选特性失败不该把票挂死到 automation-failed。
     """
     _, owner, repo = _ensure_configured()
     _request(

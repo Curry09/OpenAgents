@@ -31,7 +31,7 @@ from ruamel.yaml.error import YAMLError
 # Spec-0074/T1: forge 中立的常量与错误类型——import 时静态 re-export（零 IO），不走 __getattr__。
 from openagents.utils.github import (  # noqa: F401  re-export 供消费方经 forge 取用
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISCOVERY_LABEL,
     DISPATCH_LABEL,
     PROCESS_LABELS,

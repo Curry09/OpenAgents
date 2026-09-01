@@ -40,7 +40,7 @@ from openagents.recipes.vigil import (
     _ACT_REPLY,
     _ACT_REVIEW_OR_FIX,
     _ACT_SOLVE,
-    _NEEDS_HUMAN_CONTRACT,
+    _AUTONOMOUS_CONTRACT,
     _ActTimeout,
     _classify,
     _Clock,
@@ -337,7 +337,8 @@ def test_act_reply_dispatches_replier_and_posts_signed_comment(rig, tmp_path):
     assert rig.agent_names() == ["replier"]
     placeholders = rig.agents[0][1]
     assert placeholders["pr_number"] == 12
-    assert placeholders["comment_body"] == "这里为什么这么写？"
+    assert "comment_body" not in placeholders
+    assert placeholders["context"].count("这里为什么这么写？") == 1
     assert rig.comments == [(12, "已回应你的问题", "bot")]
     assert rig.cursors == [(12, "2026-07-14T11:00:00Z")]
     assert summary == "已回应你的问题"
@@ -403,8 +404,8 @@ def test_act_solve_agent_rfc_does_not_seed_branch(rig, tmp_path):
     assert all(record[0] != "seed" for record in rig.worktrees)
 
 
-def test_architecture_human_stops_before_implementer(rig, tmp_path) -> None:
-    with pytest.raises(engine.NeedsHumanRequest, match="架构批准"):
+def test_retired_architecture_owner_is_rejected_before_implementer(rig, tmp_path) -> None:
+    with pytest.raises(ValueError, match="未知 stage owner"):
         _act(
             rig=rig,
             facts=_facts(pr_number=None),
@@ -504,7 +505,8 @@ def test_act_fix_ci_feeds_failing_check_logs_to_implementer(rig, tmp_path):
 
     assert rig.agent_names() == ["implementer"]
     placeholders = rig.agents[0][1]
-    assert "FAILED tests/test_x.py::test_y" in placeholders["feedback"]
+    assert "feedback" not in placeholders
+    assert placeholders["context"].count("FAILED tests/test_x.py::test_y") == 1
     assert placeholders["pr_number"] == 12
     assert placeholders["work_dir"] == _issue_worktree(tmp_path, 5)
     assert rig.worktrees == [("ensure", 5, "openagents/issue-5")]
@@ -583,7 +585,8 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
     _act(rig=rig, facts=facts, work_dir=tmp_path)
 
     assert rig.agent_names() == ["implementer"]
-    assert "[review]" in rig.agents[0][1]["feedback"]
+    assert "feedback" not in rig.agents[0][1]
+    assert "[review]" in rig.agents[0][1]["context"]
     assert "timeout is polled" in rig.agents[0][1]["context"]
 
 
@@ -663,18 +666,15 @@ def test_act_wraps_the_backend_in_a_timed_backend_on_every_agent_branch(rig, tmp
         (agent_config.STAGE_MERGE, {}),
     ],
 )
-def test_act_parks_needs_human_when_the_gate_belongs_to_a_human(rig, tmp_path, stage, overrides):
-    """`<stage>: human` → 挂 `needs-human` + 贴理由（下一圈 `_classify` 判 TERMINAL、轮询停止），**不叫 agent**。"""
-    summary = _act(
-        rig=rig,
-        facts=_facts(**overrides),
-        work_dir=tmp_path,
-        config=_config(stages=_stages_policy(**{stage: "human"})),
-    )
-    assert rig.agents == [], f"{stage}: human 归人把关，不许派 agent"
-    assert summary == f"{stage}: human"
-    assert ("issue_add_label", {"number": 5, "name": "needs-human"}) in rig.gh
-    assert "issue_comment" in rig.gh_names()
+def test_act_rejects_retired_stage_owner(rig, tmp_path, stage, overrides):
+    with pytest.raises(ValueError, match="未知 stage owner"):
+        _act(
+            rig=rig,
+            facts=_facts(**overrides),
+            work_dir=tmp_path,
+            config=_config(stages=_stages_policy(**{stage: "hu" + "man"})),
+        )
+    assert rig.agents == []
 
 
 # --------------------------------------------------------------------------------------------------
@@ -705,7 +705,7 @@ def test_act_parks_needs_human_when_the_gate_belongs_to_a_human(rig, tmp_path, s
         ),  # 分支⑩返工
     ],
 )
-def test_needs_human_contract_reaches_every_agent_invoking_branch(rig, tmp_path, overrides, agent):
+def test_autonomous_contract_reaches_every_agent_invoking_branch(rig, tmp_path, overrides, agent):
     """**主路径收口的前提**：agent 看不到这条契约，就不会返回结构化交人请求——兜底当场变成主路径。
 
     断言打在 `engine.run_agent` 这个唯一的派 agent 出口上（stage 内部怎么组占位符都逃不掉）。`_do_reply`
@@ -713,28 +713,27 @@ def test_needs_human_contract_reaches_every_agent_invoking_branch(rig, tmp_path,
     """
     _act(rig=rig, facts=_facts(**overrides), work_dir=tmp_path)
     assert agent in rig.agent_names()
-    assert _NEEDS_HUMAN_CONTRACT in rig.context_of(agent=agent)
+    assert _AUTONOMOUS_CONTRACT in rig.context_of(agent=agent)
 
 
-def test_needs_human_contract_reaches_the_replier(rig, tmp_path):
+def test_autonomous_contract_reaches_the_replier(rig, tmp_path):
     """回归：`_do_reply` 的契约拼在**人的那条评论正文之后**（既给回应对象、也给一等出口）。"""
     _act(rig=rig, facts=_facts(latest_comment_is_ours=False), work_dir=tmp_path)
     context = rig.context_of(agent="replier")
-    assert context == f"这里为什么这么写？{_NEEDS_HUMAN_CONTRACT}"
+    assert context == f"--- human comment ---\n这里为什么这么写？{_AUTONOMOUS_CONTRACT}"
 
 
-def test_needs_human_contract_reaches_the_conflict_resolver(rig, tmp_path):
+def test_autonomous_contract_reaches_the_conflict_resolver(rig, tmp_path):
     """回归：`_do_rebase` 经 `stages.conflict(context_text=…)` 把契约透传进 deliver agent 的上下文。"""
     _act(rig=rig, facts=_facts(mergeable_state="dirty"), work_dir=tmp_path)
-    assert _NEEDS_HUMAN_CONTRACT in rig.context_of(agent="deliver")
+    assert _AUTONOMOUS_CONTRACT in rig.context_of(agent="deliver")
 
 
-def test_needs_human_contract_uses_structured_exit_and_forbids_forge_writes():
-    """Agent 只报告控制意图；标签、评论与签名统一归 Vigil。"""
-    assert '"needs_human": true' in _NEEDS_HUMAN_CONTRACT
-    assert '"reason"' in _NEEDS_HUMAN_CONTRACT
-    assert "不要自行调用 forge" in _NEEDS_HUMAN_CONTRACT
-    assert vigil_module._LABEL_NEEDS_HUMAN == github.BLOCKED_LABEL
+def test_autonomous_contract_forbids_forge_writes_and_keeps_role_schema():
+    assert "本角色既有 JSON schema" in _AUTONOMOUS_CONTRACT
+    assert "不要空转" in _AUTONOMOUS_CONTRACT
+    assert "自行修改 forge 标签" in _AUTONOMOUS_CONTRACT
+    assert vigil_module._LABEL_AUTOMATION_FAILED == github.AUTOMATION_FAILED_LABEL
 
 
 # --------------------------------------------------------------------------------------------------

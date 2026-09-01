@@ -20,22 +20,17 @@ def test_curator_exposes_prompt_and_schema():
     assert curator.OUTPUT_SCHEMA == {"edges": list}
 
 
-def test_curator_prompt_placeholders_substitute():
-    # 准入面占位符（_intake 供给）齐全即不抛：issue_snapshot（ready open issue 快照）+
-    # existing_edges（已有边锚点）。
-    task = curator.PROMPT.substitute(
-        issue_snapshot="#1 建接口\n#2 用接口",
-        existing_edges="(暂无)",
-    )
-    assert "#1 建接口" in task
-    assert "#2 用接口" in task
+def test_curator_prompt_reads_dynamic_material_from_context_once():
+    task = curator.PROMPT.substitute()
+    assert "上下文" in task
+    assert "$issue_snapshot" not in task
+    assert "$existing_edges" not in task
 
 
-def test_curator_carries_existing_edges_as_anchor():
-    # 已有边必须**原样**带进 prompt 作锚点（curator 只读不改、只为新节点补边）。
+def test_curator_states_existing_edges_are_context_anchor():
     anchor = '{"issue": 2, "blocked_by": [1]}'
-    task = curator.PROMPT.substitute(issue_snapshot="快照", existing_edges=anchor)
-    assert anchor in task
+    task = curator.PROMPT.substitute()
+    assert anchor not in task
     # prompt 明示锚点纪律与 fail-open，避免 curator 整张重排或凭空造依赖。
     assert "锚点" in task
     assert "fail-open" in task.lower() or "凭空" in task

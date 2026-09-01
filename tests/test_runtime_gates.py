@@ -5,6 +5,8 @@ utils.git.head_sha / utils.github.pr_head_branch 打桩，不触真实仓库/网
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from openagents.runtime import gates
@@ -92,6 +94,32 @@ def test_integration_stamp_requires_every_version_to_match():
             gates.assert_integration_stamp(
                 approved=approved, current=gates.IntegrationStamp(**changed)
             )
+
+
+def test_design_approved_selects_digest_when_issue_number_is_reused(tmp_path, monkeypatch):
+    approved = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    historical = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [historical, approved])
+    monkeypatch.setattr(
+        gates.spec_model,
+        "design_digest",
+        lambda *, group: "approved" if group is approved else "historical",
+    )
+
+    gates.assert_design_approved(
+        workspace=tmp_path, issue_number=13, approved_digest="approved"
+    )
+
+
+def test_design_approved_rejects_when_approved_digest_disappeared(tmp_path, monkeypatch):
+    changed = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [changed])
+    monkeypatch.setattr(gates.spec_model, "design_digest", lambda *, group: "changed")
+
+    with pytest.raises(GateError, match="已批准设计不存在"):
+        gates.assert_design_approved(
+            workspace=tmp_path, issue_number=13, approved_digest="approved"
+        )
 
 
 # --------------------------------------------------------------------------- #

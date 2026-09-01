@@ -30,7 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from openagents.agents import admitter, architect, drafter, implementer, merger, reviewer, triager
+from openagents.agents import architect, drafter, implementer, merger, reviewer, triager
 from openagents.agents import deliver as deliver_agent
 from openagents.runtime import context, engine, gates, research
 from openagents.runtime.context import Context
@@ -39,6 +39,7 @@ from openagents.spec import validate as spec_validate
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
+from openagents.utils.workspace import Workspace
 
 # Spec-0064/T2: drafter 起草模式字面量（承 recipes.rfc_lifecycle._MODE_*）——rfc 阶段 draft、backfill
 # recipe（T4）复用本函数传 backfill。仅这两种进本阶段函数（refine/implement/iterate 已由独立阶段承接）。
@@ -72,21 +73,6 @@ def triage(*, backend: Any, work_dir: Path, issue: Any) -> dict:
     )
 
 
-def admit(*, backend: Any, work_dir: Path, issue: Any, dialogue: str) -> dict:
-    """准入裁决阶段（admitter agent）：读人在准入对话里的回话，判**人点头没有** → {approved, reason}。
-
-    `triage: human` 专用（见 vigil `_ask_human`）。**不是 triage 的同义词**：triage 判「issue 正文自不
-    自洽」且 fail-open（拿不准就放行），admit 判「人同意了吗」且 **fail-closed**（拿不准就当没点头）。
-    拿 triager 顶这个位子，人明说「先别做」也会被放行——那道人闸会当场退化成一台偏向「是」的 agent 闸。
-    纪律在 admitter prompt 内；本函数零判断。
-    """
-    return engine.run_agent(
-        admitter,
-        backend=backend,
-        **context.for_admit(work_dir=Path(work_dir), issue=issue, dialogue=dialogue),
-    )
-
-
 def rfc(
     *,
     backend: Any,
@@ -111,13 +97,19 @@ def rfc(
         backend=backend,
         worktree=Path(worktree),
         placeholders={
-            "context": _with_evidence(context_text=context_text, evidence_pack=evidence_pack),
+            "context": context.sections(
+                ("detail", detail),
+                (
+                    "runtime context",
+                    _with_evidence(context_text=context_text, evidence_pack=evidence_pack),
+                ),
+            ),
             "mode": mode,
             "target": target,
             "branch": branch,
-            "detail": detail,
         },
         require_delivered=require_delivered,
+        resume_branch=branch,
     )
 
 
@@ -141,15 +133,20 @@ def implement(
         implementer,
         backend=backend,
         work_dir=Path(work_dir),
-        context=_with_evidence(context_text=context_text, evidence_pack=evidence_pack),
+        context=context.sections(
+            ("feedback", feedback),
+            (
+                "runtime context",
+                _with_evidence(context_text=context_text, evidence_pack=evidence_pack),
+            ),
+        ),
         issue_number=issue_number,
         pr_number=pr_number,
-        feedback=feedback,
     )
 
 
-def design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, str]:
-    """Validate and identify the single candidate Spec for an issue."""
+def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") -> dict[str, str]:
+    """Validate and identify the candidate Spec changed by the current issue branch."""
     specs_root = Path(work_dir) / "docs" / "specs"
     report = spec_validate.validate(specs_root=specs_root)
     if not report.ok:
@@ -157,9 +154,26 @@ def design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, str]:
             f"{item.where}: {item.message}" for item in report.issues if item.level == "error"
         )
         raise gates.GateError(f"issue #{issue_number} 的候选 Spec 校验失败：{details}")
-    candidates = [
-        g for g in spec_model.load_all(specs_root=specs_root) if g.metadata.issue == issue_number
-    ]
+    groups = spec_model.load_all(specs_root=specs_root)
+    changed_path = Workspace(work_dir=Path(work_dir)).changed_spec_group(
+        worktree=Path(work_dir), base=base
+    )
+    if changed_path is not None:
+        changed_name = changed_path.name
+        candidates = [
+            group
+            for group in groups
+            if spec_model.group_path(
+                specs_root=specs_root, number=group.number, slug=group.metadata.slug
+            ).name
+            == changed_name
+            and group.metadata.issue == issue_number
+        ]
+    else:
+        # Compatibility fallback for repositories without a usable git comparison
+        # (including isolated validation fixtures). Runtime issue branches normally
+        # take the branch-diff path above.
+        candidates = [group for group in groups if group.metadata.issue == issue_number]
     if len(candidates) != 1:
         raise gates.GateError(
             f"issue #{issue_number} 必须恰好对应一个候选 Spec，实际 {len(candidates)} 个"
@@ -218,9 +232,8 @@ def review(
         reviewer,
         backend=backend,
         work_dir=Path(work_dir),
-        context=context_text,
+        context=context.sections(("issue", issue_body), ("runtime context", context_text)),
         pr_number=pr_number,
-        issue_body=issue_body,
     )
 
 
@@ -240,7 +253,7 @@ def deliver(
     交付前基点确定性记录、交付后断言 head 前移 + 证据戳一致，防 #140 空转/张冠李戴。
 
     # Spec-0065/T2: `context_text` 追加进 agent 上下文（缺省空串 = 既有调用方零变化）。守夜用它把
-    # 「一等出口 needs-human」契约拼进解冲突 agent 的提示词——冲突解不动是它最该主动交人的场景之一。
+    # `context_text` 可追加本轮机械约束与诊断材料。
     """
     ctx = Context(
         work_dir=Path(worktree),
@@ -343,9 +356,9 @@ def merge(
     1. 先经确定性 `gates.assert_merge_allowed(pr_number, head_sha)` **实时复读** CI + label 把守红线——不放行
        即抛 `GateError`，**决不派 agent**（agent 只能在闸放行后才被派上来落合并动作，防误派/TOCTOU 合未审代码）；
     2. 放行后经 `engine.run_agent` 派 merger agent 落 `gh pr merge`——把「动作」下放 agent（承 Spec-0064 动作
-       全归 agent 层），merger 另带 `needs-human` 一等出口察觉硬闸没覆盖的异常。
+       全归 agent 层）；merger 对硬闸未覆盖的异常返回 merged=false，由统一失败路径收口。
 
-    「要不要停下等人」（hold/merge:human）由调用方在调本函数前判；本函数只在闸放行后落合并动作、零业务判断。
+    本函数只在机械闸放行后落合并动作，自身零业务判断。
     """
     if require_ci:
         gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha)
@@ -383,6 +396,7 @@ def _deliver_gated(
     worktree: Path,
     placeholders: dict,
     require_delivered: bool,
+    resume_branch: str | None = None,
 ) -> dict:
     """派交付类 agent（drafter/deliver）+ 三道确定性硬闸兜底——rfc/deliver/conflict 共用（承 rfc_lifecycle._run_drafter / solve_issue 交付段）。
 
@@ -392,13 +406,25 @@ def _deliver_gated(
     placeholders 取（context 必在 placeholders 里）。
     """
     before = gates.snapshot_head(workspace=Path(worktree))
+    workspace = Workspace(work_dir=Path(worktree))
+    resuming = bool(
+        resume_branch is not None and workspace.remote_branch_exists(branch=resume_branch)
+    )
     # placeholders 可能已含 work_dir（如 Context.for_deliver 产出）——统一以本函数的 worktree 为准，
     # 剔除 placeholders 里的 work_dir 避免与显式传参重复（engine 保留字 work_dir 单一来源）。
     payload = {key: value for key, value in placeholders.items() if key != "work_dir"}
     verdict = engine.run_agent(agent_module, backend=backend, work_dir=Path(worktree), **payload)
     if require_delivered and not verdict["delivered"]:
         return verdict
-    after = gates.assert_head_advanced(before=before, workspace=Path(worktree))
+    after = gates.snapshot_head(workspace=Path(worktree))
+    if after == before and resuming and resume_branch is not None:
+        # A retry may be validating an artifact already committed and pushed by the
+        # previous attempt. Accept it only when local HEAD exactly matches the remote
+        # issue branch; this preserves the delivery and evidence gates without
+        # requiring a meaningless extra commit.
+        workspace.assert_delivered(worktree=Path(worktree), branch=resume_branch)
+    else:
+        gates.assert_head_advanced(before=before, workspace=Path(worktree))
     gates.assert_evidence_stamp(head_sha=after, claimed=verdict["head_sha"])
     return verdict
 
