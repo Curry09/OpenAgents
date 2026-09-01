@@ -19,8 +19,7 @@ PROMPT = Template(
 裁决二选一：证据充分且通过 → PASS；未跑通/证据不足/有失败 → REWORK。
 最后只输出一行 JSON：{"verdict":"PASS 或 REWORK","reason":"判读理由","evidence":[{"case_id":"...","kind":"behavior","observed":"实际观测","expected":"验收条件","path":"证据位置","passed":true}]}
 
-issue 原文：
-$issue_body
+issue 原文与已有 evidence 由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 

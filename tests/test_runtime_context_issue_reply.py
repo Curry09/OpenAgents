@@ -24,8 +24,9 @@ def test_for_issue_reply_placeholder_keys():
         work_dir=Path("/tmp/wt"), issue_number=149, comment=_comment(body="补充：也要支持 codex")
     )
     assert payload["issue_number"] == 149
-    assert payload["comment_body"] == "补充：也要支持 codex"
-    assert payload["context"] == "补充：也要支持 codex"
+    assert "补充：也要支持 codex" in payload["context"]
+    assert "comment_body" not in payload
+    assert payload["context"] == "--- human comment ---\n补充：也要支持 codex"
     assert payload["work_dir"] == Path("/tmp/wt")
 
 
@@ -38,7 +39,7 @@ def test_for_issue_reply_has_no_pr_keys():
 
 
 def test_for_reply_pr_version_unchanged():
-    # 零回归：PR 版仍带 pr_number / branch / comment_body。
+    # Spec-0081/T1：PR 版正文只在 context，task 只保留定位标量。
     payload = context.for_reply(
         work_dir=Path("/tmp/wt"),
         pr_number=7,
@@ -47,7 +48,8 @@ def test_for_reply_pr_version_unchanged():
     )
     assert payload["pr_number"] == 7
     assert payload["branch"] == "openagents/issue-7"
-    assert payload["comment_body"] == "PR 评论"
+    assert "PR 评论" in payload["context"]
+    assert "comment_body" not in payload
 
 
 if __name__ == "__main__":

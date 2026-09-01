@@ -64,22 +64,27 @@ class Workspace:
         self._work_dir = Path(work_dir)
 
     def prepare(self, *, issue_number: int, branch: str, base: str) -> Path:
-        """RFC-0003 决策 2/4：同步最新基线、幂等清理残留、再从 origin/<base> 拉新 worktree。"""
+        """准备 issue worktree；远端已有成果时恢复该分支，否则从最新基线创建。"""
         path = self._worktree_path(issue_number=issue_number)
         # Spec-0068/T1: 整段共享 .git 变更（fetch→remove→prune→branch -D→add）持锁串行，
         # 消除 K worker 并发下的 packed-refs / worktree 管理锁竞争与 prune 误清半成品（P2）。
         with _GIT_MUTATION_LOCK:
             # 决策 2：起草前先拉最新 base（fetch 不触碰用户当前检出）。
             self._git(args=["fetch", "origin", base], cwd=self._work_dir, check=True)
+            # 重试必须延续已经推送的 issue 分支。若仍从 base 重建，首次调用成功交付的
+            # Spec/代码会被丢弃，后续模型只能重复起草，并最终形成相互竞争的实现。
+            resume_remote = self.remote_branch_exists(branch=branch)
+            if resume_remote:
+                self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=True)
             # 决策 4：幂等清理同 issue 可能残留的 worktree 与本地分支（失败忽略）。
             self._git(
                 args=["worktree", "remove", "--force", str(path)], cwd=self._work_dir, check=False
             )
             self._git(args=["worktree", "prune"], cwd=self._work_dir, check=False)
             self._git(args=["branch", "-D", branch], cwd=self._work_dir, check=False)
-            # 一条 worktree add 同时完成「建隔离工作树」+「从最新 origin/<base> 拉分支」。
+            start_point = f"origin/{branch}" if resume_remote else f"origin/{base}"
             self._git(
-                args=["worktree", "add", "-b", branch, str(path), f"origin/{base}"],
+                args=["worktree", "add", "-b", branch, str(path), start_point],
                 cwd=self._work_dir,
                 check=True,
             )
@@ -106,7 +111,7 @@ class Workspace:
         SHA 摘要）。远端无该分支（rev-parse 失败）视作「未交付」→ 抛（agent 理应已 push 建分支）。
 
         纯读，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
-        agent force-push（决策 7），本闸只判「到没到」。routing（打 needs-human）留在 orchestrator。
+        agent force-push（决策 7），本闸只判「到没到」。routing（打 automation-failed）留在 orchestrator。
 
         版本假设（PR #141 review 次要项）：依赖 `git fetch origin <branch>` 会刷新本地
         `origin/<branch>` 跟踪 ref，随后 `rev-parse origin/<branch>` 才读得到最新远端 head——该行为需

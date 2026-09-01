@@ -59,8 +59,8 @@ describe('DetailOverlay', () => {
   it('「下一个」按钮切 subject 并重订流（旧订阅被清理）', () => {
     const open = vi.fn()
     const board: BoardEntry[] = [
-      { subject: 'issue:1', status: 'claimed', pending: 'needs-human' },
-      { subject: 'issue:2', status: 'claimed', pending: 'needs-human' }
+      { subject: 'issue:1', status: 'claimed', pending: 'automation-failed' },
+      { subject: 'issue:2', status: 'claimed', pending: 'automation-failed' }
     ]
     const pending = board
     render(

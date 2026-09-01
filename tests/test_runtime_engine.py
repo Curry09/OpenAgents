@@ -12,9 +12,9 @@ from string import Template
 
 import pytest
 
-from openagents.backends.base import AgentResult
+from openagents.backends.base import AgentResult, TokenUsage
 from openagents.runtime import engine
-from openagents.runtime.engine import AgentOutputError, NeedsHumanRequest
+from openagents.runtime.engine import AgentOutputError
 
 
 class _FakeAgent:
@@ -67,6 +67,30 @@ class _LookupExceptionBackend:
             ),
             tool_events=("Read",) * 7 + ("Edit",),
         )
+
+
+class _TokenUsageBackend:
+    name = "usage-backend"
+
+    def run(self, *, work_dir, task, context):
+        return AgentResult(
+            changed=False,
+            summary='{"verdict":"PASS","reason":"ok"}',
+            usage=TokenUsage(
+                input_tokens=11,
+                output_tokens=2,
+                total_tokens=13,
+                total_source="reported",
+                model="m",
+            ),
+        )
+
+
+class _FailingBackend:
+    name = "failing"
+
+    def run(self, *, work_dir, task, context):
+        raise RuntimeError("backend broke")
 
 
 def test_fills_placeholders_and_passes_reserved_to_backend():
@@ -134,6 +158,62 @@ def test_records_structured_lookup_exception_reason(tmp_path):
     assert '"lookup_exception_reason": "现场版本与证据不一致"' in metric.read_text(encoding="utf-8")
 
 
+def _token_rows(tmp_path):
+    path = tmp_path / ".openagents" / "token-usage.jsonl"
+    return [__import__("json").loads(line) for line in path.read_text().splitlines()]
+
+
+def test_records_one_reported_token_row_per_successful_call(tmp_path):
+    engine.run_agent(
+        _FakeAgent,
+        backend=_TokenUsageBackend(),
+        work_dir=tmp_path,
+        pr_number=1,
+        issue_body="x",
+    )
+    rows = _token_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "success"
+    assert rows[0]["total_tokens"] == 13
+    assert rows[0]["usage_source"] == "reported"
+
+
+def test_records_unavailable_without_changing_backend_exception(tmp_path):
+    with pytest.raises(RuntimeError, match="backend broke"):
+        engine.run_agent(
+            _FakeAgent,
+            backend=_FailingBackend(),
+            work_dir=tmp_path,
+            pr_number=1,
+            issue_body="x",
+        )
+    rows = _token_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "backend_error"
+    assert rows[0]["usage_source"] == "unavailable"
+
+
+def test_protocol_failures_have_one_token_row_each(tmp_path):
+    with pytest.raises(AgentOutputError):
+        engine.run_agent(
+            _FakeAgent,
+            backend=_CaptureBackend(summary="bad-json"),
+            work_dir=tmp_path,
+            pr_number=1,
+            issue_body="x",
+        )
+    with pytest.raises(AgentOutputError):
+        engine.run_agent(
+            _FakeAgent,
+            backend=_CaptureBackend(summary='{"needs_human":true,"reason":"external decision"}'),
+            work_dir=tmp_path,
+            pr_number=2,
+            issue_body="x",
+        )
+    rows = _token_rows(tmp_path)
+    assert [row["status"] for row in rows] == ["protocol_error", "protocol_error"]
+
+
 def test_bad_json_raises():
     backend = _CaptureBackend(summary="完全没有 JSON 的一段话")
     with pytest.raises(AgentOutputError):
@@ -168,13 +248,11 @@ def test_int_schema_rejects_bool():
         engine.run_agent(_NumAgent, backend=backend, work_dir=".", x="1")
 
 
-def test_needs_human_envelope_precedes_role_schema_validation():
+def test_retired_control_envelope_fails_normal_role_schema_validation():
     backend = _CaptureBackend(summary='{"needs_human": true, "reason": "  上游服务持续 503  "}')
 
-    with pytest.raises(NeedsHumanRequest, match="上游服务持续 503") as raised:
+    with pytest.raises(AgentOutputError, match="schema 键 'verdict'"):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
-
-    assert raised.value.reason == "上游服务持续 503"
 
 
 @pytest.mark.parametrize(
@@ -187,8 +265,8 @@ def test_needs_human_envelope_precedes_role_schema_validation():
         '{"needs_human": true, "reason": "x", "subject": 7}',
     ],
 )
-def test_invalid_needs_human_envelope_is_protocol_error(payload):
+def test_any_retired_control_envelope_is_protocol_error(payload):
     backend = _CaptureBackend(summary=payload)
 
-    with pytest.raises(AgentOutputError, match="needs-human"):
+    with pytest.raises(AgentOutputError, match="schema 键 'verdict'"):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")

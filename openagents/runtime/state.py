@@ -39,7 +39,7 @@ STATUS_PR_OPEN = "pr-open"
 STATUS_ITERATING = "iterating"
 STATUS_DONE = "done"
 STATUS_CLOSED = "closed"
-STATUS_BLOCKED = "blocked"
+STATUS_FAILED = "failed"
 
 
 class RuntimeState:

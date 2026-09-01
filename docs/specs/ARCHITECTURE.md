@@ -20,7 +20,6 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
-| `admitter.py` | # Spec-0065/T1: agents.admitter —— 读人在准入对话里的回话 → 人到底点头没有（零逻辑）。 |
 | `architect.py` | Review an admitted objective's implementation architecture before coding. |
 | `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
@@ -60,7 +59,7 @@ _# Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控
 | `__init__.py` | # Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent |
 | `backfill.py` | # Spec-0064/T4: recipes.backfill —— backfill-rfc path 驱动追溯单列（纯控制流，零业务判断）。 |
 | `stages.py` | # Spec-0064/T2: recipes.stages —— 九个阶段抽成 `Vigil` 类外的独立自由函数（可单独寻址）。 |
-| `vigil.py` | # Spec-0065/T2: recipes.vigil —— 图驱动的并行守夜 `run_vigil`（**level-triggered reconcile**，K=1 即串行）。 |
+| `vigil.py` | Autonomous, level-triggered Vigil orchestration. |
 
 ### openagents.runtime
 
@@ -73,9 +72,11 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `engine.py` | Fill an agent's prompt placeholders, dispatch to a backend, and return validated output. |
 | `evidence.py` | Validate head-bound behavioral evidence emitted by Tester. |
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
+| `legacy.py` | Fail-closed detection for pre-Spec-0081 terminal state. |
 | `research.py` | Normalize and render bounded, objective repository evidence for role reuse. |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
 | `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
+| `token_usage.py` | Spec-0079: privacy-minimal, append-only token usage ledger. |
 | `tool_usage.py` | Privacy-preserving, append-only tool-usage telemetry for agent invocations. |
 
 ### openagents.spec
@@ -104,24 +105,20 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | `__init__.py` | # Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包。 |
 | `agent_config.py` | # Spec-0064/T1: utils.agent_config —— `.openagents/openagents.yml` 声明式配置加载器。 |
 | `align.py` | Spec-0020/T1: issue 前门对齐——把模糊想法复述成「要做 X / 边界 Y / 不做 Z」。 |
-| `blocknote.py` | Spec-0032/T3: 结构化阻塞评论构造（纯函数模块，解耦理念 10）。 |
 | `config.py` | RFC-0001 T1: 项目绑定（决策 10）。 |
 | `envcheck.py` | Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。 |
-| `fleet.py` | Spec-0027/T2: 多仓库统管的并发编排（每仓库一子进程跑现有 Vigil + 日志聚合 + 错误隔离）。 |
-| `fleet_config.py` | Spec-0027/T1: 多仓库统管的配置加载（YAML 解析 + jsonschema 校验 + 默认合并）。 |
+| `fleet.py` | Multi-repository process supervision shared by the autonomous Vigil stack. |
 | `forge.py` | forge 分发模块：消费方以 `from openagents.utils import forge as github` 引入，调用点零改动换轨。 |
 | `git.py` | # Spec-0060/T1: utils.git —— 新栈的确定性 git 稳定 import 面。 |
 | `gitea.py` | Gitea forge driver：实现 vigil 新栈消费的 github.py 公共面，语义映射见 Spec-0074 正文表。 |
 | `github.py` | RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。 |
-| `hold.py` | Spec-0020/T2: vigil --hold 闸门配置模型。 |
 | `identity.py` | RFC-0011 T2: 本地 agent 身份 + 评论签名。 |
-| `notes.py` | # Spec-0061/T1: utils.notes —— PR/issue 评论正文渲染的稳定 import 面（纯函数、零 IO）。 |
 | `proc.py` | 进程工具：子进程认领（backend 自报 PID）/ 进程树 SIGKILL / 直接子进程枚举。 |
 | `release.py` | Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。 |
 | `replynote.py` | Spec-0036/T2: 引用原评论的回应构造（纯函数模块，解耦理念 10，与 blocknote 对称）。 |
 | `results.py` | RFC-0001 T6: 成果层——读取 State 渲染本地成果看板并启动查看（决策 9）。 |
 | `selfupdate.py` | # Spec-0070/T1: openagents 自更新预检——每次 `openagents` 命令前保证跑在最新快照。 |
-| `skip.py` | Spec-0054/T1: vigil --skip 逐闸旁路开关配置模型（与 hold.py 对称）。 |
+| `skip.py` | Spec-0054/T1: ``vigil --skip`` 逐闸旁路开关配置模型。 |
 | `streams.py` | # Spec-0073/T1: agent 输出按 subject 分流（stream tee）。 |
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
@@ -132,7 +129,6 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 graph LR
     nopenagents["openagents"]
     nopenagents_agents["openagents.agents"]
-    nopenagents_agents_admitter["agents.admitter"]
     nopenagents_agents_architect["agents.architect"]
     nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
@@ -158,9 +154,11 @@ graph LR
     nopenagents_runtime_engine["runtime.engine"]
     nopenagents_runtime_evidence["runtime.evidence"]
     nopenagents_runtime_gates["runtime.gates"]
+    nopenagents_runtime_legacy["runtime.legacy"]
     nopenagents_runtime_research["runtime.research"]
     nopenagents_runtime_state["runtime.state"]
     nopenagents_runtime_timing["runtime.timing"]
+    nopenagents_runtime_token_usage["runtime.token_usage"]
     nopenagents_runtime_tool_usage["runtime.tool_usage"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
@@ -175,18 +173,14 @@ graph LR
     nopenagents_utils["openagents.utils"]
     nopenagents_utils_agent_config["utils.agent_config"]
     nopenagents_utils_align["utils.align"]
-    nopenagents_utils_blocknote["utils.blocknote"]
     nopenagents_utils_config["utils.config"]
     nopenagents_utils_envcheck["utils.envcheck"]
     nopenagents_utils_fleet["utils.fleet"]
-    nopenagents_utils_fleet_config["utils.fleet_config"]
     nopenagents_utils_forge["utils.forge"]
     nopenagents_utils_git["utils.git"]
     nopenagents_utils_gitea["utils.gitea"]
     nopenagents_utils_github["utils.github"]
-    nopenagents_utils_hold["utils.hold"]
     nopenagents_utils_identity["utils.identity"]
-    nopenagents_utils_notes["utils.notes"]
     nopenagents_utils_proc["utils.proc"]
     nopenagents_utils_release["utils.release"]
     nopenagents_utils_replynote["utils.replynote"]
@@ -216,8 +210,10 @@ graph LR
     nopenagents_cli --> nopenagents_runtime
     nopenagents_cli --> nopenagents_runtime_engine
     nopenagents_cli --> nopenagents_runtime_gates
+    nopenagents_cli --> nopenagents_runtime_legacy
     nopenagents_cli --> nopenagents_runtime_state
     nopenagents_cli --> nopenagents_runtime_timing
+    nopenagents_cli --> nopenagents_runtime_token_usage
     nopenagents_cli --> nopenagents_runtime_tool_usage
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_agent_config
@@ -239,7 +235,6 @@ graph LR
     nopenagents_recipes_backfill --> nopenagents_utils_forge
     nopenagents_recipes_backfill --> nopenagents_utils_git
     nopenagents_recipes_stages --> nopenagents_agents
-    nopenagents_recipes_stages --> nopenagents_agents_admitter
     nopenagents_recipes_stages --> nopenagents_agents_architect
     nopenagents_recipes_stages --> nopenagents_agents_deliver
     nopenagents_recipes_stages --> nopenagents_agents_drafter
@@ -257,6 +252,7 @@ graph LR
     nopenagents_recipes_stages --> nopenagents_spec_validate
     nopenagents_recipes_stages --> nopenagents_utils
     nopenagents_recipes_stages --> nopenagents_utils_forge
+    nopenagents_recipes_stages --> nopenagents_utils_workspace
     nopenagents_recipes_vigil --> nopenagents
     nopenagents_recipes_vigil --> nopenagents_agents
     nopenagents_recipes_vigil --> nopenagents_agents_curator
@@ -270,6 +266,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_runtime_engine
     nopenagents_recipes_vigil --> nopenagents_runtime_evidence
     nopenagents_recipes_vigil --> nopenagents_runtime_gates
+    nopenagents_recipes_vigil --> nopenagents_runtime_legacy
     nopenagents_recipes_vigil --> nopenagents_runtime_research
     nopenagents_recipes_vigil --> nopenagents_runtime_state
     nopenagents_recipes_vigil --> nopenagents_runtime_timing
@@ -285,6 +282,7 @@ graph LR
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_forge
     nopenagents_runtime_engine --> nopenagents_runtime
+    nopenagents_runtime_engine --> nopenagents_runtime_token_usage
     nopenagents_runtime_engine --> nopenagents_runtime_tool_usage
     nopenagents_runtime_gates --> nopenagents_spec
     nopenagents_runtime_gates --> nopenagents_spec_model
@@ -294,8 +292,12 @@ graph LR
     nopenagents_runtime_gates --> nopenagents_utils
     nopenagents_runtime_gates --> nopenagents_utils_forge
     nopenagents_runtime_gates --> nopenagents_utils_git
+    nopenagents_runtime_legacy --> nopenagents_utils
+    nopenagents_runtime_legacy --> nopenagents_utils_forge
     nopenagents_runtime_state --> nopenagents_runtime
     nopenagents_runtime_state --> nopenagents_runtime_research
+    nopenagents_runtime_token_usage --> nopenagents_backends_base
+    nopenagents_runtime_token_usage --> nopenagents_runtime_tool_usage
     nopenagents_spec_cli --> nopenagents_spec
     nopenagents_spec_cli --> nopenagents_spec_graph
     nopenagents_spec_cli --> nopenagents_spec_model
@@ -322,14 +324,7 @@ graph LR
     nopenagents_utils_align --> nopenagents_backends_base
     nopenagents_utils_config --> nopenagents_utils_github
     nopenagents_utils_envcheck --> nopenagents_backends_claude_code
-    nopenagents_utils_fleet --> nopenagents
-    nopenagents_utils_fleet --> nopenagents_cli
-    nopenagents_utils_fleet --> nopenagents_utils
-    nopenagents_utils_fleet --> nopenagents_utils_config
-    nopenagents_utils_fleet --> nopenagents_utils_fleet_config
-    nopenagents_utils_fleet --> nopenagents_utils_hold
-    nopenagents_utils_fleet_config --> nopenagents_utils
-    nopenagents_utils_fleet_config --> nopenagents_utils_github
+    nopenagents_utils_fleet --> nopenagents_utils_agent_config
     nopenagents_utils_forge --> nopenagents_utils
     nopenagents_utils_forge --> nopenagents_utils_gitea
     nopenagents_utils_forge --> nopenagents_utils_github
@@ -338,13 +333,9 @@ graph LR
     nopenagents_utils_identity --> nopenagents_runtime_state
     nopenagents_utils_identity --> nopenagents_utils
     nopenagents_utils_identity --> nopenagents_utils_forge
-    nopenagents_utils_notes --> nopenagents_utils_blocknote
-    nopenagents_utils_notes --> nopenagents_utils_replynote
-    nopenagents_utils_notes --> nopenagents_utils_worknote
     nopenagents_utils_release --> nopenagents_runtime_state
     nopenagents_utils_release --> nopenagents_utils
     nopenagents_utils_release --> nopenagents_utils_forge
     nopenagents_utils_release --> nopenagents_utils_github
     nopenagents_utils_results --> nopenagents_runtime_state
-    nopenagents_utils_skip --> nopenagents_utils_hold
 ```

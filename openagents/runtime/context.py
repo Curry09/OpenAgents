@@ -17,6 +17,13 @@ from pathlib import Path
 from openagents.utils import forge as github
 
 
+def sections(*items: tuple[str, str]) -> str:
+    """Render non-empty dynamic prompt sections exactly once."""
+    return "\n\n".join(
+        f"--- {name} ---\n{text}" for name, text in items if isinstance(text, str) and text.strip()
+    )
+
+
 class Context:
     """# Spec-0060/T5: solve_issue 一次 run 的上下文源——按阶段产出占位符 dict。
 
@@ -122,9 +129,8 @@ def for_triage(*, work_dir: Path, issue: object) -> dict:
     """
     return {
         "work_dir": Path(work_dir),
-        "context": f"issue #{issue.number}「{issue.title}」\n\n{issue.body}",
+        "context": sections(("issue", f"issue #{issue.number}「{issue.title}」\n\n{issue.body}")),
         "issue_number": issue.number,
-        "issue_body": issue.body,
     }
 
 
@@ -137,22 +143,6 @@ def for_architecture(
         "context": spec_text,
         "issue_number": issue_number,
         "design_digest": design_digest,
-        "spec_text": spec_text,
-    }
-
-
-def for_admit(*, work_dir: Path, issue: object, dialogue: str) -> dict:
-    """准入裁决占位符：issue 正文 + **准入对话逐字稿**，供 recipes.vigil 派 admitter agent。
-
-    对话是这个阶段唯一的判据（人点没点头，只在人说的那句话里），故它必须是独立占位符——塞进
-    `issue_body` 里冒充正文，等于把「人说的话」和「issue 原文」混成一坨，agent 分不清在判哪个。
-    """
-    return {
-        "work_dir": Path(work_dir),
-        "context": f"issue #{issue.number}「{issue.title}」的准入对话",
-        "issue_number": issue.number,
-        "issue_body": issue.body,
-        "dialogue": dialogue,
     }
 
 
@@ -164,10 +154,9 @@ def for_reply(*, work_dir: Path, pr_number: int, branch: str, comment: object) -
     """
     return {
         "work_dir": Path(work_dir),
-        "context": comment.body,
+        "context": sections(("human comment", comment.body)),
         "pr_number": pr_number,
         "branch": branch,
-        "comment_body": comment.body,
     }
 
 
@@ -181,7 +170,6 @@ def for_issue_reply(*, work_dir: Path, issue_number: int, comment: object) -> di
     """
     return {
         "work_dir": Path(work_dir),
-        "context": comment.body,
+        "context": sections(("human comment", comment.body)),
         "issue_number": issue_number,
-        "comment_body": comment.body,
     }

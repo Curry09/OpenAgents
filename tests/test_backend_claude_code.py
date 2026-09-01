@@ -5,6 +5,7 @@
 - git status 走 subprocess.run。
 """
 
+import io
 import json
 import os
 import subprocess
@@ -43,9 +44,32 @@ def _assistant_tool(name, **inp):
     return json.dumps({"type": "assistant", "message": {"content": [block]}})
 
 
-def _result(text):
+def _assistant_usage(**usage):
+    """构造含中间轮 usage 的 assistant 事件；Spec-0079 要证明它不会被重复累计。"""
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "model": "intermediate-model",
+                "usage": usage,
+                "content": [{"type": "text", "text": "working"}],
+            },
+        }
+    )
+
+
+def _system_init(model):
+    return json.dumps({"type": "system", "subtype": "init", "model": model})
+
+
+def _result(text, *, usage=None, model_usage=None):
     """构造最终 result 事件（摘要来源）。"""
-    return json.dumps({"type": "result", "subtype": "success", "result": text, "is_error": False})
+    event = {"type": "result", "subtype": "success", "result": text, "is_error": False}
+    if usage is not None:
+        event["usage"] = usage
+    if model_usage is not None:
+        event["modelUsage"] = model_usage
+    return json.dumps(event)
 
 
 class _FakePopen:
@@ -53,6 +77,7 @@ class _FakePopen:
 
     def __init__(self, *, lines, returncode, pass_fds=()):
         self.stdout = iter(lines)
+        self.stdin = _RecordingStdin()
         self._returncode = returncode
         # Spec-0065/T2: 真 Popen 有 pid，后端要 proc_utils.publish(pid=proc.pid) 自报给认领桶。
         self.pid = 4242
@@ -64,6 +89,15 @@ class _FakePopen:
         return self._returncode
 
 
+class _RecordingStdin(io.StringIO):
+    def __init__(self):
+        super().__init__()
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
 class _FakeCompleted:
     """模拟 subprocess.run 的返回对象（用于 git status）。"""
 
@@ -73,18 +107,25 @@ class _FakeCompleted:
         self.stderr = ""
 
 
+class _Calls(list):
+    """List-shaped call log that also exposes constructed fake processes."""
+
+
 def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
     """打桩 Popen(claude 事件流) 与 run(git)，记录调用以便断言。"""
-    popen_calls = []
+    popen_calls = _Calls()
+    popen_instances = []
     run_calls = []
 
     def fake_popen(cmd, **kwargs):
         popen_calls.append((cmd, kwargs))
-        return _FakePopen(
+        instance = _FakePopen(
             lines=[line + "\n" for line in claude_lines],
             returncode=claude_returncode,
             pass_fds=kwargs.get("pass_fds", ()),
         )
+        popen_instances.append(instance)
+        return instance
 
     def fake_run(cmd, **kwargs):
         run_calls.append((cmd, kwargs))
@@ -92,6 +133,7 @@ def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", fake_run)
+    popen_calls.instances = popen_instances
     return popen_calls, run_calls
 
 
@@ -139,6 +181,120 @@ def test_summary_comes_from_result_event(monkeypatch, tmp_path):
     assert isinstance(result, AgentResult)
     assert result.changed is True
     assert "done editing foo" in result.summary
+
+
+def test_token_usage_comes_from_final_aggregate_result_only(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _system_init("configured-model"),
+            _assistant_usage(
+                input_tokens=999,
+                output_tokens=999,
+                cache_creation_input_tokens=999,
+                cache_read_input_tokens=999,
+            ),
+            _result(
+                "done",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 4,
+                    "cache_creation_input_tokens": 3,
+                    "cache_read_input_tokens": 20,
+                    "server_tool_use": {"web_search_requests": 0},
+                },
+                model_usage={"user-api-model": {"inputTokens": 10, "outputTokens": 4}},
+            ),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.input_tokens == 10
+    assert result.usage.output_tokens == 4
+    assert result.usage.cache_creation_input_tokens == 3
+    assert result.usage.cache_read_input_tokens == 20
+    assert result.usage.total_tokens == 37
+    assert result.usage.total_source == "derived-components"
+    assert result.usage.model == "user-api-model"
+
+
+def test_token_usage_uses_init_model_when_model_usage_is_absent(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _system_init("nex-agi/deepseek-v3.1-nex-1"),
+            _result("done", usage={"input_tokens": 7, "output_tokens": 2}),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.model == "nex-agi/deepseek-v3.1-nex-1"
+    assert result.usage.total_tokens == 9
+
+
+def test_token_usage_preserves_explicit_total_and_multiple_models(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _result(
+                "done",
+                usage={"input_tokens": 7, "output_tokens": 2, "total_tokens": 11},
+                model_usage={"model-b": {}, "model-a": {}},
+            )
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.total_tokens == 11
+    assert result.usage.total_source == "reported"
+    assert result.usage.model == "model-a,model-b"
+
+
+def test_reasoning_only_usage_does_not_invent_zero_total(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[_result("done", usage={"reasoning_tokens": 5})],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.reasoning_tokens == 5
+    assert result.usage.total_tokens is None
+    assert result.usage.total_source is None
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [None, {}, {"input_tokens": -1}, {"output_tokens": True}, {"input_tokens": "12"}],
+)
+def test_missing_or_malformed_result_usage_is_unavailable(
+    monkeypatch, tmp_path, usage
+):
+    _patch(
+        monkeypatch,
+        claude_lines=[_result("done", usage=usage)],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is None
 
 
 def test_long_result_is_only_truncated_for_display(monkeypatch, tmp_path):
@@ -203,13 +359,32 @@ def test_invokes_claude_stream_json_in_work_dir(monkeypatch, tmp_path):
     assert len(popen_calls) == 1
     cmd, kwargs = popen_calls[0]
     assert cmd[:2] == [CLAUDE_BIN, "-p"]
-    prompt = cmd[2]
-    assert "修复 bug" in prompt
-    assert "历史 comment" in prompt
+    assert "修复 bug" not in cmd
+    assert "历史 comment" not in cmd
+    assert kwargs["stdin"] == subprocess.PIPE
     assert "--permission-mode" in cmd and "acceptEdits" in cmd
     # RFC-0003：实时事件流参数。
     assert "--output-format" in cmd and "stream-json" in cmd and "--verbose" in cmd
     assert kwargs["cwd"] == tmp_path
+
+
+def test_prompt_is_written_once_to_stdin_and_never_argv(monkeypatch, tmp_path):
+    sentinel = "SENSITIVE-LONG-PROMPT-" * 10000
+    popen_calls, _ = _patch(
+        monkeypatch,
+        claude_lines=[_result("ok")],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="任务", context=sentinel)
+
+    cmd, _ = popen_calls[0]
+    assert all(sentinel not in arg for arg in cmd)
+    written = popen_calls.instances[0].stdin.getvalue()
+    assert written == _build_prompt(task="任务", context=sentinel)
+    assert written.count(sentinel) == 1
+    assert popen_calls.instances[0].stdin.close_calls == 1
 
 
 def test_git_status_runs_against_work_dir(monkeypatch, tmp_path):
@@ -400,6 +575,7 @@ class _WatchdogPopen:
         self.terminated = False
         self.killed = False
         self.stdout = self._iter()
+        self.stdin = io.StringIO()
 
     def _iter(self):
         while True:

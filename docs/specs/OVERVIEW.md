@@ -263,6 +263,14 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 ### 0078 Agent 调用协议保真与隐私遥测
 将供机器解析的完整输出与面向人的限长摘要分离，并只记录工具名称序列以统计取证预算，使结构化协议可靠且实验耗时可解释。
 
+### 0079 OpenAgents Claude Code API token 用量可观测性
+从 OpenAgents 已使用的 Claude Code stream-json 最终事件采集其 API token usage，按角色与调用写入本地账本，并在报告中同时展示消耗和采集覆盖率；拿不到用量时显式记录 unavailable，绝不把缺失当作零。
+
+### 0081 自治失败收口与单份 Prompt 契约
+移除 needs-human 控制协议、标签终态、人工阶段与 hold 入口，以有限重试和 automation-failed 机器终态闭合无人值守状态机；同时规定大段动态材料只经 context 传输一次，并以运行时重叠校验和 stdin 传输阻止 prompt 重复与 argv 膨胀。
+- e2e 意图：证明所有生产角色的一次调用只携带一份动态材料，Claude Code 子进程不在 argv 暴露或复制 prompt；证明模型拒绝、协议错误、连续崩溃、零进展和超时均在有限调用内收敛到可解释的 automation-failed，同一事实不再调用模型，而材料事实变化后可由自动化自行复活，整个活动运行面不再产生或消费 needs-human。
+  - 测法：运行 scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh；脚本用记录型 backend 覆盖 triage、draft、architecture、implement、reply、test、review、merge 的真实组装路径，以唯一 sentinel 断言最终 prompt 中只出现一次，并以 Popen seam 断言 prompt 只经 stdin；随后在临时 SQLite 队列与假 forge 上分别注入可重试崩溃、旧 needs-human 输出、零进展和事实变化，断言调用次数有界、automation-failed 标签与带 fingerprint 的签名诊断落地、未变事实不重派、变化事实自动清除失败态并重新入队；最后扫描活动源码、模板、CLI help 与桌面类型，除专用迁移脚本外不得出现 needs-human、OWNER_HUMAN 或 --hold。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -559,6 +567,15 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0078 | 0078/T1 | 完整机器协议输出 | done | — | openagents/backends/base.py<br>openagents/backends/claude_code.py<br>openagents/runtime/engine.py<br>openagents/utils/align.py<br>tests/test_base.py<br>tests/test_backend_claude_code.py<br>tests/test_runtime_engine.py |
 | 0078 | 0078/T2 | 最小化工具调用遥测 | done | T1 | openagents/runtime/tool_usage.py<br>tests/test_runtime_tool_usage.py |
 | 0078 | 0078/T3 | 后端事件接线与报告 | done | T1, T2 | openagents/cli.py<br>tests/test_cli_timing.py |
+| 0079 | 0079/T1 | TokenUsage 后端结果契约 | done | — | openagents/backends/base.py<br>tests/test_base.py |
+| 0079 | 0079/T2 | Claude Code stream usage 适配与真实接线 | done | T1 | openagents/backends/claude_code.py<br>openagents/runtime/engine.py<br>tests/test_backend_claude_code.py<br>tests/test_runtime_engine.py |
+| 0079 | 0079/T3 | 调用级 token 账本与 runtime 接线 | done | T1 | openagents/runtime/token_usage.py<br>tests/test_runtime_token_usage.py |
+| 0079 | 0079/T4 | Token 报告与用户契约 | done | T3 | tests/test_cli_timing.py<br>docs/cli.md |
+| 0079 | 0079/T5 | 离线端到端与真实 Claude Code API canary | done | T2, T3, T4 | scripts/e2e-spec-0079-token-usage-observability.sh<br>scripts/live-spec-0079-token-usage-observability.sh<br>scripts/live_spec_0079_token_usage_observability.py<br>docs/e2e-results/0079-token-usage-observability.md |
+| 0081 | 0081/T1 | 单份 Prompt Envelope 与 needs-human 模型协议退役 | done | — | openagents/runtime/engine.py<br>openagents/runtime/context.py<br>openagents/backends/claude_code.py<br>openagents/agents/admitter.py<br>openagents/agents/architect.py<br>openagents/agents/curator.py<br>openagents/agents/deliver.py<br>openagents/agents/drafter.py<br>openagents/agents/implementer.py<br>openagents/agents/merger.py<br>openagents/agents/replier.py<br>openagents/agents/reviewer.py<br>openagents/agents/tester.py<br>openagents/agents/triager.py<br>openagents/recipes/stages.py<br>tests/test_runtime_engine.py<br>tests/test_runtime_context.py<br>tests/test_runtime_context_issue_reply.py<br>tests/test_backend_claude_code.py<br>tests/test_agents_architect.py<br>tests/test_agents_deliver.py<br>tests/test_agents_docstring_rule.py<br>tests/test_agents_drafter.py<br>tests/test_agents_merger.py<br>tests/test_agents_prompts.py<br>tests/test_agents_replier_issue.py<br>tests/test_agents_triager_replier.py<br>tests/test_recipe_stages.py<br>tests/test_prompt_contract.py |
+| 0081 | 0081/T2 | Fingerprint 绑定的自治失败收口与自动复活 | done | T1 | openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/legacy.py<br>openagents/runtime/state.py<br>openagents/runtime/token_usage.py<br>openagents/utils/blocknote.py<br>openagents/utils/forge.py<br>openagents/utils/gitea.py<br>openagents/utils/github.py<br>openagents/utils/notes.py<br>openagents/utils/release.py<br>openagents/utils/workspace.py<br>openagents/desktop/daemon.py<br>apps/desktop/src/renderer/src/types.ts<br>apps/desktop/src/renderer/src/nav/pending.ts<br>apps/desktop/src/renderer/src/nav/pending.test.ts<br>tests/conftest.py<br>tests/test_blocknote.py<br>tests/test_blocknote_hold_merge.py<br>tests/test_desktop_daemon.py<br>tests/test_ensure_prerequisites.py<br>tests/test_gitea_driver.py<br>tests/test_github.py<br>tests/test_github_remove_label.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_admit.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_timing.py<br>tests/test_release.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state_converge.py |
+| 0081 | 0081/T3 | 人工 stage owner、hold CLI 与配置表面清退 | done | — | openagents/cli.py<br>openagents/data/openagents.yml.template<br>openagents/utils/agent_config.py<br>openagents/utils/fleet.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>tests/test_agent_config.py<br>tests/test_cli.py<br>tests/test_cli_new_stack.py<br>tests/test_hold.py<br>tests/test_skip.py |
+| 0081 | 0081/T4 | 旧状态迁移、当前文档与端到端退役证明 | done | T2, T3 | README.md<br>docs/e2e-results/0081-autonomous-failure-and-prompt-contract.md<br>docs/specs/0081-autonomous-failure-and-prompt-contract.md<br>scripts/e2e-spec-0058-needs-human-reply-unblock.sh<br>scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh<br>scripts/migrate-needs-human-state.py<br>tests/test_migrate_needs_human_state.py |
 
 ## 跨 feature 关系图
 
@@ -1006,6 +1023,19 @@ graph LR
         n0078_T2["T2 最小化工具调用遥测"]
         n0078_T3["T3 后端事件接线与报告"]
     end
+    subgraph G0079[0079 token-usage-observability]
+        n0079_T1["T1 TokenUsage 后端结果契约"]
+        n0079_T2["T2 Claude Code stream usage 适配与真实接线"]
+        n0079_T3["T3 调用级 token 账本与 runtime 接线"]
+        n0079_T4["T4 Token 报告与用户契约"]
+        n0079_T5["T5 离线端到端与真实 Claude Code API canary"]
+    end
+    subgraph G0081[0081 autonomous-failure-and-prompt-contract]
+        n0081_T1["T1 单份 Prompt Envelope 与 needs-human 模型协议退役"]
+        n0081_T2["T2 Fingerprint 绑定的自治失败收口与自动复活"]
+        n0081_T3["T3 人工 stage owner、hold CLI 与配置表面清退"]
+        n0081_T4["T4 旧状态迁移、当前文档与端到端退役证明"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1252,6 +1282,15 @@ graph LR
     n0078_T2 --> n0078_T1
     n0078_T3 --> n0078_T1
     n0078_T3 --> n0078_T2
+    n0079_T2 --> n0079_T1
+    n0079_T3 --> n0079_T1
+    n0079_T4 --> n0079_T3
+    n0079_T5 --> n0079_T2
+    n0079_T5 --> n0079_T3
+    n0079_T5 --> n0079_T4
+    n0081_T2 --> n0081_T1
+    n0081_T4 --> n0081_T2
+    n0081_T4 --> n0081_T3
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1265,28 +1304,36 @@ graph LR
 | .claude/skills/spec-driven-development/SKILL.md | 0014, 0024, 0072 |
 | .claude/skills/spec-driven-development/references/task-fields.md | 0024, 0072 |
 | .github/workflows/ci.yml | 0014, 0023 |
-| README.md | 0026, 0029, 0054, 0069 |
+| README.md | 0026, 0029, 0054, 0069, 0081 |
+| apps/desktop/src/renderer/src/nav/pending.test.ts | 0073, 0081 |
+| apps/desktop/src/renderer/src/nav/pending.ts | 0073, 0081 |
+| apps/desktop/src/renderer/src/types.ts | 0073, 0081 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
-| openagents/agents/deliver.py | 0017, 0060 |
-| openagents/agents/drafter.py | 0059, 0062, 0076, 0077 |
-| openagents/agents/implementer.py | 0059, 0060, 0077 |
-| openagents/agents/merger.py | 0017, 0074, 0075 |
+| openagents/agents/admitter.py | 0065, 0081 |
+| openagents/agents/architect.py | 0076, 0081 |
+| openagents/agents/curator.py | 0065, 0081 |
+| openagents/agents/deliver.py | 0017, 0060, 0081 |
+| openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081 |
+| openagents/agents/implementer.py | 0059, 0060, 0077, 0081 |
+| openagents/agents/merger.py | 0017, 0074, 0075, 0081 |
 | openagents/agents/planner.py | 0060, 0064 |
-| openagents/agents/replier.py | 0016, 0059, 0061 |
-| openagents/agents/reviewer.py | 0060, 0076 |
-| openagents/agents/tester.py | 0060, 0076 |
+| openagents/agents/replier.py | 0016, 0059, 0061, 0081 |
+| openagents/agents/reviewer.py | 0060, 0076, 0081 |
+| openagents/agents/tester.py | 0060, 0076, 0081 |
+| openagents/agents/triager.py | 0061, 0081 |
 | openagents/backends/__init__.py | 0001, 0029 |
-| openagents/backends/base.py | 0001, 0029, 0078 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078 |
+| openagents/backends/base.py | 0001, 0029, 0078, 0079 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
-| openagents/data/openagents.yml.template | 0067, 0074 |
+| openagents/data/openagents.yml.template | 0067, 0074, 0081 |
+| openagents/desktop/daemon.py | 0073, 0081 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
 | openagents/evidence_gate.py | 0040, 0051 |
@@ -1304,16 +1351,17 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076 |
-| openagents/runtime/engine.py | 0059, 0060, 0075, 0078 |
-| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076 |
-| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081 |
+| openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081 |
+| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076, 0081 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081 |
+| openagents/runtime/token_usage.py | 0079, 0081 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/spec/mutate.py | 0014, 0015, 0076 |
@@ -1323,51 +1371,65 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081 |
 | openagents/utils/align.py | 0062, 0078 |
+| openagents/utils/blocknote.py | 0062, 0081 |
 | openagents/utils/config.py | 0061, 0062 |
 | openagents/utils/envcheck.py | 0061, 0062 |
+| openagents/utils/fleet.py | 0062, 0081 |
 | openagents/utils/fleet_config.py | 0061, 0062 |
+| openagents/utils/forge.py | 0074, 0081 |
 | openagents/utils/git.py | 0035, 0060, 0061 |
-| openagents/utils/gitea.py | 0074, 0075 |
-| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074 |
-| openagents/utils/hold.py | 0061, 0062 |
+| openagents/utils/gitea.py | 0074, 0075, 0081 |
+| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074, 0081 |
+| openagents/utils/hold.py | 0061, 0062, 0081 |
 | openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064, 0074 |
-| openagents/utils/notes.py | 0061, 0062 |
-| openagents/utils/release.py | 0035, 0061, 0062, 0063, 0074 |
+| openagents/utils/notes.py | 0061, 0062, 0081 |
+| openagents/utils/release.py | 0035, 0061, 0062, 0063, 0074, 0081 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
-| openagents/utils/skip.py | 0061, 0062 |
-| openagents/utils/workspace.py | 0035, 0062, 0068 |
+| openagents/utils/skip.py | 0061, 0062, 0081 |
+| openagents/utils/workspace.py | 0035, 0062, 0068, 0081 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
-| tests/conftest.py | 0065, 0070 |
-| tests/test_agent_config.py | 0064, 0067, 0076 |
-| tests/test_agents_drafter.py | 0062, 0076 |
-| tests/test_agents_merger.py | 0017, 0074, 0075 |
-| tests/test_agents_prompts.py | 0060, 0077 |
-| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078 |
+| scripts/e2e-spec-0058-needs-human-reply-unblock.sh | 0058, 0081 |
+| tests/conftest.py | 0065, 0070, 0081 |
+| tests/test_agent_config.py | 0064, 0067, 0076, 0081 |
+| tests/test_agents_architect.py | 0076, 0081 |
+| tests/test_agents_deliver.py | 0017, 0081 |
+| tests/test_agents_docstring_rule.py | 0059, 0081 |
+| tests/test_agents_drafter.py | 0062, 0076, 0081 |
+| tests/test_agents_merger.py | 0017, 0074, 0075, 0081 |
+| tests/test_agents_prompts.py | 0060, 0077, 0081 |
+| tests/test_agents_replier_issue.py | 0016, 0081 |
+| tests/test_agents_triager_replier.py | 0061, 0081 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081 |
 | tests/test_backfill.py | 0025, 0029 |
-| tests/test_base.py | 0001, 0029, 0078 |
+| tests/test_base.py | 0001, 0029, 0078, 0079 |
+| tests/test_blocknote.py | 0032, 0081 |
+| tests/test_blocknote_hold_merge.py | 0041, 0081 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069 |
-| tests/test_cli_new_stack.py | 0061, 0062, 0064 |
-| tests/test_cli_timing.py | 0066, 0078 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069, 0081 |
+| tests/test_cli_new_stack.py | 0061, 0062, 0064, 0081 |
+| tests/test_cli_timing.py | 0066, 0078, 0079 |
 | tests/test_config.py | 0001, 0029, 0033 |
 | tests/test_conflict.py | 0028, 0038, 0056 |
 | tests/test_conflict_guidance.py | 0036, 0038, 0045, 0056 |
 | tests/test_conflictdiag.py | 0034, 0038 |
+| tests/test_desktop_daemon.py | 0073, 0081 |
 | tests/test_e2e.py | 0013, 0029, 0040 |
-| tests/test_ensure_prerequisites.py | 0023, 0029, 0062 |
+| tests/test_ensure_prerequisites.py | 0023, 0029, 0062, 0081 |
 | tests/test_envcheck.py | 0030, 0055 |
 | tests/test_evidence_gate.py | 0040, 0051 |
 | tests/test_executor.py | 0040, 0051, 0055, 0056 |
 | tests/test_fleet.py | 0027, 0029 |
-| tests/test_gitea_driver.py | 0074, 0075 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055, 0065 |
+| tests/test_gitea_driver.py | 0074, 0075, 0081 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055, 0065, 0081 |
 | tests/test_github_claim_label.py | 0039, 0049 |
+| tests/test_github_remove_label.py | 0032, 0081 |
+| tests/test_hold.py | 0020, 0081 |
 | tests/test_identity.py | 0011, 0029, 0063 |
 | tests/test_issuecheck.py | 0043, 0062 |
 | tests/test_messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0029, 0038, 0040, 0045, 0051, 0055, 0057, 0062 |
@@ -1382,20 +1444,24 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077 |
-| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075 |
-| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077 |
-| tests/test_recipe_vigil_admit.py | 0065, 0074 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081 |
+| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081 |
+| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077, 0081 |
+| tests/test_recipe_vigil_admit.py | 0065, 0074, 0081 |
 | tests/test_recipe_vigil_discovery.py | 0035, 0074 |
-| tests/test_recipe_vigil_queue.py | 0065, 0075 |
-| tests/test_release.py | 0023, 0029, 0035, 0063 |
+| tests/test_recipe_vigil_queue.py | 0065, 0075, 0081 |
+| tests/test_recipe_vigil_timing.py | 0066, 0081 |
+| tests/test_release.py | 0023, 0029, 0035, 0063, 0081 |
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
-| tests/test_runtime_context.py | 0060, 0065, 0076 |
-| tests/test_runtime_engine.py | 0060, 0075, 0078 |
-| tests/test_runtime_gates.py | 0017, 0060, 0076 |
+| tests/test_runtime_context.py | 0060, 0065, 0076, 0081 |
+| tests/test_runtime_context_issue_reply.py | 0016, 0081 |
+| tests/test_runtime_engine.py | 0060, 0075, 0078, 0079, 0081 |
+| tests/test_runtime_gates.py | 0017, 0060, 0076, 0081 |
 | tests/test_runtime_state.py | 0076, 0077 |
+| tests/test_runtime_state_converge.py | 0063, 0081 |
+| tests/test_skip.py | 0054, 0081 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
 | tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024, 0076 |
@@ -3509,4 +3575,66 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0079 OpenAgents Claude Code API token 用量可观测性（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 TokenUsage 后端结果契约"]
+    nT2["T2 Claude Code stream usage 适配与真实接线"]
+    nT3["T3 调用级 token 账本与 runtime 接线"]
+    nT4["T4 Token 报告与用户契约"]
+    nT5["T5 离线端到端与真实 Claude Code API canary"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT3 --> nT4
+    nT2 --> nT5
+    nT3 --> nT5
+    nT4 --> nT5
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    v_T5_1["T5 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+    class v_T5_1 st_done;
+```
+
+### 0081 自治失败收口与单份 Prompt 契约（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 单份 Prompt Envelope 与 needs-human 模型协议退役"]
+    nT2["T2 Fingerprint 绑定的自治失败收口与自动复活"]
+    nT3["T3 人工 stage owner、hold CLI 与配置表面清退"]
+    nT4["T4 旧状态迁移、当前文档与端到端退役证明"]
+    nT1 --> nT2
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
 ```

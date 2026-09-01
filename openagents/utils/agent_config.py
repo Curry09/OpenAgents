@@ -2,7 +2,7 @@
 
 一份 `.openagents/openagents.yml` 作「用哪些 agent + 每道闸归谁把关」的**单一真源**（承理念 1
 奥卡姆 + 理念 2 去中心化）：`agents` 段声明每个角色接哪个后端（同项目可混接 Claude Code / Codex /
-nexau）、`stages` 段用 `agent`/`human`/`skip` 三态声明每个可配阶段归属、`release` 段声明顶层发版
+nexau）、`stages` 段用 `agent`/`skip` 声明每个可配阶段归属、`release` 段声明顶层发版
 策略、`defaults`/`repos` 收编多仓库统管（沿用 `utils.fleet_config` 的 defaults 合并模式）。
 
 沿用 `utils.fleet_config` 同款 `ruamel.yaml` + `jsonschema` Draft202012 声明式校验（理念 1，不增
@@ -37,16 +37,14 @@ from ruamel.yaml.error import YAMLError
 from openagents.utils import github
 from openagents.utils.forge import FORGE_GITEA, FORGE_GITHUB
 
-# Spec-0064/T1: 三态所有者字面量——`stages` 每闸的合法取值取自它们的子集（见 _STAGE_VALID_OWNERS）。
+# Spec-0081/T3: 阶段只允许自动执行或显式跳过；人工 owner 已退役。
 OWNER_AGENT = (
     "agent"  # 自动化拥有此闸（红了自动打回 implementer，非「agent 判客观事实」，见分界线）
 )
-OWNER_HUMAN = "human"  # 停在此闸打 needs-human、挂起等人
 OWNER_SKIP = "skip"  # 不设此闸（当 PASS 放行）
 
 # Spec-0064/T1: 七个**可配**阶段名 + 各自合法取值（不是所有闸都收全三态）——见 spec Reference-level
-# 「合法取值」列。conflict/merge 冲突必须解·合并必须有人或自动化把关，故不可 skip；rfc 起草只 agent
-# 或不写（skip），不存在「human 起草」（人要起草直接写代码，不走本框架的 agent 起草闸）。
+# 「合法取值」列。conflict/merge 恒由自动化执行，故不可 skip；rfc 起草只 agent 或不写（skip）。
 STAGE_TRIAGE = "triage"
 STAGE_RFC = "rfc"
 STAGE_ARCHITECTURE = "architecture"
@@ -57,17 +55,17 @@ STAGE_REVIEW = "review"
 STAGE_MERGE = "merge"
 
 _STAGE_VALID_OWNERS: dict[str, tuple[str, ...]] = {
-    STAGE_TRIAGE: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
+    STAGE_TRIAGE: (OWNER_AGENT, OWNER_SKIP),
     STAGE_RFC: (OWNER_AGENT, OWNER_SKIP),
-    STAGE_ARCHITECTURE: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
-    STAGE_CONFLICT: (OWNER_AGENT, OWNER_HUMAN),
-    STAGE_CI: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
-    STAGE_E2E: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
-    STAGE_REVIEW: (OWNER_AGENT, OWNER_HUMAN, OWNER_SKIP),
-    STAGE_MERGE: (OWNER_AGENT, OWNER_HUMAN),
+    STAGE_ARCHITECTURE: (OWNER_AGENT, OWNER_SKIP),
+    STAGE_CONFLICT: (OWNER_AGENT,),
+    STAGE_CI: (OWNER_AGENT, OWNER_SKIP),
+    STAGE_E2E: (OWNER_AGENT, OWNER_SKIP),
+    STAGE_REVIEW: (OWNER_AGENT, OWNER_SKIP),
+    STAGE_MERGE: (OWNER_AGENT,),
 }
 
-# Spec-0064/T1: 内建默认 stages——**全 agent**（含 merge=agent，等价今天不带 --hold 的全自动合并），
+# Spec-0064/T1: 内建默认 stages——**全 agent**（含 merge=agent 的全自动合并），
 # 使不写 YAML 的用户零感知（承 Drawbacks「= 今天的硬编码行为」）。default review=agent 天然不撞
 # 「不许零闸」守卫（review 在，merge 自动也站得住）。
 _DEFAULT_STAGES: dict[str, str] = {stage: OWNER_AGENT for stage in _STAGE_VALID_OWNERS}
@@ -207,12 +205,12 @@ class AgentPolicy:
 
 @dataclass(frozen=True)
 class StagePolicy:
-    """# Spec-0064/T1: 阶段 → 所有者（agent/human/skip）的 resolved 三态映射。"""
+    """# Spec-0081/T3: 阶段 → 所有者（agent/skip）的 resolved 映射。"""
 
     owners: dict[str, str] = field(default_factory=dict)
 
     def owner_of(self, *, stage: str) -> str:
-        """取某阶段归谁把关（agent/human/skip）；未声明 → 内建默认（agent）。"""
+        """取某阶段归谁把关（agent/skip）；未声明 → 内建默认（agent）。"""
         return self.owners.get(stage, _DEFAULT_STAGES.get(stage, OWNER_AGENT))
 
 
@@ -321,6 +319,7 @@ def load_agent_config(*, path: Path) -> AgentConfig:
     data = _load_yaml(path=resolved_path)
     if data is None:
         return default_config()  # 空文件（YAML 解析出 None）→ 全默认。
+    _check_retired_human_owners(data=data)
     _check_reserved_stage_names(data=data)
     _validate(data=data)
     return _build_config(data=data, base_dir=resolved_path.resolve().parent)
@@ -370,6 +369,24 @@ def _check_reserved_stage_names(*, data: dict) -> None:
                 )
 
 
+def _check_retired_human_owners(*, data: dict) -> None:
+    """Fail closed with an actionable path for configurations from before Spec-0081."""
+    blocks: list[tuple[str, object]] = [("stages", data.get("stages"))]
+    for index, repo in enumerate(data.get("repos") or []):
+        if isinstance(repo, dict):
+            blocks.append((f"repos/{index}/stages", repo.get("stages")))
+    retired = "hu" + "man"
+    for prefix, stages in blocks:
+        if not isinstance(stages, dict):
+            continue
+        for stage, owner in stages.items():
+            if owner == retired:
+                raise AgentConfigError(
+                    f"{prefix}/{stage}: owner={retired} 已退役；请明确改为 agent"
+                    + (" 或 skip" if OWNER_SKIP in _STAGE_VALID_OWNERS.get(stage, ()) else "")
+                )
+
+
 def _validate(*, data: dict) -> None:
     """jsonschema 结构/类型/每闸合法取值校验 + 手工「不许零闸」守卫；任一错误汇总成 AgentConfigError。"""
     validator = Draft202012Validator(AGENT_CONFIG_SCHEMA)
@@ -398,8 +415,7 @@ def _validate(*, data: dict) -> None:
 def _guard_no_zero_gate(*, stages: dict[str, str], scope: str) -> None:
     """拒绝 `review: skip` + `merge: agent`——未审就自动盲合进 main（理念 5「PR 需人审」的底线）。
 
-    只要 `merge: human` 在（人点头），跳 agent-review 就站得住（人兜住）；`merge: agent`（自动合）
-    时 review 必须在（agent 或 human）。天然不撞内建默认（review=agent）。
+    merge 恒由 agent 执行，因此 review 不能跳过。天然不撞内建默认（review=agent）。
     """
     review = stages.get(STAGE_REVIEW, _DEFAULT_STAGES[STAGE_REVIEW])
     merge = stages.get(STAGE_MERGE, _DEFAULT_STAGES[STAGE_MERGE])
@@ -412,12 +428,12 @@ def _guard_no_zero_gate(*, stages: dict[str, str], scope: str) -> None:
     if review == OWNER_SKIP and merge == OWNER_AGENT:
         raise AgentConfigError(
             f"{scope}: 不许零闸——review:skip + merge:agent 会让未审代码自动盲合进 main；"
-            f"要么开 review、要么把 merge 交给人（merge:human）"
+            f"请把 review 改为 agent"
         )
 
 
 def _merge_stages(*, base: dict | None, override: dict | None) -> dict[str, str]:
-    """把内建默认 → 顶层 → 每仓覆盖三级合并成完整 stages 三态映射（未覆盖回落内建默认）。"""
+    """把内建默认 → 顶层 → 每仓覆盖三级合并成完整 stages 映射（未覆盖回落内建默认）。"""
     merged = dict(_DEFAULT_STAGES)
     if base:
         merged.update(base)

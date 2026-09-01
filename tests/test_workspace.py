@@ -62,6 +62,23 @@ def test_prepare_uses_base_override(tmp_path, monkeypatch):
     assert any("worktree add -b openagents/issue-3" in c and "origin/dev" in c for c in joined)
 
 
+def test_prepare_resumes_existing_remote_issue_branch(tmp_path, monkeypatch):
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+    monkeypatch.setattr(ws, "remote_branch_exists", lambda *, branch: True)
+
+    ws.prepare(issue_number=3, branch="openagents/issue-3", base="main")
+
+    joined = _joined(recorder)
+    assert any("fetch origin openagents/issue-3" in command for command in joined)
+    assert any(
+        "worktree add -b openagents/issue-3" in command
+        and "origin/openagents/issue-3" in command
+        for command in joined
+    )
+
+
 def test_prepare_fetch_failure_raises(tmp_path, monkeypatch):
     # fetch 走 check=True，失败应抛 WorkspaceError。
     monkeypatch.setattr(subprocess, "run", _GitRecorder(fail={"fetch"}))

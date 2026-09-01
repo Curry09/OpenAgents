@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from openagents.cli import build_parser, main
+from openagents.cli import _render_report, build_parser, main
 from openagents.runtime import timing, tool_usage
 from openagents.utils.config import ProjectContext
 
@@ -115,6 +115,39 @@ def test_report_includes_tool_lookup_budget_metrics(tmp_path, monkeypatch, capsy
     assert "implementer" in out
     assert "8.0" in out
     assert "缺原因" in out
+
+
+def test_report_includes_token_totals_and_coverage(tmp_path):
+    text = _render_report(
+        events=[],
+        interval=60,
+        path=tmp_path / "timing.jsonl",
+        token_path=tmp_path / "token-usage.jsonl",
+        token_events=[
+            {
+                "role": "implementer",
+                "status": "success",
+                "usage_source": "reported",
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "cache_read_input_tokens": 20,
+                "cache_creation_input_tokens": 3,
+                "reasoning_tokens": 1,
+                "total_tokens": 36,
+                "total_source": "derived-components",
+            },
+            {
+                "role": "implementer",
+                "status": "backend_error",
+                "usage_source": "unavailable",
+            },
+        ],
+    )
+    assert "token 用量与采集覆盖率" in text
+    assert "implementer" in text
+    assert "missing" in text
+    assert "      2         1        1" in text
+    assert "missing 不计入 token 合计" in text
 
 
 # --------------------------------------------------------------------------------------------------

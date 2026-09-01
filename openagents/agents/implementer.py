@@ -20,7 +20,7 @@ PROMPT = Template(
 不得仅为重复确认已带 source_revision 和 verification 的同一事实而
 重新扫描对应依赖或目录。
 
-若下方有「评审反馈」，说明这是一轮迭代：请针对反馈逐条修改；反馈为空则为首轮实现。
+若运行时上下文含「feedback」，说明这是一轮迭代：请针对反馈逐条修改；没有则为首轮实现。
 
 【docstring 规范（PEP 257 / PEP 8 / Google §3.8）——初次编写即应合规，不依赖 lint 事后修正】
 - 模块 docstring：首行一句干净的英文人话摘要（给 help() 用、句号结尾）→ 空行 → 用法示例 → `Exports:` 逐个列出导出的类/异常/函数各带一行摘要；`__init__.py` 另列导出的子模块/子包。**spec-id 上移为文件顶部的 `#` 注释行**（像 CPython argparse.py 把 `# Author:` 放 docstring 之上），**禁止 `\"\"\"# Spec-…` 写法**（`#` 在三引号里是字面文本，会原样进 `__doc__` 污染 `help()`）。
@@ -31,8 +31,7 @@ PROMPT = Template(
 收尾前先确认本分支能与最新 `origin/main` 干净合并：取最新 main 并入/变基，若有冲突就地解决（OVERVIEW.md 这类生成式索引直接 `spec render` 重渲、其余语义解决）。完成后自负交付（commit + push），最后只输出一行 JSON：
 {"summary": "<你本轮实现/迭代了什么的一句话概述>", "lookup_exception_reason": "<超过取证预算的客观原因；未超过则为空字符串>"}
 
-评审反馈：
-$feedback
+动态 issue、feedback 与 evidence 由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 

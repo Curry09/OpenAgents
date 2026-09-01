@@ -3,7 +3,7 @@
 薄路由验证（打桩 recipe/工厂，不真跑守夜、不触真实 gh/后端）：
   - 人面向仅 vigil/issue/backfill-rfc/release 在册；旧九命令（rfc/refine-rfc/implement/iterate/
     solve/poll/watch/vigil-all/fleet）不再注册；reply-comment 仍可解析（隐藏，help=SUPPRESS）。
-  - _effective_config：YAML 单一真源 + flag 单次覆盖并存；--hold/--skip 覆盖 stages 三态；矛盾/零闸报错。
+  - _effective_config：YAML 单一真源 + --skip 单次覆盖并存；非法旁路与零闸报错。
   - backfill-rfc 转发 recipes.backfill；reply-comment 转发 identity.post_signed_comment。
   - post_signed_comment 同步后校验漏签 → 补签（非只 warn）。
 """
@@ -78,8 +78,6 @@ def test_vigil_parses_override_flags():
             "--base",
             "dev",
             "--once",
-            "--hold",
-            "merge",
             "--skip",
             "ci",
             "--config",
@@ -88,7 +86,6 @@ def test_vigil_parses_override_flags():
     )
     assert args.interval == 5
     assert args.label == ["bug"]
-    assert args.hold == "merge"
     assert args.skip == "ci"
     assert args.once is True
 
@@ -119,26 +116,24 @@ def test_effective_config_missing_yaml_defaults(tmp_path):
 
 
 def test_effective_config_reads_yaml(tmp_path):
-    _write_config(tmp_path, "stages:\n  merge: human\n")
+    _write_config(tmp_path, "stages:\n  e2e: skip\n")
     ctx = _FakeCtx(tmp_path)
     config = _effective_config(ctx=ctx, args=_vigil_args())
-    assert config.stages.owner_of(stage="merge") == "human"
+    assert config.stages.owner_of(stage="e2e") == "skip"
 
 
 def test_effective_config_flag_overrides_yaml(tmp_path):
-    _write_config(tmp_path, "stages:\n  merge: human\n")
+    _write_config(tmp_path, "stages:\n  e2e: skip\n")
     ctx = _FakeCtx(tmp_path)
-    config = _effective_config(ctx=ctx, args=_vigil_args(skip="ci", hold="review", base="dev"))
+    config = _effective_config(ctx=ctx, args=_vigil_args(skip="ci", base="dev"))
     assert config.stages.owner_of(stage="ci") == "skip"
-    assert config.stages.owner_of(stage="review") == "human"
     assert config.base == "dev"
-    assert config.stages.owner_of(stage="merge") == "human"
+    assert config.stages.owner_of(stage="e2e") == "skip"
 
 
-def test_effective_config_hold_skip_conflict_raises(tmp_path):
-    ctx = _FakeCtx(tmp_path)
-    with pytest.raises(ValueError, match="矛盾"):
-        _effective_config(ctx=ctx, args=_vigil_args(hold="ci", skip="ci"))
+def test_retired_hold_flag_is_rejected_by_parser():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["vigil", "--hold", "ci"])
 
 
 def test_effective_config_zero_gate_override_raises(tmp_path):

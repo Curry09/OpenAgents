@@ -3,7 +3,7 @@
 吸收旧 `align.restate`（把粗糙 issue 复述成 想做/边界/不做 三段）+ `issuecheck.check`（issue
 内部「修复方向冲突」自检，issue #111 的五类冲突）的判断部分，降为 prompt 字符串。这两件事都是
 **需要判断**的操作（issue 讲清楚了吗？改的方向自相矛盾吗？），故下放 agent 出结构化裁决；
-recipes.vigil 只看 `actionable` 决定派单（True→solve_issue / False→挂 needs-human 等人对齐），
+recipes.vigil 只看 `actionable` 决定派单（True→solve_issue / False→记录机器可解释的拒绝），
 自己零业务判断。
 
 分诊纪律沿用 issuecheck 的 **fail-open**（宁可漏判、不可滥拦）：拿不准就判 actionable=True 放行——
@@ -27,8 +27,7 @@ PROMPT = Template(
 
 最后只输出一行 JSON：{"actionable": true 或 false, "reason": "<复述 + 判定理由；不可派单时写清矛盾点与候选修法>"}
 
-issue 正文：
-$issue_body
+issue 标题与正文由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 

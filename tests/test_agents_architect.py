@@ -12,8 +12,12 @@ class _Backend:
 
     def __init__(self, payload: dict) -> None:
         self.payload = payload
+        self.task = ""
+        self.context = ""
 
     def run(self, *, work_dir, task, context):
+        self.task = task
+        self.context = context
         return AgentResult(changed=False, summary=json.dumps(self.payload))
 
 
@@ -31,14 +35,16 @@ def _verdict(value: str) -> dict:
 
 def test_architect_structured_pass_and_rework() -> None:
     for value in ("PASS", "REWORK"):
+        backend = _Backend(_verdict(value))
         result = engine.run_agent(
             architect,
-            backend=_Backend(_verdict(value)),
+            backend=backend,
             work_dir=".",
-            context="",
+            context="candidate spec sentinel",
             issue_number=1,
             design_digest="abc",
-            spec_text="candidate spec",
         )
         assert result["verdict"] == value
         assert isinstance(result["findings"], list)
+        assert backend.context == "candidate spec sentinel"
+        assert "candidate spec sentinel" not in backend.task

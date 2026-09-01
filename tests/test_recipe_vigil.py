@@ -68,18 +68,18 @@ from openagents.recipes.vigil import (
     _proposed_edges,
     _reclaim_dead,
     _reconcile,
+    _refresh_failure_projection,
     _requeue_or_park,
     _sense,
     _TimedBackend,
     _try_lock,
-    _unblock_if_replied,
     _Verdict,
     _watchdog,
     route,
     run_vigil,
 )
 from openagents.runtime import engine
-from openagents.utils import agent_config, github
+from openagents.utils import agent_config, github, identity
 
 _NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
 _HEAD = "abc1234def5678901234567890123456789abcde"
@@ -140,9 +140,8 @@ def _db(tmp_path: Path) -> tuple[Path, sqlite3.Connection]:
 # --------------------------------------------------------------------------------------------------
 
 
-def test_classify_in_flight_precedes_everything_including_needs_human():
-    """`in_flight=True` 先于一切分支（含 needs-human）——否则看门狗会误杀正在写代码的 agent。"""
-    facts = _facts(labels=frozenset({"needs-human"}))
+def test_classify_in_flight_precedes_machine_failure_terminal():
+    facts = _facts(labels=frozenset({"automation-failed"}))
     assert _classify(facts=facts, in_flight=True).kind == _IN_FLIGHT
     assert _classify(facts=facts, in_flight=False).kind == _TERMINAL
 
@@ -152,7 +151,7 @@ def test_classify_in_flight_precedes_everything_including_needs_human():
     [
         ({"merged": True}, _TERMINAL, None, None),
         ({"closed": True}, _TERMINAL, None, None),
-        ({"labels": frozenset({"needs-human"})}, _TERMINAL, None, None),
+        ({"labels": frozenset({"automation-failed"})}, _TERMINAL, None, None),
         ({"latest_comment_is_ours": False}, _ACTIONABLE, None, _ACT_REPLY),
         ({"deps_done": False}, _QUIET, _AWAITING_BLOCKERS, None),
         ({"pr_number": None}, _ACTIONABLE, None, _ACT_SOLVE),
@@ -284,7 +283,8 @@ def test_fingerprint_covers_exactly_every_facts_field():
         "review_state": "CHANGES_REQUESTED",
         "review_commit_id": "0000000",
         "latest_comment_is_ours": False,
-        "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
+            "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
+            "material_digest": "changed-material",
     }
     assert set(mutations) == {field.name for field in fields(_Facts)}
     for name, value in mutations.items():
@@ -690,8 +690,7 @@ def test_requeue_returns_row_to_queue_below_max_attempts(tmp_path):
     os.close(freed)
 
 
-def test_requeue_parks_needs_human_at_max_attempts(tmp_path, monkeypatch):
-    """反复领取不收工（agent 崩 / 被 kill：GitHub 上零痕迹，fp 与 age 都判不出）→ 计数到顶 → 交人。"""
+def test_requeue_marks_automation_failed_at_max_attempts(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     parked: list[tuple[int, str]] = []
     monkeypatch.setattr(
@@ -701,12 +700,13 @@ def test_requeue_parks_needs_human_at_max_attempts(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(vigil_module.github, "issue_comment", lambda *, number, body: None)
     monkeypatch.setattr(vigil_module.github, "list_issue_comments", lambda *, number: [])
+    monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     for _ in range(_MAX_ATTEMPTS):
         row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
         _requeue_or_park(conn=conn, task_id=row["id"], subject="issue:5", fd=fd, agent_id="vigil-1")
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0  # 行已删，不霸占槽
-    assert parked == [(5, "needs-human")]
+    assert parked == [(5, "automation-failed")]
 
 
 class _HangingBackend:
@@ -773,7 +773,9 @@ def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(mon
         ),
     )
     monkeypatch.setattr(
-        vigil_module, "_order_edges", lambda *, backend, work_dir, agent_id: seen.append(backend)
+        vigil_module,
+        "_order_edges",
+        lambda *, backend, work_dir, config, agent_id: seen.append(backend),
     )
 
     _intake(
@@ -874,22 +876,15 @@ def test_reconcile_stamps_and_stops_when_agent_made_zero_progress(monkeypatch, t
     assert stamps == [(_fingerprint(facts=stuck), "结论")]
 
 
-def test_reconcile_centrally_parks_structured_needs_human(monkeypatch, tmp_path):
-    """结构化出口由 Vigil 当轮 park；Agent 不接触 forge，也不烧下一轮或 attempt。"""
+def test_reconcile_propagates_protocol_error_to_bounded_queue_retry(monkeypatch, tmp_path):
     _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="failure")])
     monkeypatch.setattr(
         vigil_module,
         "_act",
-        lambda **kwargs: (_ for _ in ()).throw(engine.NeedsHumanRequest(reason="上游 503")),
+        lambda **kwargs: (_ for _ in ()).throw(engine.AgentOutputError("旧控制 envelope")),
     )
-    parked: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(
-        vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: parked.append((subject, body, agent_id)),
-    )
-    _reconcile_once(tmp_path)
-    assert parked == [("issue:5", "⏸ Agent 请求人工介入：上游 503", "a")]
+    with pytest.raises(engine.AgentOutputError, match="旧控制"):
+        _reconcile_once(tmp_path)
 
 
 def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
@@ -906,10 +901,10 @@ def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
     reads = iter(
         [
             vigil_module._LabelTargetSnapshot(
-                kind="issue", number=5, labels=frozenset({"needs-human"})
+                kind="issue", number=5, labels=frozenset({"automation-failed"})
             ),
             vigil_module._LabelTargetSnapshot(
-                kind="issue", number=5, labels=frozenset({"needs-human", "P1"})
+                kind="issue", number=5, labels=frozenset({"automation-failed", "P1"})
             ),
         ]
     )
@@ -920,19 +915,19 @@ def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
         "issue_add_label",
         lambda *, number, name: restored.append(name),
     )
-    parked: list[str] = []
+    failed: list[str] = []
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: parked.append(body),
+        "_fail_automation",
+        lambda *, subject, facts, category, attempts, reason, agent_id: failed.append(reason),
     )
 
     _reconcile_once(tmp_path)
 
     assert restored == ["from-synthesize", "ready", "round-1"]
-    assert len(parked) == 1
-    assert "标签完整性" in parked[0]
-    assert "`P1`" in parked[0], "并发方已补回的标签仍应出现在事故诊断中"
+    assert len(failed) == 1
+    assert "标签完整性" in failed[0]
+    assert "`P1`" in failed[0], "并发方已补回的标签仍应出现在事故诊断中"
 
 
 def test_review_refresh_allows_only_framework_owned_stale_verdict_removal():
@@ -1006,8 +1001,7 @@ def test_producer_enqueues_again_once_fingerprint_changes(tmp_path, monkeypatch)
     assert _consider_once(conn, work_dir=tmp_path) == 1
 
 
-def test_producer_parks_on_watchdog_timeout(tmp_path, monkeypatch):
-    """护栏二：QUIET 超该 reason 的阈值 → `_park` 打 needs-human + 贴**机械**诊断（不叫 LLM）。"""
+def test_producer_marks_machine_failure_on_watchdog_timeout(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     monkeypatch.setattr(
         vigil_module,
@@ -1017,41 +1011,46 @@ def test_producer_parks_on_watchdog_timeout(tmp_path, monkeypatch):
             clock=_Clock(last_progress_at=_NOW - timedelta(seconds=7200)),
         ),
     )
-    parked: list[tuple[str, str]] = []
+    failed: list[tuple[str, str]] = []
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: parked.append((subject, body)),
+        "_fail_automation",
+        lambda *, subject, facts, category, attempts, reason, agent_id: failed.append(
+            (subject, reason)
+        ),
     )
     _consider_once(conn, work_dir=tmp_path)
-    assert parked and parked[0][0] == "issue:5"
-    assert _AWAITING_CI in parked[0][1]
+    assert failed and failed[0][0] == "issue:5"
+    assert _AWAITING_CI in failed[0][1]
 
 
 def test_producer_does_not_park_a_live_in_flight_holder(tmp_path, monkeypatch):
     """IN_FLIGHT 未超龄 → 什么都不做（**绝不**把正在写代码的 agent 当成「状态没动」而误挂 needs-human）。"""
     _, conn = _db(tmp_path)
     _stub_consider(monkeypatch, facts=_facts(ci="failure"))
-    parked: list[str] = []
+    failed: list[str] = []
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module,
+        "_fail_automation",
+        lambda **kwargs: failed.append(kwargs["subject"]),
     )
     assert _consider_once(conn, work_dir=tmp_path, in_flight={"issue:5": _NOW.isoformat()}) == 0
-    assert parked == []
+    assert failed == []
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
 
 
-def test_producer_alarms_on_overdue_in_flight_without_touching_the_row(tmp_path, monkeypatch):
-    """IN_FLIGHT 超龄（持有者活着但挂死）→ **只打 needs-human 告警**，队列行一个字节都不动。"""
+def test_producer_only_logs_overdue_live_holder_without_terminal_projection(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     _stub_consider(monkeypatch, facts=_facts(ci="failure"))
-    parked: list[str] = []
+    failed: list[str] = []
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module,
+        "_fail_automation",
+        lambda **kwargs: failed.append(kwargs["subject"]),
     )
     ancient = (_NOW - timedelta(seconds=vigil_module._INFLIGHT_ALARM_SECONDS * 2)).isoformat()
     assert _consider_once(conn, work_dir=tmp_path, in_flight={"issue:5": ancient}) == 0
-    assert parked == ["issue:5"]
+    assert failed == []
 
 
 def test_producer_isolates_a_failing_subject(tmp_path, monkeypatch):
@@ -1084,7 +1083,7 @@ def test_producer_isolates_a_failing_subject(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# Spec-0058: needs-human 死锁自愈——人类越水位线回复 → 撤 label → 复位续跑；仅我方签名评论保持 TERMINAL。
+# Spec-0081: machine failure is sticky for the same facts and self-revives on fact changes.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -1109,73 +1108,76 @@ def _spy_remove_labels(monkeypatch) -> tuple[list[tuple[str, str]], list[tuple[i
     return pr_calls, issue_calls
 
 
-def test_unblock_removes_label_when_human_replied_past_watermark(monkeypatch):
-    """(a) needs-human + 最新评论无签名（人越水位线说话）→ 撤 needs-human，剥 facts，`_classify` 判非 TERMINAL。"""
+def _failure_comment(*, facts: _Facts) -> github.Comment:
+    fp = _fingerprint(facts=facts)
+    body = identity.sign(
+        body=f"<!-- openagents:automation-failed fp={fp} category=test -->",
+        agent_id="vigil-1",
+    )
+    return github.Comment(1, "bot", body, "2026-07-14T11:00:00Z")
+
+
+def test_failure_projection_revives_when_material_facts_change(monkeypatch):
     pr_calls, _ = _spy_remove_labels(monkeypatch)
-    observed = _observed(labels=frozenset({"needs-human"}), latest_comment_is_ours=False)
-    out = _unblock_if_replied(observed=observed, subject="pr:12")
-    assert pr_calls == [("12", "needs-human")]  # 走 PR 版 remove_label
-    assert "needs-human" not in out.facts.labels  # facts 里已剥掉终态 label
+    old = _facts(labels=frozenset({"automation-failed"}), material_digest="old")
+    current = replace(old, material_digest="new")
+    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=old)])
+    out = _refresh_failure_projection(
+        observed=_Observed(current, _Clock(last_progress_at=_NOW)), subject="pr:12"
+    )
+    assert pr_calls == [("12", "automation-failed")]
+    assert "automation-failed" not in out.facts.labels
     verdict = _classify(facts=out.facts, in_flight=False)
-    assert verdict.kind != _TERMINAL and verdict.action == _ACT_REPLY  # 复位为可推进态，落②reply
+    assert verdict.kind != _TERMINAL
 
 
-def test_unblock_keeps_terminal_when_latest_comment_is_ours(monkeypatch):
-    """(b) 防自触发 + 幂等：最新评论为我方签名（含刚 park 的理由）→ 不撤 label、facts 原样、仍 TERMINAL。"""
+def test_failure_projection_stays_terminal_for_same_fingerprint(monkeypatch):
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
-    observed = _observed(labels=frozenset({"needs-human"}), latest_comment_is_ours=True)
-    out = _unblock_if_replied(observed=observed, subject="pr:12")
-    assert pr_calls == [] and issue_calls == []  # 机器自己的签名评论永不解挂
-    assert out is observed  # facts 原样透传
-    assert (
-        _classify(facts=out.facts, in_flight=False).kind == _TERMINAL
-    )  # park 后无人回复 → 保持终态
+    facts = _facts(labels=frozenset({"automation-failed"}))
+    observed = _Observed(facts, _Clock(last_progress_at=_NOW))
+    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=facts)])
+    out = _refresh_failure_projection(observed=observed, subject="pr:12")
+    assert pr_calls == [] and issue_calls == []
+    assert out is observed
+    assert _classify(facts=out.facts, in_flight=False).kind == _TERMINAL
 
 
-def test_unblock_passthrough_when_not_needs_human(monkeypatch):
-    """(c) 未挂 needs-human → 预处理原样透传（即便最新评论是人发的，走正常②reply，不多摸 GitHub 写）。"""
+def test_failure_refresh_passthrough_without_failure_label(monkeypatch):
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
     observed = _observed(labels=frozenset(), latest_comment_is_ours=False)
-    out = _unblock_if_replied(observed=observed, subject="pr:12")
+    out = _refresh_failure_projection(observed=observed, subject="pr:12")
     assert pr_calls == [] and issue_calls == []
     assert out is observed
 
 
-def test_unblock_issue_subject_uses_issue_remove_label(monkeypatch):
-    """(d) issue subject 走 `issue_remove_label`（与 PR 版 `remove_label` 分流对称）。"""
+def test_failure_refresh_issue_subject_uses_issue_remove_label(monkeypatch):
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
-    observed = _observed(
-        subject="issue:5", labels=frozenset({"needs-human"}), latest_comment_is_ours=False
+    facts = _facts(subject="issue:5", pr_number=None, labels=frozenset({"automation-failed"}))
+    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [])
+    out = _refresh_failure_projection(
+        observed=_Observed(facts, _Clock(last_progress_at=_NOW)), subject="issue:5"
     )
-    out = _unblock_if_replied(observed=observed, subject="issue:5")
-    assert issue_calls == [(5, "needs-human")] and pr_calls == []
-    assert "needs-human" not in out.facts.labels
+    assert issue_calls == [(5, "automation-failed")] and pr_calls == []
+    assert "automation-failed" not in out.facts.labels
 
 
-def test_consider_reenqueues_reply_after_unblock(tmp_path, monkeypatch):
-    """(e) 端到端单 subject：needs-human + 人越水位线回复 → `_consider` 当轮撤 label 并入队 reply（复位续跑）。
-
-    Spec-0058: 修正旧「needs-human 经 `_consider` 后恒 TERMINAL（return 0、不入队）」的行为——越水位线人类回复
-    使同 tick `_classify` 从头重判走到②reply，subject 复位为可推进态、能走到后续闸。对照见上方 (b) 幂等测试。
-    """
+def test_consider_reenqueues_after_failure_fingerprint_changes(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     _spy_remove_labels(monkeypatch)
-    _stub_consider(
-        monkeypatch, facts=_facts(labels=frozenset({"needs-human"}), latest_comment_is_ours=False)
-    )
-    assert (
-        _consider_once(conn, work_dir=tmp_path) == 1
-    )  # 复位后落②reply → 入队（非 TERMINAL 的 return 0）
+    old = _facts(labels=frozenset({"automation-failed"}), material_digest="old")
+    current = replace(old, material_digest="new", ci="failure")
+    _stub_consider(monkeypatch, facts=current)
+    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=old)])
+    assert _consider_once(conn, work_dir=tmp_path) == 1
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 1
 
 
-def test_consider_stays_terminal_when_only_our_signed_comment(tmp_path, monkeypatch):
-    """对照：needs-human + 最新评论为我方签名 → `_consider` 仍判 TERMINAL（return 0、不入队），防解挂写反。"""
+def test_consider_stays_terminal_for_unchanged_failure_fingerprint(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
-    _stub_consider(
-        monkeypatch, facts=_facts(labels=frozenset({"needs-human"}), latest_comment_is_ours=True)
-    )
+    facts = _facts(labels=frozenset({"automation-failed"}))
+    _stub_consider(monkeypatch, facts=facts)
+    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=facts)])
     assert _consider_once(conn, work_dir=tmp_path) == 0
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
     assert pr_calls == [] and issue_calls == []
@@ -1201,9 +1203,10 @@ def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: (_ for _ in ()).throw(RuntimeError("gh 限流 429")),
+        "_fail_automation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流 429")),
     )
+    monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
     # 一个「存活证明泄漏」的 queued 行：锁被持着，且**上一 tick 就已经**见过它锁着（跨 tick 记忆已超龄）
     # → 本 tick 的 `_sweep_stalled` 会去 park 它，而 park 的 `gh` 必抛。
     vigil_module._enqueue(conn=conn, subject="issue:9", priority=1, now=_NOW)
@@ -1253,8 +1256,8 @@ def test_priority_finishes_work_in_progress_before_starting_new():
 # --------------------------------------------------------------------------------------------------
 
 
-def test_route_dispatches_three_ways():
-    calls: dict[str, int] = {"agent": 0, "human": 0, "skip": 0}
+def test_route_dispatches_agent_and_skip_and_rejects_retired_owner():
+    calls: dict[str, int] = {"agent": 0, "skip": 0}
 
     def _bump(key):
         def _run():
@@ -1263,17 +1266,18 @@ def test_route_dispatches_three_ways():
 
         return _run
 
-    for owner in ("agent", "human", "skip"):
+    for owner in ("agent", "skip"):
         assert (
             route(
                 owner=owner,
                 on_agent=_bump("agent"),
-                on_human=_bump("human"),
                 on_skip=_bump("skip"),
             )
             == owner
         )
-    assert calls == {"agent": 1, "human": 1, "skip": 1}
+    assert calls == {"agent": 1, "skip": 1}
+    with pytest.raises(ValueError, match="未知 stage owner"):
+        route(owner="hu" + "man", on_agent=_bump("agent"), on_skip=_bump("skip"))
 
 
 def test_has_cycle_detects_cycles():
@@ -1294,7 +1298,8 @@ def test_proposed_edges_returns_only_new_edges_and_keeps_anchors():
 
 def test_proposed_edges_rejects_the_whole_batch_on_cycle(monkeypatch):
     """成环 → **不落任何边** + park 交人（错边会持久冻住本可并行的流转，半张错图比没有图更糟）。"""
-    monkeypatch.setattr(vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: None)
+    monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
+    monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kwargs: None)
     assert (
         _proposed_edges(
             edges=[{"issue": 5, "blocked_by": [6]}, {"issue": 6, "blocked_by": [5]}],
@@ -1307,7 +1312,8 @@ def test_proposed_edges_rejects_the_whole_batch_on_cycle(monkeypatch):
 
 
 def test_proposed_edges_rejects_hallucinated_issue_numbers(monkeypatch):
-    monkeypatch.setattr(vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: None)
+    monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
+    monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kwargs: None)
     assert (
         _proposed_edges(
             edges=[{"issue": 5, "blocked_by": [999]}],

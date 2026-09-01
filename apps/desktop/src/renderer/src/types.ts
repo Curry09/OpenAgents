@@ -2,10 +2,10 @@
 // 字段与 openagents/desktop/daemon.py 的 build_board / pending_category 一一对应。
 
 // 待看四类，高→低优先级（与 daemon.PENDING_* 及 nav/pending.ts 同序）。
-export type PendingCategory = 'needs-human' | 'pr-to-merge' | 'new-comment' | 'just-changed'
+export type PendingCategory = 'automation-failed' | 'pr-to-merge' | 'new-comment' | 'just-changed'
 
 export const PENDING_ORDER: PendingCategory[] = [
-  'needs-human',
+  'automation-failed',
   'pr-to-merge',
   'new-comment',
   'just-changed'
@@ -20,7 +20,7 @@ export interface BoardEntry {
   // 以下为 daemon 的 GitHub 富化字段（离线时缺省）。
   pr?: number | null
   labels?: string[]
-  needs_human?: boolean
+  automation_failed?: boolean
   pr_ready_to_merge?: boolean
   has_new_human_comment?: boolean
   just_changed?: boolean
