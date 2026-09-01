@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 from string import Template
 
 import pytest
@@ -270,3 +271,75 @@ def test_any_retired_control_envelope_is_protocol_error(payload):
 
     with pytest.raises(AgentOutputError, match="schema 键 'verdict'"):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+
+
+def test_role_invocation_is_noop_without_role_runs_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("ROLE_RUNS_DIR", raising=False)
+    backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
+    engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_role_invocation_writes_v1_json_on_success(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("AUTO_DESIGNER_RUN_ID", "run-z")
+    monkeypatch.setenv("AUTO_DESIGNER_ROUND", "3")
+    backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
+    engine.run_agent(
+        _FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x", context="ctx"
+    )
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    assert data["schema_version"] == 1
+    assert data["side"] == "delivery"
+    assert data["output"]["status"] == "success"
+    assert data["output"]["structured"]["verdict"] == "PASS"
+    assert data["input"]["prompt"]
+    assert "protocol_output" not in data
+
+
+def test_role_invocation_records_protocol_and_backend_errors(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(tmp_path))
+    with pytest.raises(AgentOutputError):
+        engine.run_agent(
+            _FakeAgent,
+            backend=_CaptureBackend(summary="not-json"),
+            work_dir=".",
+            pr_number=1,
+            issue_body="x",
+        )
+    proto = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert proto["output"]["status"] == "protocol_error"
+
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(tmp_path / "backend"))
+    with pytest.raises(RuntimeError):
+        engine.run_agent(
+            _FakeAgent, backend=_FailingBackend(), work_dir=".", pr_number=1, issue_body="x"
+        )
+    back = json.loads(next((tmp_path / "backend").glob("*.json")).read_text(encoding="utf-8"))
+    assert back["output"]["status"] == "backend_error"
+
+
+def test_role_invocation_fail_open_when_dir_unwritable(tmp_path, monkeypatch):
+    blocked = tmp_path / "blocked.json"
+    blocked.write_text("not-a-dir", encoding="utf-8")
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(blocked))
+    backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
+    out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+    assert out["verdict"] == "PASS"
+
+
+def test_implementer_records_are_not_replayable(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(tmp_path))
+
+    class _Implementer:
+        PROMPT = Template("do $x")
+        OUTPUT_SCHEMA = {"verdict": str, "reason": str}
+
+    _Implementer.__name__ = "openagents.agents.implementer"
+    backend = _CaptureBackend(summary='{"verdict": "PASS", "reason": "ok"}')
+    engine.run_agent(_Implementer, backend=backend, work_dir=".", x="1")
+    data = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert data["role"] == "implementer"
+    assert data["replayable"] is False
