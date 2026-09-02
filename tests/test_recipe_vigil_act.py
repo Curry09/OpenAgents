@@ -134,6 +134,7 @@ class _Rig:
         self.comments: list[tuple] = []  # identity.post_signed_comment
         self.worktrees: list[tuple] = []  # Workspace.prepare / ensure
         self.run_records: dict[int, dict] = {}
+        self.review_feedback: dict[int, dict[str, str]] = {}
 
     # --- RuntimeState 替身（vigil 只用这三个方法） ---
     def set_run(
@@ -160,6 +161,13 @@ class _Rig:
 
     def get_run(self, *, issue_number: int) -> dict | None:
         return self.run_records.get(issue_number)
+
+    def get_review_feedback(self, *, issue_number: int, head_sha: str) -> str | None:
+        record = self.review_feedback.get(issue_number, {})
+        return record.get("reason") if record.get("head_sha") == head_sha else None
+
+    def set_review_feedback(self, *, issue_number: int, head_sha: str, reason: str) -> None:
+        self.review_feedback[issue_number] = {"head_sha": head_sha, "reason": reason}
 
     def get_cursor(self, *, pr_number: int) -> str:
         return ""
@@ -570,6 +578,7 @@ def test_act_review_clears_stale_verdict_labels_before_landing_the_new_one(
     assert removed == ["review-approved:0000000"], "只摘 review-* 裁决 label，别的一个不碰"
     added = [call[1]["name"] for call in rig.gh if call[0] == "add_label"]
     assert added == [f"review-changes-requested:{_SHA7}"]  # REWORK 的裁决同样绑当前 head
+    assert rig.review_feedback[5] == {"head_sha": _HEAD, "reason": "要改"}
 
 
 def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_path):
@@ -580,6 +589,7 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
         labels=frozenset({f"review-changes-requested:{_SHA7}"}),
     )
     rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
+    rig.review_feedback[5] = {"head_sha": _HEAD, "reason": "必须运行 live GLM 验证 BC1-BC3"}
     assert _classify(facts=facts, in_flight=False).action == _ACT_REVIEW_OR_FIX
 
     _act(rig=rig, facts=facts, work_dir=tmp_path)
@@ -587,6 +597,7 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
     assert rig.agent_names() == ["implementer"]
     assert "feedback" not in rig.agents[0][1]
     assert "[review]" in rig.agents[0][1]["context"]
+    assert "live GLM 验证 BC1-BC3" in rig.agents[0][1]["context"]
     assert "timeout is polled" in rig.agents[0][1]["context"]
 
 

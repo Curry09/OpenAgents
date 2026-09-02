@@ -194,6 +194,50 @@ def test_records_unavailable_without_changing_backend_exception(tmp_path):
     assert rows[0]["usage_source"] == "unavailable"
 
 
+def test_records_redacted_delivery_invocation_for_success(tmp_path, monkeypatch):
+    role_runs = tmp_path / "delivery"
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(role_runs))
+    monkeypatch.setenv("AUTO_DESIGNER_RUN_ID", "run-7")
+    monkeypatch.setenv("GITEA_TOKEN", "secret-token")
+
+    engine.run_agent(
+        _FakeAgent,
+        backend=_CaptureBackend(summary='{"verdict":"PASS","reason":"secret-token handled"}'),
+        work_dir=tmp_path,
+        context="token=secret-token",
+        pr_number=7,
+        issue_body="x",
+    )
+
+    files = list(role_runs.glob("*.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert payload["side"] == "delivery"
+    assert payload["subject"] == {"kind": "pull_request", "id": "7"}
+    assert payload["output"]["status"] == "success"
+    assert payload["replayable"] is False
+    assert "secret-token" not in json.dumps(payload)
+    assert (role_runs / "index.jsonl").is_file()
+
+
+def test_records_delivery_invocation_for_backend_failure(tmp_path, monkeypatch):
+    role_runs = tmp_path / "delivery"
+    monkeypatch.setenv("ROLE_RUNS_DIR", str(role_runs))
+
+    with pytest.raises(RuntimeError, match="backend broke"):
+        engine.run_agent(
+            _FakeAgent,
+            backend=_FailingBackend(),
+            work_dir=tmp_path,
+            pr_number=1,
+            issue_body="x",
+        )
+
+    payload = json.loads(next(role_runs.glob("*.json")).read_text(encoding="utf-8"))
+    assert payload["output"]["status"] == "backend_error"
+    assert "backend broke" in payload["output"]["error"]
+
+
 def test_protocol_failures_have_one_token_row_each(tmp_path):
     with pytest.raises(AgentOutputError):
         engine.run_agent(

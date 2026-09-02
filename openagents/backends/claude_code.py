@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from openagents.backends.base import AgentResult, TokenUsage
+from openagents.runtime.invocation import redact_text
 from openagents.utils import proc as proc_utils
 from openagents.utils import streams
 
@@ -183,7 +184,8 @@ def _format_tool_use(*, block):
             break
     if len(hint) > 80:
         hint = hint[:77] + "..."
-    return f"🔧 {name}: {hint}".rstrip(": ").rstrip() if hint else f"🔧 {name}"
+    rendered = f"🔧 {name}: {hint}".rstrip(": ").rstrip() if hint else f"🔧 {name}"
+    return redact_text(rendered)
 
 
 def _lines_for_event(*, event):
@@ -259,11 +261,7 @@ def _token_usage_for_result_event(
         total_source = "derived-components"
 
     model_usage = event.get("modelUsage")
-    models = (
-        sorted(str(model) for model in model_usage)
-        if isinstance(model_usage, dict)
-        else []
-    )
+    models = sorted(str(model) for model in model_usage) if isinstance(model_usage, dict) else []
     model = ",".join(models) if models else fallback_model
     return TokenUsage(
         input_tokens=input_tokens,
@@ -403,7 +401,7 @@ class ClaudeCodeBackend:
                 # Spec-0046/T1: 每来一行只多做这一件事——刷新「上次进展」戳（含随后被 continue 的空行，
                 # 空行也是进展）。事件解析/打印/result 提取全部原样，健康流输出路径不经过看门狗（零回归）。
                 last_activity[0] = time.monotonic()
-                line = raw.rstrip("\n")
+                line = redact_text(raw.rstrip("\n"))
                 if not line.strip():
                     continue
                 event = _parse_event(line=line)
@@ -425,7 +423,7 @@ class ClaudeCodeBackend:
                 ):
                     init_model = event["model"]
                 if event.get("type") == "result":
-                    result_text = str(event.get("result") or "")
+                    result_text = redact_text(str(event.get("result") or ""))
                     result_usage = _token_usage_for_result_event(
                         event=event,
                         fallback_model=init_model,

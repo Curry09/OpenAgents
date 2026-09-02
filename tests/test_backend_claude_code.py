@@ -183,6 +183,26 @@ def test_summary_comes_from_result_event(monkeypatch, tmp_path):
     assert "done editing foo" in result.summary
 
 
+def test_stream_and_result_redact_configured_secrets(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("GITEA_TOKEN", "top-secret-token")
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _assistant_tool("Bash", command="curl -u bot:top-secret-token http://gitea"),
+            _assistant_text("using top-secret-token"),
+            _result('{"verdict":"PASS","reason":"top-secret-token removed"}'),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert "top-secret-token" not in capsys.readouterr().out
+    assert "top-secret-token" not in result.summary
+    assert "${GITEA_TOKEN}" in result.summary
+
+
 def test_token_usage_comes_from_final_aggregate_result_only(monkeypatch, tmp_path):
     _patch(
         monkeypatch,
@@ -282,9 +302,7 @@ def test_reasoning_only_usage_does_not_invent_zero_total(monkeypatch, tmp_path):
     "usage",
     [None, {}, {"input_tokens": -1}, {"output_tokens": True}, {"input_tokens": "12"}],
 )
-def test_missing_or_malformed_result_usage_is_unavailable(
-    monkeypatch, tmp_path, usage
-):
+def test_missing_or_malformed_result_usage_is_unavailable(monkeypatch, tmp_path, usage):
     _patch(
         monkeypatch,
         claude_lines=[_result("done", usage=usage)],

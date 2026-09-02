@@ -155,6 +155,24 @@ class RuntimeState:
             data.setdefault("issue_cursors", {})[str(number)] = comment_id
             self._save(data=data)
 
+    def get_review_feedback(self, *, issue_number: int, head_sha: str) -> str | None:
+        """Return reviewer feedback only when it belongs to the exact current head."""
+        record = self._load().get("review_feedback", {}).get(str(issue_number), {})
+        if record.get("head_sha") != head_sha:
+            return None
+        reason = record.get("reason")
+        return reason if isinstance(reason, str) and reason.strip() else None
+
+    def set_review_feedback(self, *, issue_number: int, head_sha: str, reason: str) -> None:
+        """Persist the detailed REWORK reason, bound to the commit that was reviewed."""
+        with RuntimeState._LOCK:
+            data = self._load()
+            data.setdefault("review_feedback", {})[str(issue_number)] = {
+                "head_sha": head_sha,
+                "reason": reason,
+            }
+            self._save(data=data)
+
     def get_agent_id(self) -> str | None:
         """# Spec-0063/T1: 读已落盘的本实例 agent_id（承接 RFC-0011 语义）；未设过返回 None。
 

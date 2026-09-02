@@ -1162,7 +1162,9 @@ def _sweep_stalled(
         except Exception as exc:  # noqa: BLE001 —— 闸 5：一行 park 不成，不许拖垮整轮生产
             # 行或者还在（DELETE 就失败了、已回滚），或者已经没了（label 那步才失败）——两种都由下一 tick 的
             # `_intake` 从 GitHub 现态收敛回来，重新计时、重新 park。这里只管不让它掀掉整轮生产。
-            _log(message=f"✗ {subject}：收口为机器失败未落地（下轮由 _intake 重新推导并重试）：{exc}")
+            _log(
+                message=f"✗ {subject}：收口为机器失败未落地（下轮由 _intake 重新推导并重试）：{exc}"
+            )
     for subject in set(seen_locked) - still_locked:
         seen_locked.pop(subject, None)  # 锁放了/行没了 → 忘掉它，重新计时
     return parked
@@ -1498,9 +1500,7 @@ def _remove_automation_failed(*, subject: str) -> None:
         github.remove_label(pr_number=number, name=_LABEL_AUTOMATION_FAILED)
 
 
-def _failure_facts(
-    *, subject: str, config: agent_config.AgentConfig | None = None
-) -> _Facts:
+def _failure_facts(*, subject: str, config: agent_config.AgentConfig | None = None) -> _Facts:
     """Read the same canonical facts used by classification before persisting a failure marker."""
     return _sense(config=config or agent_config.default_config(), subject=subject).facts
 
@@ -1665,9 +1665,7 @@ def _intake(
         except Exception as exc:  # noqa: BLE001 —— 单 issue 准入失败不拖垮整轮（含 _ActTimeout）
             _log(message=f"✗ issue #{issue.number} 准入失败，跳过：{exc}")
     if admitted:
-        _order_edges(
-            backend=timed, work_dir=Path(work_dir), config=config, agent_id=agent_id
-        )
+        _order_edges(backend=timed, work_dir=Path(work_dir), config=config, agent_id=agent_id)
 
 
 def _admit(
@@ -2057,7 +2055,9 @@ def _run_claimed(
     """
     subject = row["subject"]
     if int(row["attempts"]) > _MAX_ATTEMPTS:
-        _log(message=f"⏸ {subject}：第 {row['attempts']} 次领取仍未收工 → 不再叫 agent，直接收口为机器失败")
+        _log(
+            message=f"⏸ {subject}：第 {row['attempts']} 次领取仍未收工 → 不再叫 agent，直接收口为机器失败"
+        )
         _finish(
             conn=conn,
             task_id=row["id"],
@@ -2806,7 +2806,10 @@ def _do_e2e(
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
         context=context.sections(
             ("issue", _issue_body_of(facts=facts)),
-            ("runtime context", f"{_AUTONOMOUS_CONTRACT}{_evidence_context(state=state, facts=facts)}"),
+            (
+                "runtime context",
+                f"{_AUTONOMOUS_CONTRACT}{_evidence_context(state=state, facts=facts)}",
+            ),
         ),
         pr_number=pr_number,
     )
@@ -2840,12 +2843,21 @@ def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, fact
     if facts.review_state == _REVIEW_CHANGES_REQUESTED and facts.review_commit_id == _short(
         sha=facts.head_sha
     ):
+        issue_number = _issue_number_of(facts=facts)
+        detailed_feedback = state.get_review_feedback(
+            issue_number=issue_number, head_sha=facts.head_sha
+        )
         report = stages.implement(
             backend=backend,
             work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
             issue_number=_issue_number_of(facts=facts),
             pr_number=pr_number,
-            feedback="[review] 评审要求返工，请据上一轮 review 意见修改",
+            feedback=(
+                f"[review] 以下是当前 head 的完整评审返工意见，请逐项修改并验证：\n"
+                f"{detailed_feedback}"
+                if detailed_feedback
+                else "[review] 评审要求返工，但详细意见缺失；请复核当前实现与验收条件"
+            ),
             context_text=_AUTONOMOUS_CONTRACT,
             evidence_pack=evidence_pack,
         )
@@ -2867,6 +2879,12 @@ def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, fact
     label = f"{prefix}{_short(sha=facts.head_sha)}"
     github.ensure_label(name=label, description="openagents 守夜：绑 head sha 的评审裁决")
     github.add_label(pr_number=pr_number, name=label)
+    if verdict["verdict"] != "PASS":
+        state.set_review_feedback(
+            issue_number=_issue_number_of(facts=facts),
+            head_sha=facts.head_sha,
+            reason=str(verdict["reason"]),
+        )
     _log(message=f"✓ PR #{pr_number}：评审裁决 {label}")
     return str(verdict["reason"])
 
