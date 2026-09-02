@@ -25,14 +25,10 @@ Exports:
 from __future__ import annotations
 
 import json
-import os
 import re
-import uuid
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-from openagents.runtime import token_usage, tool_usage
+from openagents.runtime import invocation, token_usage, tool_usage
 
 
 class AgentOutputError(Exception):
@@ -81,7 +77,7 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         status = "success"
         return parsed
     except Exception as exc:
-        error = str(exc)
+        error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
         token_usage.record(
@@ -91,91 +87,16 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
             status=status,
             usage=getattr(result, "usage", None),
         )
-        _record_role_invocation(
+        invocation.record(
             role=role,
+            backend=backend_name,
             prompt=prompt,
-            context=str(context),
-            placeholders={key: str(value) for key, value in placeholders.items()},
+            context=context,
+            placeholders=placeholders,
             structured=parsed,
             status=status,
             error=error,
         )
-
-
-def _record_role_invocation(
-    *,
-    role: str,
-    prompt: str,
-    context: str,
-    placeholders: dict[str, str],
-    structured: object,
-    status: str,
-    error: str | None,
-) -> None:
-    """Spec-0049/T6：fail-open 把填好的 prompt/context 与 structured 写入 ROLE_RUNS_DIR。"""
-    root_raw = os.environ.get("ROLE_RUNS_DIR", "").strip()
-    if not root_raw:
-        return
-    try:
-        root = Path(root_raw)
-        root.mkdir(parents=True, exist_ok=True)
-        invocation_id = uuid.uuid4().hex
-        captured = datetime.now(UTC).isoformat()
-        stamp = captured.replace(":", "").replace("-", "")[:15]
-        payload = {
-            "schema_version": 1,
-            "invocation_id": invocation_id,
-            "run_id": os.environ.get("AUTO_DESIGNER_RUN_ID") or None,
-            "round": _optional_int(raw=os.environ.get("AUTO_DESIGNER_ROUND", "")),
-            "side": "delivery",
-            "role": role,
-            "subject": {
-                "kind": "issue" if placeholders.get("issue_number") else "round",
-                "id": placeholders.get("issue_number") or os.environ.get("AUTO_DESIGNER_ROUND", ""),
-            },
-            "replayable": role != "implementer",
-            "input": {
-                "prompt": _redact(text=prompt),
-                "context": _redact(text=context),
-                "placeholders": placeholders,
-            },
-            "output": {"structured": structured, "status": status, "error": error},
-            "env": {
-                "model": os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENAGENTS_MODEL"),
-                "agent_def_pin": None,
-                "captured_at": captured,
-            },
-        }
-        path = root / f"{stamp}_{role}_{invocation_id[:8]}.json"
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
-    except Exception:
-        return
-
-
-def _optional_int(*, raw: str) -> int | None:
-    text = raw.strip()
-    if not text:
-        return None
-    try:
-        return int(text)
-    except ValueError:
-        return None
-
-
-def _redact(*, text: str) -> str:
-    out = text
-    for name in (
-        "GITEA_TOKEN",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-    ):
-        value = os.environ.get(name, "").strip()
-        if value:
-            out = out.replace(value, f"${{{name}}}")
-    return out
 
 
 def _parse_last_json(*, text: str) -> dict[str, Any]:

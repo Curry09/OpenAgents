@@ -55,3 +55,11 @@ def test_run_round_trip_normalizes_and_preserves_evidence_pack(tmp_path) -> None
         pr_number=10,
     )
     assert state.get_run(issue_number=8)["evidence_pack"][0]["path"] == "entry.py"
+
+
+def test_review_feedback_is_persisted_and_bound_to_exact_head(tmp_path) -> None:
+    state = RuntimeState(path=tmp_path / "runtime-state.json")
+    state.set_review_feedback(issue_number=8, head_sha="abc123", reason="run live evidence")
+
+    assert state.get_review_feedback(issue_number=8, head_sha="abc123") == "run live evidence"
+    assert state.get_review_feedback(issue_number=8, head_sha="new456") is None
