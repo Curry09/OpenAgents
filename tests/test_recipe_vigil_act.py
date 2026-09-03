@@ -58,6 +58,21 @@ _SHA7 = _HEAD[:7]
 
 # Spec-0065/T2: 各 agent 的 OUTPUT_SCHEMA 合规的假裁决（engine 被打桩，故这里就是「agent 说了什么」）。
 _AGENT_OUTPUTS: dict[str, dict] = {
+    "spec_writer": {
+        "status": "READY",
+        "head_sha": _HEAD,
+        "summary": "compact spec",
+        "blocker": "",
+        "objective_coverage": [{"scope_coverage": "FULL", "evidence_level": "STRUCTURAL"}],
+        "candidate_assessments": [{
+            "candidate": "one", "ownership": "runtime", "delivery": "wired",
+            "control_effect": "guard", "evidence": "source", "assumptions": "none",
+            "failure_modes": "bypass", "verdict": "selected",
+        }],
+        "selected_intervention": {},
+        "evidence_pack": [],
+        "falsifiers": [],
+    },
     "drafter": {
         "delivered": True,
         "head_sha": _HEAD,
@@ -65,6 +80,12 @@ _AGENT_OUTPUTS: dict[str, dict] = {
         "evidence_pack": [],
     },
     "implementer": {"summary": "已按反馈修改"},
+    "executor": {
+        "summary": "已按 compact spec 实现",
+        "head_sha": _HEAD,
+        "lookup_exception_reason": "",
+    },
+    "acceptance": {"verdict": "PASS", "reason": "原 issue 已满足", "evidence": ["replay"]},
     "reviewer": {"verdict": "PASS", "reason": "看着没问题"},
     "tester": {
         "verdict": "PASS",
@@ -203,6 +224,9 @@ class _FakeWorkspace:
     def assert_delivered(self, *, worktree: Path, branch: str) -> None:
         _RIG.worktrees.append(("assert-delivered", Path(worktree), branch))
 
+    def remote_branch_exists(self, *, branch: str) -> bool:
+        return False
+
     def _path(self, *, issue_number: int) -> Path:
         return self._work_dir / ".openagents" / "worktrees" / f"issue-{issue_number}"
 
@@ -240,6 +264,7 @@ def rig(monkeypatch) -> _Rig:
     monkeypatch.setattr(gates, "assert_head_advanced", lambda *, before, workspace: _HEAD)
     monkeypatch.setattr(gates, "assert_evidence_stamp", lambda *, head_sha, claimed: None)
     monkeypatch.setattr(gates, "assert_repository_integrity", lambda *, workspace: None)
+    monkeypatch.setattr(gates, "assert_design_approved", lambda **kwargs: None)
     monkeypatch.setattr(
         vigil_module.stages,
         "architecture",
@@ -249,6 +274,24 @@ def rig(monkeypatch) -> _Rig:
             "design_digest": "d",
             "spec_path": "docs/specs/0001-x.md",
         },
+    )
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "design_snapshot",
+        lambda **kwargs: {"design_digest": "minimal-digest", "spec_path": "docs/specs/0001-x.md"},
+    )
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "minimal_design_snapshot",
+        lambda **kwargs: {
+            "design_digest": "minimal-digest",
+            "spec_path": "docs/objectives/issue-5.md",
+        },
+    )
+    monkeypatch.setattr(
+        vigil_module.stages,
+        "assert_minimal_design_approved",
+        lambda **kwargs: None,
     )
     # Spec-0017/T3: 合并硬闸——本文件不测它（T3 test_runtime_gates 已钉），放行即可；只验合并动作下放 merger。
     monkeypatch.setattr(
@@ -388,6 +431,150 @@ def test_act_solve_skips_delivery_agent_when_implementer_already_pushed(rig, tmp
         _issue_worktree(tmp_path, 5),
         "openagents/issue-5",
     ) in rig.worktrees
+
+
+def test_minimal_flow_role_sequence_is_exactly_three_subjective_calls(rig, tmp_path, monkeypatch):
+    heads = iter(["spec-before", _HEAD, "impl-before", _HEAD])
+    monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: next(heads))
+    config = _config(flow=agent_config.FLOW_MINIMAL)
+
+    _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path, config=config)
+    assert rig.agent_names() == ["spec_writer", "implementer"]
+    assert "issue 正文" in rig.context_of(agent="implementer")
+    assert "objective contract" in rig.context_of(agent="implementer")
+    assert "严禁 cd /work/harness" in rig.context_of(agent="implementer")
+
+    _act(
+        rig=rig,
+        facts=_facts(review_state=None, review_commit_id=None, labels=frozenset()),
+        work_dir=tmp_path,
+        config=config,
+    )
+    assert rig.agent_names() == ["spec_writer", "implementer", "acceptance"]
+
+    _act(rig=rig, facts=_facts(), work_dir=tmp_path, config=config)
+    assert rig.agent_names() == ["spec_writer", "implementer", "acceptance"]
+    assert "merger" not in rig.agent_names()
+    assert ("merge_pr", {"pr_number": 12}) in rig.gh
+
+
+def test_generate_only_flow_specs_executes_and_merges_without_validation(
+    rig, tmp_path, monkeypatch
+):
+    heads = iter(["spec-before", _HEAD, "exec-before", _HEAD])
+    monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: next(heads))
+    monkeypatch.setattr(
+        gates,
+        "assert_repository_integrity",
+        lambda *, workspace: (_ for _ in ()).throw(
+            AssertionError("generate-only must not run the repository-wide Spec gate")
+        ),
+    )
+    config = _config(flow=agent_config.FLOW_GENERATE_ONLY)
+
+    _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path, config=config)
+    assert rig.agent_names() == ["spec_writer", "executor"]
+    assert "compact objective spec" in rig.context_of(agent="executor")
+    assert "original issue" in rig.context_of(agent="executor")
+
+    _act(
+        rig=rig,
+        facts=_facts(review_state=None, review_commit_id=None, labels=frozenset()),
+        work_dir=tmp_path,
+        config=config,
+    )
+    assert rig.agent_names() == ["spec_writer", "executor"]
+
+    _act(rig=rig, facts=_facts(), work_dir=tmp_path, config=config)
+    assert rig.agent_names() == ["spec_writer", "executor"]
+    assert ("merge_pr", {"pr_number": 12}) in rig.gh
+
+
+def test_minimal_spec_blocked_stops_before_pr_and_implementation(rig, tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        _AGENT_OUTPUTS,
+        "spec_writer",
+        {
+            "status": "BLOCKED",
+            "head_sha": "",
+            "summary": "cannot preserve objective",
+            "blocker": "read-only boundary",
+            "objective_coverage": [],
+            "candidate_assessments": [],
+            "selected_intervention": {},
+            "evidence_pack": [],
+            "falsifiers": [],
+        },
+    )
+    _act(
+        rig=rig,
+        facts=_facts(pr_number=None),
+        work_dir=tmp_path,
+        config=_config(flow=agent_config.FLOW_MINIMAL),
+    )
+    assert rig.agent_names() == ["spec_writer"]
+    assert "create_pr" not in rig.gh_names()
+    assert ("issue_add_label", {"number": 5, "name": github.AUTOMATION_FAILED_LABEL}) in rig.gh
+
+
+def test_minimal_spec_partial_stops_before_pr_and_implementation(rig, tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        _AGENT_OUTPUTS,
+        "spec_writer",
+        {
+            "status": "PARTIAL",
+            "head_sha": _HEAD,
+            "summary": "useful but incomplete",
+            "blocker": "one objective is unclosed",
+            "objective_coverage": [{"scope_coverage": "PARTIAL", "evidence_level": "HYPOTHESIS"}],
+            "candidate_assessments": [{
+                "candidate": "one", "ownership": "model", "delivery": "unknown",
+                "control_effect": "unknown", "evidence": "none", "assumptions": "compliance",
+                "failure_modes": "ignored", "verdict": "selected",
+            }],
+            "selected_intervention": {},
+            "evidence_pack": [],
+            "falsifiers": [],
+        },
+    )
+    _act(
+        rig=rig,
+        facts=_facts(pr_number=None),
+        work_dir=tmp_path,
+        config=_config(flow=agent_config.FLOW_MINIMAL),
+    )
+    assert rig.agent_names() == ["spec_writer"]
+    assert "create_pr" not in rig.gh_names()
+    assert ("issue_add_label", {"number": 5, "name": github.AUTOMATION_FAILED_LABEL}) in rig.gh
+
+
+def test_minimal_partial_acceptance_never_reworks_or_merges(rig, tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        _AGENT_OUTPUTS,
+        "acceptance",
+        {"verdict": "PARTIAL", "reason": "hard half missing", "evidence": ["replay"]},
+    )
+    _act(
+        rig=rig,
+        facts=_facts(review_state=None, review_commit_id=None, labels=frozenset()),
+        work_dir=tmp_path,
+        config=_config(flow=agent_config.FLOW_MINIMAL),
+    )
+    assert rig.agent_names() == ["acceptance"]
+    assert "implementer" not in rig.agent_names()
+    assert "merge_pr" not in rig.gh_names()
+    assert ("issue_add_label", {"number": 5, "name": github.AUTOMATION_FAILED_LABEL}) in rig.gh
+
+
+def test_minimal_ci_failure_stops_without_second_implementation(rig, tmp_path):
+    _act(
+        rig=rig,
+        facts=_facts(ci="failure"),
+        work_dir=tmp_path,
+        config=_config(flow=agent_config.FLOW_MINIMAL),
+    )
+    assert rig.agent_names() == []
+    assert ("issue_add_label", {"number": 5, "name": github.AUTOMATION_FAILED_LABEL}) in rig.gh
 
 
 def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):

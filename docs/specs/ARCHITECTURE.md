@@ -20,14 +20,19 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
+| `acceptance.py` | Judge a candidate directly against its immutable original issue. |
 | `architect.py` | Review an admitted objective's implementation architecture before coding. |
 | `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
+| `developer.py` | Implement one frozen v0.2 compact specification exactly once. |
 | `drafter.py` | # Spec-0062/T1: agents.drafter —— RFC 生命周期起草判断 → 结构化交付报告的提示词（零逻辑）。 |
+| `executor.py` | Define the constrained coding executor used by generate-only delivery. |
 | `implementer.py` | # Spec-0060/T4: agents.implementer —— 按 RFC 实现 / 按反馈迭代的提示词（零逻辑）。 |
 | `merger.py` | # Spec-0017/T3: agents.merger —— 落合并动作 → 结构化合并报告的提示词（零逻辑）。 |
 | `replier.py` | # Spec-0061/T2: agents.replier —— 回应 PR 上的人类评论 → 结构化回复（零逻辑）。 |
 | `reviewer.py` | # Spec-0060/T4: agents.reviewer —— 评审 → 结构化裁决的提示词（零逻辑）。 |
+| `spec_curator.py` | Plan dependencies between frozen READY specifications without redesigning them. |
+| `spec_writer.py` | Define the compact, objective-preserving specification role. |
 | `tester.py` | # Spec-0060/T4: agents.tester —— 独立 e2e 执行 + 判读的提示词（零逻辑）。 |
 | `triager.py` | # Spec-0061/T2: agents.triager —— issue 分诊：对齐 + 冲突自检 → 结构化裁决（零逻辑）。 |
 
@@ -72,6 +77,7 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `engine.py` | Fill an agent's prompt placeholders, dispatch to a backend, and return validated output. |
 | `evidence.py` | Validate head-bound behavioral evidence emitted by Tester. |
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
+| `invocation.py` | Fail-open, redacted audit records for delivery-side agent invocations. |
 | `legacy.py` | Fail-closed detection for pre-Spec-0081 terminal state. |
 | `research.py` | Normalize and render bounded, objective repository evidence for role reuse. |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
@@ -123,20 +129,38 @@ _# Spec-0060/T1: utils —— 所有确定性、非 agent 的原语的归口包�
 | `worknote.py` | Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。 |
 | `workspace.py` | RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。 |
 
+### openagents.v02
+
+_OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery._
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery. |
+| `audit.py` | Persist one immutable, machine-readable v0.2 batch terminal record. |
+| `model.py` | Immutable values shared by the v0.2 planner and batch runner. |
+| `openagents_adapter.py` | Production adapter from the v0.2 scheduler to existing OpenAgents mechanics. |
+| `planner.py` | Validate Curator edges, add deterministic file edges, and layer the DAG. |
+| `runner.py` | Minimal v0.2 batch orchestration, independent from the legacy Vigil state machine. |
+
 ## 依赖关系图（import）
 
 ```mermaid
 graph LR
     nopenagents["openagents"]
     nopenagents_agents["openagents.agents"]
+    nopenagents_agents_acceptance["agents.acceptance"]
     nopenagents_agents_architect["agents.architect"]
     nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
+    nopenagents_agents_developer["agents.developer"]
     nopenagents_agents_drafter["agents.drafter"]
+    nopenagents_agents_executor["agents.executor"]
     nopenagents_agents_implementer["agents.implementer"]
     nopenagents_agents_merger["agents.merger"]
     nopenagents_agents_replier["agents.replier"]
     nopenagents_agents_reviewer["agents.reviewer"]
+    nopenagents_agents_spec_curator["agents.spec_curator"]
+    nopenagents_agents_spec_writer["agents.spec_writer"]
     nopenagents_agents_tester["agents.tester"]
     nopenagents_agents_triager["agents.triager"]
     nopenagents_backends["openagents.backends"]
@@ -154,6 +178,7 @@ graph LR
     nopenagents_runtime_engine["runtime.engine"]
     nopenagents_runtime_evidence["runtime.evidence"]
     nopenagents_runtime_gates["runtime.gates"]
+    nopenagents_runtime_invocation["runtime.invocation"]
     nopenagents_runtime_legacy["runtime.legacy"]
     nopenagents_runtime_research["runtime.research"]
     nopenagents_runtime_state["runtime.state"]
@@ -190,6 +215,12 @@ graph LR
     nopenagents_utils_streams["utils.streams"]
     nopenagents_utils_worknote["utils.worknote"]
     nopenagents_utils_workspace["utils.workspace"]
+    nopenagents_v02["openagents.v02"]
+    nopenagents_v02_audit["v02.audit"]
+    nopenagents_v02_model["v02.model"]
+    nopenagents_v02_openagents_adapter["v02.openagents_adapter"]
+    nopenagents_v02_planner["v02.planner"]
+    nopenagents_v02_runner["v02.runner"]
     nopenagents_agents --> nopenagents_agents_deliver
     nopenagents_agents --> nopenagents_agents_drafter
     nopenagents_agents --> nopenagents_agents_implementer
@@ -198,6 +229,7 @@ graph LR
     nopenagents_agents --> nopenagents_agents_tester
     nopenagents_agents --> nopenagents_agents_triager
     nopenagents_backends_claude_code --> nopenagents_backends_base
+    nopenagents_backends_claude_code --> nopenagents_runtime_invocation
     nopenagents_backends_claude_code --> nopenagents_utils
     nopenagents_backends_claude_code --> nopenagents_utils_proc
     nopenagents_backends_claude_code --> nopenagents_utils_streams
@@ -227,6 +259,10 @@ graph LR
     nopenagents_cli --> nopenagents_utils_release
     nopenagents_cli --> nopenagents_utils_results
     nopenagents_cli --> nopenagents_utils_selfupdate
+    nopenagents_cli --> nopenagents_v02_audit
+    nopenagents_cli --> nopenagents_v02_model
+    nopenagents_cli --> nopenagents_v02_openagents_adapter
+    nopenagents_cli --> nopenagents_v02_runner
     nopenagents_desktop_daemon --> nopenagents_utils
     nopenagents_desktop_daemon --> nopenagents_utils_streams
     nopenagents_recipes_backfill --> nopenagents_recipes
@@ -235,12 +271,15 @@ graph LR
     nopenagents_recipes_backfill --> nopenagents_utils_forge
     nopenagents_recipes_backfill --> nopenagents_utils_git
     nopenagents_recipes_stages --> nopenagents_agents
+    nopenagents_recipes_stages --> nopenagents_agents_acceptance
     nopenagents_recipes_stages --> nopenagents_agents_architect
     nopenagents_recipes_stages --> nopenagents_agents_deliver
     nopenagents_recipes_stages --> nopenagents_agents_drafter
+    nopenagents_recipes_stages --> nopenagents_agents_executor
     nopenagents_recipes_stages --> nopenagents_agents_implementer
     nopenagents_recipes_stages --> nopenagents_agents_merger
     nopenagents_recipes_stages --> nopenagents_agents_reviewer
+    nopenagents_recipes_stages --> nopenagents_agents_spec_writer
     nopenagents_recipes_stages --> nopenagents_agents_triager
     nopenagents_recipes_stages --> nopenagents_runtime
     nopenagents_recipes_stages --> nopenagents_runtime_context
@@ -282,6 +321,7 @@ graph LR
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_forge
     nopenagents_runtime_engine --> nopenagents_runtime
+    nopenagents_runtime_engine --> nopenagents_runtime_invocation
     nopenagents_runtime_engine --> nopenagents_runtime_token_usage
     nopenagents_runtime_engine --> nopenagents_runtime_tool_usage
     nopenagents_runtime_gates --> nopenagents_spec
@@ -338,4 +378,25 @@ graph LR
     nopenagents_utils_release --> nopenagents_utils_forge
     nopenagents_utils_release --> nopenagents_utils_github
     nopenagents_utils_results --> nopenagents_runtime_state
+    nopenagents_v02 --> nopenagents_v02_model
+    nopenagents_v02 --> nopenagents_v02_runner
+    nopenagents_v02_audit --> nopenagents_v02_model
+    nopenagents_v02_openagents_adapter --> nopenagents_agents
+    nopenagents_v02_openagents_adapter --> nopenagents_agents_developer
+    nopenagents_v02_openagents_adapter --> nopenagents_agents_spec_curator
+    nopenagents_v02_openagents_adapter --> nopenagents_recipes
+    nopenagents_v02_openagents_adapter --> nopenagents_recipes_stages
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_context
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_engine
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_gates
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_research
+    nopenagents_v02_openagents_adapter --> nopenagents_utils
+    nopenagents_v02_openagents_adapter --> nopenagents_utils_forge
+    nopenagents_v02_openagents_adapter --> nopenagents_utils_git
+    nopenagents_v02_openagents_adapter --> nopenagents_utils_workspace
+    nopenagents_v02_openagents_adapter --> nopenagents_v02_model
+    nopenagents_v02_planner --> nopenagents_v02_model
+    nopenagents_v02_runner --> nopenagents_v02_model
+    nopenagents_v02_runner --> nopenagents_v02_planner
 ```

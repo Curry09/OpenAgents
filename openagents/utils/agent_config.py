@@ -72,8 +72,28 @@ _DEFAULT_STAGES: dict[str, str] = {stage: OWNER_AGENT for stage in _STAGE_VALID_
 
 # Spec-0064/T1: 已知 agent 角色 → 后端映射的默认（backends/ 目前只有 claude_code，理念 2 的声明面
 # 先留 schema 位、混接 codex/nexau 的实现另议）。角色齐全一份，`agents` 段可逐角色覆盖 backend。
-_ROLES = ("triager", "drafter", "architect", "implementer", "reviewer", "replier", "deliver")
+_ROLES = (
+    "triager",
+    "drafter",
+    "architect",
+    "spec_writer",
+    "spec_curator",
+    "implementer",
+    "developer",
+    "executor",
+    "acceptance",
+    "reviewer",
+    "replier",
+    "deliver",
+)
 _DEFAULT_BACKEND = "claude_code"
+
+# Spec-0082/T1: delivery profile.  Standard remains the compatibility default; minimal replaces
+# only the subjective solve/review/merge decisions while reusing the same scheduler and hard gates.
+FLOW_STANDARD = "standard"
+FLOW_MINIMAL = "minimal"
+FLOW_GENERATE_ONLY = "generate-only"
+FLOW_V02 = "v0.2"
 
 # Spec-0064/T1: 确定性硬闸名（`runtime.gates`）——恒机器、恒在、skip 关不掉（防 #140 空转的安全
 # 底线，见约束②）。写进 `stages` 即报错，把「可配阶段」与「硬底线」词分开以强化分层。
@@ -164,6 +184,7 @@ AGENT_CONFIG_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "version": {"type": "integer"},
+        "flow": {"enum": [FLOW_STANDARD, FLOW_MINIMAL, FLOW_GENERATE_ONLY, FLOW_V02]},
         # Spec-0074/T1: 托管平台选择（缺省 github，存量零感知）；gitea 时须带同级 gitea 连接段。
         "forge": {"enum": [FORGE_GITHUB, FORGE_GITEA]},
         "gitea": _GITEA_SCHEMA,
@@ -235,6 +256,7 @@ class RepoPlan:
     base: str
     labels: list[str]
     stages: StagePolicy
+    flow: str = FLOW_STANDARD
 
 
 @dataclass(frozen=True)
@@ -253,6 +275,7 @@ class AgentConfig:
     # 带默认值置于末位——既有构造点（default_config/_build_config/测试）零改动仍可实例化。
     forge: str = FORGE_GITHUB
     gitea: dict | None = None
+    flow: str = FLOW_STANDARD
 
 
 def default_config() -> AgentConfig:
@@ -274,6 +297,7 @@ def default_config() -> AgentConfig:
                 base=_DEFAULT_BASE,
                 labels=list(_DEFAULT_LABELS),
                 stages=stages,
+                flow=FLOW_STANDARD,
             )
         ],
     )
@@ -470,6 +494,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
             interval=interval,
             base=base,
             labels=labels,
+            flow=data.get("flow", FLOW_STANDARD),
         )
         for repo in raw_repos
     ]
@@ -485,6 +510,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
         # Spec-0074/T1: 托管平台声明透传（forge 分发层与消费方装载用；缺省 github）。
         forge=data.get("forge", FORGE_GITHUB),
         gitea=data.get("gitea"),
+        flow=data.get("flow", FLOW_STANDARD),
     )
 
 
@@ -502,6 +528,7 @@ def _build_repo(
     interval: int,
     base: str,
     labels: list[str],
+    flow: str,
 ) -> RepoPlan:
     """把单个 repo 的 defaults/override 合并成 RepoPlan——path 绝对化、stages 三级合并、其余回落 defaults。"""
     path = _absolutize(raw_path=repo["path"], base_dir=base_dir)
@@ -513,6 +540,7 @@ def _build_repo(
         base=repo.get("base", base),
         labels=list(repo.get("labels", labels)),
         stages=stages,
+        flow=flow,
     )
 
 

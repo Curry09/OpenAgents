@@ -271,6 +271,18 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 - e2e 意图：证明所有生产角色的一次调用只携带一份动态材料，Claude Code 子进程不在 argv 暴露或复制 prompt；证明模型拒绝、协议错误、连续崩溃、零进展和超时均在有限调用内收敛到可解释的 automation-failed，同一事实不再调用模型，而材料事实变化后可由自动化自行复活，整个活动运行面不再产生或消费 needs-human。
   - 测法：运行 scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh；脚本用记录型 backend 覆盖 triage、draft、architecture、implement、reply、test、review、merge 的真实组装路径，以唯一 sentinel 断言最终 prompt 中只出现一次，并以 Popen seam 断言 prompt 只经 stdin；随后在临时 SQLite 队列与假 forge 上分别注入可重试崩溃、旧 needs-human 输出、零进展和事实变化，断言调用次数有界、automation-failed 标签与带 fingerprint 的签名诊断落地、未变事实不重派、变化事实自动清除失败态并重新入队；最后扫描活动源码、模板、CLI help 与桌面类型，除专用迁移脚本外不得出现 needs-human、OWNER_HUMAN 或 --hold。
 
+### 0082 最小目标保持与生成交付流
+增加 minimal 与 generate-only 交付流：两者都先写紧凑 Spec；前者一次验收，后者由受约束 executor 直接产出 PR 并机械合并，用于无质量闸的隔离生成实验。
+
+### 0083 v0.2 因果 Spec 契约
+将实验验证过的深证据 Spec Writer 固化为 v0.2 的唯一单 issue 设计角色。
+
+### 0084 v0.2 post-Spec Curator DAG
+在一批 Spec 完成后统一生成依赖 DAG 与并行批次，Curator 不再参与入口技术审核。
+
+### 0085 v0.2 最小批次开发与验收
+以一个 batch runner 执行 Spec、DAG、Developer、客观结果、Acceptance 和机械合并。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -576,6 +588,12 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0081 | 0081/T2 | Fingerprint 绑定的自治失败收口与自动复活 | done | T1 | openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/runtime/legacy.py<br>openagents/runtime/state.py<br>openagents/runtime/token_usage.py<br>openagents/utils/blocknote.py<br>openagents/utils/forge.py<br>openagents/utils/gitea.py<br>openagents/utils/github.py<br>openagents/utils/notes.py<br>openagents/utils/release.py<br>openagents/utils/workspace.py<br>openagents/desktop/daemon.py<br>apps/desktop/src/renderer/src/types.ts<br>apps/desktop/src/renderer/src/nav/pending.ts<br>apps/desktop/src/renderer/src/nav/pending.test.ts<br>tests/conftest.py<br>tests/test_blocknote.py<br>tests/test_blocknote_hold_merge.py<br>tests/test_desktop_daemon.py<br>tests/test_ensure_prerequisites.py<br>tests/test_gitea_driver.py<br>tests/test_github.py<br>tests/test_github_remove_label.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_admit.py<br>tests/test_recipe_vigil_queue.py<br>tests/test_recipe_vigil_timing.py<br>tests/test_release.py<br>tests/test_runtime_gates.py<br>tests/test_runtime_state_converge.py |
 | 0081 | 0081/T3 | 人工 stage owner、hold CLI 与配置表面清退 | done | — | openagents/cli.py<br>openagents/data/openagents.yml.template<br>openagents/utils/agent_config.py<br>openagents/utils/fleet.py<br>openagents/utils/hold.py<br>openagents/utils/skip.py<br>tests/test_agent_config.py<br>tests/test_cli.py<br>tests/test_cli_new_stack.py<br>tests/test_hold.py<br>tests/test_skip.py |
 | 0081 | 0081/T4 | 旧状态迁移、当前文档与端到端退役证明 | done | T2, T3 | README.md<br>docs/e2e-results/0081-autonomous-failure-and-prompt-contract.md<br>docs/specs/0081-autonomous-failure-and-prompt-contract.md<br>scripts/e2e-spec-0058-needs-human-reply-unblock.sh<br>scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh<br>scripts/migrate-needs-human-state.py<br>tests/test_migrate_needs_human_state.py |
+| 0082 | 0082/T1 | 实现 minimal 三拍交付流 | done | — | openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/agents/spec_writer.py<br>openagents/agents/acceptance.py<br>openagents/agents/implementer.py<br>openagents/agents/executor.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>tests/test_agent_config.py<br>tests/test_agents_prompts.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil.py |
+| 0082 | 0082/T2 | 验证 minimal 流角色序列与失败闭合 | done | T1 | scripts/e2e-spec-0082-minimal-objective-delivery-flow.sh |
+| 0083 | 0083/T1 | 固化深证据 Spec Writer 与生产硬闸 | done | — | openagents/agents/spec_writer.py<br>openagents/recipes/stages.py<br>tests/test_agents_prompts.py<br>tests/test_recipe_stages.py |
+| 0084 | 0084/T1 | 实现冻结 Spec 节点、DAG 校验与拓扑批次 | done | — | openagents/agents/spec_curator.py<br>openagents/v02/model.py<br>openagents/v02/planner.py<br>tests/test_v02_planner.py |
+| 0085 | 0085/T1 | 实现 Developer 契约与可注入 batch runner | done | — | openagents/agents/developer.py<br>openagents/v02/runner.py<br>openagents/v02/audit.py<br>tests/test_v02_runner.py<br>tests/test_v02_audit.py |
+| 0085 | 0085/T2 | 声明 v0.2 flow 与命令入口 | done | T1 | openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/cli.py<br>tests/test_agent_config.py<br>tests/test_cli.py |
 
 ## 跨 feature 关系图
 
@@ -1036,6 +1054,20 @@ graph LR
         n0081_T3["T3 人工 stage owner、hold CLI 与配置表面清退"]
         n0081_T4["T4 旧状态迁移、当前文档与端到端退役证明"]
     end
+    subgraph G0082[0082 minimal-objective-delivery-flow]
+        n0082_T1["T1 实现 minimal 三拍交付流"]
+        n0082_T2["T2 验证 minimal 流角色序列与失败闭合"]
+    end
+    subgraph G0083[0083 v02-causal-spec-contract]
+        n0083_T1["T1 固化深证据 Spec Writer 与生产硬闸"]
+    end
+    subgraph G0084[0084 v02-post-spec-dag]
+        n0084_T1["T1 实现冻结 Spec 节点、DAG 校验与拓扑批次"]
+    end
+    subgraph G0085[0085 v02-batch-delivery]
+        n0085_T1["T1 实现 Developer 契约与可注入 batch runner"]
+        n0085_T2["T2 声明 v0.2 flow 与命令入口"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1291,6 +1323,8 @@ graph LR
     n0081_T2 --> n0081_T1
     n0081_T4 --> n0081_T2
     n0081_T4 --> n0081_T3
+    n0082_T2 --> n0082_T1
+    n0085_T2 --> n0085_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1316,11 +1350,12 @@ graph LR
 | openagents/agents/curator.py | 0065, 0081 |
 | openagents/agents/deliver.py | 0017, 0060, 0081 |
 | openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081 |
-| openagents/agents/implementer.py | 0059, 0060, 0077, 0081 |
+| openagents/agents/implementer.py | 0059, 0060, 0077, 0081, 0082 |
 | openagents/agents/merger.py | 0017, 0074, 0075, 0081 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061, 0081 |
 | openagents/agents/reviewer.py | 0060, 0076, 0081 |
+| openagents/agents/spec_writer.py | 0082, 0083 |
 | openagents/agents/tester.py | 0060, 0076, 0081 |
 | openagents/agents/triager.py | 0061, 0081 |
 | openagents/backends/__init__.py | 0001, 0029 |
@@ -1328,11 +1363,11 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
-| openagents/data/openagents.yml.template | 0067, 0074, 0081 |
+| openagents/data/openagents.yml.template | 0067, 0074, 0081, 0082, 0085 |
 | openagents/desktop/daemon.py | 0073, 0081 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
@@ -1351,8 +1386,8 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
@@ -1371,7 +1406,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081, 0082, 0085 |
 | openagents/utils/align.py | 0062, 0078 |
 | openagents/utils/blocknote.py | 0062, 0081 |
 | openagents/utils/config.py | 0061, 0062 |
@@ -1396,13 +1431,13 @@ graph LR
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | scripts/e2e-spec-0058-needs-human-reply-unblock.sh | 0058, 0081 |
 | tests/conftest.py | 0065, 0070, 0081 |
-| tests/test_agent_config.py | 0064, 0067, 0076, 0081 |
+| tests/test_agent_config.py | 0064, 0067, 0076, 0081, 0082, 0085 |
 | tests/test_agents_architect.py | 0076, 0081 |
 | tests/test_agents_deliver.py | 0017, 0081 |
 | tests/test_agents_docstring_rule.py | 0059, 0081 |
 | tests/test_agents_drafter.py | 0062, 0076, 0081 |
 | tests/test_agents_merger.py | 0017, 0074, 0075, 0081 |
-| tests/test_agents_prompts.py | 0060, 0077, 0081 |
+| tests/test_agents_prompts.py | 0060, 0077, 0081, 0082, 0083 |
 | tests/test_agents_replier_issue.py | 0016, 0081 |
 | tests/test_agents_triager_replier.py | 0061, 0081 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081 |
@@ -1411,7 +1446,7 @@ graph LR
 | tests/test_blocknote.py | 0032, 0081 |
 | tests/test_blocknote_hold_merge.py | 0041, 0081 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069, 0081 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069, 0081, 0085 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064, 0081 |
 | tests/test_cli_timing.py | 0066, 0078, 0079 |
 | tests/test_config.py | 0001, 0029, 0033 |
@@ -1444,9 +1479,9 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081 |
-| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081 |
-| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077, 0081 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081, 0082, 0083 |
+| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081, 0082 |
+| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077, 0081, 0082 |
 | tests/test_recipe_vigil_admit.py | 0065, 0074, 0081 |
 | tests/test_recipe_vigil_discovery.py | 0035, 0074 |
 | tests/test_recipe_vigil_queue.py | 0065, 0075, 0081 |
@@ -3637,4 +3672,76 @@ graph LR
     class v_T2_1 st_done;
     class v_T3_1 st_done;
     class v_T4_1 st_done;
+```
+
+### 0082 最小目标保持与生成交付流（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 实现 minimal 三拍交付流"]
+    nT2["T2 验证 minimal 流角色序列与失败闭合"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+```
+
+### 0083 v0.2 因果 Spec 契约（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 固化深证据 Spec Writer 与生产硬闸"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+```
+
+### 0084 v0.2 post-Spec Curator DAG（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 实现冻结 Spec 节点、DAG 校验与拓扑批次"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+```
+
+### 0085 v0.2 最小批次开发与验收（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 实现 Developer 契约与可注入 batch runner"]
+    nT2["T2 声明 v0.2 flow 与命令入口"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
 ```

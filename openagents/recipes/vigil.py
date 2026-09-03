@@ -67,6 +67,11 @@ _STALE_LOCK_SECONDS = 300
 # Spec-0065/T2: worker 空队列时的轮询粒度（秒）——领不到活就 stop_event.wait(它) 再试，兼作停机响应上限。
 _WORKER_POLL_SECONDS = 1.0
 
+# Spec-0082/T1: coding may fan out across issue worktrees, but all PRs advance one base branch.
+# Serialize the irreversible forge merge inside one Vigil process; the forge still rejects a stale
+# or conflicting head when multiple processes are accidentally present.
+_MECHANICAL_MERGE_LOCK = threading.Lock()
+
 # Spec-0065/T2: SQLite 忙等超时（毫秒）——BEGIN IMMEDIATE 抢写锁抢不到时的自旋上限（序列化并发领取）。
 # 生产者 + K 个 worker 同抢一把写锁，且 worker 持锁期间要发 GitHub 请求，故给得比「本地写一行」宽得多：
 # 到点即抛 `database is locked`，而收尾里抛 = 行留 claimed（虽有 `_finish` 兜底，但那条路要多绕一圈回收）。
@@ -586,7 +591,10 @@ def _sense(*, config: agent_config.AgentConfig, subject: str) -> _Observed:
     owners = config.stages
     if owners.owner_of(stage=agent_config.STAGE_CI) == _SKIP:
         ci = _CI_SUCCESS
-    if owners.owner_of(stage=agent_config.STAGE_E2E) == _SKIP:
+    if (
+        config.flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}
+        or owners.owner_of(stage=agent_config.STAGE_E2E) == _SKIP
+    ):
         e2e_head_sha = head_sha
     if owners.owner_of(stage=agent_config.STAGE_REVIEW) == _SKIP:
         review_state, review_commit_id = _REVIEW_APPROVED, _short(sha=head_sha)
@@ -2479,7 +2487,14 @@ def _act(
             backend=timed, state=state, work_dir=work_dir, facts=facts, agent_id=agent_id
         )
     if action == _ACT_SOLVE:
-        return _do_solve(backend=timed, state=state, work_dir=work_dir, config=config, facts=facts)
+        return _do_solve(
+            backend=timed,
+            state=state,
+            work_dir=work_dir,
+            config=config,
+            facts=facts,
+            agent_id=agent_id,
+        )
     if action == _ACT_REBASE:
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CONFLICT),
@@ -2489,6 +2504,17 @@ def _act(
             on_skip=lambda: "conflict skipped",
         )
     if action == _ACT_FIX_CI:
+        if config.flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}:
+            logs = "\n".join(github.check_logs(pr_number=facts.pr_number or 0))
+            _fail_automation(
+                subject=facts.subject,
+                facts=facts,
+                category="minimal_ci_failed",
+                attempts=1,
+                reason=logs or "当前 head 的 CI 未通过；minimal flow 不自动返工",
+                agent_id=agent_id,
+            )
+            return "minimal flow stopped on CI failure"
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CI),
             on_agent=lambda: _do_fix_ci(backend=timed, work_dir=work_dir, facts=facts),
@@ -2506,7 +2532,12 @@ def _act(
         return route(
             owner=stage_owner(stage=agent_config.STAGE_REVIEW),
             on_agent=lambda: _do_review_or_fix(
-                backend=timed, state=state, work_dir=work_dir, facts=facts
+                backend=timed,
+                state=state,
+                work_dir=work_dir,
+                facts=facts,
+                config=config,
+                agent_id=agent_id,
             ),
             on_skip=lambda: "review skipped",
         )
@@ -2523,6 +2554,7 @@ def _act(
                 state=state,
                 work_dir=work_dir,
                 facts=facts,
+                flow=config.flow,
                 require_ci=stage_owner(stage=agent_config.STAGE_CI) != _SKIP,
             ),
             on_skip=lambda: "merge skipped",
@@ -2536,6 +2568,14 @@ _AUTONOMOUS_CONTRACT = (
     "\n\n---\n"
     "若无法完成，不要空转、假装成功或自行修改 forge 标签；请严格按本角色既有 JSON schema 返回"
     "明确的失败结论与已核实事实，由编排层统一执行有限重试和机器失败收口。"
+)
+
+_MINIMAL_FLOW_CONTRACT = (
+    "\n\n--- minimal flow objective contract ---\n"
+    "原 issue 标题与正文是最终权威，Spec 只能选择路径、不能降低目标。只做一次实现，优先回放原始失败；"
+    "不要扩展成全仓审计或无关验证。请在本次实现内 commit 并 push 当前分支；无法完整实现时如实报告，"
+    "不得用局部改动冒充完成。backend 启动时的 pwd 是本 issue 唯一隔离 worktree；所有读写必须相对 pwd，"
+    "严禁 cd /work/harness、访问父 checkout 或任何其它工作区。"
 )
 
 
@@ -2618,6 +2658,7 @@ def _do_solve(
     work_dir: Path,
     config: agent_config.AgentConfig,
     facts: _Facts,
+    agent_id: str,
 ) -> str:
     """分支④：还没有 PR → 竖切（worktree → rfc(routed) → 开 draft PR → implement → deliver）。
 
@@ -2632,6 +2673,94 @@ def _do_solve(
     worktree = git.Workspace(work_dir=work_dir).prepare(
         issue_number=number, branch=branch, base=config.base
     )
+
+    if config.flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}:
+        spec_report = stages.minimal_spec(
+            backend=backend,
+            worktree=worktree,
+            issue_number=number,
+            issue_title=issue.title,
+            issue_body=issue.body,
+            branch=branch,
+            context_text=f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}",
+        )
+        if spec_report["status"] in {"PARTIAL", "BLOCKED"}:
+            reason = str(spec_report.get("blocker") or spec_report.get("summary") or "blocked")
+            _fail_automation(
+                subject=facts.subject,
+                facts=facts,
+                category=f"minimal_spec_{str(spec_report['status']).lower()}",
+                attempts=1,
+                reason=reason,
+                agent_id=agent_id,
+            )
+            return reason
+
+        evidence_pack = research.normalize(spec_report.get("evidence_pack", []))
+        design_snapshot = stages.minimal_design_snapshot(work_dir=worktree, issue_number=number)
+        approved_design_digest = design_snapshot["design_digest"]
+        pr = github.create_pr(
+            branch=branch,
+            base=config.base,
+            title=f"feat: issue #{issue.number} {issue.title}".strip(),
+            body=(
+                f"Closes #{issue.number}\n\nopenagents "
+                f"{'generate-only' if config.flow == agent_config.FLOW_GENERATE_ONLY else 'minimal'} flow。"
+            ),
+            draft=True,
+        )
+        state.set_run(
+            issue_number=number,
+            status="pr-open",
+            branch=branch,
+            pr_number=pr.number,
+            design_digest=approved_design_digest,
+            evidence_pack=evidence_pack,
+        )
+        compact_path = Path(design_snapshot["spec_path"])
+        compact_text = (
+            compact_path.read_text(encoding="utf-8")
+            if compact_path.is_file()
+            else f"validated compact spec: {compact_path}"
+        )
+        implementation_context = context.sections(
+            ("compact objective spec", compact_text),
+            ("original issue", f"# {issue.number} {issue.title}\n\n{issue.body}"),
+            ("runtime context", f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}"),
+        )
+        if config.flow == agent_config.FLOW_GENERATE_ONLY:
+            report = stages.execute_compact_spec(
+                backend=backend,
+                work_dir=worktree,
+                issue_number=number,
+                pr_number=pr.number,
+                context_text=implementation_context,
+            )
+        else:
+            implementation_before = gates.snapshot_head(workspace=worktree)
+            report = stages.implement(
+                backend=backend,
+                work_dir=worktree,
+                issue_number=number,
+                pr_number=pr.number,
+                feedback="",
+                context_text=implementation_context,
+                evidence_pack=evidence_pack,
+            )
+            implementation_after = gates.snapshot_head(workspace=worktree)
+            if implementation_after == implementation_before:
+                _fail_automation(
+                    subject=facts.subject,
+                    facts=facts,
+                    category="minimal_implementation_no_delivery",
+                    attempts=1,
+                    reason=str(report.get("summary", "Implementer 未交付新的 head")),
+                    agent_id=agent_id,
+                )
+                return str(report.get("summary", "minimal implementation did not advance HEAD"))
+        git.Workspace(work_dir=work_dir).assert_delivered(worktree=worktree, branch=branch)
+        _log(message=f"✓ issue #{number}：{config.flow} 已开 PR #{pr.number} 并完成一次实现")
+        return str(report.get("summary", ""))
 
     def _draft() -> dict:
         return stages.rfc(
@@ -2831,7 +2960,15 @@ def _do_e2e(
     return str(verdict["reason"])
 
 
-def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts) -> str:
+def _do_review_or_fix(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    work_dir: Path,
+    facts: _Facts,
+    config: agent_config.AgentConfig,
+    agent_id: str,
+) -> str:
     """分支⑩：无裁决 / 裁决陈旧 → 派 reviewer 审；已是 CHANGES_REQUESTED@当前 head → 派 implementer 改。
 
     裁决落 label 时**把当前 head 的 sha7 嵌进 label 名**（`review-approved:<sha7>`）——裁决绑 commit，不是
@@ -2840,6 +2977,47 @@ def _do_review_or_fix(*, backend: Any, state: RuntimeState, work_dir: Path, fact
     """
     pr_number = facts.pr_number or 0
     evidence_pack = _evidence_pack(state=state, facts=facts)
+    if config.flow == agent_config.FLOW_GENERATE_ONLY:
+        _clear_review_labels(pr_number=pr_number, labels=facts.labels)
+        label = f"{_LABEL_REVIEW_APPROVED_PREFIX}{_short(sha=facts.head_sha)}"
+        github.ensure_label(name=label, description="openagents generate-only：结构性交付完成")
+        github.add_label(pr_number=pr_number, name=label)
+        _log(message=f"✓ PR #{pr_number}：generate-only 机械放行 {label}")
+        return "generate-only mechanical approval"
+    if config.flow == agent_config.FLOW_MINIMAL:
+        issue_number = _issue_number_of(facts=facts)
+        issue = github.get_issue(number=issue_number)
+        verdict = stages.acceptance(
+            backend=backend,
+            work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
+            issue_number=issue_number,
+            pr_number=pr_number,
+            issue_title=issue.title,
+            issue_body=issue.body,
+            context_text=(
+                f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}{_render_evidence(evidence_pack)}"
+            ),
+        )
+        _clear_review_labels(pr_number=pr_number, labels=facts.labels)
+        if verdict["verdict"] == "PASS":
+            label = f"{_LABEL_REVIEW_APPROVED_PREFIX}{_short(sha=facts.head_sha)}"
+            github.ensure_label(
+                name=label, description="openagents minimal：绑 head 的原 issue 验收"
+            )
+            github.add_label(pr_number=pr_number, name=label)
+            _log(message=f"✓ PR #{pr_number}：minimal acceptance {label}")
+            return str(verdict["reason"])
+        category = f"minimal_acceptance_{str(verdict['verdict']).lower()}"
+        _fail_automation(
+            subject=facts.subject,
+            facts=facts,
+            category=category,
+            attempts=1,
+            reason=str(verdict["reason"]),
+            agent_id=agent_id,
+        )
+        _log(message=f"✗ PR #{pr_number}：minimal acceptance {verdict['verdict']}")
+        return str(verdict["reason"])
     if facts.review_state == _REVIEW_CHANGES_REQUESTED and facts.review_commit_id == _short(
         sha=facts.head_sha
     ):
@@ -2928,6 +3106,7 @@ def _do_merge(
     state: RuntimeState,
     work_dir: Path,
     facts: _Facts,
+    flow: str = agent_config.FLOW_STANDARD,
     require_ci: bool = True,
 ) -> str:
     """分支⑫：全绿 + `review-approved:<当前 head 的 sha7>` + 非 draft → 下放 merger agent 合（**不可逆**）+ 关 issue + 置 done。
@@ -2938,24 +3117,46 @@ def _do_merge(
     """
     pr_number = facts.pr_number or 0
     candidate_worktree = _pr_worktree(work_dir=work_dir, facts=facts)
-    gates.assert_repository_integrity(workspace=candidate_worktree)
+    # Spec-0082 generate-only deliberately has no repository-wide quality or generated-index
+    # validation.  Its design artifact lives under docs/objectives (outside the standard
+    # docs/specs DAG), so applying the standard OVERVIEW integrity gate makes a frozen seed with
+    # a stale/missing generated index impossible to deliver even when this issue never touched
+    # that tree.  Minimal still keeps the repository integrity gate because it is the
+    # acceptance-bearing flow; generate-only re-reads only its compact objective digest below.
+    if flow != agent_config.FLOW_GENERATE_ONLY:
+        gates.assert_repository_integrity(workspace=candidate_worktree)
     issue_number = _issue_number_of(facts=facts)
     run = state.get_run(issue_number=issue_number) if issue_number else None
     approved_digest = str((run or {}).get("design_digest", ""))
     if approved_digest:
-        gates.assert_design_approved(
-            workspace=candidate_worktree,
-            issue_number=issue_number,
-            approved_digest=approved_digest,
+        if flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}:
+            stages.assert_minimal_design_approved(
+                work_dir=candidate_worktree,
+                issue_number=issue_number,
+                approved_digest=approved_digest,
+            )
+        else:
+            gates.assert_design_approved(
+                workspace=candidate_worktree,
+                issue_number=issue_number,
+                approved_digest=approved_digest,
+            )
+    if flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}:
+        with _MECHANICAL_MERGE_LOCK:
+            stages.merge_mechanical(
+                pr_number=pr_number,
+                head_sha=facts.head_sha or "",
+                require_ci=require_ci,
+            )
+    else:
+        stages.merge(
+            backend=backend,
+            pr_number=pr_number,
+            head_sha=facts.head_sha or "",
+            work_dir=candidate_worktree,
+            context_text=_AUTONOMOUS_CONTRACT,
+            require_ci=require_ci,
         )
-    stages.merge(
-        backend=backend,
-        pr_number=pr_number,
-        head_sha=facts.head_sha or "",
-        work_dir=candidate_worktree,
-        context_text=_AUTONOMOUS_CONTRACT,
-        require_ci=require_ci,
-    )
     number = issue_number
     if number:
         state.set_run(
@@ -3223,6 +3424,7 @@ def _repo_as_config(
         base=repo.base,
         labels=repo.labels,
         repos=[repo],
+        flow=repo.flow,
     )
 
 
