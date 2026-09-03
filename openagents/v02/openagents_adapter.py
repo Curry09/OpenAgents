@@ -28,6 +28,7 @@ from openagents.v02.model import (
 )
 
 _BRANCH_PREFIX = "openagents/v02-issue-"
+_META_SPEC_FILENAME = "META_SPEC.md"
 
 
 class OpenAgentsAdapter:
@@ -58,7 +59,7 @@ class OpenAgentsAdapter:
             issue_title=issue.title,
             issue_body=issue.body,
             branch=branch,
-            context_text=_runtime_contract(base=self._base),
+            context_text=_development_material(worktree=worktree, base=self._base),
         )
         status = str(report["status"])
         if status != "READY":
@@ -135,7 +136,10 @@ class OpenAgentsAdapter:
             context=context.sections(
                 ("original issue", f"# {node.number} {node.issue.title}\n\n{node.issue.body}"),
                 ("frozen compact spec", spec_text),
-                ("runtime contract", _runtime_contract(base=self._base)),
+                (
+                    "project development material",
+                    _development_material(worktree=node.worktree, base=self._base),
+                ),
             ),
             issue_number=node.number,
             branch=node.branch,
@@ -372,6 +376,25 @@ def _runtime_contract(*, base: str) -> str:
         "当前 worktree 是唯一可写仓库。不得访问父 checkout、其它 worktree 或宿主路径。"
         f"开始实现前 fetch origin/{base} 并在需要时把当前分支 rebase 到该基线；"
         "只允许对当前 v0.2 issue 分支使用 --force-with-lease。不得修改冻结 compact Spec。"
+    )
+
+
+def _development_material(*, worktree: Path, base: str) -> str:
+    """Combine mechanical worktree rules with the target project's living Meta-Spec."""
+    meta_path = Path(worktree) / _META_SPEC_FILENAME
+    try:
+        meta_spec = meta_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        meta_spec = (
+            f"当前 worktree 未提供 {_META_SPEC_FILENAME}。将其视为项目基线缺口；"
+            "必要时从源码、测试和当前 issue 重新确认项目骨架。"
+        )
+    if not meta_spec:
+        meta_spec = f"当前 worktree 的 {_META_SPEC_FILENAME} 为空；不要假定存在未记录的项目基线。"
+    return (
+        f"{_runtime_contract(base=base)}\n\n"
+        "--- project Meta-Spec（项目导航；不是实现冻结） ---\n"
+        f"{meta_spec}"
     )
 
 

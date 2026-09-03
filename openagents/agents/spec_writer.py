@@ -91,8 +91,9 @@ JSON 中 `selected_intervention.mechanism` 只记录责任边界、控制语义�
 "selected_intervention":{"mechanism":"责任边界、控制语义、选择理由与因果依据；不含代码结构或实现步骤","files":["预计协调面，非冻结实现清单"],"dependencies":["已验证的兼容边界"]},
 "evidence_pack":[],"falsifiers":[]}
 
-原 issue 与运行约束只在下方上下文出现一次。不要引用其它实验、基线输出或未出现在当前上下文和仓库中的
-预期答案。
+原 issue、运行约束和项目 Meta-Spec 只在下方上下文出现一次。Meta-Spec 是当前项目的导航基线，
+不是实现冻结；如果本 issue 需要改变其中的边界，应以最新 Spec、代码和测试为准并明确说明。不要引用其它
+实验、基线输出或未出现在当前上下文和仓库中的预期答案。
 """
 )
 
