@@ -22,7 +22,8 @@ PROMPT = Template(
 {"status":"DELIVERED、FAILED 或 NEEDS_DECISION","summary":"实现摘要",
 "changed_files":["path"],"evidence":["执行结果"],"reason":"失败或决策原因"}
 
-原 issue、冻结 Spec 与运行约束只在下方上下文出现一次。
+原 issue、冻结 Spec、运行约束和项目 Meta-Spec 只在下方上下文出现一次。Meta-Spec 是项目导航，
+不是实现冻结；harness 与 NexAU 均可修改，具体目标和取舍以冻结 Spec 为准。
 """
 )
 

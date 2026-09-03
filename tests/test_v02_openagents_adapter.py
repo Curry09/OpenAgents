@@ -92,6 +92,91 @@ def test_developer_head_is_stamped_from_git_not_model(monkeypatch, tmp_path):
     assert delivered == [(tmp_path, "openagents/v02-issue-1")]
 
 
+def test_developer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
+    spec = tmp_path / "docs" / "objectives" / "issue-1.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("frozen", encoding="utf-8")
+    (tmp_path / "META_SPEC.md").write_text(
+        "# Harness Meta-Spec\n\n双方仓库均可修改。", encoding="utf-8"
+    )
+    node = SpecNode(
+        issue=IssueInput(1, "title", "body"),
+        branch="openagents/v02-issue-1",
+        worktree=tmp_path,
+        spec_path=spec,
+        spec_digest="digest",
+        summary="summary",
+        files=("entry.py",),
+        selected_intervention={},
+        evidence_pack=(),
+    )
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.stages.assert_minimal_design_approved",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.forge.find_pr_by_branch",
+        lambda **kwargs: SimpleNamespace(number=9),
+    )
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.gates.snapshot_head", lambda **kwargs: "BEFORE"
+    )
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.gates.assert_head_advanced",
+        lambda **kwargs: "ACTUAL-HEAD",
+    )
+    monkeypatch.setattr("openagents.v02.openagents_adapter.git.porcelain", lambda **kwargs: "")
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.Workspace.assert_delivered",
+        lambda self, *, worktree, branch: None,
+    )
+    received = {}
+
+    def _run_agent(*args, **kwargs):
+        received["context"] = kwargs["context"]
+        return {
+            "status": "DELIVERED",
+            "summary": "implemented",
+            "changed_files": ["entry.py"],
+            "evidence": ["tests pass"],
+            "reason": "",
+        }
+
+    monkeypatch.setattr("openagents.v02.openagents_adapter.engine.run_agent", _run_agent)
+
+    result = OpenAgentsAdapter(backend=object(), work_dir=tmp_path).develop(node=node)
+
+    assert result.status == "DELIVERED"
+    assert "project Meta-Spec" in received["context"]
+    assert "双方仓库均可修改" in received["context"]
+
+
+def test_spec_writer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
+    (tmp_path / "META_SPEC.md").write_text(
+        "# Harness Meta-Spec\n\n因果链优先。", encoding="utf-8"
+    )
+    received = {}
+
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.Workspace.prepare",
+        lambda self, **kwargs: tmp_path,
+    )
+
+    def _minimal_spec(**kwargs):
+        received["context"] = kwargs["context_text"]
+        return {"status": "BLOCKED", "summary": "test", "blocker": "test", "head_sha": "HEAD"}
+
+    monkeypatch.setattr("openagents.v02.openagents_adapter.stages.minimal_spec", _minimal_spec)
+
+    result = OpenAgentsAdapter(backend=object(), work_dir=tmp_path).write_spec(
+        issue=IssueInput(1, "title", "body")
+    )
+
+    assert result.status == "BLOCKED"
+    assert "project Meta-Spec" in received["context"]
+    assert "因果链优先" in received["context"]
+
+
 def _acceptance_fixture(tmp_path: Path) -> tuple[SpecNode, DevelopmentResult]:
     spec = tmp_path / "docs" / "objectives" / "issue-1.md"
     spec.parent.mkdir(parents=True, exist_ok=True)
