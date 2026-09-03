@@ -27,10 +27,23 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from openagents.agents import architect, drafter, implementer, merger, reviewer, triager
+from openagents.agents import (
+    acceptance as acceptance_agent,
+)
+from openagents.agents import (
+    architect,
+    drafter,
+    executor,
+    implementer,
+    merger,
+    reviewer,
+    spec_writer,
+    triager,
+)
 from openagents.agents import deliver as deliver_agent
 from openagents.runtime import context, engine, gates, research
 from openagents.runtime.context import Context
@@ -113,6 +126,124 @@ def rfc(
     )
 
 
+def minimal_spec(
+    *,
+    backend: Any,
+    worktree: Path,
+    issue_number: int,
+    issue_title: str,
+    issue_body: str,
+    branch: str,
+    context_text: str,
+) -> dict:
+    """Create one compact Spec or return an explicit objective-level blocker.
+
+    Spec-0082/T1: BLOCKED is a valid terminal judgment and therefore does not have to advance HEAD;
+    READY and PARTIAL artifacts use the same delivery/evidence gates, but only READY may proceed.
+    """
+    before = gates.snapshot_head(workspace=Path(worktree))
+    workspace = Workspace(work_dir=Path(worktree))
+    resuming = workspace.remote_branch_exists(branch=branch)
+    verdict = engine.run_agent(
+        spec_writer,
+        backend=backend,
+        work_dir=Path(worktree),
+        context=context.sections(
+            ("original issue", f"# {issue_number} {issue_title}\n\n{issue_body}"),
+            ("runtime context", context_text),
+        ),
+        issue_number=issue_number,
+        branch=branch,
+    )
+    status = verdict["status"]
+    if status not in {"READY", "PARTIAL", "BLOCKED"}:
+        raise gates.GateError(f"minimal Spec Writer 返回未知状态：{status!r}")
+    if status in {"READY", "PARTIAL"}:
+        assessments = verdict.get("candidate_assessments")
+        required_candidate_fields = {
+            "candidate",
+            "ownership",
+            "delivery",
+            "control_effect",
+            "evidence",
+            "assumptions",
+            "failure_modes",
+            "verdict",
+        }
+        if not isinstance(assessments, list) or not assessments:
+            raise gates.GateError("minimal Spec 缺少 candidate_assessments，拒绝无比较的方案")
+        malformed = [
+            index
+            for index, item in enumerate(assessments)
+            if not isinstance(item, dict) or not required_candidate_fields.issubset(item)
+        ]
+        if malformed:
+            raise gates.GateError(
+                f"minimal Spec 候选未使用统一证据字段：candidate_assessments{malformed}"
+            )
+        coverage = verdict.get("objective_coverage")
+        if not isinstance(coverage, list) or not coverage:
+            raise gates.GateError("minimal Spec 缺少 objective_coverage")
+        malformed_coverage = [
+            index
+            for index, item in enumerate(coverage)
+            if not isinstance(item, dict)
+            or "scope_coverage" not in item
+            or "evidence_level" not in item
+        ]
+        if malformed_coverage:
+            raise gates.GateError(
+                f"minimal Spec 目标未分别记录覆盖与证据等级：objective_coverage{malformed_coverage}"
+            )
+    if status == "BLOCKED":
+        return verdict
+    after = gates.snapshot_head(workspace=Path(worktree))
+    if after == before and resuming:
+        workspace.assert_delivered(worktree=Path(worktree), branch=branch)
+    else:
+        gates.assert_head_advanced(before=before, workspace=Path(worktree))
+    gates.assert_evidence_stamp(head_sha=after, claimed=verdict["head_sha"])
+    return verdict
+
+
+def minimal_design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, str]:
+    """Validate and hash the compact objective contract for a minimal-flow issue.
+
+    Spec-0082/T1: unlike the standard RFC, this artifact has a fixed six-heading contract and no
+    generated indexes or DAG. Its byte digest is persisted and re-read before merge.
+    """
+    path = Path(work_dir) / "docs" / "objectives" / f"issue-{issue_number}.md"
+    if not path.is_file():
+        raise gates.GateError(f"minimal objective spec 不存在：{path.relative_to(work_dir)}")
+    text = path.read_text(encoding="utf-8")
+    required = (
+        "## Objective ledger",
+        "## Repository evidence",
+        "## Intervention analysis",
+        "## Selected mechanism and causal chain",
+        "## Implementation task",
+        "## Independent acceptance",
+    )
+    missing = [heading for heading in required if heading not in text]
+    if missing:
+        raise gates.GateError(f"minimal objective spec 缺少固定段落：{missing}")
+    if len(text.splitlines()) > 160:
+        raise gates.GateError("minimal objective spec 超过 160 行，不再是 compact contract")
+    return {
+        "design_digest": hashlib.sha256(text.encode()).hexdigest(),
+        "spec_path": str(path),
+    }
+
+
+def assert_minimal_design_approved(
+    *, work_dir: Path, issue_number: int, approved_digest: str
+) -> None:
+    """Reject merge when the compact objective contract changed after implementation approval."""
+    current = minimal_design_snapshot(work_dir=work_dir, issue_number=issue_number)
+    if current["design_digest"] != approved_digest:
+        raise gates.GateError("minimal objective spec 在实现后发生变化，必须重新走原 issue 验收")
+
+
 def implement(
     *,
     backend: Any,
@@ -143,6 +274,34 @@ def implement(
         issue_number=issue_number,
         pr_number=pr_number,
     )
+
+
+def execute_compact_spec(
+    *,
+    backend: Any,
+    work_dir: Path,
+    issue_number: int,
+    pr_number: int,
+    context_text: str,
+) -> dict:
+    """Execute one compact objective without review or validation work.
+
+    Spec-0082/T1: generate-only keeps coding capability but removes the autonomous Implementer
+    role.  The executor must deliver one pushed commit and cannot judge or merge its own work.
+    """
+    before = gates.snapshot_head(workspace=Path(work_dir))
+    verdict = engine.run_agent(
+        executor,
+        backend=backend,
+        work_dir=Path(work_dir),
+        context=context_text,
+        issue_number=issue_number,
+        pr_number=pr_number,
+    )
+    after = gates.snapshot_head(workspace=Path(work_dir))
+    gates.assert_head_advanced(before=before, workspace=Path(work_dir))
+    gates.assert_evidence_stamp(head_sha=after, claimed=verdict["head_sha"])
+    return verdict
 
 
 def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") -> dict[str, str]:
@@ -235,6 +394,36 @@ def review(
         context=context.sections(("issue", issue_body), ("runtime context", context_text)),
         pr_number=pr_number,
     )
+
+
+def acceptance(
+    *,
+    backend: Any,
+    work_dir: Path,
+    issue_number: int,
+    pr_number: int,
+    issue_title: str,
+    issue_body: str,
+    context_text: str,
+) -> dict:
+    """Judge the current candidate once against the complete original issue.
+
+    Spec-0082/T1: this role cannot request a rework loop; PARTIAL and FAIL are terminal outcomes.
+    """
+    verdict = engine.run_agent(
+        acceptance_agent,
+        backend=backend,
+        work_dir=Path(work_dir),
+        context=context.sections(
+            ("original issue", f"# {issue_number} {issue_title}\n\n{issue_body}"),
+            ("runtime context", context_text),
+        ),
+        issue_number=issue_number,
+        pr_number=pr_number,
+    )
+    if verdict["verdict"] not in {"PASS", "PARTIAL", "FAIL"}:
+        raise gates.GateError(f"Acceptance Reviewer 返回未知裁决：{verdict['verdict']!r}")
+    return verdict
 
 
 def deliver(
@@ -374,6 +563,20 @@ def merge(
         merge_command=github.merge_command_text(pr_number=pr_number),
         verify_command=github.merge_verify_command_text(pr_number=pr_number),
     )
+
+
+def merge_mechanical(*, pr_number: int, head_sha: str, require_ci: bool = True) -> dict:
+    """Merge a minimal-flow PASS after re-reading deterministic hard gates.
+
+    Spec-0082/T1: no merger model is involved; the forge operation is mechanical and idempotent.
+    """
+    gates.assert_merge_allowed(
+        pr_number=pr_number,
+        head_sha=head_sha,
+        require_ci=require_ci,
+    )
+    github.merge_pr(pr_number=pr_number)
+    return {"merged": True, "summary": "merged mechanically"}
 
 
 # --------------------------------------------------------------------------------------------------

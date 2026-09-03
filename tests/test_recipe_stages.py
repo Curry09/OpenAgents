@@ -43,7 +43,10 @@ class _Backend:
         for marker, kind in (
             ("分诊 agent", "triager"),
             ("起草 agent", "drafter"),
+            ("Spec Writer", "spec_writer"),
             ("实现 agent", "implementer"),
+            ("coding executor", "executor"),
+            ("Acceptance Reviewer", "acceptance"),
             ("评审 agent", "reviewer"),
             ("交付 agent", "deliver"),
         ):
@@ -117,6 +120,215 @@ def test_rfc_only_depends_on_drafter(monkeypatch):
     assert backend.calls == ["drafter"]
 
 
+def test_minimal_spec_ready_is_delivery_gated(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
+    monkeypatch.setattr(stages.Workspace, "remote_branch_exists", lambda self, *, branch: False)
+    backend = _Backend(
+        payloads={
+            "spec_writer": {
+                "status": "READY",
+                "head_sha": "AFTER",
+                "summary": "compact spec",
+                "blocker": "",
+                "objective_coverage": [{"scope_coverage": "FULL", "evidence_level": "STRUCTURAL"}],
+                "candidate_assessments": [{
+                    "candidate": "one", "ownership": "runtime", "delivery": "wired",
+                    "control_effect": "guard", "evidence": "source", "assumptions": "none",
+                    "failure_modes": "bypass", "verdict": "selected",
+                }],
+                "selected_intervention": {},
+                "evidence_pack": [],
+                "falsifiers": [],
+            }
+        }
+    )
+    verdict = stages.minimal_spec(
+        backend=backend,
+        worktree="/wt",
+        issue_number=7,
+        issue_title="objective",
+        issue_body="must stay intact",
+        branch="openagents/issue-7",
+        context_text="minimal",
+    )
+    assert verdict["status"] == "READY"
+    assert backend.calls == ["spec_writer"]
+
+
+def test_minimal_spec_blocked_does_not_require_empty_commit(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["SAME"])
+    monkeypatch.setattr(stages.Workspace, "remote_branch_exists", lambda self, *, branch: False)
+    backend = _Backend(
+        payloads={
+            "spec_writer": {
+                "status": "BLOCKED",
+                "head_sha": "",
+                "summary": "cannot preserve objective",
+                "blocker": "read-only boundary",
+                "objective_coverage": [],
+                "candidate_assessments": [],
+                "selected_intervention": {},
+                "evidence_pack": [],
+                "falsifiers": [],
+            }
+        }
+    )
+    verdict = stages.minimal_spec(
+        backend=backend,
+        worktree="/wt",
+        issue_number=7,
+        issue_title="objective",
+        issue_body="must stay intact",
+        branch="openagents/issue-7",
+        context_text="minimal",
+    )
+    assert verdict["status"] == "BLOCKED"
+
+
+def test_minimal_spec_partial_is_retained_with_delivery_gate(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
+    monkeypatch.setattr(stages.Workspace, "remote_branch_exists", lambda self, *, branch: False)
+    backend = _Backend(
+        payloads={
+            "spec_writer": {
+                "status": "PARTIAL",
+                "head_sha": "AFTER",
+                "summary": "useful but incomplete",
+                "blocker": "one objective is unclosed",
+                "objective_coverage": [{"scope_coverage": "PARTIAL", "evidence_level": "HYPOTHESIS"}],
+                "candidate_assessments": [{
+                    "candidate": "one", "ownership": "model", "delivery": "unknown",
+                    "control_effect": "unknown", "evidence": "none", "assumptions": "compliance",
+                    "failure_modes": "ignored", "verdict": "selected",
+                }],
+                "selected_intervention": {},
+                "evidence_pack": [],
+                "falsifiers": [],
+            }
+        }
+    )
+    verdict = stages.minimal_spec(
+        backend=backend,
+        worktree="/wt",
+        issue_number=7,
+        issue_title="objective",
+        issue_body="must stay intact",
+        branch="openagents/issue-7",
+        context_text="minimal",
+    )
+    assert verdict["status"] == "PARTIAL"
+
+
+def test_minimal_spec_rejects_non_uniform_candidate_evidence(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["BEFORE"])
+    monkeypatch.setattr(stages.Workspace, "remote_branch_exists", lambda self, *, branch: False)
+    backend = _Backend(
+        payloads={
+            "spec_writer": {
+                "status": "PARTIAL",
+                "head_sha": "AFTER",
+                "summary": "compressed away the evidence standard",
+                "blocker": "open",
+                "objective_coverage": [{"scope_coverage": "PARTIAL", "evidence_level": "HYPOTHESIS"}],
+                "candidate_assessments": [{"candidate": "one", "reason": "looks good"}],
+                "selected_intervention": {},
+                "evidence_pack": [],
+                "falsifiers": [],
+            }
+        }
+    )
+    with pytest.raises(GateError, match="候选未使用统一证据字段"):
+        stages.minimal_spec(
+            backend=backend,
+            worktree="/wt",
+            issue_number=7,
+            issue_title="objective",
+            issue_body="must stay intact",
+            branch="openagents/issue-7",
+            context_text="minimal",
+        )
+
+
+def test_minimal_design_snapshot_requires_fixed_compact_contract(tmp_path):
+    path = tmp_path / "docs" / "objectives" / "issue-7.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "# Issue 7\n\n"
+        "## Objective ledger\nfull\n\n"
+        "## Repository evidence\nfacts\n\n"
+        "## Intervention analysis\ncandidates\n\n"
+        "## Selected mechanism and causal chain\nchain\n\n"
+        "## Implementation task\nfiles\n\n"
+        "## Independent acceptance\nreplay\n",
+        encoding="utf-8",
+    )
+    first = stages.minimal_design_snapshot(work_dir=tmp_path, issue_number=7)
+    stages.assert_minimal_design_approved(
+        work_dir=tmp_path, issue_number=7, approved_digest=first["design_digest"]
+    )
+    path.write_text(path.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+    with pytest.raises(GateError, match="发生变化"):
+        stages.assert_minimal_design_approved(
+            work_dir=tmp_path, issue_number=7, approved_digest=first["design_digest"]
+        )
+
+
+def test_execute_compact_spec_uses_executor_and_head_gates(monkeypatch, tmp_path):
+    backend = _Backend(
+        payloads={
+            "executor": {
+                "summary": "implemented",
+                "head_sha": "after",
+                "lookup_exception_reason": "",
+            }
+        }
+    )
+    heads = iter(["before", "after", "after"])
+    monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: next(heads))
+    monkeypatch.setattr(gates, "assert_head_advanced", lambda *, before, workspace: None)
+    stamps = []
+    monkeypatch.setattr(
+        gates,
+        "assert_evidence_stamp",
+        lambda *, head_sha, claimed: stamps.append((head_sha, claimed)),
+    )
+
+    result = stages.execute_compact_spec(
+        backend=backend,
+        work_dir=tmp_path,
+        issue_number=3,
+        pr_number=8,
+        context_text="compact",
+    )
+
+    assert backend.calls == ["executor"]
+    assert result["summary"] == "implemented"
+    assert stamps == [("after", "after")]
+
+
+def test_acceptance_has_three_terminal_verdicts(monkeypatch):
+    backend = _Backend(
+        payloads={
+            "acceptance": {
+                "verdict": "PARTIAL",
+                "reason": "hard half missing",
+                "evidence": ["replayed original failure"],
+            }
+        }
+    )
+    verdict = stages.acceptance(
+        backend=backend,
+        work_dir=".",
+        issue_number=7,
+        pr_number=8,
+        issue_title="objective",
+        issue_body="complete behavior",
+        context_text="minimal",
+    )
+    assert verdict["verdict"] == "PARTIAL"
+    assert backend.calls == ["acceptance"]
+
+
 def test_rfc_backfill_require_delivered_shortcircuits(monkeypatch):
     # backfill 未过 validate（delivered=false）→ 原样返回、不进硬闸（caller 据此不开 PR）。
     _seq_head_sha(monkeypatch, values=["SAME", "SAME"])  # head 没动，但 require_delivered 先短路
@@ -151,9 +363,7 @@ def test_rfc_retry_accepts_unchanged_already_delivered_head(monkeypatch):
         "assert_delivered",
         lambda self, *, worktree, branch: delivered.update(branch=branch),
     )
-    monkeypatch.setattr(
-        stages.Workspace, "remote_branch_exists", lambda self, *, branch: True
-    )
+    monkeypatch.setattr(stages.Workspace, "remote_branch_exists", lambda self, *, branch: True)
     backend = _Backend(
         payloads={
             "drafter": {
@@ -430,3 +640,22 @@ def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
             context_text="ctx",
         )
     assert agent_calls == []  # merger 未被调用
+
+
+def test_merge_mechanical_uses_gate_then_forge_without_agent(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        stages.gates,
+        "assert_merge_allowed",
+        lambda *, pr_number, head_sha, require_ci=True: calls.append(
+            ("gate", pr_number, head_sha, require_ci)
+        ),
+    )
+    monkeypatch.setattr(
+        stages.github,
+        "merge_pr",
+        lambda *, pr_number: calls.append(("merge", pr_number)),
+    )
+    out = stages.merge_mechanical(pr_number=42, head_sha="abc", require_ci=True)
+    assert calls == [("gate", 42, "abc", True), ("merge", 42)]
+    assert out["merged"] is True

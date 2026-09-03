@@ -118,6 +118,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="openagents 配置文件路径（默认 .openagents/openagents.yml）",
     )
 
+    # Spec-0085/T2: finite, explicit v0.2 batch; unlike vigil it never polls or waits for humans.
+    p_v02 = sub.add_parser("v02", help="运行一次 v0.2 批次：Spec → DAG → Developer → Acceptance → merge")
+    p_v02.add_argument(
+        "--issue", type=int, action="append", required=True, metavar="N", help="批次 issue 编号（可重复）"
+    )
+    p_v02.add_argument(
+        "--parallel", type=_parallel_k, default=4, metavar="K", help="Spec/Developer 并发上限（默认 4）"
+    )
+    p_v02.add_argument("--base", default=None, help="目标分支（默认读配置，通常为 main）")
+    p_v02.add_argument(
+        "--config", default=None, metavar="PATH", help="配置文件（默认 .openagents/openagents.yml）"
+    )
+
     # Spec-0064/T5：path 驱动追溯——扫存量代码路径反推 spec 并开 draft PR（实现先行、设计后补）。
     p_backfill = sub.add_parser("backfill-rfc", help="扫存量代码路径反推 spec 并开 draft PR")
     p_backfill.add_argument("path", help="要反向补全的代码路径（单文件或目录）")
@@ -363,6 +376,41 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
         agent_id=agent_id,
     )
     return 0
+
+
+def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    """Run one explicit v0.2 batch and print every terminal result."""
+    from openagents.utils.agent_config import load_agent_config
+    from openagents.v02.audit import write_result
+    from openagents.v02.model import IssueInput
+    from openagents.v02.openagents_adapter import OpenAgentsAdapter
+    from openagents.v02.runner import run_batch
+
+    config_path = (
+        Path(args.config) if args.config else ctx.repo_root / ".openagents" / "openagents.yml"
+    )
+    config = load_agent_config(path=config_path)
+    github.configure(name=config.forge, settings=config.gitea)
+    github.ensure_prerequisites()
+    issues = []
+    for number in dict.fromkeys(args.issue):
+        issue = github.get_issue(number=number)
+        issues.append(IssueInput(number=issue.number, title=issue.title, body=issue.body))
+    result = run_batch(
+        issues=issues,
+        adapter=OpenAgentsAdapter(
+            backend=_backend_for(), work_dir=ctx.repo_root, base=args.base or config.base
+        ),
+        concurrency=args.parallel,
+    )
+    audit_path = write_result(work_dir=ctx.repo_root, result=result)
+    for number in sorted(result.nodes):
+        node = result.nodes[number]
+        pr = f" PR #{node.pr_number}" if node.pr_number is not None else ""
+        detail = f" — {node.reason}" if node.reason else ""
+        print(f"{node.status:>21}  issue #{number}{pr}{detail}")
+    print(f"审计记录：{audit_path}")
+    return 0 if result.nodes and all(node.status == "PASS" for node in result.nodes.values()) else 1
 
 
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
@@ -623,6 +671,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "init": _cmd_init,
         "vigil": _cmd_vigil,
+        "v02": _cmd_v02,
         "backfill-rfc": _cmd_backfill_rfc,
         "issue": _cmd_issue,
         "reply-comment": _cmd_reply_comment,

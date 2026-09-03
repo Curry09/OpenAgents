@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from openagents.utils.agent_config import (
+    FLOW_GENERATE_ONLY,
+    FLOW_MINIMAL,
+    FLOW_STANDARD,
+    FLOW_V02,
     OWNER_AGENT,
     OWNER_SKIP,
     RELEASE_AUTO,
@@ -39,6 +43,39 @@ def test_missing_file_falls_back_to_builtin_defaults(tmp_path):
     assert cfg.interval == 60
     assert cfg.labels == ["openagents"]
     assert len(cfg.repos) == 1
+    assert cfg.flow == FLOW_STANDARD
+    assert cfg.repos[0].flow == FLOW_STANDARD
+
+
+def test_minimal_flow_round_trips_into_repo_plan(tmp_path):
+    cfg = load_agent_config(path=_write(tmp_path, "flow: minimal\n"))
+    assert cfg.flow == FLOW_MINIMAL
+    assert cfg.repos[0].flow == FLOW_MINIMAL
+
+
+def test_generate_only_flow_round_trips_into_repo_plan(tmp_path):
+    cfg = load_agent_config(path=_write(tmp_path, "flow: generate-only\n"))
+    assert cfg.flow == FLOW_GENERATE_ONLY
+    assert cfg.repos[0].flow == FLOW_GENERATE_ONLY
+    assert cfg.agents.backend_for(role="executor") == "claude_code"
+
+
+def test_v02_flow_and_roles_round_trip(tmp_path):
+    cfg = load_agent_config(
+        path=_write(
+            tmp_path,
+            "flow: v0.2\nagents:\n  developer: {backend: nexau}\n  spec_curator: {backend: nexau}\n",
+        )
+    )
+    assert cfg.flow == FLOW_V02
+    assert cfg.repos[0].flow == FLOW_V02
+    assert cfg.agents.backend_for(role="developer") == "nexau"
+    assert cfg.agents.backend_for(role="spec_curator") == "nexau"
+
+
+def test_unknown_flow_is_rejected(tmp_path):
+    with pytest.raises(AgentConfigError):
+        load_agent_config(path=_write(tmp_path, "flow: committee\n"))
 
 
 def test_empty_file_falls_back_to_defaults(tmp_path):

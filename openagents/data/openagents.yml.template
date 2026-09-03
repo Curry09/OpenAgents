@@ -12,6 +12,12 @@
 
 version: 1
 
+# 交付流：standard(默认) / minimal(紧凑 Spec→一次实现→原 issue 验收) /
+# generate-only(紧凑 Spec→受约束 executor→机械合并，无质量验证) /
+# v0.2(批量 Spec→post-Spec DAG→一次 Developer→Acceptance→机械合并)。
+# minimal 是显式实验 profile；省略此键时存量行为完全不变。
+# flow: minimal
+
 # 托管平台(forge)选择(Spec-0074)：github(gh CLI，默认) / gitea(REST，token 从环境变量读)。
 # 缺省整段可省 = github，存量用户零感知。gitea 时必须带同级 gitea 连接段：
 # forge: gitea
@@ -22,10 +28,15 @@ version: 1
 #   token_env: GITEA_TOKEN   # 可省，默认 GITEA_TOKEN；OpenAgents 不存 token 本体
 
 # 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。
-# 缺省角色回落 claude_code。可用角色：triager / drafter / architect / implementer / reviewer / replier / deliver。
+# 缺省角色回落 claude_code。v0.2 仅使用 spec_writer / spec_curator / developer / acceptance。
 agents:
   architect:   { backend: claude_code }
+  spec_writer: { backend: claude_code }
+  spec_curator: { backend: claude_code }
   implementer: { backend: claude_code }
+  developer:   { backend: claude_code }
+  acceptance:  { backend: claude_code }
+  executor:    { backend: claude_code }
   reviewer:    { backend: claude_code }
 
 # 每个可配阶段归谁把关：
