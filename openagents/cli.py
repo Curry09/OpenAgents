@@ -21,6 +21,7 @@ Spec-0064 收敛：`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watc
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -130,6 +131,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_v02.add_argument(
         "--config", default=None, metavar="PATH", help="配置文件（默认 .openagents/openagents.yml）"
     )
+    p_v02.add_argument(
+        "--user-test-command",
+        default=None,
+        metavar="COMMAND",
+        help="实际用户测试 harness 命令（需同时提供 --user-test-transcript）",
+    )
+    p_v02.add_argument(
+        "--user-test-transcript",
+        default=None,
+        metavar="PATH",
+        help="JSON 用户事件数组；在候选副本中执行并作为 Acceptance 主证据",
+    )
+    p_v02.add_argument(
+        "--user-test-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="用户测试墙钟上限（默认 900 秒）",
+    )
 
     # Spec-0064/T5：path 驱动追溯——扫存量代码路径反推 spec 并开 draft PR（实现先行、设计后补）。
     p_backfill = sub.add_parser("backfill-rfc", help="扫存量代码路径反推 spec 并开 draft PR")
@@ -232,6 +252,10 @@ def _agent_id_for(*, ctx: ProjectContext) -> str:
 
 def _backend_for():
     # Spec-0020/T4：单列 backend 工厂——延迟 import 保持 cli 顶层轻、测试可对工厂打桩（不触真实 LLM）。
+    if os.environ.get("OPENAGENTS_BACKEND", "").strip() == "nexau":
+        from openagents.backends.nexau import NexAUBackend
+
+        return NexAUBackend()
     from openagents.backends.claude_code import ClaudeCodeBackend
 
     return ClaudeCodeBackend()
@@ -380,6 +404,7 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
     """Run one explicit v0.2 batch and print every terminal result."""
+    from openagents.runtime.user_test import load_user_test_plan
     from openagents.utils.agent_config import load_agent_config
     from openagents.v02.audit import write_result
     from openagents.v02.model import IssueInput
@@ -396,10 +421,14 @@ def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
     for number in dict.fromkeys(args.issue):
         issue = github.get_issue(number=number)
         issues.append(IssueInput(number=issue.number, title=issue.title, body=issue.body))
+    user_test_plan = _user_test_plan_from_args(args=args, loader=load_user_test_plan)
     result = run_batch(
         issues=issues,
         adapter=OpenAgentsAdapter(
-            backend=_backend_for(), work_dir=ctx.repo_root, base=args.base or config.base
+            backend=_backend_for(),
+            work_dir=ctx.repo_root,
+            base=args.base or config.base,
+            user_test_plan=user_test_plan,
         ),
         concurrency=args.parallel,
     )
@@ -411,6 +440,23 @@ def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
         print(f"{node.status:>21}  issue #{number}{pr}{detail}")
     print(f"审计记录：{audit_path}")
     return 0 if result.nodes and all(node.status == "PASS" for node in result.nodes.values()) else 1
+
+
+def _user_test_plan_from_args(*, args: argparse.Namespace, loader):
+    """Resolve v0.2 user-test flags without mutating the process environment."""
+    command = getattr(args, "user_test_command", None)
+    transcript = getattr(args, "user_test_transcript", None)
+    timeout = getattr(args, "user_test_timeout", None)
+    if command is None and transcript is None and timeout is None:
+        return loader()
+    values = dict(os.environ)
+    if command is not None:
+        values["OPENAGENTS_USER_TEST_COMMAND"] = command
+    if transcript is not None:
+        values["OPENAGENTS_USER_TEST_TRANSCRIPT"] = transcript
+    if timeout is not None:
+        values["OPENAGENTS_USER_TEST_TIMEOUT"] = str(timeout)
+    return loader(values)
 
 
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:

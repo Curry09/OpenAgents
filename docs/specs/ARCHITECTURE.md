@@ -20,7 +20,7 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
-| `acceptance.py` | Judge a candidate directly against its immutable original issue. |
+| `acceptance.py` | Judge a candidate against the original issue and a real user interaction. |
 | `architect.py` | Review an admitted objective's implementation architecture before coding. |
 | `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
@@ -45,6 +45,7 @@ _RFC-0001 T1: 后端适配层。_
 | `__init__.py` | RFC-0001 T1: 后端适配层。 |
 | `base.py` | RFC-0001 T1: 后端抽象层 —— AgentBackend 协议与 AgentResult。 |
 | `claude_code.py` | RFC-0001 T2 + RFC-0003: Claude Code 后端适配器。 |
+| `nexau.py` | NexAU coding backend for Anthropic-compatible Messages gateways. |
 
 ### openagents.desktop
 
@@ -84,6 +85,7 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
 | `token_usage.py` | Spec-0079: privacy-minimal, append-only token usage ledger. |
 | `tool_usage.py` | Privacy-preserving, append-only tool-usage telemetry for agent invocations. |
+| `user_test.py` | Run a real interactive acceptance test in a disposable repository copy. |
 
 ### openagents.spec
 
@@ -138,6 +140,7 @@ _OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery._
 | `__init__.py` | OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery. |
 | `audit.py` | Persist one immutable, machine-readable v0.2 batch terminal record. |
 | `model.py` | Immutable values shared by the v0.2 planner and batch runner. |
+| `node_runtime.py` | Phase runner used inside one isolated v0.2 issue container. |
 | `openagents_adapter.py` | Production adapter from the v0.2 scheduler to existing OpenAgents mechanics. |
 | `planner.py` | Validate Curator edges, add deterministic file edges, and layer the DAG. |
 | `runner.py` | Minimal v0.2 batch orchestration, independent from the legacy Vigil state machine. |
@@ -166,6 +169,7 @@ graph LR
     nopenagents_backends["openagents.backends"]
     nopenagents_backends_base["backends.base"]
     nopenagents_backends_claude_code["backends.claude_code"]
+    nopenagents_backends_nexau["backends.nexau"]
     nopenagents_cli["openagents.cli"]
     nopenagents_desktop["openagents.desktop"]
     nopenagents_desktop_daemon["desktop.daemon"]
@@ -185,6 +189,7 @@ graph LR
     nopenagents_runtime_timing["runtime.timing"]
     nopenagents_runtime_token_usage["runtime.token_usage"]
     nopenagents_runtime_tool_usage["runtime.tool_usage"]
+    nopenagents_runtime_user_test["runtime.user_test"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
     nopenagents_spec_graph["spec.graph"]
@@ -218,6 +223,7 @@ graph LR
     nopenagents_v02["openagents.v02"]
     nopenagents_v02_audit["v02.audit"]
     nopenagents_v02_model["v02.model"]
+    nopenagents_v02_node_runtime["v02.node_runtime"]
     nopenagents_v02_openagents_adapter["v02.openagents_adapter"]
     nopenagents_v02_planner["v02.planner"]
     nopenagents_v02_runner["v02.runner"]
@@ -233,7 +239,10 @@ graph LR
     nopenagents_backends_claude_code --> nopenagents_utils
     nopenagents_backends_claude_code --> nopenagents_utils_proc
     nopenagents_backends_claude_code --> nopenagents_utils_streams
+    nopenagents_backends_nexau --> nopenagents_backends_base
+    nopenagents_backends_nexau --> nopenagents_runtime_invocation
     nopenagents_cli --> nopenagents_backends_claude_code
+    nopenagents_cli --> nopenagents_backends_nexau
     nopenagents_cli --> nopenagents_desktop
     nopenagents_cli --> nopenagents_desktop_daemon
     nopenagents_cli --> nopenagents_recipes
@@ -247,6 +256,7 @@ graph LR
     nopenagents_cli --> nopenagents_runtime_timing
     nopenagents_cli --> nopenagents_runtime_token_usage
     nopenagents_cli --> nopenagents_runtime_tool_usage
+    nopenagents_cli --> nopenagents_runtime_user_test
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_agent_config
     nopenagents_cli --> nopenagents_utils_align
@@ -284,6 +294,7 @@ graph LR
     nopenagents_recipes_stages --> nopenagents_runtime
     nopenagents_recipes_stages --> nopenagents_runtime_context
     nopenagents_recipes_stages --> nopenagents_runtime_engine
+    nopenagents_recipes_stages --> nopenagents_runtime_evidence
     nopenagents_recipes_stages --> nopenagents_runtime_gates
     nopenagents_recipes_stages --> nopenagents_runtime_research
     nopenagents_recipes_stages --> nopenagents_spec
@@ -381,6 +392,13 @@ graph LR
     nopenagents_v02 --> nopenagents_v02_model
     nopenagents_v02 --> nopenagents_v02_runner
     nopenagents_v02_audit --> nopenagents_v02_model
+    nopenagents_v02_node_runtime --> nopenagents_backends_claude_code
+    nopenagents_v02_node_runtime --> nopenagents_backends_nexau
+    nopenagents_v02_node_runtime --> nopenagents_utils
+    nopenagents_v02_node_runtime --> nopenagents_utils_forge
+    nopenagents_v02_node_runtime --> nopenagents_v02_model
+    nopenagents_v02_node_runtime --> nopenagents_v02_openagents_adapter
+    nopenagents_v02_node_runtime --> nopenagents_v02_planner
     nopenagents_v02_openagents_adapter --> nopenagents_agents
     nopenagents_v02_openagents_adapter --> nopenagents_agents_developer
     nopenagents_v02_openagents_adapter --> nopenagents_agents_spec_curator
@@ -391,6 +409,7 @@ graph LR
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_engine
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_gates
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_research
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_user_test
     nopenagents_v02_openagents_adapter --> nopenagents_utils
     nopenagents_v02_openagents_adapter --> nopenagents_utils_forge
     nopenagents_v02_openagents_adapter --> nopenagents_utils_git

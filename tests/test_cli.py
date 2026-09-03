@@ -53,6 +53,16 @@ def test_no_command_returns_nonzero():
     assert main([]) != 0
 
 
+def test_backend_factory_selects_nexau_from_environment(monkeypatch):
+    import openagents.backends.nexau as nexau_backend
+    import openagents.cli as cli
+
+    marker = object()
+    monkeypatch.setenv("OPENAGENTS_BACKEND", "nexau")
+    monkeypatch.setattr(nexau_backend, "NexAUBackend", lambda: marker)
+    assert cli._backend_for() is marker
+
+
 def _patch_ensure(monkeypatch, *, repo_root="/tmp/x"):
     calls = []
     fake = ProjectContext(repo_root=Path(repo_root), remote="https://github.com/x/y.git")

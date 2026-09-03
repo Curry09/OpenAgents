@@ -1,0 +1,14 @@
+type: tool
+name: complete_task
+description: >-
+  Submit the final role result and stop. The result must be exactly the single JSON object required
+  by the OpenAgents role contract, without Markdown fences or surrounding prose.
+input_schema:
+  type: object
+  properties:
+    result:
+      type: string
+      description: Exact final JSON object required by the role contract.
+  required: [result]
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#
