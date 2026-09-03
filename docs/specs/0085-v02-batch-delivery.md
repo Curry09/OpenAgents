@@ -32,6 +32,8 @@ architecture:
   selected: additive-v02-batch
   affected-components:
     - openagents/agents/developer.py
+    - openagents/backends/nexau.py
+    - openagents/data/nexau/agent.yaml
     - openagents/v02/runner.py
     - openagents/v02/audit.py
     - openagents/utils/agent_config.py
@@ -40,6 +42,8 @@ architecture:
   failure-modes:
     - 一个节点失败拖停整批；runner 必须把失败限定到依赖后继，独立节点继续。
     - Acceptance 自述 PASS 与旧 head 绑定；runner 复读 HEAD 并执行机械 gate。
+    - Spec 自称 READY 却遗漏目标；runner 只允许一次受限契约修复，且不把尚待实现的效果误判为 PARTIAL。
+    - Acceptance 把明确失败写入 evidence 却仍自称 PASS；宿主校验逐 case 结果并要求真实 User Test 行为证据。
 verification:
   behavior-cases:
     - id: BC1
@@ -90,6 +94,43 @@ tasks:
       - tests/test_cli.py
     scope: 配置接受 flow=v0.2，并提供显式批次入口；standard/minimal/generate-only 保持兼容。
     acceptance: 配置 round-trip、CLI 参数和旧默认测试通过。
+  - id: T3
+    title: 接入 Messages 网关的 NexAU coding backend
+    status: done
+    priority: P0
+    tags: []
+    depends-on:
+      - T1
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/backends/nexau.py
+      - openagents/v02/node_runtime.py
+      - openagents/data/nexau/agent.yaml
+      - openagents/data/nexau/system.md
+      - openagents/data/nexau/run_shell_command.tool.yaml
+      - openagents/data/nexau/complete_task.tool.yaml
+      - docker/v02-nexau.Dockerfile
+    scope: 用 NexAU 本地工具循环或 Claude Code backend 接 Anthropic Messages 兼容网关，Bearer 鉴权，默认 256k 上下文与 32k 单次输出。
+    acceptance: WIS 直连、NexAU shell tool 与 complete_task 探针通过；每次角色调用持久化完整本地 trace，密钥不进入日志或仓库。
+  - id: T4
+    title: 收紧最小流程的契约一致性与行为验收
+    status: done
+    priority: P0
+    tags: []
+    depends-on:
+      - T1
+    relates-to: []
+    parallel: false
+    files:
+      - openagents/agents/spec_writer.py
+      - openagents/agents/acceptance.py
+      - openagents/recipes/stages.py
+      - openagents/v02/openagents_adapter.py
+      - tests/test_recipe_stages.py
+      - tests/test_agents_prompts.py
+    scope: READY 内部矛盾触发一次受限契约修复；HYPOTHESIS 仍可进入实现；v0.2 Acceptance PASS 必须带宿主运行的 User Test 行为证据。
+    acceptance: FULL+HYPOTHESIS 不触发保守退出；READY+PARTIAL 自动修复一次；User Test 未完成、行为证据缺失或任一证据失败时宿主拒绝 PASS。
 ---
 
 # 0085 · v0.2 最小批次开发与验收

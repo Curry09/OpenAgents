@@ -1,0 +1,22 @@
+type: tool
+name: run_shell_command
+description: >-
+  Execute a bash command inside the assigned sandbox. Use dir_path only for a directory inside the
+  sandbox. The result contains combined output and a non-zero exit code when the command fails.
+input_schema:
+  type: object
+  properties:
+    command:
+      type: string
+      description: Exact bash command to execute.
+    description:
+      type: string
+      description: Short description of the command's purpose.
+    is_background:
+      type: boolean
+    dir_path:
+      type: string
+      description: Existing directory inside the assigned sandbox.
+  required: [command]
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

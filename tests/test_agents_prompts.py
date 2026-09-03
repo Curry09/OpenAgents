@@ -16,6 +16,7 @@ from openagents import agents
 from openagents.agents import (
     acceptance,
     deliver,
+    developer,
     drafter,
     executor,
     implementer,
@@ -84,7 +85,7 @@ def test_prompt_placeholders_substitute():
     implementer.PROMPT.substitute(issue_number=1, pr_number=1, feedback="")
     executor.PROMPT.substitute(issue_number=1, pr_number=1)
     tester.PROMPT.substitute(pr_number=1, issue_body="x")
-    spec_writer.PROMPT.substitute(issue_number=1, branch="b")
+    spec_writer.PROMPT.substitute(issue_number=1, branch="b", mode="AUTHOR")
     acceptance.PROMPT.substitute(issue_number=1, pr_number=1)
 
 
@@ -93,6 +94,10 @@ def test_minimal_roles_keep_original_issue_as_authority():
     assert "语义守恒" in spec_writer.PROMPT.template
     assert "因果链" in spec_writer.PROMPT.template
     assert "PARTIAL" in spec_writer.PROMPT.template
+    assert "不得仅因未来" in spec_writer.PROMPT.template
+    assert "交给 Developer 实现、Acceptance" in spec_writer.PROMPT.template
+    assert "head_sha" not in spec_writer.OUTPUT_SCHEMA
+    assert "head_sha" not in developer.OUTPUT_SCHEMA
     assert "独立证伪" in spec_writer.PROMPT.template
     assert "PARTIAL" in acceptance.PROMPT.template
     assert acceptance.OUTPUT_SCHEMA == {"verdict": str, "reason": str, "evidence": list}
@@ -109,6 +114,30 @@ def test_minimal_roles_keep_original_issue_as_authority():
     assert "docs/objectives/issue-$issue_number.md" in spec_writer.PROMPT.template
     assert "candidate_assessments" in spec_writer.OUTPUT_SCHEMA
     assert "intervention_candidates" not in spec_writer.OUTPUT_SCHEMA
+    assert "Spec 的核心是解释为什么" in spec_writer.PROMPT.template
+    assert "不是提前替 Developer 写实现" in spec_writer.PROMPT.template
+    assert "不得规定新类名" in spec_writer.PROMPT.template
+    assert "最高允许的方案粒度" in spec_writer.PROMPT.template
+    assert "不得规定新增包装层" in spec_writer.PROMPT.template
+    assert "留给 Developer 决定的技术选择" in spec_writer.PROMPT.template
+    assert "具体技术设计归 Developer 自主决定" in spec_writer.PROMPT.template
+    assert "核对并交付" in spec_writer.PROMPT.template
+    assert "DELIVERY_REPAIR" in spec_writer.PROMPT.template
+    assert "CONTRACT_REPAIR" in spec_writer.PROMPT.template
+    assert "scope_coverage=FULL, evidence_level=HYPOTHESIS" in spec_writer.PROMPT.template
+    assert "不得重新探索仓库" in spec_writer.PROMPT.template
+    assert "不得把“文档已写完”当成任务完成" in spec_writer.PROMPT.template
+    assert "只是 Curator 做并发\n冲突判断所需的预计协调面" in spec_writer.PROMPT.template
+    assert "冻结的是原目标、决策理由、因果边界、不变量和独立验收" in developer.PROMPT.template
+    assert "不要机械照抄" in developer.PROMPT.template
+    assert "普通技术设计由你决定" in developer.PROMPT.template
+    assert "source=original_replay" in acceptance.PROMPT.template
+    assert "source=user_test" in acceptance.PROMPT.template
+    assert "independent variant" in acceptance.PROMPT.template
+    assert "任何一项 `passed=false` 时不得 PASS" in acceptance.PROMPT.template
+    assert "候选 worktree 是不可变验收对象" in acceptance.PROMPT.template
+    assert "/tmp/openagents-acceptance-$issue_number/" in acceptance.PROMPT.template
+    assert "任何候选修改都会使整份裁决作废" in acceptance.PROMPT.template
 
 
 def test_spec_writer_contract_does_not_embed_case_specific_answers():

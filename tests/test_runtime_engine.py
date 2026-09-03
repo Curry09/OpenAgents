@@ -13,6 +13,7 @@ from string import Template
 
 import pytest
 
+from openagents.agents import spec_writer
 from openagents.backends.base import AgentResult, TokenUsage
 from openagents.runtime import engine
 from openagents.runtime.engine import AgentOutputError
@@ -33,6 +34,18 @@ class _CaptureBackend:
     def run(self, *, work_dir, task, context):
         self.calls.append({"work_dir": work_dir, "task": task, "context": context})
         return AgentResult(changed=True, summary=self._summary)
+
+
+class _SequenceBackend:
+    name = "sequence"
+
+    def __init__(self, *outputs):
+        self._outputs = iter(outputs)
+        self.calls = []
+
+    def run(self, *, work_dir, task, context):
+        self.calls.append({"work_dir": work_dir, "task": task, "context": context})
+        return AgentResult(changed=False, summary=next(self._outputs))
 
 
 class _SplitOutputBackend:
@@ -117,6 +130,89 @@ def test_last_line_json_parsed_even_with_trailing_prose():
     backend = _CaptureBackend(summary='这是我的评审。\n{"verdict": "REWORK", "reason": "缺测试"}\n')
     out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
     assert out["verdict"] == "REWORK"
+
+
+def test_multiline_fenced_json_selects_outer_schema_object_not_nested_item():
+    backend = _CaptureBackend(
+        summary="""```json
+{
+  "verdict": "PASS",
+  "reason": "ok",
+  "items": [
+    {"reason": "nested"}
+  ]
+}
+```"""
+    )
+
+    out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
+
+    assert out["verdict"] == "PASS"
+    assert len(backend.calls) == 1
+
+
+def test_protocol_error_gets_one_serialization_only_retry(tmp_path):
+    backend = _SequenceBackend(
+        "Result: verdict PASS because checks passed.",
+        '{"verdict":"PASS","reason":"checks passed"}',
+    )
+
+    out = engine.run_agent(
+        _FakeAgent,
+        backend=backend,
+        work_dir=tmp_path,
+        pr_number=1,
+        issue_body="x",
+    )
+
+    assert out == {"verdict": "PASS", "reason": "checks passed"}
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["work_dir"] != tmp_path
+    assert "机器协议格式修复器" in backend.calls[1]["task"]
+    assert "不得新增事实或证据" in backend.calls[1]["task"]
+
+
+def test_explicit_nested_schema_repairs_spec_coverage_field_names(tmp_path):
+    base = {
+        "status": "PARTIAL",
+        "head_sha": "abc",
+        "summary": "summary",
+        "blocker": "behavioral evidence pending",
+        "candidate_assessments": [
+            {
+                "candidate": "A",
+                "ownership": "runtime",
+                "delivery": "path",
+                "control_effect": "effect",
+                "evidence": "source",
+                "assumptions": "none",
+                "failure_modes": "none",
+                "verdict": "selected",
+            }
+        ],
+        "selected_intervention": {"mechanism": "m", "files": ["a.py"], "dependencies": []},
+        "evidence_pack": [],
+        "falsifiers": [],
+    }
+    malformed = base | {"objective_coverage": [{"scope": "FULL", "evidence": "STRUCTURAL"}]}
+    repaired = base | {
+        "objective_coverage": [{"scope_coverage": "FULL", "evidence_level": "STRUCTURAL"}]
+    }
+    backend = _SequenceBackend(json.dumps(malformed), json.dumps(repaired))
+
+    out = engine.run_agent(
+        spec_writer,
+        backend=backend,
+        work_dir=tmp_path,
+        context="issue body",
+        issue_number=2,
+        branch="openagents/v02-issue-2",
+        mode="AUTHOR",
+    )
+
+    assert out["objective_coverage"] == repaired["objective_coverage"]
+    assert len(backend.calls) == 2
+    assert '"scope_coverage"' in backend.calls[0]["task"]
 
 
 def test_parses_full_protocol_output_when_display_summary_was_truncated():
@@ -256,7 +352,18 @@ def test_protocol_failures_have_one_token_row_each(tmp_path):
             issue_body="x",
         )
     rows = _token_rows(tmp_path)
-    assert [row["status"] for row in rows] == ["protocol_error", "protocol_error"]
+    assert [row["status"] for row in rows] == [
+        "protocol_error",
+        "protocol_error",
+        "protocol_error",
+        "protocol_error",
+    ]
+    assert [row["role"] for row in rows] == [
+        "_FakeAgent_protocol_repair",
+        "_FakeAgent",
+        "_FakeAgent_protocol_repair",
+        "_FakeAgent",
+    ]
 
 
 def test_bad_json_raises():

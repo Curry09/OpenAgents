@@ -58,7 +58,7 @@ class DevelopmentResult:
 class AcceptanceResult:
     verdict: str
     reason: str = ""
-    evidence: tuple[str, ...] = ()
+    evidence: tuple[dict, ...] = ()
     head_sha: str = ""
 
 
@@ -69,7 +69,8 @@ class NodeResult:
     reason: str = ""
     head_sha: str = ""
     pr_number: int | None = None
-    evidence: tuple[str, ...] = ()
+    # Developer evidence is textual; Acceptance evidence is structured manifest items.
+    evidence: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True)

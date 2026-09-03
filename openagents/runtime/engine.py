@@ -12,7 +12,7 @@
 
 1. 读 `agent_module.PROMPT`（`string.Template`）→ `substitute(**placeholders)` 填占位符成 task；
 2. `backend.run(work_dir=..., task=prompt, context=...)` 派后端跑（backend 抽象见 backends/base.py）；
-3. 解析 agent 输出**末行 JSON**、按 `agent_module.OUTPUT_SCHEMA`（键→类型 dict）校验 → 返回 dict。
+3. 从 agent 输出提取完整 JSON、按角色声明的 JSON Schema 校验；格式违约时在隔离临时目录中修复一次。
 
 保留字占位符：`work_dir`（必填，派给 backend 的工作目录）、`context`（选填，issue 正文/PR 历史等
 上下文串）由 engine 从 placeholders 取出交给 backend；其余键都用于填 PROMPT 模板。
@@ -26,7 +26,12 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft202012Validator
 
 from openagents.runtime import invocation, token_usage, tool_usage
 
@@ -53,8 +58,10 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
     role = str(module_name).rsplit(".", 1)[-1]
     backend_name = str(getattr(backend, "name", backend.__class__.__name__))
 
+    output_schema = _output_json_schema(agent_module=agent_module)
     prompt = agent_module.PROMPT.substitute(**placeholders)
     _assert_single_copy(task=prompt, context=context, values=placeholders, role=role)
+    prompt = _with_machine_contract(prompt=prompt, schema=output_schema)
     result = None
     parsed: dict[str, Any] | None = None
     status = "backend_error"
@@ -63,8 +70,20 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         result = backend.run(work_dir=work_dir, task=prompt, context=context)
         status = "protocol_error"
         # Display summaries are bounded; machine protocol parsing uses the complete backend result.
-        parsed = _parse_last_json(text=getattr(result, "protocol_output", result.summary))
-        _validate(payload=parsed, schema=agent_module.OUTPUT_SCHEMA)
+        protocol_output = getattr(result, "protocol_output", result.summary)
+        try:
+            parsed = _parse_and_validate(text=protocol_output, schema=output_schema)
+        except AgentOutputError as primary_error:
+            parsed = _repair_protocol_output(
+                backend=backend,
+                backend_name=backend_name,
+                role=role,
+                schema=output_schema,
+                output=protocol_output,
+                primary_error=primary_error,
+                placeholders=placeholders,
+                audit_work_dir=Path(work_dir),
+            )
         tool_events = getattr(result, "tool_events", ())
         if tool_events:
             reason = parsed.get("lookup_exception_reason", "")
@@ -99,22 +118,168 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         )
 
 
-def _parse_last_json(*, text: str) -> dict[str, Any]:
-    """从 agent 输出里取**末行 JSON 对象**：自底向上找第一行能 json 解析成 dict 的非空行。
+def _parse_last_json(*, text: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Extract the last complete JSON object, including multiline/fenced output.
 
-    对末尾偶有的空白/句号等噪声宽容（自底向上扫），但要求确有一行是 JSON 对象——否则 raise。
+    Every ``{`` is considered as a possible object boundary with ``raw_decode``.  When a schema is
+    supplied, a valid outer protocol object wins over later nested objects.  This avoids the old
+    line-oriented failure where pretty-printed JSON made an inner array item look like the result.
     """
-    for line in reversed(text.splitlines()):
-        stripped = line.strip()
-        if not stripped:
-            continue
+    decoder = json.JSONDecoder()
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for match in re.finditer(r"\{", text):
         try:
-            obj = json.loads(stripped)
+            value, _ = decoder.raw_decode(text, match.start())
         except json.JSONDecodeError:
             continue
-        if isinstance(obj, dict):
-            return obj
-    raise AgentOutputError(f"agent 输出末尾未找到合法 JSON 对象：{text[-200:]!r}")
+        if isinstance(value, dict):
+            candidates.append((match.start(), value))
+    if not candidates:
+        raise AgentOutputError(f"agent 输出中未找到完整 JSON 对象：{text[-200:]!r}")
+    if schema is not None:
+        validator = Draft202012Validator(schema)
+        valid = [candidate for candidate in candidates if validator.is_valid(candidate[1])]
+        if valid:
+            return valid[-1][1]
+        required = set(schema.get("required") or ())
+        # Prefer the object that resembles the outer envelope most closely so validation reports
+        # the real contract mismatch rather than a later nested object.
+        candidates.sort(key=lambda item: (len(required.intersection(item[1])), item[0]))
+    return candidates[-1][1]
+
+
+def _parse_and_validate(*, text: str, schema: dict[str, Any]) -> dict[str, Any]:
+    payload = _parse_last_json(text=text, schema=schema)
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(payload), key=lambda item: list(item.path)
+    )
+    if errors:
+        first = errors[0]
+        location = ".".join(str(part) for part in first.absolute_path) or "<root>"
+        if first.validator == "required" and not first.absolute_path:
+            missing = next(
+                (key for key in schema.get("required", ()) if key not in payload),
+                "<unknown>",
+            )
+            raise AgentOutputError(f"agent 输出缺少 schema 键 {missing!r}：{payload!r}")
+        raise AgentOutputError(f"agent 输出不符合 JSON Schema（{location}）：{first.message}")
+    return payload
+
+
+def _output_json_schema(*, agent_module: Any) -> dict[str, Any]:
+    explicit = getattr(agent_module, "OUTPUT_JSON_SCHEMA", None)
+    if explicit is not None:
+        Draft202012Validator.check_schema(explicit)
+        return explicit
+    properties = {
+        key: {"type": _json_type(expected)} for key, expected in agent_module.OUTPUT_SCHEMA.items()
+    }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": list(properties),
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
+
+def _with_machine_contract(*, prompt: str, schema: dict[str, Any]) -> str:
+    return (
+        f"{prompt.rstrip()}\n\n"
+        "【机器输出契约】最终响应必须是满足下列 JSON Schema 的一个完整 JSON 对象。"
+        "可以单行或多行，但不得放入 Markdown 代码围栏，不得在对象后追加说明。\n"
+        f"{json.dumps(schema, ensure_ascii=False, sort_keys=True)}\n"
+    )
+
+
+def _json_type(expected: type) -> str:
+    mapping = {
+        str: "string",
+        bool: "boolean",
+        int: "integer",
+        float: "number",
+        list: "array",
+        dict: "object",
+    }
+    try:
+        return mapping[expected]
+    except KeyError as exc:
+        raise TypeError(f"unsupported OUTPUT_SCHEMA type: {expected!r}") from exc
+
+
+_REPAIR_OUTPUT_LIMIT = 65_536
+
+
+def _repair_protocol_output(
+    *,
+    backend: Any,
+    backend_name: str,
+    role: str,
+    schema: dict[str, Any],
+    output: str,
+    primary_error: AgentOutputError,
+    placeholders: dict[str, Any],
+    audit_work_dir: Path,
+) -> dict[str, Any]:
+    """Run one serialization-only retry in a disposable directory.
+
+    The retry cannot touch the delivery worktree.  It may only re-express claims already present in
+    the original answer; the same schema is validated again and failure remains fail-closed.
+    """
+    repair_prompt = (
+        "你是机器协议格式修复器。不得调查仓库、不得调用工具、不得新增事实或证据。"
+        "只把 ORIGINAL_OUTPUT 中已经存在的内容重排为满足 JSON_SCHEMA 的一个 JSON 对象。"
+        "字段名明显为同义缩写时按 schema 字段名归一化；缺失且无法无损恢复的字符串填空串、数组填空数组，"
+        "不要猜测语义。只输出 JSON，不要 Markdown、解释或代码围栏。\n\n"
+        f"VALIDATION_ERROR:\n{primary_error}\n\n"
+        f"JSON_SCHEMA:\n{json.dumps(schema, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"ORIGINAL_OUTPUT:\n{output[-_REPAIR_OUTPUT_LIMIT:]}"
+    )
+    repair_result = None
+    repaired: dict[str, Any] | None = None
+    repair_status = "backend_error"
+    repair_error: str | None = None
+    with tempfile.TemporaryDirectory(prefix="openagents-protocol-repair-") as temporary:
+        repair_dir = Path(temporary)
+        subprocess.run(
+            ["git", "init", "--quiet", str(repair_dir)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            repair_result = backend.run(work_dir=repair_dir, task=repair_prompt, context="")
+            repair_status = "protocol_error"
+            repaired = _parse_and_validate(
+                text=getattr(repair_result, "protocol_output", repair_result.summary),
+                schema=schema,
+            )
+            repair_status = "success"
+            return repaired
+        except Exception as exc:
+            repair_error = f"{type(exc).__name__}: {exc}"
+            raise AgentOutputError(
+                f"agent 原始输出协议错误且格式修复失败：原始={primary_error}; 修复={repair_error}"
+            ) from exc
+        finally:
+            repair_role = f"{role}_protocol_repair"
+            token_usage.record(
+                work_dir=audit_work_dir,
+                role=repair_role,
+                backend=backend_name,
+                status=repair_status,
+                usage=getattr(repair_result, "usage", None),
+            )
+            invocation.record(
+                role=repair_role,
+                backend=backend_name,
+                prompt=repair_prompt,
+                context="",
+                placeholders=placeholders,
+                structured=repaired,
+                status=repair_status,
+                error=repair_error,
+            )
 
 
 _DYNAMIC_TEXT_MIN = 32

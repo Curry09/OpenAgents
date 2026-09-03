@@ -64,11 +64,18 @@ _AGENT_OUTPUTS: dict[str, dict] = {
         "summary": "compact spec",
         "blocker": "",
         "objective_coverage": [{"scope_coverage": "FULL", "evidence_level": "STRUCTURAL"}],
-        "candidate_assessments": [{
-            "candidate": "one", "ownership": "runtime", "delivery": "wired",
-            "control_effect": "guard", "evidence": "source", "assumptions": "none",
-            "failure_modes": "bypass", "verdict": "selected",
-        }],
+        "candidate_assessments": [
+            {
+                "candidate": "one",
+                "ownership": "runtime",
+                "delivery": "wired",
+                "control_effect": "guard",
+                "evidence": "source",
+                "assumptions": "none",
+                "failure_modes": "bypass",
+                "verdict": "selected",
+            }
+        ],
         "selected_intervention": {},
         "evidence_pack": [],
         "falsifiers": [],
@@ -85,7 +92,30 @@ _AGENT_OUTPUTS: dict[str, dict] = {
         "head_sha": _HEAD,
         "lookup_exception_reason": "",
     },
-    "acceptance": {"verdict": "PASS", "reason": "原 issue 已满足", "evidence": ["replay"]},
+    "acceptance": {
+        "verdict": "PASS",
+        "reason": "原 issue 已满足",
+        "evidence": [
+            {
+                "case_id": "original",
+                "source": "original_replay",
+                "kind": "behavior",
+                "observed": "original failure no longer reproduces",
+                "expected": "original objective is satisfied",
+                "path": "artifacts/original.log",
+                "passed": True,
+            },
+            {
+                "case_id": "variant",
+                "source": "independent_variant",
+                "kind": "behavior",
+                "observed": "independent semantic variant passes",
+                "expected": "implementation is not sample-specific",
+                "path": "artifacts/variant.log",
+                "passed": True,
+            },
+        ],
+    },
     "reviewer": {"verdict": "PASS", "reason": "看着没问题"},
     "tester": {
         "verdict": "PASS",
@@ -301,6 +331,10 @@ def rig(monkeypatch) -> _Rig:
     )
 
     monkeypatch.setattr(git, "Workspace", _FakeWorkspace)
+    # ``recipes.stages`` imports Workspace directly, so patch that bound name too.
+    # This keeps the recipe tests hermetic now that minimal_spec verifies remote
+    # delivery before stamping the host-observed HEAD.
+    monkeypatch.setattr(vigil_module.stages, "Workspace", _FakeWorkspace)
     # Spec-0074: rfc:skip 态的确定性 seed 分支（空 commit+push）——打桩记录，不真碰 git。
     monkeypatch.setattr(
         git,
@@ -527,11 +561,18 @@ def test_minimal_spec_partial_stops_before_pr_and_implementation(rig, tmp_path, 
             "summary": "useful but incomplete",
             "blocker": "one objective is unclosed",
             "objective_coverage": [{"scope_coverage": "PARTIAL", "evidence_level": "HYPOTHESIS"}],
-            "candidate_assessments": [{
-                "candidate": "one", "ownership": "model", "delivery": "unknown",
-                "control_effect": "unknown", "evidence": "none", "assumptions": "compliance",
-                "failure_modes": "ignored", "verdict": "selected",
-            }],
+            "candidate_assessments": [
+                {
+                    "candidate": "one",
+                    "ownership": "model",
+                    "delivery": "unknown",
+                    "control_effect": "unknown",
+                    "evidence": "none",
+                    "assumptions": "compliance",
+                    "failure_modes": "ignored",
+                    "verdict": "selected",
+                }
+            ],
             "selected_intervention": {},
             "evidence_pack": [],
             "falsifiers": [],

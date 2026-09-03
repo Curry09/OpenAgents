@@ -1,0 +1,29 @@
+type: agent
+name: openagents_nexau
+max_context_tokens: 262144
+system_prompt: ./system.md
+system_prompt_type: file
+tool_call_mode: structured
+max_iterations: 100
+
+llm_config:
+  model: bootstrap
+  base_url: http://invalid
+  api_key: bootstrap
+  max_tokens: 32768
+  timeout: 300
+  stream: false
+  api_type: anthropic_chat_completion
+
+sandbox_config:
+  type: local
+
+tools:
+  - name: run_shell_command
+    yaml_path: ./run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+  - name: complete_task
+    yaml_path: ./complete_task.tool.yaml
+    binding: nexau.archs.tool.builtin.session_tools:complete_task
+
+stop_tools: [complete_task]

@@ -283,6 +283,9 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 ### 0085 v0.2 最小批次开发与验收
 以一个 batch runner 执行 Spec、DAG、Developer、客观结果、Acceptance 和机械合并。
 
+### 0086 User Test 主导的可审计验收
+用真实用户交互替代组件自证作为 v0.2 Acceptance 的主证据，并在隔离副本中保存完整结果。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -594,6 +597,11 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0084 | 0084/T1 | 实现冻结 Spec 节点、DAG 校验与拓扑批次 | done | — | openagents/agents/spec_curator.py<br>openagents/v02/model.py<br>openagents/v02/planner.py<br>tests/test_v02_planner.py |
 | 0085 | 0085/T1 | 实现 Developer 契约与可注入 batch runner | done | — | openagents/agents/developer.py<br>openagents/v02/runner.py<br>openagents/v02/audit.py<br>tests/test_v02_runner.py<br>tests/test_v02_audit.py |
 | 0085 | 0085/T2 | 声明 v0.2 flow 与命令入口 | done | T1 | openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>openagents/cli.py<br>tests/test_agent_config.py<br>tests/test_cli.py |
+| 0085 | 0085/T3 | 接入 Messages 网关的 NexAU coding backend | done | T1 | openagents/backends/nexau.py<br>openagents/v02/node_runtime.py<br>openagents/data/nexau/agent.yaml<br>openagents/data/nexau/system.md<br>openagents/data/nexau/run_shell_command.tool.yaml<br>openagents/data/nexau/complete_task.tool.yaml<br>docker/v02-nexau.Dockerfile |
+| 0085 | 0085/T4 | 收紧最小流程的契约一致性与行为验收 | done | T1 | openagents/agents/spec_writer.py<br>openagents/agents/acceptance.py<br>openagents/recipes/stages.py<br>openagents/v02/openagents_adapter.py<br>tests/test_recipe_stages.py<br>tests/test_agents_prompts.py |
+| 0086 | 0086/T1 | 实现隔离 User Test runner 与 artifact 账本 | done | — | openagents/runtime/user_test.py<br>tests/test_runtime_user_test.py |
+| 0086 | 0086/T2 | 把 User Test 接入 v0.2 Acceptance 门禁 | done | T1 | openagents/agents/acceptance.py<br>openagents/recipes/stages.py<br>openagents/runtime/evidence.py<br>openagents/v02/openagents_adapter.py<br>openagents/v02/model.py |
+| 0086 | 0086/T3 | 提供 CLI 配置入口与可追溯说明 | done | T1, T2 | openagents/cli.py<br>docs/specs/0086-user-test-acceptance.md |
 
 ## 跨 feature 关系图
 
@@ -1067,6 +1075,13 @@ graph LR
     subgraph G0085[0085 v02-batch-delivery]
         n0085_T1["T1 实现 Developer 契约与可注入 batch runner"]
         n0085_T2["T2 声明 v0.2 flow 与命令入口"]
+        n0085_T3["T3 接入 Messages 网关的 NexAU coding backend"]
+        n0085_T4["T4 收紧最小流程的契约一致性与行为验收"]
+    end
+    subgraph G0086[0086 user-test-acceptance]
+        n0086_T1["T1 实现隔离 User Test runner 与 artifact 账本"]
+        n0086_T2["T2 把 User Test 接入 v0.2 Acceptance 门禁"]
+        n0086_T3["T3 提供 CLI 配置入口与可追溯说明"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -1325,6 +1340,11 @@ graph LR
     n0081_T4 --> n0081_T3
     n0082_T2 --> n0082_T1
     n0085_T2 --> n0085_T1
+    n0085_T3 --> n0085_T1
+    n0085_T4 --> n0085_T1
+    n0086_T2 --> n0086_T1
+    n0086_T3 --> n0086_T1
+    n0086_T3 --> n0086_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1345,6 +1365,7 @@ graph LR
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
+| openagents/agents/acceptance.py | 0082, 0085, 0086 |
 | openagents/agents/admitter.py | 0065, 0081 |
 | openagents/agents/architect.py | 0076, 0081 |
 | openagents/agents/curator.py | 0065, 0081 |
@@ -1355,7 +1376,7 @@ graph LR
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061, 0081 |
 | openagents/agents/reviewer.py | 0060, 0076, 0081 |
-| openagents/agents/spec_writer.py | 0082, 0083 |
+| openagents/agents/spec_writer.py | 0082, 0083, 0085 |
 | openagents/agents/tester.py | 0060, 0076, 0081 |
 | openagents/agents/triager.py | 0061, 0081 |
 | openagents/backends/__init__.py | 0001, 0029 |
@@ -1363,7 +1384,7 @@ graph LR
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085, 0086 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
@@ -1386,7 +1407,7 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083, 0085, 0086 |
 | openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
@@ -1394,6 +1415,7 @@ graph LR
 | openagents/rfc.py | 0008, 0013 |
 | openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081 |
 | openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081 |
+| openagents/runtime/evidence.py | 0076, 0086 |
 | openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076, 0081 |
 | openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081 |
 | openagents/runtime/token_usage.py | 0079, 0081 |
@@ -1424,6 +1446,8 @@ graph LR
 | openagents/utils/results.py | 0061, 0062, 0063 |
 | openagents/utils/skip.py | 0061, 0062, 0081 |
 | openagents/utils/workspace.py | 0035, 0062, 0068, 0081 |
+| openagents/v02/model.py | 0084, 0086 |
+| openagents/v02/openagents_adapter.py | 0085, 0086 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |
@@ -1437,7 +1461,7 @@ graph LR
 | tests/test_agents_docstring_rule.py | 0059, 0081 |
 | tests/test_agents_drafter.py | 0062, 0076, 0081 |
 | tests/test_agents_merger.py | 0017, 0074, 0075, 0081 |
-| tests/test_agents_prompts.py | 0060, 0077, 0081, 0082, 0083 |
+| tests/test_agents_prompts.py | 0060, 0077, 0081, 0082, 0083, 0085 |
 | tests/test_agents_replier_issue.py | 0016, 0081 |
 | tests/test_agents_triager_replier.py | 0061, 0081 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081 |
@@ -1479,7 +1503,7 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081, 0082, 0083 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081, 0082, 0083, 0085 |
 | tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081, 0082 |
 | tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077, 0081, 0082 |
 | tests/test_recipe_vigil_admit.py | 0065, 0074, 0081 |
@@ -3732,7 +3756,11 @@ graph LR
 graph LR
     nT1["T1 实现 Developer 契约与可注入 batch runner"]
     nT2["T2 声明 v0.2 flow 与命令入口"]
+    nT3["T3 接入 Messages 网关的 NexAU coding backend"]
+    nT4["T4 收紧最小流程的契约一致性与行为验收"]
     nT1 --> nT2
+    nT1 --> nT3
+    nT1 --> nT4
 ```
 
 演化图：
@@ -3741,7 +3769,36 @@ graph LR
 graph LR
     v_T1_1["T1 v1"]
     v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
     class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0086 User Test 主导的可审计验收（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 实现隔离 User Test runner 与 artifact 账本"]
+    nT2["T2 把 User Test 接入 v0.2 Acceptance 门禁"]
+    nT3["T3 提供 CLI 配置入口与可追溯说明"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
 ```

@@ -1,0 +1,12 @@
+.git
+.venv
+.openagents
+.pytest_cache
+.ruff_cache
+.mypy_cache
+__pycache__
+*.py[cod]
+.coverage
+.env
+.env.*
+docs/e2e-results
