@@ -534,6 +534,37 @@ def test_minimal_design_snapshot_requires_fixed_compact_contract(tmp_path):
         )
 
 
+def test_minimal_design_snapshot_warns_on_noncanonical_format(tmp_path):
+    """格式差异只告警；非空 Objective Contract 仍可冻结 digest 并进入开发。"""
+    path = tmp_path / "docs" / "objectives" / "issue-7.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "# Objective Contract — Issue #7\n\n"
+        "## 1. Objective contract\nobjective\n\n"
+        "## 2. Observed mechanism and evidence\nevidence\n\n"
+        "## 3. Decision rationale\nrationale\n\n"
+        "## 4. Invariants and risk ledger\nrisks\n\n"
+        "## 5. Developer design envelope\nboundaries\n\n"
+        "## 6. Independent acceptance\nacceptance\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match="格式警告"):
+        snapshot = stages.minimal_design_snapshot(work_dir=tmp_path, issue_number=7)
+
+    assert snapshot["design_digest"]
+    assert snapshot["format_warning"].startswith("minimal objective spec 格式警告")
+
+
+def test_minimal_design_snapshot_rejects_empty_contract(tmp_path):
+    path = tmp_path / "docs" / "objectives" / "issue-7.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("  \n", encoding="utf-8")
+
+    with pytest.raises(GateError, match="为空"):
+        stages.minimal_design_snapshot(work_dir=tmp_path, issue_number=7)
+
+
 def test_execute_compact_spec_uses_executor_and_head_gates(monkeypatch, tmp_path):
     backend = _Backend(
         payloads={
