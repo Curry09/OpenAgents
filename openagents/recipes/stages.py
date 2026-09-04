@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -296,15 +297,22 @@ def minimal_spec(
 
 
 def minimal_design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, str]:
-    """Validate and hash the compact objective contract for a minimal-flow issue.
+    """Read and hash the compact objective contract for a minimal-flow issue.
 
-    Spec-0082/T1: unlike the standard RFC, this artifact has a fixed six-heading contract and no
-    generated indexes or DAG. Its byte digest is persisted and re-read before merge.
+    Spec-0082/T1: unlike the standard RFC, this artifact has an expected six-heading format and no
+    generated indexes or DAG. Empty/missing artifacts remain hard failures; heading deviations are
+    warnings so a present contract can still be implemented. Its byte digest is persisted and
+    re-read before merge.
     """
     path = Path(work_dir) / "docs" / "objectives" / f"issue-{issue_number}.md"
     if not path.is_file():
         raise gates.GateError(f"minimal objective spec 不存在：{path.relative_to(work_dir)}")
     text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        # An empty artifact cannot provide an objective contract at all.  Keep this as a
+        # hard gate; the warning-only relaxation below is specifically for presentation
+        # format, not for an absent design.
+        raise gates.GateError(f"minimal objective spec 为空：{path.relative_to(work_dir)}")
     required = (
         "## Objective contract",
         "## Observed mechanism and evidence",
@@ -314,16 +322,29 @@ def minimal_design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, s
         "## Independent acceptance",
     )
     missing = [heading for heading in required if heading not in text]
+    format_warning = ""
     if missing:
-        raise gates.GateError(f"minimal objective spec 缺少固定段落：{missing}")
-    # Keep the artifact compact by prompt guidance, but do not turn an arbitrary
-    # line count into a semantic gate.  A few extra lines must not discard a
-    # complete, actionable contract before Developer can exercise it.  The
-    # actual gates here are the six required sections and the digest binding.
-    return {
+        format_warning = (
+            f"minimal objective spec 格式警告：缺少固定段落 {missing}；"
+            "继续进入后续阶段，语义完整性由实现与用户验收负责"
+        )
+        # Do not turn a present, non-empty contract into a failed run merely because the
+        # model used numbered/translated Markdown headings.  Keep the warning observable
+        # both on the normal warnings channel and in the returned snapshot for audit logs.
+        warnings.warn(format_warning, UserWarning, stacklevel=2)
+    # Keep the artifact compact by prompt guidance, but do not turn presentation
+    # details into a semantic gate.  A few extra lines or non-canonical headings
+    # must not discard a complete, actionable contract before Developer can
+    # exercise it.  The hard gates here are readability/non-emptiness and the
+    # digest binding; section-format deviations remain explicitly observable as
+    # warnings above.
+    snapshot = {
         "design_digest": hashlib.sha256(text.encode()).hexdigest(),
         "spec_path": str(path),
     }
+    if format_warning:
+        snapshot["format_warning"] = format_warning
+    return snapshot
 
 
 def assert_minimal_design_approved(
