@@ -138,7 +138,8 @@ The spec group is the core artifact. Author it via the CLI — never hand-write 
    ```
    spec new <slug> --issue <N> --title "<组标题>" --summary "<一句话 TL;DR>"
    ```
-   The number is auto-assigned as local-max + 1. Cross-PR number conflicts are caught by CI (`check-spec-number-conflicts.py`); in shared-repo work, push the group skeleton and open a draft PR early so the number is visible to other agents. If you must pin a number, pass `--number NNNN`. `spec new` 已在正文里铺好 9 段 `## <heading>` 脚手架（含 `<!-- 待填 -->` 占位）。
+   In a shared Git repo, `spec new` atomically reserves a number in `origin` under `spec-reservations/NNNN` before writing the group. Remote fetch/push failure stops creation; `--number NNNN` follows the same reservation rule. Local-only directories use local-max + 1. Cross-PR checks remain a second gate. `spec new` 已在正文里铺好 9 段 `## <heading>` 脚手架（含 `<!-- 待填 -->` 占位）。
+   If an existing PR must renumber after rebase, run `spec reserve-number --issue <N> --slug <slug>` first. Use its printed number for the spec filename, frontmatter, code comments, tests, and generated indexes; never choose local-max + 1 by hand.
 2. **Explore the codebase** thoroughly before designing — use subagents for parallel context gathering.
 3. **先写组级 RFC 总览（before any Task）** — 直接编辑组 `.md` 正文，填满 9 段（顺序见 `references/task-fields.md`）：
    - **Summary**（必填）/ **Motivation**（必填，现状+为什么，**背景就地复述**）/ Guide-level / **Reference-level**（必填，技术方案 + **DAG + 文件分配表** + e2e 脚本路径）/ Drawbacks / **Rationale and alternatives**（必填，≥1 备选）/ Prior art / Unresolved questions / Future possibilities。

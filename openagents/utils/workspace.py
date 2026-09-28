@@ -1,5 +1,8 @@
 """RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。
 
+Spec-0089/T1: verify clean published delivery, read candidate heads and safely fast-forward
+behind-only worktrees without discarding interrupted implementation.
+
 把 issue 求解所需的 git/worktree 机制收敛到一个**只懂 git** 的模块：不感知
 GitHub / backend / state。orchestrator 的原子操作借本模块完成「确保工作区」与
 「提交推送」，从而把 git 关注点与 GitHub/状态等关注点解耦（RFC-0005 决策 3）。
@@ -21,13 +24,16 @@ git（agent 无法自建沙箱）仍留本模块。
 
 from __future__ import annotations
 
+import hashlib
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
 
 # RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
+_CONFLICT_WORKTREE_SUBDIR = Path(".openagents") / "conflict-worktrees"
 
 # Spec-0068/T1: 进程级 git-mutation 串行锁——照抄 RuntimeState._LOCK 同款模式
 # （openagents/runtime/state.py）。守夜 K 个 worker 并发对**同一主仓 .git** 跑
@@ -101,25 +107,105 @@ class Workspace:
             self._git(args=["worktree", "add", str(path), branch], cwd=self._work_dir, check=True)
         return path
 
+    def prepare_conflict(self, *, branch: str, base: str) -> Path:
+        """Prepare a detached, branch-specific worktree for conflict recovery.
+
+        Conflict repair must not reuse the normal issue worktree: that path may be checked
+        out on a conventional issue branch, may be owned by an interrupted implementation,
+        or may still contain an in-progress rebase.  A detached worktree is safe because the
+        deliver protocol publishes ``HEAD:<branch>`` explicitly.  Clean instances are rebuilt
+        from the current remote head; dirty instances are preserved for the resolver to resume.
+        """
+        key = hashlib.sha256(branch.encode("utf-8")).hexdigest()[:16]
+        path = self._work_dir / _CONFLICT_WORKTREE_SUBDIR / key
+        with _GIT_MUTATION_LOCK:
+            self._git(args=["fetch", "origin", base, branch], cwd=self._work_dir, check=True)
+            if path.exists():
+                inside = self._git(
+                    args=["rev-parse", "--is-inside-work-tree"], cwd=path, check=False
+                )
+                if inside.returncode != 0:
+                    # A killed `worktree add` can leave the destination directory behind
+                    # without a registered worktree. It contains no valid resolver state;
+                    # remove only this managed conflict-worktree so the next add can proceed.
+                    shutil.rmtree(path)
+                elif self._operation_in_progress(worktree=path):
+                    return path
+                else:
+                    status = self._git(
+                        args=["status", "--porcelain", "--untracked-files=all"],
+                        cwd=path,
+                        check=True,
+                    )
+                    if status.stdout.strip():
+                        return path
+                    self._git(
+                        args=["worktree", "remove", "--force", str(path)],
+                        cwd=self._work_dir,
+                        check=False,
+                    )
+                    self._git(args=["worktree", "prune"], cwd=self._work_dir, check=False)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._git(
+                args=["worktree", "add", "--detach", str(path), f"origin/{branch}"],
+                cwd=self._work_dir,
+                check=True,
+            )
+        return path
+
+    def _operation_in_progress(self, *, worktree: Path) -> bool:
+        """Detect rebase/merge/cherry-pick state even when porcelain is currently empty."""
+        git_dir_result = self._git(args=["rev-parse", "--git-dir"], cwd=worktree, check=False)
+        raw_git_dir = git_dir_result.stdout.strip()
+        if not raw_git_dir:
+            return False
+        git_dir = Path(raw_git_dir)
+        if not git_dir.is_absolute():
+            git_dir = (worktree / git_dir).resolve()
+        for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+            if (git_dir / marker).exists():
+                return True
+        return False
+
     def assert_delivered(self, *, worktree: Path, branch: str) -> None:
-        """# Spec-0056/T1：head 前移硬闸——断言 agent 的成果真的推上远端 <branch>，不等即抛。
+        """# Spec-0056/T1：断言没有未提交成果，且本地 HEAD 已推到远端 <branch>。
 
         agent 交付后（commit → 记 fetch 前 BASE → rebase 解冲突 → push --force-with-lease）由
-        harness 调用：`git fetch origin <branch>`（check=False，远端无分支时不报错）后取
+        harness 调用：检查工作区（允许 Git 已忽略的缓存），成功 `git fetch origin <branch>` 后取
         `git rev-parse origin/<branch>` 与 `git rev-parse HEAD` 对比——相等 = 已交付放行；
         不等 = agent 自判完成却没推上去（正是 issue #140 的复现场景）→ 抛 WorkspaceError（携双
         SHA 摘要）。远端无该分支（rev-parse 失败）视作「未交付」→ 抛（agent 理应已 push 建分支）。
 
-        纯读，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
+        只刷新跟踪 ref，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
         agent force-push（决策 7），本闸只判「到没到」。routing（打 automation-failed）留在 orchestrator。
 
         版本假设（PR #141 review 次要项）：依赖 `git fetch origin <branch>` 会刷新本地
         `origin/<branch>` 跟踪 ref，随后 `rev-parse origin/<branch>` 才读得到最新远端 head——该行为需
         git ≥ 1.8.4（更早版本 fetch 不更新单分支跟踪 ref）。开发/CI 环境 git 均远超此版，故不做运行时探测。
         """
-        self._git(args=["fetch", "origin", branch], cwd=worktree, check=False)
+        head_sha, remote_sha = self.delivery_heads(worktree=worktree, branch=branch)
+        if remote_sha != head_sha:
+            raise WorkspaceError(
+                f"分支 {branch} head 未前移、疑似未交付："
+                f"origin/{branch}={_short_sha(sha=remote_sha)} ≠ 本地 HEAD={_short_sha(sha=head_sha)}"
+            )
+
+    def delivery_heads(self, *, worktree: Path, branch: str) -> tuple[str, str]:
+        """Read clean local/remote heads without deciding why they differ (Spec-0089/T1).
+
+        Delivery requires equality; a reader may instead have an outdated candidate. Keep
+        that classification with the caller, but never turn dirty work or Git IO failure
+        into an ordinary candidate change. Fetch refreshes refs, never the reviewed files.
+        """
+        # Spec-0056 recovery: a matching HEAD alone does not include staged/untracked source.
+        status = self._git(
+            args=["status", "--porcelain", "--untracked-files=all"], cwd=worktree, check=True
+        )
+        if status.stdout.strip():
+            raise WorkspaceError(f"分支 {branch} 未交付：工作区仍有未提交文件")
+        self._git(args=["fetch", "origin", branch], cwd=worktree, check=True)
         remote = self._git(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)
-        head = self._git(args=["rev-parse", "HEAD"], cwd=worktree, check=False)
+        head = self._git(args=["rev-parse", "HEAD"], cwd=worktree, check=True)
         head_sha = head.stdout.strip()
         remote_sha = remote.stdout.strip()
         if remote.returncode != 0 or not remote_sha:
@@ -127,19 +213,53 @@ class Workspace:
                 f"分支 {branch} 未交付：远端无 origin/{branch}"
                 f"（本地 HEAD={_short_sha(sha=head_sha)}，疑似 agent 未 push）"
             )
-        if remote_sha != head_sha:
-            raise WorkspaceError(
-                f"分支 {branch} head 未前移、疑似未交付："
-                f"origin/{branch}={_short_sha(sha=remote_sha)} ≠ 本地 HEAD={_short_sha(sha=head_sha)}"
-            )
+        if not head_sha:
+            raise WorkspaceError(f"分支 {branch} 无法读取本地 HEAD")
+        # Spec-0017: fetching may take time; reject source dirt introduced during IO too.
+        status = self._git(
+            args=["status", "--porcelain", "--untracked-files=all"], cwd=worktree, check=True
+        )
+        if status.stdout.strip():
+            raise WorkspaceError(f"分支 {branch} 未交付：工作区仍有未提交文件")
+        return head_sha, remote_sha
 
-    def changed_spec_group(self, *, worktree: Path, base: str) -> Path | None:
-        """Locate the spec group markdown file this branch touches, via git diff vs base.
+    def sync_delivered(self, *, worktree: Path, branch: str) -> bool:
+        """Align a clean, behind-only worktree without discarding local work.
+
+        Spec-0089/T1: False means existing development/delivery must continue. Git IO
+        failures raise instead of being interpreted as unfinished source or successful delivery.
+        """
+        status = self._git(
+            args=["status", "--porcelain", "--untracked-files=all"], cwd=worktree, check=True
+        )
+        if status.stdout.strip():
+            return False
+        self._git(args=["fetch", "origin", branch], cwd=worktree, check=True)
+        head = self._git(args=["rev-parse", "HEAD"], cwd=worktree, check=True).stdout.strip()
+        remote = self._git(
+            args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=True
+        ).stdout.strip()
+        if not head or not remote:
+            raise WorkspaceError(f"分支 {branch} 无法读取本地或远端 HEAD")
+        if head == remote:
+            return True
+        ancestor = self._git(
+            args=["merge-base", "--is-ancestor", head, remote], cwd=worktree, check=False
+        )
+        if ancestor.returncode == 1:
+            return False  # Ahead/diverged: preserve every local commit for the delivery agent.
+        if ancestor.returncode != 0:
+            raise WorkspaceError(f"分支 {branch} 无法判断祖先关系：{ancestor.stderr.strip()}")
+        self._git(args=["merge", "--ff-only", f"origin/{branch}"], cwd=worktree, check=True)
+        return True
+
+    def changed_spec_groups(self, *, worktree: Path, base: str) -> list[Path]:
+        """Locate every spec group markdown file this branch touches, via git diff vs base.
 
         2026-06-24 spec-markdown-form：spec 组现为单文件 docs/specs/NNNN-slug.md。用
-        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的首个组文件
+        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的组文件
         （排除 OVERVIEW.md / ARCHITECTURE.md / README.md / dated 设计文档），返回其在 worktree
-        下的绝对路径；无则 None。只读 git，不抛业务错。
+        下的绝对路径列表。只读 git，不抛业务错。
         """
         # 1. 列出本分支相对 base 改动的 docs/specs/ 文件（三点 diff：仅本分支侧的改动）。
         result = self._git(
@@ -147,7 +267,8 @@ class Workspace:
             cwd=worktree,
             check=False,
         )
-        # 2. 取首个 NNNN-slug.md 组文件（路径第三段；排除生成物/README/dated 文档）。
+        # 2. 取所有 NNNN-slug.md 组文件（路径第三段；排除生成物/README/dated 文档）。
+        paths = []
         for line in result.stdout.splitlines():
             rel = line.strip()
             if not rel:
@@ -155,8 +276,13 @@ class Workspace:
             parts = Path(rel).parts
             if len(parts) == 3 and parts[0] == "docs" and parts[1] == "specs":
                 if _SPEC_GROUP_FILE_RE.match(parts[2]):
-                    return worktree / "docs" / "specs" / parts[2]
-        return None
+                    paths.append(worktree / "docs" / "specs" / parts[2])
+        return paths
+
+    def changed_spec_group(self, *, worktree: Path, base: str) -> Path | None:
+        """Return the first changed spec group for callers expecting the original API."""
+        paths = self.changed_spec_groups(worktree=worktree, base=base)
+        return paths[0] if paths else None
 
     def remote_branch_exists(self, *, branch: str) -> bool:
         """远端是否已存在该分支（`git ls-remote --heads`）。

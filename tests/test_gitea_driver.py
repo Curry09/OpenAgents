@@ -633,3 +633,24 @@ def test_network_error_retries_then_gives_up(monkeypatch):
 def test_merge_command_text_is_platform_neutral_cli():
     assert gitea.merge_command_text(pr_number=7) == "openagents merge-pr --pr 7"
     assert gitea.merge_verify_command_text(pr_number=7) == "openagents merge-pr --pr 7"
+
+
+def test_merge_and_idempotent_verify_both_bind_approved_head():
+    """Spec-0017: Gitea verification may retry merge, so it must retain the same SHA."""
+    expected = "openagents merge-pr --pr 7 --head-sha " + "a" * 40
+    assert gitea.merge_command_text(pr_number=7, head_sha="a" * 40) == expected
+    assert gitea.merge_verify_command_text(pr_number=7, head_sha="a" * 40) == expected
+
+
+def test_merge_native_head_mismatch_rejected_without_unconditional_retry(monkeypatch):
+    """Spec-0017: simulated Gitea 409 must not result in a second unbound POST."""
+    fake = _install(
+        monkeypatch,
+        (409, None, "head out of date"),
+        (200, {"number": 5, "state": "open", "merged": False, "title": "t"}, ""),
+    )
+    with pytest.raises(GithubError, match="409"):
+        gitea.merge_pr(pr_number=5, head_sha="a" * 40)
+    posts = [call for call in fake.calls if call["method"] == "POST"]
+    assert len(posts) == 1
+    assert posts[0]["body"] == {"Do": "merge", "head_commit_id": "a" * 40}

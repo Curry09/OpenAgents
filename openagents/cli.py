@@ -1,5 +1,7 @@
 """# Spec-0064/T5: CLI 入口——人面向收敛为 vigil / issue / backfill-rfc / release 四命令。
 
+Spec-0089/T1: forward --head-sha through merge-pr without exposing forge credentials.
+
 唯一命令入口，仅做参数解析与分发；业务逻辑下沉到各模块（命令体内延迟 import，保持 cli.py 文件归属
 单一、文件清单不重叠）。
 
@@ -120,12 +122,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Spec-0085/T2: finite, explicit v0.2 batch; unlike vigil it never polls or waits for humans.
-    p_v02 = sub.add_parser("v02", help="运行一次 v0.2 批次：Spec → DAG → Developer → Acceptance → merge")
-    p_v02.add_argument(
-        "--issue", type=int, action="append", required=True, metavar="N", help="批次 issue 编号（可重复）"
+    p_v02 = sub.add_parser(
+        "v02", help="运行一次 v0.2 批次：Spec → DAG → Developer → Acceptance → merge"
     )
     p_v02.add_argument(
-        "--parallel", type=_parallel_k, default=4, metavar="K", help="Spec/Developer 并发上限（默认 4）"
+        "--issue",
+        type=int,
+        action="append",
+        required=True,
+        metavar="N",
+        help="批次 issue 编号（可重复）",
+    )
+    p_v02.add_argument(
+        "--parallel",
+        type=_parallel_k,
+        default=4,
+        metavar="K",
+        help="Spec/Developer 并发上限（默认 4）",
     )
     p_v02.add_argument("--base", default=None, help="目标分支（默认读配置，通常为 main）")
     p_v02.add_argument(
@@ -216,6 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Gitea 侧的 $merge_command 即本命令，token 处理留在 driver 内、凭证不进提示词。
     p_merge_pr = sub.add_parser("merge-pr")
     p_merge_pr.add_argument("--pr", type=int, required=True, metavar="N", help="要合并的 PR 编号")
+    p_merge_pr.add_argument("--head-sha", default="", help="只合并这一已审批的候选 SHA")
     p_merge_pr.add_argument(
         "--method", default="merge", choices=["merge", "squash", "rebase"], help="合并方式"
     )
@@ -515,7 +529,7 @@ def _cmd_merge_pr(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0074/T1：merger agent 的平台无关落合并出口——转发 forge.merge_pr（已合并幂等视为成功）。
     # 完成判据是输出含 "MERGED"（merger 提示词的 $verify_command 契约）；未合并成功以非零退出。
     if not github.is_merged(pr_number=args.pr):
-        github.merge_pr(pr_number=args.pr, method=args.method)
+        github.merge_pr(pr_number=args.pr, method=args.method, head_sha=args.head_sha)
     if github.is_merged(pr_number=args.pr):
         print(f"✓ PR #{args.pr} state: MERGED")
         return 0

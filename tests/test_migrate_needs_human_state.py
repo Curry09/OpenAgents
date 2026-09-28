@@ -64,7 +64,10 @@ def test_manual_owner_is_reported_but_not_rewritten(migration, tmp_path):
     directory = tmp_path / ".openagents"
     directory.mkdir()
     config = directory / "openagents.yml"
-    config.write_text("stages:\n  triage: human\nrepos:\n  - path: .\n    stages:\n      ci: human\n", encoding="utf-8")
+    config.write_text(
+        "stages:\n  triage: human\nrepos:\n  - path: .\n    stages:\n      ci: human\n",
+        encoding="utf-8",
+    )
     before = config.read_bytes()
 
     plan = migration.scan_local(repo=tmp_path)
@@ -87,7 +90,9 @@ def test_forge_apply_adds_diagnostic_before_removing_old_label(migration, monkey
         comments.append(SimpleNamespace(body=body))
 
     monkeypatch.setattr(migration.forge, "issue_comment", _comment)
-    monkeypatch.setattr(migration.forge, "issue_remove_label", lambda **kwargs: calls.append("remove"))
+    monkeypatch.setattr(
+        migration.forge, "issue_remove_label", lambda **kwargs: calls.append("remove")
+    )
 
     assert migration.apply_forge(plan={"issues": [issue], "prs": []}) == ["issue:3"]
     assert calls == ["ensure", "add", "comment", "remove"]

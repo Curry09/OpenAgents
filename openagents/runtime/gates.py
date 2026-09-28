@@ -1,5 +1,8 @@
 """# Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。
 
+Spec-0089/T1: re-read the live PR head before accepting its SHA-bound review label.
+Spec-0090/T1: distinguish repairable Spec/integrity mismatches from other hard-gate failures.
+
 「兜底 agent 自述、防撒谎/死循环」的最后一道确定性防线。分界线严格等于 agent 分工：
 **需要判断 → agent；客观机械 → 确定性代码。** 本模块只验四类客观事实，绝不判 PASS/REWORK、
 不判「代码对不对」「冲突怎么解」——那些是 agent 的活。
@@ -18,6 +21,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,36 +47,34 @@ def assert_repository_integrity(*, workspace: Path) -> None:
     report = validate_specs(specs_root=specs_root)
     errors = [f"{item.where}: {item.message}" for item in report.issues if item.level == "error"]
     if errors:
-        raise GateError("仓库级 Spec 完整性失败：" + "; ".join(errors))
+        raise RepositoryIntegrityStale("仓库级 Spec 完整性失败：" + "; ".join(errors))
     overview = specs_root / "OVERVIEW.md"
     actual = overview.read_text(encoding="utf-8") if overview.exists() else ""
     if actual != render_specs(specs_root=specs_root):
-        raise GateError("仓库级 Spec 完整性失败：OVERVIEW.md 与候选树不一致")
+        raise RepositoryIntegrityStale("仓库级 Spec 完整性失败：OVERVIEW.md 与候选树不一致")
 
 
 def assert_design_approved(*, workspace: Path, issue_number: int, approved_digest: str) -> None:
-    """Reject implementation or merge after approved design semantics changed."""
+    """Reject changed semantics; retain exact legacy approvals (Spec-0088/T1)."""
+    # Never migrate a legacy approval by blessing the current candidate's new digest.
+    digest_of = spec_model.design_digest
+    if re.fullmatch(r"[0-9a-f]{64}", approved_digest):
+        digest_of = spec_model.legacy_design_digest
     issue_groups = [
         group
         for group in spec_model.load_all(specs_root=Path(workspace) / "docs" / "specs")
         if group.metadata.issue == issue_number
     ]
-    approved_groups = [
-        group
-        for group in issue_groups
-        if spec_model.design_digest(group=group) == approved_digest
-    ]
+    approved_groups = [group for group in issue_groups if digest_of(group=group) == approved_digest]
     if len(approved_groups) == 1:
         return
     if not approved_groups:
-        current = ",".join(
-            spec_model.design_digest(group=group)[:12] for group in issue_groups
-        ) or "none"
-        raise GateError(
+        current = ",".join(digest_of(group=group)[:12] for group in issue_groups) or "none"
+        raise DesignApprovalStale(
             f"issue #{issue_number} 的已批准设计不存在："
             f"approved={approved_digest[:12]} current={current}"
         )
-    raise GateError(
+    raise DesignApprovalStale(
         f"issue #{issue_number} 有多个内容相同的已批准 Spec，设计身份不可验证"
     )
 
@@ -93,6 +95,14 @@ _SHA_LABEL_LEN = 7
 
 class GateError(Exception):
     """# Spec-0060/T3: 最小硬闸判定客观事实不成立（未交付 / 死循环 / PR 不存在 / 戳不匹配）时抛出。"""
+
+
+class DesignApprovalStale(GateError):
+    """Spec-0090/T1: 已批准设计不再对应候选 Spec，需回到既有架构评审。"""
+
+
+class RepositoryIntegrityStale(GateError):
+    """Spec-0090/T1: 生成视图与源数据失配，需沿既有交付路径修复。"""
 
 
 @dataclass(frozen=True)
@@ -184,7 +194,11 @@ def assert_merge_allowed(*, pr_number: int, head_sha: str, require_ci: bool = Tr
                 f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
                 f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
             )
-    labels = github.pr_snapshot(pr_number=pr_number).labels
+    snapshot = github.pr_snapshot(pr_number=pr_number)
+    # Spec-0017 recovery: old labels remain after a push; they cannot certify a new PR head.
+    if snapshot.head_sha != head_sha:
+        raise MergeNotReady(f"PR #{pr_number} HEAD 已变化，重新读取候选并评审")
+    labels = snapshot.labels
     expected = f"{_REVIEW_APPROVED_LABEL_PREFIX}{head_sha[:_SHA_LABEL_LEN]}"
     if expected not in labels:
         raise GateError(

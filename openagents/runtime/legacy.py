@@ -21,7 +21,9 @@ def findings(*, state: Any, inspect_forge: bool = True) -> list[str]:
     if callable(list_runs):
         for run in list_runs():
             if run.get("status") == LEGACY_RUN_STATUS:
-                found.append(f"runtime issue #{run.get('issue_number', '?')}: legacy terminal status")
+                found.append(
+                    f"runtime issue #{run.get('issue_number', '?')}: legacy terminal status"
+                )
     if inspect_forge:
         for issue in forge.list_issues(labels=[LEGACY_LABEL]):
             found.append(f"forge issue #{issue.number}: legacy terminal label")
@@ -39,8 +41,7 @@ def assert_migrated(*, state: Any, inspect_forge: bool = True) -> None:
     detail = "; ".join(found)
     command = f"scripts/migrate-{LEGACY_LABEL}-state.py"
     raise LegacyStateError(
-        f"检测到 Spec-0081 之前的终态：{detail}。"
-        f"请先运行 {command}（先 dry-run，再 --apply）。"
+        f"检测到 Spec-0081 之前的终态：{detail}。请先运行 {command}（先 dry-run，再 --apply）。"
     )
 
 

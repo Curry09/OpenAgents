@@ -316,6 +316,42 @@ def test_kill_tree_kills_nothing_when_the_handle_says_the_process_was_already_re
     assert signalled == [], "已 reap 的 PID 可能已被别人复用——按 PID 杀 = 杀无辜者（双跑之源）"
 
 
+def test_kill_tree_closes_captured_group_after_leader_was_reaped():
+    """A captured session group remains killable after its leader is already reaped."""
+    leader = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import subprocess; c=subprocess.Popen(['sleep', '30']); print(c.pid, flush=True)",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert leader.stdout is not None
+    child_pid = int(leader.stdout.readline().strip())
+    pgid = os.getpgid(leader.pid)
+    leader.wait(timeout=_DEADLINE)
+    proc.remember_process_group(handle=leader, pgid=pgid)
+
+    sibling = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        assert leader.poll() is not None
+        assert _running(pid=child_pid)
+        proc.kill_tree(pid=leader.pid, handle=leader)
+        assert _wait_dead(pid=child_pid), (
+            "captured process group child survived leader-reaped cleanup"
+        )
+        assert sibling.poll() is None, "cleanup crossed into an unrelated process group"
+    finally:
+        for pid in (child_pid, sibling.pid):
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        sibling.wait(timeout=_DEADLINE)
+
+
 def test_kill_tree_still_kills_a_live_process_when_the_handle_says_it_is_running():
     """Spec-0065/T2：句柄守卫不许**过度**收紧——`poll()` 为 None（进程还活着）时照杀不误。
 

@@ -43,6 +43,12 @@ PROMPT = Template(
 - mode=iterate（据 CI/评论/评审反馈迭代）：针对 $target 的反馈（见下方 detail）继续改代码，改完同 implement
   先对齐最新 `origin/main` 干净合并再交付；只追加 commit、不 force-push 覆盖历史。
 
+【实现验证与交付硬闸（仅 mode=implement/iterate）】先完成一个可运行的最小切片，立即
+`git add -A && git commit && git push`，再做补充验证；不得把首次提交推迟到全套测试之后。验证命令必须前台运行并
+带有限预算（定向测试例如 `timeout --kill-after=15s 300s ...`，全套测试最多一次且使用 `timeout --kill-after=15s 3600s ...`），先跑相关测试。全套测试未完成不得宣称全绿。禁止使用
+`setsid`、`nohup`、`disown`、`screen`、`tmux`、shell 后台 `&` 或任何脱离 sandbox 进程组的写法。每次 rebase 后若 `spec validate` 发现重复编号或 ownership 冲突，先运行 `spec reserve-number --issue <N> --slug <slug>` 在共享远端预留新编号，再改文件名、frontmatter、代码引用并重生成索引；禁止手算本地最大号。验证超时/失败时
+停止重复测试，保留已有提交并在 JSON 中诚实报告验证状态；不能因为验证失败而不交付已完成的实现。
+
 【docstring 规范（PEP 257 / PEP 8 / Google §3.8）——mode=implement/iterate/backfill 写 Python 源码时下笔即合规】
 - 模块 docstring：首行一句干净的英文人话摘要（给 help() 用、句号结尾）→ 空行 → 用法示例 → `Exports:` 逐个列出导出的类/异常/函数各带一行摘要；`__init__.py` 另列导出的子模块/子包。**spec-id 上移为文件顶部的 `#` 注释行**（像 CPython argparse.py 把 `# Author:` 放 docstring 之上），**禁止 `\"\"\"# Spec-…` 写法**（`#` 在三引号里是字面文本，会原样进 `__doc__` 污染 `help()`）。
 - 函数/类 docstring：首行用**祈使句**（"Do this / Return that"）、压成**一行短句**（≤80 字符、句号结尾）；OpenAgents 溯源 spec 引用（`Spec-NNNN/Tn`）作**第二行**留在 docstring 内；参数/返回/异常用 `Args:` / `Returns:` / `Raises:` 结构化。

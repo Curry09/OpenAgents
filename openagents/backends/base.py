@@ -6,9 +6,27 @@
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+# Spec-0046: preserve the deployed name; Vigil and Claude share this invocation budget.
+MAX_WALL_ENV = "OPENAGENTS_CLAUDE_MAX_WALL"
+_DEFAULT_MAX_WALL = 3600.0
+
+
+def effective_max_wall() -> float:
+    """Spec-0046/T1: shared invocation budget; finite nonpositive values disable it."""
+    raw = os.environ.get(MAX_WALL_ENV, "").strip()
+    try:
+        value = float(raw) if raw else _DEFAULT_MAX_WALL
+    except ValueError:
+        return _DEFAULT_MAX_WALL
+    if not math.isfinite(value):
+        return _DEFAULT_MAX_WALL
+    return max(value, 0.0)
 
 
 @dataclass(frozen=True)

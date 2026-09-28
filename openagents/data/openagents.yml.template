@@ -18,6 +18,11 @@ version: 1
 # minimal 是显式实验 profile；省略此键时存量行为完全不变。
 # flow: minimal
 
+# Vigil 准入协调 (Spec-0091)：dependencies(默认，Curator 排硬依赖) /
+# soft(90 秒内生成非阻塞建议，软排序；原始 issue/验收保持权威) /
+# off(不调用协调模型、不自动落边；既有 forge 依赖照常生效)。
+# coordination: soft
+
 # 托管平台(forge)选择(Spec-0074)：github(gh CLI，默认) / gitea(REST，token 从环境变量读)。
 # 缺省整段可省 = github，存量用户零感知。gitea 时必须带同级 gitea 连接段：
 # forge: gitea

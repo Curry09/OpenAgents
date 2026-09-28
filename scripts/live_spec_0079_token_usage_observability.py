@@ -14,9 +14,7 @@ from openagents.runtime import engine, token_usage
 
 
 class _CanaryAgent:
-    PROMPT = Template(
-        'Return exactly this JSON object: {"verdict":"PASS","reason":"token-canary"}'
-    )
+    PROMPT = Template('Return exactly this JSON object: {"verdict":"PASS","reason":"token-canary"}')
     OUTPUT_SCHEMA = {"verdict": str, "reason": str}
 
 

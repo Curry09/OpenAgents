@@ -11,8 +11,10 @@ def test_run_round_trip_preserves_design_digest(tmp_path) -> None:
         branch="openagents/issue-7",
         pr_number=9,
         design_digest="abc123",
+        design_raw_digest="raw-original",
     )
     assert state.get_run(issue_number=7)["design_digest"] == "abc123"
+    assert state.get_run(issue_number=7)["design_raw_digest"] == "raw-original"
 
     state.set_run(
         issue_number=7,
@@ -21,6 +23,17 @@ def test_run_round_trip_preserves_design_digest(tmp_path) -> None:
         pr_number=9,
     )
     assert state.get_run(issue_number=7)["design_digest"] == "abc123"
+    assert state.get_run(issue_number=7)["design_raw_digest"] == "raw-original"
+
+    # Spec-0088/T1: new approval without raw audit must not inherit an unrelated old hash.
+    state.set_run(
+        issue_number=7,
+        status="pr-open",
+        branch="openagents/issue-7",
+        pr_number=9,
+        design_digest="new-approval",
+    )
+    assert "design_raw_digest" not in state.get_run(issue_number=7)
 
 
 def test_run_round_trip_normalizes_and_preserves_evidence_pack(tmp_path) -> None:

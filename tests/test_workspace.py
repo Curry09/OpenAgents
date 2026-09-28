@@ -4,6 +4,7 @@ git 子进程全部 monkeypatch（记录命令、可按子命令注入返回码 
 不真实操作 git。覆盖：prepare（fetch + 幂等清理 + worktree add）、ensure（复用/重建）、
 assert_delivered（head 前移硬闸：fetch + rev-parse origin/<branch> 与 HEAD 对比）、
 remote_branch_exists、git 失败抛错。（Spec-0056/T4：commit_and_push 随交付下放 agent 删除。）
+Spec-0056 补充：2026-09-09-delivery-review-snapshot-tests-design.md 记录版本一致性回归。
 """
 
 import subprocess
@@ -73,8 +74,7 @@ def test_prepare_resumes_existing_remote_issue_branch(tmp_path, monkeypatch):
     joined = _joined(recorder)
     assert any("fetch origin openagents/issue-3" in command for command in joined)
     assert any(
-        "worktree add -b openagents/issue-3" in command
-        and "origin/openagents/issue-3" in command
+        "worktree add -b openagents/issue-3" in command and "origin/openagents/issue-3" in command
         for command in joined
     )
 
@@ -112,6 +112,40 @@ def test_ensure_rebuilds_when_missing(tmp_path, monkeypatch):
     joined = _joined(recorder)
     assert any("fetch origin openagents/issue-3" in c for c in joined)
     assert any("worktree add" in c and "openagents/issue-3" in c for c in joined)
+
+
+def test_prepare_conflict_uses_detached_branch_specific_worktree(tmp_path, monkeypatch):
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+
+    path = ws.prepare_conflict(branch="feature/pr-12", base="main")
+
+    assert path.parent == tmp_path / ".openagents" / "conflict-worktrees"
+    joined = _joined(recorder)
+    assert any("fetch origin main feature/pr-12" in command for command in joined)
+    assert any(
+        "worktree add --detach" in command and "origin/feature/pr-12" in command
+        for command in joined
+    )
+
+
+def test_prepare_conflict_preserves_an_interrupted_operation(tmp_path, monkeypatch):
+    recorder = _GitRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+    path = ws.prepare_conflict(branch="feature/pr-12", base="main")
+    path.mkdir(parents=True)
+    recorder.commands.clear()
+    monkeypatch.setattr(ws, "_operation_in_progress", lambda *, worktree: True)
+
+    resumed = ws.prepare_conflict(branch="feature/pr-12", base="main")
+
+    assert resumed == path
+    joined = _joined(recorder)
+    assert any("fetch origin main feature/pr-12" in command for command in joined)
+    assert not any("worktree remove" in command for command in joined)
+    assert not any("worktree add" in command for command in joined)
 
 
 def test_remote_branch_exists_true_when_stdout(tmp_path, monkeypatch):
@@ -232,6 +266,18 @@ def test_changed_spec_group_picks_group_over_overview(tmp_path, monkeypatch):
     )
 
 
+def test_changed_spec_groups_returns_all_changed_groups(tmp_path, monkeypatch):
+    recorder = _GitRecorder(
+        stdout="docs/specs/0004-foreign.md\ndocs/specs/0006-candidate.md\ndocs/specs/OVERVIEW.md\n"
+    )
+    monkeypatch.setattr(subprocess, "run", recorder)
+
+    assert Workspace(work_dir=tmp_path).changed_spec_groups(worktree=tmp_path, base="main") == [
+        tmp_path / "docs/specs/0004-foreign.md",
+        tmp_path / "docs/specs/0006-candidate.md",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0056/T1: assert_delivered（head 前移硬闸）+ 决策 7 修订
 # --------------------------------------------------------------------------- #
@@ -243,15 +289,18 @@ class _RevParseRecorder:
     remote_fail=True 时让 `rev-parse origin/<branch>` 返回非零（模拟远端无分支）。
     """
 
-    def __init__(self, *, remote_sha, head_sha, remote_fail=False):
+    def __init__(self, *, remote_sha, head_sha, remote_fail=False, status=""):
         self.commands = []
         self._remote_sha = remote_sha
         self._head_sha = head_sha
         self._remote_fail = remote_fail
+        self.status = status  # Spec-0056 补充：HEAD 相同也可能有未交付的源码。
 
     def __call__(self, args, **kwargs):
         self.commands.append(list(args))
         sub = args[3] if len(args) > 3 else ""
+        if sub == "status":
+            return SimpleNamespace(returncode=0, stdout=self.status, stderr="")
         if sub == "rev-parse":
             target = args[4]
             if target == "HEAD":
@@ -304,6 +353,50 @@ def test_assert_delivered_raises_when_remote_branch_missing(tmp_path, monkeypatc
         ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
 
 
+@pytest.mark.parametrize(
+    "status",
+    [" M entry.py\n", "M  entry.py\n", "?? tests/test_new.py\n", " D entry.py\n", "UU entry.py\n"],
+    ids=["unstaged", "staged", "new-source", "deleted-source", "unmerged"],
+)
+def test_delivery_snapshot_rejects_source_outside_the_pushed_commit(tmp_path, monkeypatch, status):
+    """Spec-0056 补充：拒绝的是漏交付，不是替开发者清理、提交或推送。"""
+    recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40, status=status)
+    monkeypatch.setattr(subprocess, "run", recorder)
+    ws = Workspace(work_dir=tmp_path)
+    rejected = False
+    try:
+        ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
+    except WorkspaceError:
+        rejected = True
+
+    assert all(
+        command[3] in {"fetch", "rev-parse", "status", "diff"} for command in recorder.commands
+    )
+    assert rejected, "HEAD 与远端相等，不代表工作区里的实现已提交交付"
+
+    # 不得锁死：开发角色正常提交、推送后，同一工作区必须可以通过。
+    recorder.status = ""
+    recorder._head_sha = recorder._remote_sha = "b" * 40
+    ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
+
+
+def test_delivery_snapshot_ensure_preserves_uncommitted_implementation(tmp_path, monkeypatch):
+    """RFC-0005 补充：恢复非干净工作区不能复用 prepare 的强制重建语义。"""
+    recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40, status=" M entry.py\n")
+    monkeypatch.setattr(subprocess, "run", recorder)
+    worktree = tmp_path / ".openagents" / "worktrees" / "issue-140"
+    worktree.mkdir(parents=True)
+    source = worktree / "entry.py"
+    source.write_text("implementation surviving a timeout\n")
+
+    assert (
+        Workspace(work_dir=tmp_path).ensure(issue_number=140, branch="openagents/issue-140")
+        == worktree
+    )
+    assert source.read_text() == "implementation surviving a timeout\n"
+    assert recorder.commands == [], "续写现有工作区不需要重建、reset 或 clean"
+
+
 def test_decision_7_docstring_allows_force_with_lease_on_own_branch():
     # 决策 7 修订：绝不*裸* force、允许 --force-with-lease 仅限本 issue 分支。
     doc = ws_module.__doc__ or ""
@@ -339,7 +432,9 @@ class _LockProbeRecorder:
         if got:
             ws_module._GIT_MUTATION_LOCK.release()
         self.observations.append((sub, held_by_caller))
-        return SimpleNamespace(returncode=0, stdout=self._stdout, stderr="")
+        return SimpleNamespace(
+            returncode=0, stdout="" if sub == "status" else self._stdout, stderr=""
+        )
 
 
 def test_prepare_git_mutations_run_under_lock(tmp_path, monkeypatch):

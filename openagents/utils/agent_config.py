@@ -185,6 +185,7 @@ AGENT_CONFIG_SCHEMA: dict = {
     "properties": {
         "version": {"type": "integer"},
         "flow": {"enum": [FLOW_STANDARD, FLOW_MINIMAL, FLOW_GENERATE_ONLY, FLOW_V02]},
+        "coordination": {"enum": ["dependencies", "soft", "off"]},
         # Spec-0074/T1: 托管平台选择（缺省 github，存量零感知）；gitea 时须带同级 gitea 连接段。
         "forge": {"enum": [FORGE_GITHUB, FORGE_GITEA]},
         "gitea": _GITEA_SCHEMA,
@@ -257,6 +258,7 @@ class RepoPlan:
     labels: list[str]
     stages: StagePolicy
     flow: str = FLOW_STANDARD
+    coordination: str = "dependencies"
 
 
 @dataclass(frozen=True)
@@ -276,6 +278,7 @@ class AgentConfig:
     forge: str = FORGE_GITHUB
     gitea: dict | None = None
     flow: str = FLOW_STANDARD
+    coordination: str = "dependencies"
 
 
 def default_config() -> AgentConfig:
@@ -495,6 +498,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
             base=base,
             labels=labels,
             flow=data.get("flow", FLOW_STANDARD),
+            coordination=data.get("coordination", "dependencies"),
         )
         for repo in raw_repos
     ]
@@ -511,6 +515,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
         forge=data.get("forge", FORGE_GITHUB),
         gitea=data.get("gitea"),
         flow=data.get("flow", FLOW_STANDARD),
+        coordination=data.get("coordination", "dependencies"),
     )
 
 
@@ -529,6 +534,7 @@ def _build_repo(
     base: str,
     labels: list[str],
     flow: str,
+    coordination: str,
 ) -> RepoPlan:
     """把单个 repo 的 defaults/override 合并成 RepoPlan——path 绝对化、stages 三级合并、其余回落 defaults。"""
     path = _absolutize(raw_path=repo["path"], base_dir=base_dir)
@@ -541,6 +547,7 @@ def _build_repo(
         labels=list(repo.get("labels", labels)),
         stages=stages,
         flow=flow,
+        coordination=coordination,
     )
 
 

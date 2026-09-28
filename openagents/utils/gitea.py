@@ -2,6 +2,8 @@
 
 """Gitea forge driver：实现 vigil 新栈消费的 github.py 公共面，语义映射见 Spec-0074 正文表。
 
+Spec-0089/T1: preserve head_commit_id through native merge and CLI verification retries.
+
 - **数据类与错误类型复用 github.py 定义**（Issue/PR/Comment/CheckStatus/…/GithubError）——公共面
   的事实契约在 github.py，本模块只换传输层与语义映射，消费方（经 forge 分发）零感知。
 - **单收口 `_http`**：全部 REST 调用经它（Authorization 头带 token、30s 超时、5xx/网络异常指数退避
@@ -19,6 +21,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shlex
 import time
 import urllib.error
 import urllib.parse
@@ -113,6 +117,64 @@ def _token() -> str:
     if not token:
         raise GithubError(f"环境变量 {_token_env} 为空——Gitea 鉴权 token 只从环境变量读")
     return token
+
+
+def download_observation_asset(*, number: int, asset_id: int, limit: int) -> bytes:
+    """Fetch a member attachment without cross-origin redirects. Spec-0087/T1."""
+    base, owner, repo = _ensure_configured()
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    def read(path: str, budget: int) -> bytes:
+        request = urllib.request.Request(
+            base + path,
+            headers={"Authorization": f"token {_token()}", "Accept-Encoding": "identity"},
+        )
+        deadline = time.monotonic() + 15
+        chunks, size = [], 0
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=5) as response:
+            while True:
+                chunk = response.read1(min(65536, budget + 1 - size))
+                size += len(chunk)
+                if size > budget or time.monotonic() > deadline:
+                    raise ValueError("observation download exceeds budget")
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        return b"".join(chunks)
+
+    assets = json.loads(read(f"/api/v1/repos/{owner}/{repo}/issues/{number}/assets", 1_000_000))
+    asset = next((a for a in assets if a["id"] == asset_id), None)
+    if asset is None or not re.fullmatch(r"[a-fA-F0-9-]{36}", str(asset.get("uuid", ""))):
+        raise ValueError("observation attachment outside issue")
+    return read("/attachments/" + asset["uuid"], limit)
+
+
+def observation_request_exists(*, number: int, identity: str) -> bool:
+    """Find our stable request across comment pages, including closed issues. Spec-0087/T1."""
+    actor = _request(method="GET", path="user", body=None, query=None, allow=()).data["login"]
+    for page in range(1, 21):
+        rows = (
+            _request(
+                method="GET",
+                path=_repo_path(suffix=f"issues/{number}/comments"),
+                body=None,
+                query={"page": page, "limit": 50},
+                allow=(),
+            ).data
+            or []
+        )
+        if any(
+            identity in str(row.get("body", "")).splitlines()
+            and (row.get("user") or {}).get("login") == actor
+            for row in rows
+        ):
+            return True
+        if len(rows) < 50:
+            return False
+    raise ValueError("observation request identity scan exhausted; refusing ambiguous duplicate")
 
 
 def _http(*, method: str, path: str, body: dict | None, query: dict | None) -> _HttpResult:
@@ -727,12 +789,16 @@ def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
     return 200 <= result.status < 300
 
 
-def merge_pr(*, pr_number: int, method: str = "merge") -> None:
+def merge_pr(*, pr_number: int, method: str = "merge", head_sha: str = "") -> None:
     """落合并（POST merge，Do=method）；已合并/暂不可合（405/409）时若确已 MERGED → 幂等 no-op。"""
+    body = {"Do": method}
+    # Spec-0017 recovery: Gitea rejects a changed head atomically with HTTP 409.
+    if head_sha:
+        body["head_commit_id"] = head_sha
     result = _request(
         method="POST",
         path=_repo_path(suffix=f"pulls/{pr_number}/merge"),
-        body={"Do": method},
+        body=body,
         query=None,
         allow=(405, 409),
     )
@@ -866,11 +932,12 @@ def create_repo(*, name: str, private: bool) -> str:
     return url
 
 
-def merge_command_text(*, pr_number: int) -> str:
+def merge_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """merger agent 的落合并命令——平台无关的隐藏 CLI（token 处理留在 driver 内，不进提示词）。"""
-    return f"openagents merge-pr --pr {pr_number}"
+    suffix = f" --head-sha {shlex.quote(head_sha)}" if head_sha else ""
+    return f"openagents merge-pr --pr {pr_number}{suffix}"
 
 
-def merge_verify_command_text(*, pr_number: int) -> str:
+def merge_verify_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """merger agent 的完成判据命令——merge-pr 幂等（已合并直接输出 MERGED），复跑即验证。"""
-    return f"openagents merge-pr --pr {pr_number}"
+    return merge_command_text(pr_number=pr_number, head_sha=head_sha)

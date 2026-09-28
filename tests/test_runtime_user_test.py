@@ -58,10 +58,19 @@ for line in __import__('sys').stdin:
     assert result.exit_code == 0
     assert result.workspace_changed is True
     assert result.tool_events == ("write_file",)
-    assert Path(result.transcript_path).read_text(encoding="utf-8").strip() == '{"message": "hello"}'
-    assert "observed.txt" not in subprocess.run(
-        ["git", "status", "--porcelain"], cwd=candidate, capture_output=True, text=True, check=True
-    ).stdout
+    assert (
+        Path(result.transcript_path).read_text(encoding="utf-8").strip() == '{"message": "hello"}'
+    )
+    assert (
+        "observed.txt"
+        not in subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=candidate,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
     assert json.loads(Path(result.status_path).read_text(encoding="utf-8"))["status"] == "completed"
 
 
@@ -101,9 +110,7 @@ def test_user_test_nonzero_exit_is_crashed(tmp_path):
     assert result.exit_code == 3
 
 
-def test_user_test_environment_always_points_sandbox_root_at_disposable_copy(
-    monkeypatch, tmp_path
-):
+def test_user_test_environment_always_points_sandbox_root_at_disposable_copy(monkeypatch, tmp_path):
     monkeypatch.setenv("SANDBOX_WORK_DIR", "/tmp/unrelated-worktree")
 
     env = _harness_environment(root=tmp_path / "artifact", repo=tmp_path / "artifact" / "repo")
