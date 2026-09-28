@@ -75,6 +75,7 @@ class RuntimeState:
         pr_number: int | None,
         closed_at: str = "",
         design_digest: str = "",
+        design_raw_digest: str = "",
         evidence_pack: list | None = None,
     ) -> None:
         """写/覆盖某 issue 的 run 记录（status/branch/pr_number）。
@@ -92,6 +93,13 @@ class RuntimeState:
                 record["design_digest"] = design_digest
             elif previous.get("design_digest"):
                 record["design_digest"] = previous["design_digest"]
+            # Spec-0088/T1: keep raw audit identity through later delivery status updates.
+            if design_raw_digest:
+                record["design_raw_digest"] = design_raw_digest
+            elif design_digest in {"", previous.get("design_digest")} and previous.get(
+                "design_raw_digest"
+            ):
+                record["design_raw_digest"] = previous["design_raw_digest"]
             if evidence_pack is not None:
                 record["evidence_pack"] = research.normalize(evidence_pack)
             elif previous.get("evidence_pack"):

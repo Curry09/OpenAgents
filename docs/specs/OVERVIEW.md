@@ -138,10 +138,10 @@ poll 发现本地 closed 的 run 对应 PR 在 GitHub 又变回 OPEN（reopen）
 ### 0045 Spec-0037 后清理旧 rebase/indexheal 口径
 扫掉 rebase.py/indexheal.py/sync-prs 删除后残留在 openagents/tests 注释里的 rebase_open_prs、rebase.CONFLICT_COMMENT、indexheal→conflict→人工 等活文档口径，让注释与拉式同步现状对齐
 
-### 0046 claude -p 流式调用 idle 看门狗：无进展停顿超时防 agent 僵死冻死 vigil
-给 ClaudeCodeBackend._run_claude_streaming 的阻塞式 stream-json 逐行读加一道 idle（停顿）看门狗：连续 N 秒无新输出行判定 claude 僵死 → terminate→kill 子进程 + 抛既有 RuntimeError，交既有 per-issue/per-round try/except 隔离（跳过、下轮重试）。判据是有没有进展（新输出）不是总时长——健康长任务持续吐 stream-json 事件不受影响，逐字节零回归。阈值走 OPENAGENTS_CLAUDE_IDLE_TIMEOUT 环境旋钮（宽默认不误杀长任务），再设一个远大于 idle 的绝对墙钟上限做最后兜底。与 vigil 既有硬超时（_AGENT_TIMEOUT_SECONDS，会误杀健康长任务）互补：本 spec 管 agent 流的停顿，#147 管 git 网络的硬超时，二者合起来才让「vigil 再也不会无输出地永久卡死」成立。
-- e2e 意图：证明 _run_claude_streaming 的 idle 看门狗在「真长时间静默」时确定性触发（terminate→kill 子进程 + 抛既有 RuntimeError），而在「健康持续吐 stream-json 事件」时逐字节零回归、绝不误杀；绝对墙钟上限兜住「每 tick 吐一行垃圾但永不结束」的病态流。
-  - 测法：形态：纯内部后端进程管理改动，无 product-facing 前端可导航、无对外可见产物；自检工具列表无浏览器 MCP， 故不设浏览器 e2e，改用相称的 hermetic 自动化测试（不调真实 claude）： 1. 假 Popen 覆盖看门狗三分支——stdout 为可控节奏行序列生成器，「长时间静默」用 threading.Event 阻塞    模拟读挂住，terminate()/kill() 置该 Event 解除阻塞→迭代结束（复刻「杀进程→管道关→for 退出」）；    测试把 OPENAGENTS_CLAUDE_IDLE_TIMEOUT 设极小值（如 0.1s）使触发确定性、亚秒级，不真等。    ① idle 触发：静默流 → terminate 后 kill 被调 + 抛 RuntimeError 含「停顿超时」；    ② 墙钟触发：每 tick 吐一行但总时长超 OPENAGENTS_CLAUDE_MAX_WALL → 抛 RuntimeError 含「墙钟超时」；    ③ 零回归：连续正常流 → 看门狗从不介入读、从不杀，输出/摘要/returncode 与改动前逐字节一致；    ④ 访问器：effective_idle_timeout/effective_max_wall 解析 env、非法/空白/<=0 落缺省或关闭。 2. 离线 e2e 脚本 scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh：ruff check + ruff format    --check + 针对性 pytest tests/test_backend_claude_code.py，被 PR e2e signpost 采集。 
+### 0046 Claude 静默超时与共享调用时间预算
+Claude 按连续无输出期限停止调用；Vigil 与 Claude 共用既有总时长配置，分别记录长时间无输出和预算耗尽，保留现有终止与有界重试流程。
+- e2e 意图：验证静默终止、活跃流预算耗尽、Vigil 与后端预算一致、关闭预算以及进程归属和重排队兼容性。
+  - 测法：bash scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh 使用假 Popen、真实线程和受控事件，不调用真实模型或远端仓库；验证默认、覆写、非法值与关闭配置， 以及总时长到点和长时间无输出分别留下真实原因。持续输出不续时，未完成不算交付成功。
 
 ### 0047 评审裁决按「实质内容」去重（同结论·理由不同照发）
 把 _post_review_decision 的去重从「同结论=重复」改成「同结论且同反馈才算重复」——多轮 REWORK 理由各异时中间轮裁决评论不再被吞、人盯 PR 能看清每轮卡点演变，同时保留 PR #61「33 条相同 PASS」的防刷屏去重。
@@ -285,6 +285,21 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 
 ### 0086 User Test 主导的可审计验收
 用真实用户交互替代组件自证作为 v0.2 Acceptance 的主证据，并在隔离副本中保存完整结果。
+
+### 0087 制品观测证据交接与开发补强回路
+按 issue 获取版本匹配的受限诊断证据包；开发分别维护用户反馈与诊断观测影响并独立验收，仅维护者诊断缺口经认证运行器回传补强。
+
+### 0088 并行交付审批身份与失败收敛
+Spec 自引用重编号不撤销语义审批；合理设计变化回到已有评审（待实现），失败缺证据不自动复活。
+
+### 0089 中断交付恢复与评审版本一致性
+中断后续交付，评审与合并绑定同一已推送候选；合法换版重新评审，不误耗执行失败预算。
+
+### 0090 守夜流程终态与可修复故障收口
+合并后复核终态并将可修复故障回流到正确阶段，避免误挂和整轮终止
+
+### 0091 Lightweight advisory coordination
+Add bounded, advisory preflight planning and soft queue coordination without turning planning into a delivery barrier.
 
 ## 全局看板
 
@@ -464,8 +479,8 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0045 | 0045/T3 | 邻接 runtime 注释扫尾（github/messages/orchestrator） | done | — | openagents/github.py<br>openagents/messages.py<br>openagents/orchestrator.py |
 | 0045 | 0045/T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | done | — | tests/test_messages_resolve.py<br>tests/test_messages.py<br>tests/test_conflict_guidance.py |
 | 0045 | 0045/T5 | 端到端成果测试脚本（组级死口径 grep 归零收口） | done | T1, T2, T3, T4 | scripts/e2e-spec-0045-cleanup-stale-idioms.sh |
-| 0046 | 0046/T1 | backend 加 idle 看门狗 + env 旋钮 | done | — | openagents/backends/claude_code.py |
-| 0046 | 0046/T2 | hermetic 测试 + 离线 e2e 脚本 | done | T1 | tests/test_backend_claude_code.py<br>scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh |
+| 0046 | 0046/T1 | backend 看门狗与 Vigil 共用时间预算 | done | — | openagents/backends/base.py<br>openagents/backends/claude_code.py<br>openagents/recipes/vigil.py |
+| 0046 | 0046/T2 | hermetic 回归与离线验证入口 | done | T1 | tests/test_backend_claude_code.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil.py<br>scripts/e2e-spec-0046-claude-streaming-idle-watchdog.sh |
 | 0047 | 0047/T1 | reviewer.extract_decision_content：裁决内容纯解析器 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
 | 0047 | 0047/T2 | orchestrator._decision_already_posted：按结论+反馈内容去重 | done | T1 | openagents/orchestrator.py<br>tests/test_orchestrator.py |
 | 0048 | 0048/T1 | reviewer rubric 三处硬化（防 design-as-implementation）+ 单测 | done | — | openagents/reviewer.py<br>tests/test_reviewer.py |
@@ -602,6 +617,13 @@ Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和
 | 0086 | 0086/T1 | 实现隔离 User Test runner 与 artifact 账本 | done | — | openagents/runtime/user_test.py<br>tests/test_runtime_user_test.py |
 | 0086 | 0086/T2 | 把 User Test 接入 v0.2 Acceptance 门禁 | done | T1 | openagents/agents/acceptance.py<br>openagents/recipes/stages.py<br>openagents/runtime/evidence.py<br>openagents/v02/openagents_adapter.py<br>openagents/v02/model.py |
 | 0086 | 0086/T3 | 提供 CLI 配置入口与可追溯说明 | done | T1, T2 | openagents/cli.py<br>docs/specs/0086-user-test-acceptance.md |
+| 0087 | 0087/T1 | 受限附件读取、角色职责和补强回传 | done | — | openagents/observations/evidence.py<br>openagents/observations/gaps.py<br>openagents/runtime/engine.py<br>openagents/utils/gitea.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/v02/openagents_adapter.py<br>openagents/runtime/context.py<br>tests/test_observation_evidence.py |
+| 0088 | 0088/T1 | 版本化设计摘要和审批审计 | pending | — | openagents/spec/model.py<br>openagents/runtime/gates.py<br>openagents/recipes/stages.py<br>openagents/runtime/state.py<br>tests/test_spec_model.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_runtime_state.py |
+| 0088 | 0088/T2 | 失败标记读写一致与缺证据保守收敛 | done | T1 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0088.sh |
+| 0089 | 0089/T1 | 恢复交付并验证同一候选直至合并 | done | — | openagents/agents/deliver.py<br>openagents/agents/executor.py<br>openagents/agents/merger.py<br>openagents/agents/reviewer.py<br>openagents/agents/tester.py<br>openagents/cli.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/utils/gitea.py<br>openagents/utils/github.py<br>openagents/utils/workspace.py<br>tests/test_forge.py<br>tests/test_gitea_driver.py<br>tests/test_github.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_timing.py<br>tests/test_runtime_gates.py<br>tests/test_workspace.py<br>tests/test_delivery_recovery_git.py<br>tests/test_delivery_recovery_stress.py<br>scripts/e2e-delivery-review-recovery.sh<br>scripts/stress_delivery_recovery.py<br>docs/specs/2026-09-09-delivery-review-recovery-design.md<br>docs/specs/2026-09-09-delivery-review-snapshot-tests-design.md<br>docs/specs/2026-09-09-delivery-recovery-stress-design.md |
+| 0089 | 0089/T2 | 清理 Claude 进程组并闭合恢复后的退出边界 | in-progress | T1 | openagents/backends/claude_code.py<br>tests/test_backend_claude_code.py<br>docs/specs/0089-delivery-review-recovery.md |
+| 0090 | 0090/T1 | 终态复核与可修复故障回流 | done | — | openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>scripts/e2e-spec-0090.sh<br>docs/specs/0090-convergence-safety.md |
+| 0091 | 0091/T1 | Bounded advisory preflight and soft scheduling | done | — | openagents/agents/coordinator.py<br>openagents/backends/claude_code.py<br>openagents/backends/nexau.py<br>openagents/data/openagents.yml.template<br>openagents/recipes/vigil.py<br>openagents/runtime/engine.py<br>openagents/runtime/preflight.py<br>openagents/utils/agent_config.py<br>tests/test_backend_claude_code.py<br>tests/test_backend_nexau.py<br>tests/test_preflight.py<br>tests/test_recipe_vigil_act.py<br>tools/preflight_stress.py<br>docs/e2e-results/preflight-20260911/REPORT.md<br>docs/specs/0091-lightweight-preflight.md |
 
 ## 跨 feature 关系图
 
@@ -866,8 +888,8 @@ graph LR
         n0045_T5["T5 端到端成果测试脚本（组级死口径 grep 归零收口）"]
     end
     subgraph G0046[0046 claude-streaming-idle-watchdog]
-        n0046_T1["T1 backend 加 idle 看门狗 + env 旋钮"]
-        n0046_T2["T2 hermetic 测试 + 离线 e2e 脚本"]
+        n0046_T1["T1 backend 看门狗与 Vigil 共用时间预算"]
+        n0046_T2["T2 hermetic 回归与离线验证入口"]
     end
     subgraph G0047[0047 review-dedup-by-content]
         n0047_T1["T1 reviewer.extract_decision_content：裁决内容纯解析器"]
@@ -1082,6 +1104,23 @@ graph LR
         n0086_T1["T1 实现隔离 User Test runner 与 artifact 账本"]
         n0086_T2["T2 把 User Test 接入 v0.2 Acceptance 门禁"]
         n0086_T3["T3 提供 CLI 配置入口与可追溯说明"]
+    end
+    subgraph G0087[0087 artifact-observation-delivery]
+        n0087_T1["T1 受限附件读取、角色职责和补强回传"]
+    end
+    subgraph G0088[0088 delivery-failure-convergence]
+        n0088_T1["T1 版本化设计摘要和审批审计"]
+        n0088_T2["T2 失败标记读写一致与缺证据保守收敛"]
+    end
+    subgraph G0089[0089 delivery-review-recovery]
+        n0089_T1["T1 恢复交付并验证同一候选直至合并"]
+        n0089_T2["T2 清理 Claude 进程组并闭合恢复后的退出边界"]
+    end
+    subgraph G0090[0090 convergence-safety]
+        n0090_T1["T1 终态复核与可修复故障回流"]
+    end
+    subgraph G0091[0091 lightweight-preflight]
+        n0091_T1["T1 Bounded advisory preflight and soft scheduling"]
     end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
@@ -1345,6 +1384,8 @@ graph LR
     n0086_T2 --> n0086_T1
     n0086_T3 --> n0086_T1
     n0086_T3 --> n0086_T2
+    n0088_T2 --> n0088_T1
+    n0089_T2 --> n0089_T1
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1369,26 +1410,28 @@ graph LR
 | openagents/agents/admitter.py | 0065, 0081 |
 | openagents/agents/architect.py | 0076, 0081 |
 | openagents/agents/curator.py | 0065, 0081 |
-| openagents/agents/deliver.py | 0017, 0060, 0081 |
+| openagents/agents/deliver.py | 0017, 0060, 0081, 0089 |
 | openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081 |
+| openagents/agents/executor.py | 0082, 0089 |
 | openagents/agents/implementer.py | 0059, 0060, 0077, 0081, 0082 |
-| openagents/agents/merger.py | 0017, 0074, 0075, 0081 |
+| openagents/agents/merger.py | 0017, 0074, 0075, 0081, 0089 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061, 0081 |
-| openagents/agents/reviewer.py | 0060, 0076, 0081 |
+| openagents/agents/reviewer.py | 0060, 0076, 0081, 0089 |
 | openagents/agents/spec_writer.py | 0082, 0083, 0085 |
-| openagents/agents/tester.py | 0060, 0076, 0081 |
+| openagents/agents/tester.py | 0060, 0076, 0081, 0089 |
 | openagents/agents/triager.py | 0061, 0081 |
 | openagents/backends/__init__.py | 0001, 0029 |
-| openagents/backends/base.py | 0001, 0029, 0078, 0079 |
-| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081 |
+| openagents/backends/base.py | 0001, 0029, 0046, 0078, 0079 |
+| openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081, 0089, 0091 |
+| openagents/backends/nexau.py | 0085, 0091 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085, 0086 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085, 0086, 0089 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
-| openagents/data/openagents.yml.template | 0067, 0074, 0081, 0082, 0085 |
+| openagents/data/openagents.yml.template | 0067, 0074, 0081, 0082, 0085, 0091 |
 | openagents/desktop/daemon.py | 0073, 0081 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
@@ -1407,20 +1450,20 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083, 0085, 0086 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083, 0085, 0086, 0087, 0088, 0089 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0046, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082, 0087, 0088, 0089, 0090, 0091 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081 |
-| openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081, 0087 |
+| openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081, 0087, 0091 |
 | openagents/runtime/evidence.py | 0076, 0086 |
-| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076, 0081 |
-| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081 |
+| openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076, 0081, 0088, 0089, 0090 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081, 0088 |
 | openagents/runtime/token_usage.py | 0079, 0081 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
-| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
+| openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076, 0088 |
 | openagents/spec/mutate.py | 0014, 0015, 0076 |
 | openagents/spec/render.py | 0014, 0015, 0040, 0055 |
 | openagents/spec/schema.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
@@ -1428,7 +1471,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081, 0082, 0085 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081, 0082, 0085, 0091 |
 | openagents/utils/align.py | 0062, 0078 |
 | openagents/utils/blocknote.py | 0062, 0081 |
 | openagents/utils/config.py | 0061, 0062 |
@@ -1437,17 +1480,17 @@ graph LR
 | openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/forge.py | 0074, 0081 |
 | openagents/utils/git.py | 0035, 0060, 0061 |
-| openagents/utils/gitea.py | 0074, 0075, 0081 |
-| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074, 0081 |
+| openagents/utils/gitea.py | 0074, 0075, 0081, 0087, 0089 |
+| openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074, 0081, 0089 |
 | openagents/utils/hold.py | 0061, 0062, 0081 |
 | openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064, 0074 |
 | openagents/utils/notes.py | 0061, 0062, 0081 |
 | openagents/utils/release.py | 0035, 0061, 0062, 0063, 0074, 0081 |
 | openagents/utils/results.py | 0061, 0062, 0063 |
 | openagents/utils/skip.py | 0061, 0062, 0081 |
-| openagents/utils/workspace.py | 0035, 0062, 0068, 0081 |
+| openagents/utils/workspace.py | 0035, 0062, 0068, 0081, 0089 |
 | openagents/v02/model.py | 0084, 0086 |
-| openagents/v02/openagents_adapter.py | 0085, 0086 |
+| openagents/v02/openagents_adapter.py | 0085, 0086, 0087 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |
@@ -1464,7 +1507,7 @@ graph LR
 | tests/test_agents_prompts.py | 0060, 0077, 0081, 0082, 0083, 0085 |
 | tests/test_agents_replier_issue.py | 0016, 0081 |
 | tests/test_agents_triager_replier.py | 0061, 0081 |
-| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081 |
+| tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081, 0089, 0091 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029, 0078, 0079 |
 | tests/test_blocknote.py | 0032, 0081 |
@@ -1484,8 +1527,9 @@ graph LR
 | tests/test_evidence_gate.py | 0040, 0051 |
 | tests/test_executor.py | 0040, 0051, 0055, 0056 |
 | tests/test_fleet.py | 0027, 0029 |
-| tests/test_gitea_driver.py | 0074, 0075, 0081 |
-| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055, 0065, 0081 |
+| tests/test_forge.py | 0074, 0089 |
+| tests/test_gitea_driver.py | 0074, 0075, 0081, 0089 |
+| tests/test_github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0055, 0065, 0081, 0089 |
 | tests/test_github_claim_label.py | 0039, 0049 |
 | tests/test_github_remove_label.py | 0032, 0081 |
 | tests/test_hold.py | 0020, 0081 |
@@ -1503,13 +1547,13 @@ graph LR
 | tests/test_promote.py | 0012, 0023 |
 | tests/test_rebase.py | 0009, 0011, 0029 |
 | tests/test_recipe_poll_comments.py | 0061, 0062 |
-| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081, 0082, 0083, 0085 |
-| tests/test_recipe_vigil.py | 0017, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081, 0082 |
-| tests/test_recipe_vigil_act.py | 0017, 0065, 0075, 0076, 0077, 0081, 0082 |
+| tests/test_recipe_stages.py | 0017, 0064, 0076, 0077, 0081, 0082, 0083, 0085, 0088, 0089 |
+| tests/test_recipe_vigil.py | 0017, 0046, 0058, 0061, 0062, 0064, 0065, 0074, 0075, 0081, 0082, 0088, 0089, 0090 |
+| tests/test_recipe_vigil_act.py | 0017, 0046, 0065, 0075, 0076, 0077, 0081, 0082, 0088, 0089, 0090, 0091 |
 | tests/test_recipe_vigil_admit.py | 0065, 0074, 0081 |
 | tests/test_recipe_vigil_discovery.py | 0035, 0074 |
 | tests/test_recipe_vigil_queue.py | 0065, 0075, 0081 |
-| tests/test_recipe_vigil_timing.py | 0066, 0081 |
+| tests/test_recipe_vigil_timing.py | 0066, 0081, 0089 |
 | tests/test_release.py | 0023, 0029, 0035, 0063, 0081 |
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
@@ -1517,12 +1561,12 @@ graph LR
 | tests/test_runtime_context.py | 0060, 0065, 0076, 0081 |
 | tests/test_runtime_context_issue_reply.py | 0016, 0081 |
 | tests/test_runtime_engine.py | 0060, 0075, 0078, 0079, 0081 |
-| tests/test_runtime_gates.py | 0017, 0060, 0076, 0081 |
-| tests/test_runtime_state.py | 0076, 0077 |
+| tests/test_runtime_gates.py | 0017, 0060, 0076, 0081, 0088, 0089, 0090 |
+| tests/test_runtime_state.py | 0076, 0077, 0088 |
 | tests/test_runtime_state_converge.py | 0063, 0081 |
 | tests/test_skip.py | 0054, 0081 |
 | tests/test_spec_cli.py | 0014, 0015, 0024, 0071 |
-| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
+| tests/test_spec_model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076, 0088 |
 | tests/test_spec_mutate.py | 0014, 0015, 0024, 0076 |
 | tests/test_spec_render.py | 0014, 0015, 0040, 0055 |
 | tests/test_spec_signpost.py | 0024, 0055 |
@@ -1534,7 +1578,7 @@ graph LR
 | tests/test_utils_github_vigil.py | 0017, 0065 |
 | tests/test_vigil.py | 0004, 0007, 0010, 0020, 0029, 0062 |
 | tests/test_vigil_claim.py | 0039, 0049 |
-| tests/test_workspace.py | 0005, 0008, 0029, 0035, 0056, 0068 |
+| tests/test_workspace.py | 0005, 0008, 0029, 0035, 0056, 0068, 0089 |
 
 ## 各 feature 详情
 
@@ -2753,12 +2797,12 @@ graph LR
     class v_T5_1 st_done;
 ```
 
-### 0046 claude -p 流式调用 idle 看门狗：无进展停顿超时防 agent 僵死冻死 vigil（issue #148）
+### 0046 Claude 静默超时与共享调用时间预算（issue #148）
 
 ```mermaid
 graph LR
-    nT1["T1 backend 加 idle 看门狗 + env 旋钮"]
-    nT2["T2 hermetic 测试 + 离线 e2e 脚本"]
+    nT1["T1 backend 看门狗与 Vigil 共用时间预算"]
+    nT2["T2 hermetic 回归与离线验证入口"]
     nT1 --> nT2
 ```
 
@@ -3801,4 +3845,94 @@ graph LR
     class v_T1_1 st_done;
     class v_T2_1 st_done;
     class v_T3_1 st_done;
+```
+
+### 0087 制品观测证据交接与开发补强回路（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 受限附件读取、角色职责和补强回传"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+```
+
+### 0088 并行交付审批身份与失败收敛（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 版本化设计摘要和审批审计"]
+    nT2["T2 失败标记读写一致与缺证据保守收敛"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    classDef st_pending fill:#eeeeee;
+    class v_T1_1 st_pending;
+    class v_T2_1 st_done;
+```
+
+### 0089 中断交付恢复与评审版本一致性（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 恢复交付并验证同一候选直至合并"]
+    nT2["T2 清理 Claude 进程组并闭合恢复后的退出边界"]
+    nT1 --> nT2
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    classDef st_done fill:#b7e4c7;
+    classDef st_in_progress fill:#fff3b0;
+    class v_T1_1 st_done;
+    class v_T2_1 st_in_progress;
+```
+
+### 0090 守夜流程终态与可修复故障收口（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 终态复核与可修复故障回流"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+```
+
+### 0091 Lightweight advisory coordination（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 Bounded advisory preflight and soft scheduling"]
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
 ```

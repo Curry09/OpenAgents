@@ -1,5 +1,7 @@
 """RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。
 
+Spec-0089/T1: bind automatic merges to the approved SHA with --match-head-commit.
+
 决策 3：GitHub 操作一律走 `gh` CLI 子进程，而非 REST SDK——零额外依赖，
 鉴权/分页交由 gh 处理，与 scripts/check-rfc-number-conflicts.py 的用法一致。
 决策 11：check_status 读 `gh pr checks` 的 CI 状态，失败时收集失败 check 的
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -484,25 +487,30 @@ def has_label(*, pr_number: int, name: str) -> bool:
     return any((label or {}).get("name") == name for label in labels)
 
 
-def merge_pr(*, pr_number: int, method: str = "merge") -> None:
+def merge_pr(*, pr_number: int, method: str = "merge", head_sha: str = "") -> None:
     """RFC-0012 决策 1：代码闸全票 PASS 后自动合入（`gh pr merge <n> --<method>`）。
 
     method ∈ {"merge", "squash", "rebase"}（默认 merge，见未解决问题 4）；合入其 base（Spec-0023
     后为 main），使 main 成为持续推进的日常分支。失败由 _run_gh 抛 GithubError。
     """
-    _run_gh(["pr", "merge", str(pr_number), f"--{method}"], allow_returncodes=set())
+    args = ["pr", "merge", str(pr_number), f"--{method}"]
+    # Spec-0017 recovery: bind the write itself, not only the earlier approval check.
+    if head_sha:
+        args.extend(["--match-head-commit", head_sha])
+    _run_gh(args, allow_returncodes=set())
 
 
-def merge_command_text(*, pr_number: int) -> str:
+def merge_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """Spec-0074/T1：merger agent 落合并动作的命令文本——GitHub 侧即既有 gh 命令（行为零变化）。
 
     merger 提示词的平台命令参数化为 $merge_command 占位符后，由 stages.merge 经本函数注入；
     Gitea driver 的同名函数返回 `openagents merge-pr --pr N`（token 处理留在 driver 内，不进提示词）。
     """
-    return f"gh pr merge {pr_number} --merge"
+    suffix = f" --match-head-commit {shlex.quote(head_sha)}" if head_sha else ""
+    return f"gh pr merge {pr_number} --merge{suffix}"
 
 
-def merge_verify_command_text(*, pr_number: int) -> str:
+def merge_verify_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """Spec-0074/T1：merger agent 验证合并完成的命令文本——输出含 MERGED 即视为已合并。"""
     return f"gh pr view {pr_number} --json state"
 

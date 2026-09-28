@@ -73,6 +73,7 @@ docs/specs/
 
 ```
 spec new <slug> --issue N --title "…" --summary "…"   # 新建组（含 9 段脚手架）
+spec reserve-number --issue N --slug <slug>         # 现有 PR 改号时先预留新编号
 spec add-task <组> --id T1 … --files … --acceptance …  # 往组的 DAG 加工作分解行
 spec render                              # 重新生成 OVERVIEW.md（幂等）
 spec graph                               # 重新生成 ARCHITECTURE.md（幂等）
@@ -88,8 +89,8 @@ spec abandon <组> <task> --reason "…"    # 从快照移除 Task（历史在 g
 ## 编号规则
 
 - 组文件用四位编号 `NNNN-slug.md`（slug 以字母起；与旧 RFC 编号 1:1 兼容）。
-- 取下一号对本地 + 所有 open PR 取并集避免撞号：
-  `python scripts/check-spec-number-conflicts.py --open-prs --current-pr <n>`。
+- 共享 Git 仓库执行 `spec new` 时先在远端 `spec-reservations/NNNN` 原子预留；远端不可用时停止创建。纯本地目录沿用最大号 + 1。
+- `python scripts/check-spec-number-conflicts.py --open-prs --current-pr <n>` 继续作为 PR 阶段的二次检查。
 - dated 设计文档（`YYYY-MM-DD-*`）不是组，不参与编号。
 
 详见 `.claude/skills/spec-driven-development/`。

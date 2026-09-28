@@ -1,5 +1,7 @@
 """# Spec-0017/T3: agents.merger —— 落合并动作 → 结构化合并报告的提示词（零逻辑）。
 
+Spec-0089/T1: preserve the approved SHA in merge commands and report rejected merges honestly.
+
 合并**不可逆**，故「可不可以合」这条红线由确定性硬闸 `gates.assert_merge_allowed`（CI 全绿 +
 `review-approved:<head sha7>`@head）在派本 agent **之前**把守——本 agent 只在闸放行后被派上来落
 「合并」这一个几乎零判断的机械动作（跑一条平台命令），换来的是架构一致性（生命周期动作全归
@@ -18,6 +20,8 @@ PROMPT = Template(
 「可不可以合」这条不可逆红线已由 harness 放行——你只需落最后一个动作：
 
 `$merge_command`
+
+命令中的候选 SHA 是审批边界，不得删除、替换，或改用不带该条件的合并命令。版本变化就返回未合并，等宿主重新评审。
 
 完成判据：跑 `$verify_command`，输出含 "MERGED" 即已合并。已经是 MERGED 则视作已完成（幂等 no-op）。
 

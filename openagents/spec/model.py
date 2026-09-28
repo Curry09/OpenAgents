@@ -9,6 +9,7 @@ issue #69 rust-RFC 形态（总览先行 + 单 spec 自包含）：
 
 只懂 docs/specs/ 源数据结构的纯模块（理念 10 解耦），不感知 git / GitHub。
 per-task 版本历史机制退役（决策 D3），历史交给 git + dated 设计文档，Group.history 恒为空。
+Spec-0088/T1: 设计审批摘要区分明确的自引用身份与设计语义，保留旧摘要算法。
 """
 
 from __future__ import annotations
@@ -419,8 +420,52 @@ def verification_from_mapping(*, data: object) -> VerificationPlan | None:
 
 
 def design_digest(*, group: Group) -> str:
-    """Return a stable digest of design semantics, excluding delivery status."""
-    payload = {
+    """Return versioned design semantics with explicit self-task references normalized.
+
+    Spec-0088/T1: only prose self references are relocatable, not files or dependencies.
+    """
+    payload = _design_payload(group=group)
+    # 1. Only explicit references to this group's existing tasks have identity semantics.
+    pattern = re.compile(rf"(?<![\w/.-])Spec-{re.escape(group.number)}/(T[0-9]+)(?![\w/-]|\.\w)")
+    task_ids = {task.id for task in group.tasks}
+    for key in ("architecture", "verification", "overview"):
+        payload[key] = _normalize_self_refs(value=payload[key], pattern=pattern, task_ids=task_ids)
+    for task in payload["tasks"]:
+        for key in ("title", "scope", "acceptance"):
+            task[key] = _normalize_self_refs(value=task[key], pattern=pattern, task_ids=task_ids)
+    return "v2:" + _payload_digest(payload=payload)
+
+
+def legacy_design_digest(*, group: Group) -> str:
+    """Retain the exact pre-v2 design hash for audit and old approvals (Spec-0088/T1)."""
+    return _payload_digest(payload=_design_payload(group=group))
+
+
+def _normalize_self_refs(*, value: object, pattern: re.Pattern[str], task_ids: set[str]) -> object:
+    """Encode self references as typed segments, never a text sentinel (Spec-0088/T1)."""
+    if isinstance(value, dict):
+        return {
+            key: _normalize_self_refs(value=item, pattern=pattern, task_ids=task_ids)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _normalize_self_refs(value=item, pattern=pattern, task_ids=task_ids) for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    parts: list[object] = []
+    offset = 0
+    for match in pattern.finditer(value):
+        if match.group(1) in task_ids:
+            parts.extend((value[offset : match.start()], {"self-task": match.group(1)}))
+            offset = match.end()
+    return {"prose": parts + [value[offset:]]} if parts else value
+
+
+def _design_payload(*, group: Group) -> dict:
+    """Build the original status-independent design payload (Spec-0088/T1)."""
+    return {
         "architecture": _plain_architecture(value=group.metadata.architecture),
         "verification": _plain_verification(value=group.metadata.verification),
         "overview": {attr: getattr(group.overview, attr) for _, attr in _OVERVIEW_SECTIONS},
@@ -437,6 +482,10 @@ def design_digest(*, group: Group) -> str:
             for t in group.tasks
         ],
     }
+
+
+def _payload_digest(*, payload: dict) -> str:
+    """Hash a deterministic design representation (Spec-0088/T1)."""
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
 

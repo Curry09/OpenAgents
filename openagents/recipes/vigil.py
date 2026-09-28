@@ -1,9 +1,14 @@
 """Autonomous, level-triggered Vigil orchestration.
 
+Spec-0089/T1: resume interrupted delivery and invalidate changed review candidates without
+consuming the execution failure budget; merge only the published, reviewed candidate.
+Spec-0090/T1: preserve completed merges and time-bound existing design/delivery recovery routes.
+
 Each subject is classified from current forge facts, queued exactly once, and processed under
-a process-liveness lock. Agent/backend/protocol failures are bounded and projected to the signed
-``automation-failed`` machine terminal; a material fact change clears that projection and revives
-the subject. Dynamic agent material is supplied once through the runtime context contract.
+a process-liveness lock. Ordinary agent/backend/protocol failures are bounded and projected to
+the signed ``automation-failed`` machine terminal; conflict recovery is explicitly retryable and
+does not require a human handoff. A material fact change clears any projection and revives the
+subject. Dynamic agent material is supplied once through the runtime context contract.
 """
 
 from __future__ import annotations
@@ -20,15 +25,16 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from openagents.agents import curator, replier, tester
+from openagents.backends.base import effective_max_wall
 from openagents.recipes import stages
-from openagents.runtime import context, engine, evidence, gates, research, timing
-from openagents.runtime.state import RuntimeState
+from openagents.runtime import context, engine, evidence, gates, preflight, research, timing
+from openagents.runtime.state import STATUS_ITERATING, STATUS_PR_OPEN, RuntimeState
 from openagents.utils import agent_config, git, identity, proc, streams
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
@@ -44,16 +50,11 @@ _QUEUE_DB_FILENAME = "vigil-queue.db"
 # 自动释放——这就是「判死」的全部机制（不猜、不设阈值、不用租约）。
 _CLAIMS_DIRNAME = "claims"
 
-# Spec-0065/T2: 单次 `_act`（一次 agent 调用）的硬墙钟上限（秒）。超它 → 杀掉该 agent 的子进程 + 抛出 →
-# 持有者自己走 `_requeue_or_park` 释放行与锁（**claimed 行永不成孤儿**）。flock 只回答「进程在不在」，
-# 回答不了「进程活着但挂死在一个不返回的调用上」——那要靠这道闸。
-_AGENT_TIMEOUT_SECONDS = 1800
-
 # Spec-0065/T2: IN_FLIGHT 告警阈值（秒）：claimed 行的 `claimed_at` 超龄 → `_park`（打 automation-failed + 诊断）。
 # **只告警、绝不回收行**——回收一个活着的持有者的行，定义上就是双跑。
 _INFLIGHT_ALARM_SECONDS = 7200
 
-# Spec-0065/T2: 同一 subject 领取-失败重排上限；超它不再回队、打 automation-failed 收口为机器失败。
+# Spec-0065/T2: 普通 subject 领取-失败重排上限；冲突恢复另由 action + available_at 自动续跑，不在此停车。
 # **这是唯一必须计数的护栏**——agent 崩/被 kill 时它没盖 attempt 戳、也没刷新任何 GitHub 时间戳，
 # 在 GitHub 上零痕迹：fp 判不出、age 也判不出，只能在队列行里数（见模块头「第三种死法」）。
 _MAX_ATTEMPTS = 3
@@ -77,11 +78,22 @@ _MECHANICAL_MERGE_LOCK = threading.Lock()
 # 到点即抛 `database is locked`，而收尾里抛 = 行留 claimed（虽有 `_finish` 兜底，但那条路要多绕一圈回收）。
 _BUSY_TIMEOUT_MS = 30000
 
-# Spec-0065/T2: 单次认领内 `_reconcile` 的推进轮数上限。停止条件本该全是纯函数判断（QUIET/TERMINAL/fp 未变），
-# 这道计数只兜**振荡**：fp 每轮都在变、却在两个状态间来回跳（review 打回 → implement 推新 head → review 又
-# 打回 → …）。`fp == last_fp` 只记得**上一轮**，识别不了周期 ≥2 的环，于是它会一轮一次 LLM 地无限转下去，
-# 直到 2 小时后 IN_FLIGHT 告警才有人管。到顶 → park 收口为机器失败（振荡本就是「机器判不了、该停止自动重试」）。
+# 单次认领的让出上限，不是振荡证明。正常的设计刷新、评审、rebase 等也会连续改变 fp；
+# 只在观察到 fp 重复时判定同一 claim 内的环。到顶仍有新状态则交还 slot，让生产者
+# 从 forge 事实继续判断。交付总时限仍由外层 round gate 执行。
 _MAX_RECONCILE_ROUNDS = 8
+
+# Conflict recovery has a different failure shape from an ordinary agent turn.  A resolver
+# can leave a perfectly valid PR untouched while the local worktree is stale or still carries
+# an interrupted rebase.  Keep a bounded, diagnosable reason on the queue retry instead of
+# collapsing that state into the generic "agent failed" message.
+_CONFLICT_REASON_MAX_CHARS = 320
+_CONFLICT_RESOLUTION_ATTEMPTS = 3
+_CONFLICT_RETRY_PREFIX = "conflict-retryable:"
+_CONFLICT_RETRY_DELAY_SECONDS = 60
+_CONFLICT_RETRY_MAX_DELAY_SECONDS = 3600
+_CONFLICT_EPISODE_LIMIT = 5
+_CONFLICT_FP_RE = re.compile(r"\bconflict_fp=([0-9a-f]{16})\b")
 
 # Spec-0065/T2: `once=True` 排空的硬上限（秒）。排空是尽力而为的同步点、不是正确性来源（真相在 GitHub），
 # 故它可以放弃；但它**不能永不返回**——`oa vigil --once` 挂死是最糟的结局。
@@ -216,12 +228,16 @@ CREATE TABLE IF NOT EXISTS work_queue (
     subject          TEXT    NOT NULL UNIQUE,        -- "issue:5" | "pr:12"
                                                      -- 去重 + 同-subject 互斥 + 幂等入队，三合一
     priority         INTEGER NOT NULL DEFAULT 0,     -- 越大越先（领取时定序，不冻结在入队时刻）
+    action           TEXT    NOT NULL DEFAULT '',    -- 当前机械动作；崩溃恢复时区分冲突任务
     enqueued_at      TEXT    NOT NULL,               -- ISO；等优先级下的 FIFO tie-break
+    available_at     TEXT    NOT NULL DEFAULT '',    -- ISO；空值表示立即可领，冲突恢复可延迟重试
+    conflict_fp      TEXT    NOT NULL DEFAULT '',    -- 当前冲突 episode 的稳定指纹
+    conflict_attempts INTEGER NOT NULL DEFAULT 0,     -- 同一冲突指纹的自动恢复 episode 次数
     status           TEXT    NOT NULL DEFAULT 'queued',   -- queued | claimed
     worker           TEXT,                           -- claimed 者标识（可观测）
     worker_pid       INTEGER,                        -- 持有者进程号——仅供人 ps 诊断，不作存活裁决
     claimed_at       TEXT,                           -- 领取时刻；只喂 IN_FLIGHT 告警，不作回收判据
-    attempts         INTEGER NOT NULL DEFAULT 0      -- 领取后未收工的次数；超 _MAX_ATTEMPTS → park
+    attempts         INTEGER NOT NULL DEFAULT 0      -- 普通任务超 _MAX_ATTEMPTS → park；冲突任务自动延迟
 );
 CREATE INDEX IF NOT EXISTS ix_work_queue_claimable
     ON work_queue (status, priority DESC, enqueued_at ASC);
@@ -310,7 +326,7 @@ class _Verdict:
 
 
 class _ActTimeout(RuntimeError):
-    """Spec-0065/T2: 单次 `_act` 超 `_AGENT_TIMEOUT_SECONDS`——子进程已被杀，行交 `_requeue_or_park`。"""
+    """Spec-0046/0065: single-call budget exhausted; retain existing bounded retry handling."""
 
 
 @dataclass(frozen=True)
@@ -360,7 +376,8 @@ def run_vigil(
 
     生命周期：
     - `once=True`（测试/单趟）：跑**一个** `_producer_tick`，再 `_drain_queue` 轮询到表内无 queued 且无
-      claimed 行 → 收池返回（给测试确定性同步语义）。被本轮解锁、但本轮未再感知的下一层留给下一次调用。
+      claimed 行 → 收池返回（给测试确定性同步语义）。冲突恢复的延迟 queued 行也会被保留并等到
+      `available_at` 到期，不会被误报为本次已排空；被本轮解锁、但本轮未再感知的下一层留给下一次调用。
     - `once=False`（守护）：tick→sleep(interval) 循环。`_producer_tick` 抛异常记日志继续（**不杀生产者**）；
       单 subject 异常在 `_worker_loop` 内隔离（**不杀 worker**）。
     - `KeyboardInterrupt`：`stop_event` 置位 → worker 领完当前活自然退出（自己删行 + 释锁）；queued 行留
@@ -373,7 +390,8 @@ def run_vigil(
         state: `RuntimeState` 运行态存储，记录每个 subject 的进度与指纹分流依据。
         work_dir: 仓库工作目录；队列 DB 落在 `work_dir/.openagents/vigil-queue.db`。
         config: 单一真源配置——stages 三态 + agents 后端映射 + base/labels/interval。
-        once: True 只跑一个 `_producer_tick` 再 `_drain_queue` 排空即返回（cron/CI/测试）；False 长驻循环。
+        once: True 只跑一个 `_producer_tick` 再 `_drain_queue` 排空即返回（cron/CI/测试）；延迟冲突任务到期后
+            继续尝试，受 `_DRAIN_MAX_SECONDS` 保护；False 长驻循环。
         concurrency: 常驻 worker 线程数 K（并发上限）；默认 1 即退化串行。
         agent_id: 本守夜人签名标识，用于认领标签与签名回帖；缺省空串。
         priority_fn: 排 subject 优先级的偏函数；None 用内置 `_priority_default`。
@@ -389,6 +407,8 @@ def run_vigil(
     thresholds = dict(_WATCHDOG_DEFAULTS) | (watchdog_thresholds or {})
     db_path = Path(work_dir) / ".openagents" / _QUEUE_DB_FILENAME
     _init_db(db_path=db_path)
+    if config.coordination != "soft":
+        preflight.cache_path(work_dir=Path(work_dir)).unlink(missing_ok=True)
     stop_event = threading.Event()
 
     workers = [
@@ -705,6 +725,33 @@ def _classify(*, facts: _Facts, in_flight: bool) -> _Verdict:
     return _Verdict(kind=_ACTIONABLE, action=_ACT_MERGE)
 
 
+def _implementation_pending(*, state: RuntimeState | None, facts: _Facts) -> bool:
+    """Read the existing interrupted-development checkpoint (Spec-0089/T1)."""
+    number = _issue_number_of(facts=facts)
+    run = state.get_run(issue_number=number) if state is not None and number else None
+    return bool(
+        run
+        and run.get("status") == STATUS_ITERATING
+        and run.get("pr_number") == facts.pr_number
+        and facts.pr_number is not None
+    )
+
+
+def _resume_verdict(*, state: RuntimeState | None, facts: _Facts, verdict: _Verdict) -> _Verdict:
+    """Resume development before downstream checks, not before stop/reply/dependencies.
+
+    Spec-0089/T1: reuse solve and run.status; no new stage, queue or forge label.
+    """
+    if (
+        verdict.kind not in {_TERMINAL, _IN_FLIGHT}
+        and verdict.action not in {_ACT_REPLY, _ACT_READY}
+        and facts.deps_done
+        and _implementation_pending(state=state, facts=facts)
+    ):
+        return _Verdict(kind=_ACTIONABLE, action=_ACT_SOLVE)
+    return verdict
+
+
 def _fingerprint(*, facts: _Facts) -> str:
     """纯函数：`_Facts` 的**全部**字段 → 一个稳定哈希。**这是护栏一的「我出手时看到的状态」。**
 
@@ -727,6 +774,25 @@ def _fingerprint(*, facts: _Facts) -> str:
     payload["labels"] = _stable(value=facts.labels - {_LABEL_AUTOMATION_FAILED})
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _conflict_fingerprint(*, facts: _Facts, base: str, branch: str, reason: str = "") -> str:
+    """Stable identity for one conflict episode; diagnostics do not churn the identity."""
+    payload = {
+        "subject": facts.subject,
+        "pr_number": facts.pr_number,
+        "head_sha": facts.head_sha or "",
+        "mergeable_state": facts.mergeable_state or "",
+        "base": base,
+        "branch": branch,
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _conflict_fp_from_reason(*, reason: str) -> str:
+    match = _CONFLICT_FP_RE.search(reason)
+    return match.group(1) if match else ""
 
 
 def _phase_of(*, verdict: _Verdict, facts: _Facts) -> str:
@@ -930,6 +996,17 @@ def _init_db(*, db_path: Path) -> None:
     conn = _connect(db_path=db_path)
     try:
         conn.executescript(_SCHEMA)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(work_queue)")}
+        if "action" not in columns:
+            conn.execute("ALTER TABLE work_queue ADD COLUMN action TEXT NOT NULL DEFAULT ''")
+        if "available_at" not in columns:
+            conn.execute("ALTER TABLE work_queue ADD COLUMN available_at TEXT NOT NULL DEFAULT ''")
+        if "conflict_fp" not in columns:
+            conn.execute("ALTER TABLE work_queue ADD COLUMN conflict_fp TEXT NOT NULL DEFAULT ''")
+        if "conflict_attempts" not in columns:
+            conn.execute(
+                "ALTER TABLE work_queue ADD COLUMN conflict_attempts INTEGER NOT NULL DEFAULT 0"
+            )
     finally:
         conn.close()
 
@@ -947,7 +1024,14 @@ def _connect(*, db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _enqueue(*, conn: sqlite3.Connection, subject: str, priority: int, now: datetime) -> bool:
+def _enqueue(
+    *,
+    conn: sqlite3.Connection,
+    subject: str,
+    priority: int,
+    now: datetime,
+    action: str = "",
+) -> bool:
     """把一个 subject 入队：`INSERT OR IGNORE INTO work_queue(subject, …)`。新入队 True，已在表中 False。
 
     **不做变更检测**：生产者每 tick 对每个 ACTIONABLE 的 subject 无脑调用它，重复入队由 `subject` 的 UNIQUE
@@ -965,19 +1049,29 @@ def _enqueue(*, conn: sqlite3.Connection, subject: str, priority: int, now: date
     永远排在后面（饿死）。`claimed` 行不动：它已经在跑，改它的优先级没有意义。
     """
     existing = conn.execute(
-        "SELECT id, status, priority FROM work_queue WHERE subject=?", (subject,)
+        "SELECT id, status, priority, action, conflict_fp, conflict_attempts "
+        "FROM work_queue WHERE subject=?",
+        (subject,),
     ).fetchone()
     if existing is None:
         conn.execute(
-            "INSERT OR IGNORE INTO work_queue (subject, priority, enqueued_at, status) "
-            "VALUES (?, ?, ?, 'queued')",
-            (subject, priority, now.isoformat()),
+            "INSERT OR IGNORE INTO work_queue "
+            "(subject, priority, action, enqueued_at, available_at, conflict_fp, conflict_attempts, status) "
+            "VALUES (?, ?, ?, ?, ?, '', 0, 'queued')",
+            (subject, priority, action, now.isoformat(), ""),
         )
         return True
-    if existing["status"] == "queued" and existing["priority"] != priority:
+    if existing["status"] == "queued" and (
+        existing["priority"] != priority or existing["action"] != action
+    ):
         conn.execute(
-            "UPDATE work_queue SET priority=? WHERE id=? AND status='queued'",
-            (priority, existing["id"]),
+            "UPDATE work_queue "
+            "SET priority=?, action=?, "
+            "    available_at=CASE WHEN action<>? THEN '' ELSE available_at END, "
+            "    conflict_fp=CASE WHEN action<>? THEN '' ELSE conflict_fp END, "
+            "    conflict_attempts=CASE WHEN action<>? THEN 0 ELSE conflict_attempts END "
+            "WHERE id=? AND status='queued'",
+            (priority, action, action, action, action, existing["id"]),
         )
     return False
 
@@ -1015,9 +1109,12 @@ def _claim_next(
     **没有 `NOT EXISTS` 同-subject 子查询**——互斥已由 `subject UNIQUE` 在**入队时**结构性保证（一个 subject
     根本不可能有两行），领取时再查一次是纯冗余。这是「一行 = 一个 subject」相对「一行一事件」的直接红利。
 
-    `attempts` **在领取时 +1**（不是失败时）：崩溃的活即便被 `_reclaim_dead` 反复回收，也会在 `_MAX_ATTEMPTS`
-    处被 park、不无限占槽——这是唯一能发现「agent 没能收工」的机制（它在 GitHub 上零痕迹）。
+    `attempts` **在领取时 +1**（不是失败时）：普通崩溃的活即便被 `_reclaim_dead` 反复回收，也会在
+    `_MAX_ATTEMPTS` 处被 park；冲突恢复任务另有持久化 action，会在超限后延迟自动重试，不把 resolver
+    的一次中断误判成人工终态。
     """
+    advice = preflight.hints(data=preflight.read(work_dir=work_dir))
+    # Spec-0091: bounded soft selection stays inside the original claim/flock transaction.
     skipped: list[int] = []
     while True:
         placeholders = ",".join("?" * len(skipped))
@@ -1025,15 +1122,24 @@ def _claim_next(
         conn.execute("BEGIN IMMEDIATE")
         fd: int | None = None
         try:
+            eligible_rows = conn.execute(
+                "SELECT id FROM work_queue "
+                "WHERE status='queued' AND (available_at='' OR available_at<=?)"
+                f"{exclude} ORDER BY priority DESC, enqueued_at ASC, id ASC "
+                f"LIMIT {128 if advice else 1}",
+                [now.isoformat(), *skipped],
+            ).fetchall()
+            selected = preflight.select(
+                conn=conn,
+                advice=advice,
+                eligible=[int(row["id"]) for row in eligible_rows],
+                now=now,
+            )
             row = conn.execute(
                 "UPDATE work_queue "
-                "   SET status='claimed', worker=?, worker_pid=?, claimed_at=?, attempts=attempts+1 "
-                " WHERE id = (SELECT id FROM work_queue "
-                f"              WHERE status='queued'{exclude} "
-                "              ORDER BY priority DESC, enqueued_at ASC "
-                "              LIMIT 1) "
-                " RETURNING *",
-                (worker_id, os.getpid(), now.isoformat(), *skipped),
+                "SET status='claimed', worker=?, worker_pid=?, claimed_at=?, attempts=attempts+1 "
+                "WHERE id=? AND status='queued' RETURNING *",
+                (worker_id, os.getpid(), now.isoformat(), selected),
             ).fetchone()
             if row is None:
                 conn.execute("COMMIT")
@@ -1264,12 +1370,17 @@ def _requeue_or_park(
     fd: int,
     agent_id: str,
     config: agent_config.AgentConfig | None = None,
+    reason: str = "",
 ) -> None:
-    """领取后失败（`_reconcile` 抛，含 `_act` 硬超时）的收尾：`attempts < _MAX_ATTEMPTS` → 回 queued；到顶 →
-    删行 + park。**同样先写行、后释锁。**
+    """领取后失败（`_reconcile` 抛，含 `_act` 硬超时）的收尾：普通任务 `attempts < _MAX_ATTEMPTS` → 回 queued；
+    到顶 → 删行 + park。冲突恢复任务到顶后改为延迟自动重试。**同样先写行、后释锁。**
 
     park = 删该行 + 给该 subject 打 `automation-failed`（→ 下一 tick `_classify` 判 TERMINAL → 轮询停止）。防毒丸
     活无限重试霸占槽。`attempts` 在 `_claim_next` 领取时已累加，这里只读它判上限。
+
+    冲突恢复是明确的例外：resolver 失败带有 `_CONFLICT_RETRY_PREFIX` 时，达到上限不打
+    `automation-failed`，而是按稳定 conflict fingerprint 累积 episode 次数，以指数退避写入
+    `available_at` 后继续无人值守恢复；同一指纹超过 `_CONFLICT_EPISODE_LIMIT` 才机器隔离。
 
     这是**三道护栏里唯一需要计数的那道**：agent 崩 / 被 kill 时它没盖 attempt 戳、也没刷新任何 GitHub 时间
     戳 → fp 判不出、age 也判不出 → 只能在队列行里数（见模块头）。**持有者自己走这条路**（不是别人来回收），
@@ -1284,8 +1395,53 @@ def _requeue_or_park(
     close 一个已被别的线程复用的 fd 号 = 放掉**别人**的 flock → 那个还在跑的 worker 被判死回收 → 双跑）。
     """
     try:
-        row = conn.execute("SELECT attempts FROM work_queue WHERE id=?", (task_id,)).fetchone()
+        row = conn.execute(
+            "SELECT attempts, conflict_fp, conflict_attempts FROM work_queue WHERE id=?",
+            (task_id,),
+        ).fetchone()
         attempts = int(row["attempts"]) if row is not None else _MAX_ATTEMPTS
+        if reason.startswith(_CONFLICT_RETRY_PREFIX) and attempts >= _MAX_ATTEMPTS:
+            conflict_fp = _conflict_fp_from_reason(reason=reason) or (
+                str(row["conflict_fp"]) if row is not None else ""
+            )
+            conflict_fp = conflict_fp or f"subject:{subject}"
+            previous_fp = str(row["conflict_fp"]) if row is not None else ""
+            previous_episodes = int(row["conflict_attempts"]) if row is not None else 0
+            episodes = previous_episodes + 1 if conflict_fp == previous_fp else 1
+            if episodes >= _CONFLICT_EPISODE_LIMIT:
+                facts = _failure_facts(subject=subject, config=config)
+                _fail_automation(
+                    subject=subject,
+                    facts=facts,
+                    category="conflict_episode_exhausted",
+                    attempts=episodes,
+                    reason=(
+                        f"冲突指纹 {conflict_fp} 在 {episodes} 个自动恢复 episode 内未收敛；"
+                        f"最后错误：{reason}"
+                    ),
+                    agent_id=agent_id,
+                    projection_fp=conflict_fp if config is not None else None,
+                )
+                conn.execute("DELETE FROM work_queue WHERE id=?", (task_id,))
+                return
+            delay = min(
+                _CONFLICT_RETRY_MAX_DELAY_SECONDS,
+                _CONFLICT_RETRY_DELAY_SECONDS * (2 ** (episodes - 1)),
+            )
+            retry_at = datetime.now(UTC) + timedelta(seconds=delay)
+            conn.execute(
+                "UPDATE work_queue "
+                "   SET status='queued', worker=NULL, worker_pid=NULL, claimed_at=NULL, "
+                "       attempts=0, available_at=?, conflict_fp=?, conflict_attempts=? WHERE id=?",
+                (retry_at.isoformat(), conflict_fp, episodes, task_id),
+            )
+            _log(
+                message=(
+                    f"↻ {subject}：冲突恢复 episode {episodes}/{_CONFLICT_EPISODE_LIMIT} 未完成，"
+                    f"{delay}s 后自动重试；不转人工失败（{reason}）"
+                )
+            )
+            return
         if attempts < _MAX_ATTEMPTS:
             conn.execute(
                 "UPDATE work_queue "
@@ -1300,7 +1456,7 @@ def _requeue_or_park(
             facts=facts,
             category="retry_exhausted",
             attempts=attempts,
-            reason="agent 崩溃、被 kill、协议错误或超时，连续认领未收工",
+            reason=reason or "agent 崩溃、被 kill、协议错误或超时，连续认领未收工",
             agent_id=agent_id,
         )
         conn.execute("DELETE FROM work_queue WHERE id=?", (task_id,))
@@ -1319,7 +1475,8 @@ def _drain_queue(
 ) -> None:
     """`once=True` 的排空：轮询到 `work_queue` 无 queued 且无 claimed 行才返回（给测试确定性同步语义）。
 
-    生产者单 tick 入的活 + 其占的 claimed 全被 worker 消费/删净即排空。轮询间隔 `_WORKER_POLL_SECONDS`；
+    生产者单 tick 入的活 + 其占的 claimed 全被 worker 消费/删净即排空；冲突恢复的 delayed queued 行会等到
+    `available_at` 到期再判断排空。轮询间隔 `_WORKER_POLL_SECONDS`；
     `stop_event`（如测试中途叫停）也解除等待。K=1 顺序 drain、K>1 由此收口。
 
     **有硬上限 `_DRAIN_MAX_SECONDS`**：`once=True` 是 CLI 与 e2e 的路径，它不能有「永不返回」这种结局。没有
@@ -1331,12 +1488,31 @@ def _drain_queue(
     deadline = time.monotonic() + _DRAIN_MAX_SECONDS
     try:
         while not stop_event.is_set():
+            now = now_fn()
             pending = conn.execute("SELECT COUNT(*) AS n FROM work_queue").fetchone()["n"]
             if not pending:
                 return
             if time.monotonic() >= deadline:
                 _log(message=f"⏱ 排空超 {_DRAIN_MAX_SECONDS}s 仍有 {pending} 行未消费，本次先返回")
                 return
+            due = conn.execute(
+                "SELECT COUNT(*) AS n FROM work_queue "
+                "WHERE status='claimed' OR (status='queued' "
+                "AND (available_at='' OR available_at<=?))",
+                (now.isoformat(),),
+            ).fetchone()["n"]
+            if not due:
+                next_at = conn.execute(
+                    "SELECT MIN(available_at) AS next_at FROM work_queue "
+                    "WHERE status='queued' AND available_at<>'' AND available_at>?",
+                    (now.isoformat(),),
+                ).fetchone()["next_at"]
+                try:
+                    wait_seconds = max(0.0, (datetime.fromisoformat(next_at) - now).total_seconds())
+                except (TypeError, ValueError):
+                    wait_seconds = _WORKER_POLL_SECONDS
+                stop_event.wait(min(_WORKER_POLL_SECONDS, wait_seconds))
+                continue
             # 排空期间也要扫「存活证明泄漏」：那种行**永远**领不走，只在 tick 开头扫一次的话，`--once`
             # 会在这里干等满 `_DRAIN_MAX_SECONDS`（1h）才返回——CLI 与 e2e 都走这条路，不能这么挂着。
             # 扫不动不等于排不空：守夜主循环把 `_producer_tick` 整个包在 except 里（第一要务是活着进下一轮），
@@ -1403,7 +1579,7 @@ def _producer_tick(
 
         _reclaim_dead                                     # 凭 flock 判死，回收死持有者的行
         _sweep_stalled                                    # queued 行的锁被泄漏进程占着 → park 收口为机器失败
-        _intake                                           # 准入面：三态审 → ready → curator 排边 → POST
+        _intake                                           # 准入 → ready → soft / off / dependencies
         for subject in _subjects():
             observed = _sense(subject)                    # 唯一的 GitHub 读
             verdict  = _classify(observed.facts)          # 纯函数
@@ -1423,6 +1599,9 @@ def _producer_tick(
 
     单 subject 感知/入队失败**就地隔离**（记日志、continue）——一个 subject 崩不该让整轮生产停摆。
     """
+    from openagents.observations.gaps import sweep_async
+
+    sweep_async(work_dir=Path(work_dir))
     conn = _connect(db_path=db_path)
     try:
         _reclaim_dead(conn=conn, work_dir=Path(work_dir))
@@ -1450,10 +1629,14 @@ def _producer_tick(
         }
         enqueued = 0
         quiet_counts: dict[str, int] = {}
-        for subject in _subjects(config=config):
+        subjects = _subjects(config=config)
+        if config.coordination == "soft":
+            subjects = preflight.discovery_order(work_dir=Path(work_dir), subjects=subjects)
+        for subject in subjects:
             try:
                 enqueued += _consider(
                     conn=conn,
+                    state=state,
                     subject=subject,
                     config=config,
                     work_dir=Path(work_dir),
@@ -1477,22 +1660,43 @@ def _producer_tick(
         conn.close()
 
 
-def _refresh_failure_projection(*, observed: _Observed, subject: str) -> _Observed:
-    """Keep an unchanged machine failure terminal; revive automatically when material facts change."""
+def _refresh_failure_projection(
+    *, observed: _Observed, subject: str, base: str | None = None
+) -> _Observed:
+    """Revive only on proven fact changes on the failure's own object (Spec-0088/T2)."""
     facts = observed.facts
     if _LABEL_AUTOMATION_FAILED not in facts.labels:
         return observed
     current_fp = _fingerprint(facts=facts)
     recorded = None
-    for comment in reversed(_comments(facts=facts)):
-        match = re.search(r"<!-- openagents:automation-failed fp=([0-9a-f]{16})\b", comment.body)
-        if match and identity.parse_agent_id(body=comment.body) is not None:
-            recorded = match.group(1)
+    category = ""
+    for comment in reversed(_failure_comments(subject=subject)):
+        if (
+            _FAILURE_MARKER in comment.body
+            and identity.parse_agent_id(body=comment.body) is not None
+        ):
+            match = re.search(
+                r"<!-- openagents:automation-failed fp=([0-9a-f]{16}) category=([^\s<>]+) -->",
+                comment.body,
+            )
+            recorded = match.group(1) if match else None
+            category = match.group(2) if match else ""
+            # Spec-0088/T2: a broken latest marker cannot fall back to an obsolete failure.
             break
+    if category == "conflict_episode_exhausted" and base is not None:
+        try:
+            branch = github.pr_head_branch(pr_number=facts.pr_number or 0)
+            current_fp = _conflict_fingerprint(facts=facts, base=base, branch=branch)
+        except Exception as exc:  # noqa: BLE001 - failure projection is fail-closed
+            _log(message=f"⚠ {subject}：无法复读冲突分支，保留失败终态：{exc}")
+            return observed
     if recorded == current_fp:
         return observed
+    if recorded is None:
+        _log(message=f"⚠ {subject}：失败标记缺失或无效，保留失败终态，不自动重试")
+        return observed
     _remove_automation_failed(subject=subject)
-    _log(message=f"⟳ {subject}：事实指纹变化（{recorded or 'missing'} → {current_fp}），自动复活")
+    _log(message=f"⟳ {subject}：事实指纹变化（{recorded} → {current_fp}），自动复活")
     return replace(
         observed,
         facts=replace(facts, labels=facts.labels - {_LABEL_AUTOMATION_FAILED}),
@@ -1516,6 +1720,7 @@ def _failure_facts(*, subject: str, config: agent_config.AgentConfig | None = No
 def _consider(
     *,
     conn: sqlite3.Connection,
+    state: RuntimeState | None,
     subject: str,
     config: agent_config.AgentConfig,
     work_dir: Path,
@@ -1538,11 +1743,16 @@ def _consider(
     # Spec-0058/T1: 解挂预处理必须在 `_sense` 之后、`_classify` 之前——撤 label 是副作用（只能生产者侧做），
     # 撤完把 automation-failed 从本 tick 已感知的 facts 里剥掉，`_classify` 当轮即在「已无 automation-failed」的现态上从头
     # 重判（②reply → ③…⑪ 合并流水线保守重进），满足「守夜一轮内自动续跑」。`_classify` 保持纯函数不动。
-    observed = _refresh_failure_projection(observed=observed, subject=subject)
+    observed = _refresh_failure_projection(observed=observed, subject=subject, base=config.base)
     verdict = _classify(facts=observed.facts, in_flight=subject in in_flight)
+    verdict = _resume_verdict(state=state, facts=observed.facts, verdict=verdict)
     fp = _fingerprint(facts=observed.facts)
 
-    if verdict.kind == _ACTIONABLE and _has_attempt_stamp(facts=observed.facts, fp=fp):
+    if (
+        verdict.kind == _ACTIONABLE
+        and not _implementation_pending(state=state, facts=observed.facts)
+        and _has_attempt_stamp(facts=observed.facts, fp=fp)
+    ):
         # 护栏一：我在**完全相同的状态**下已经出过手且一个字节没推动 → 别再叫 agent（零 LLM 调用）。
         verdict = _Verdict(kind=_QUIET, reason=_AWAITING_EFFECT)
 
@@ -1567,6 +1777,7 @@ def _consider(
             subject=subject,
             priority=priority_fn(verdict=verdict),
             now=now,
+            action=verdict.action or "",
         ):
             _log(message=f"⊕ {subject}：{verdict.action} 入队")
             return 1
@@ -1626,7 +1837,10 @@ def _intake(
     agent_id: str,
     now: datetime,
 ) -> None:
-    """准入面（**唯一 agentic 的调度动作**）：新 issue 三态审 → 打 `ready` → curator 排依赖 → 落 `blocked_by`。
+    """准入面：新 issue 三态审 → ready → 按 coordination 选择协调方式。
+
+    Spec-0091: soft 用有界前置与非阻塞软提示；off 不调用协调模型。两者都不自动落硬边。
+    下文的 Curator 排边流程仅适用于兼容模式 dependencies。
 
     对每个「无 `ready` label 的新 issue」（可攒一批）：
       1. **三态门控**——`skip` 直接准入 / `agent` 派 triager 判 actionable、过则准入 / `human` **在评论里
@@ -1653,7 +1867,7 @@ def _intake(
     # Spec-0065/T2: 准入面的两个 agent 调用（triager / curator）跑在**生产者线程**上，同样要套硬超时。
     # 它们挂住的话，整条主循环就停在那里：不再有 tick、不再有 `_reclaim_dead`（真死掉的持有者永不被回收）、
     # `--once` 连排空都进不去——比某个 subject 卡住严重得多。这里没有认领的行，故不传 lock_fd。
-    timed = _TimedBackend(inner=backend, timeout_seconds=_AGENT_TIMEOUT_SECONDS, lock_fd=None)
+    timed = _TimedBackend(inner=backend, timeout_seconds=effective_max_wall(), lock_fd=None)
     admitted = 0
     # Spec-0035/T4: 发现段慢检查进度日志——拉带标签 issue 走网络，卡住时输出停在这行、一眼定位。
     _log(message="▶ 发现段：拉取带标签 issue…")
@@ -1672,7 +1886,28 @@ def _intake(
             )
         except Exception as exc:  # noqa: BLE001 —— 单 issue 准入失败不拖垮整轮（含 _ActTimeout）
             _log(message=f"✗ issue #{issue.number} 准入失败，跳过：{exc}")
-    if admitted:
+    if config.coordination == "soft":
+        # Spec-0091: revisit changed snapshots after cooldown even with no new admissions.
+        try:
+            ready = [
+                issue
+                for issue in github.list_issues(labels=[_LABEL_READY])
+                if _LABEL_AUTOMATION_FAILED not in issue.labels
+            ]
+            status = preflight.refresh(
+                work_dir=Path(work_dir),
+                issues=ready,
+                backend=_TimedBackend(
+                    inner=backend.for_advisory() if hasattr(backend, "for_advisory") else backend,
+                    timeout_seconds=preflight.WALL_SECONDS,
+                    lock_fd=None,
+                ),
+                now=time.time(),
+            )
+            _log(message=f"⇢ advisory preflight: {status}")
+        except Exception as exc:
+            _log(message=f"↷ advisory preflight unavailable: {type(exc).__name__}; using queue")
+    elif admitted and config.coordination != "off":
         _order_edges(backend=timed, work_dir=Path(work_dir), config=config, agent_id=agent_id)
 
 
@@ -1996,9 +2231,7 @@ def _worker_loop(
     `claimed` 会**永远**留着——fd 还在本进程手里、flock 没释放，`_reclaim_dead` 判它「持有者活着」，于是永不
     回收、也永不重入队（`INSERT OR IGNORE` 撞 UNIQUE 成 no-op），该 subject 就此死掉。故：
 
-      - `_ActTimeout`（agent 挂死）→ **park 收口为机器失败，不回队**：见 `_TimedBackend`（杀干净只是尽力而为，把可能
-        还活着的 agent 的活重新发出去 = 双跑）。
-      - 其它异常 → 回队重试（`attempts` 到顶自动 park）。
+      - `_ActTimeout`（单次预算耗尽）及其它异常 → 既有有界回队重试（`attempts` 到顶自动 park）。
       - 收尾自身再抛 → `_release`（下面）兜底：**保证 close(fd)**。锁一放，这行最坏也只是被 `_reclaim_dead`
         当「持有者已死」回收回 queued——重跑一遍是幂等的（level-triggered），而孤儿行是永久的。
     """
@@ -2049,7 +2282,8 @@ def _run_claimed(
     从 `_worker_loop` 里切出来，只为让「异常一律不越过这一层」这条不变式有一个显式的、可单测的边界（worker
     线程的存活是整个并发池的地基——它不能因为某个 subject 或某次 sqlite 抖动而少一条）。
 
-    **进门先查上限，再谈动手。** `attempts` 在**领取时**累加，超顶的行有两种来路，两种都不该再叫 agent：
+    **进门先查上限，再谈动手。** `attempts` 在**领取时**累加，普通任务超顶的行有两种来路，两种都不该再叫 agent；
+    已持久化为 conflict action 的行则会延迟重试：
     - 上一轮已判 park，但 park 的 `gh` 抛了（限流/掉网）→ 行留在 `claimed` 被 `_reclaim_dead` 正常回收。
       **要重试的是那次 park，不是那次 agent 调用**：不拦的话 `gh` 持续失败就是一个无限烧 LLM 的环；在超时 park
       那条路上更糟——被强杀的 agent 是否已经推了东西无法证明，重发一次正是那条 label 里写着「未自动重试」要
@@ -2063,6 +2297,27 @@ def _run_claimed(
     """
     subject = row["subject"]
     if int(row["attempts"]) > _MAX_ATTEMPTS:
+        if row.get("action", "") == _ACT_REBASE:
+            _log(
+                message=(
+                    f"↻ {subject}：冲突 resolver 在第 {row['attempts']} 次领取前未能收尾；"
+                    "保留为自动恢复任务，不转人工失败"
+                )
+            )
+            _finish(
+                conn=conn,
+                task_id=row["id"],
+                fd=fd,
+                park=False,
+                subject=subject,
+                reason=(
+                    f"{_CONFLICT_RETRY_PREFIX} resolver 进程中断或守夜重启，"
+                    "未留下完整结果；从隔离 worktree 继续恢复"
+                ),
+                agent_id=agent_id,
+                config=config,
+            )
+            return
         _log(
             message=f"⏸ {subject}：第 {row['attempts']} 次领取仍未收工 → 不再叫 agent，直接收口为机器失败"
         )
@@ -2095,14 +2350,14 @@ def _run_claimed(
             lock_fd=fd,  # Spec-0065/T2: 传给 agent 子进程继承——存活证明要跟着真正在干活的进程走
         )
     except _ActTimeout as exc:
-        _log(message=f"⏱ {subject}：agent 调用超时（{exc}），进入有界重试")
+        _log(message=f"⏱ {subject}：agent 调用时间预算耗尽（{exc}），进入有界重试")
         _finish(
             conn=conn,
             task_id=row["id"],
             fd=fd,
             park=False,
             subject=subject,
-            reason=f"agent 调用挂死并被强杀（{exc}）",
+            reason=f"agent 调用时间预算耗尽（{exc}）",
             agent_id=agent_id,
             config=config,
         )
@@ -2111,7 +2366,8 @@ def _run_claimed(
         # Spec-0074 实证：合并前 CI 仍在跑（pending）——不是失败、是「还没好」。当干净收工处理（park=None
         # 删行、**不烧 attempts**），生产者下轮 CI 绿了重判即合。并入下面的 Exception 分支会回队累计、在
         # CI 窗口内烧光 _MAX_ATTEMPTS → 误挂 automation-failed（见 gates.MergeNotReady docstring）。
-        _log(message=f"⏳ {subject}：{exc} → 交还 slot，等 CI 转绿")
+        # Spec-0017 recovery: candidate changes use this path too, without failed attempts.
+        _log(message=f"⏳ {subject}：{exc} → 交还 slot，下一轮重新读取候选与门禁")
         _finish(
             conn=conn,
             task_id=row["id"],
@@ -2200,6 +2456,7 @@ def _finish(
                 fd=fd,
                 agent_id=agent_id,
                 config=config,
+                reason=reason,
             )
             return
         closed = True  # 同上：所有权移交给 _mark_done
@@ -2217,6 +2474,118 @@ def _close_quietly(*, fd: int) -> None:
         os.close(fd)
     except OSError:
         pass
+
+
+def _refresh_design_approval(
+    *, backend: Any, state: RuntimeState, work_dir: Path, facts: _Facts
+) -> None:
+    """Spec-0090/T1: re-run the existing architecture route after a candidate Spec changed."""
+    issue_number = _issue_number_of(facts=facts)
+    if not issue_number or facts.pr_number is None:
+        raise gates.GateError("设计摘要失配但候选没有可回流的 issue/PR")
+    worktree = _pr_worktree(work_dir=work_dir, facts=facts)
+    evidence_pack = _evidence_pack(state=state, facts=facts)
+    run = state.get_run(issue_number=issue_number) or {}
+    review_context = context.sections(
+        ("runtime context", _AUTONOMOUS_CONTRACT),
+        (
+            "design change review",
+            f"原批准设计摘要：{run.get('design_digest', '')}；原始摘要："
+            f"{run.get('design_raw_digest', '')}。对照原 issue、Git 历史中的批准设计、当前主干"
+            "和候选差异验证目标、约束及验收没有弱化。复用主干实现需要保留验收覆盖；"
+            "找不到必要的旧设计或证据时返回 REWORK，不得猜测批准。",
+        ),
+    )
+    verdict = stages.architecture(
+        backend=backend,
+        work_dir=worktree,
+        issue_number=issue_number,
+        context_text=review_context,
+        evidence_pack=evidence_pack,
+    )
+    _verify_candidate(worktree=worktree, facts=facts)
+    if verdict.get("verdict") != "PASS":
+        stages.rfc(
+            backend=backend,
+            worktree=worktree,
+            mode="refine",
+            target=str(verdict["spec_path"]),
+            branch=_work_branch(facts=facts),
+            detail=str(verdict.get("reason", "架构评审未通过")),
+            context_text=review_context,
+            require_delivered=True,
+            evidence_pack=evidence_pack,
+        )
+        # Spec-0090/T1: validation is not approval. Review the delivered refinement again;
+        # never replace the old digest merely because the new Spec parses successfully.
+        facts = replace(facts, head_sha=gates.snapshot_head(workspace=worktree))
+        _verify_candidate(worktree=worktree, facts=facts)
+        verdict = stages.architecture(
+            backend=backend,
+            work_dir=worktree,
+            issue_number=issue_number,
+            context_text=review_context,
+            evidence_pack=evidence_pack,
+        )
+        _verify_candidate(worktree=worktree, facts=facts)
+        if verdict.get("verdict") != "PASS":
+            raise gates.GateError(f"设计返工后仍未获批准：{verdict.get('reason', '')}")
+    state.set_run(
+        issue_number=issue_number,
+        status=STATUS_PR_OPEN,
+        branch=_work_branch(facts=facts),
+        pr_number=facts.pr_number,
+        design_digest=str(verdict["design_digest"]),
+        design_raw_digest=str(verdict.get("design_raw_digest", "")),
+    )
+    _log(message=f"↻ issue #{issue_number}：设计摘要已刷新，回到代码评审")
+
+
+def _repair_repository_integrity(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    work_dir: Path,
+    config: agent_config.AgentConfig,
+    facts: _Facts,
+    reason: str,
+) -> None:
+    """Spec-0090/T1: send a generated-view mismatch through existing delivery repair."""
+    issue_number = _issue_number_of(facts=facts)
+    if not issue_number or facts.pr_number is None:
+        raise gates.GateError("仓库完整性失配但候选没有可回流的 issue/PR")
+    _implement_and_deliver(
+        backend=backend,
+        state=state,
+        worktree=_pr_worktree(work_dir=work_dir, facts=facts),
+        facts=facts,
+        config=config,
+        resuming=True,
+        feedback=(
+            f"交付前确定性检查失败：{reason}\n请修复上述 Spec 校验错误并重新生成 "
+            "OVERVIEW.md，完成自测、提交并推送；保留原目标及验收，不要扩展无关改动。"
+        ),
+        context_text=_AUTONOMOUS_CONTRACT,
+    )
+    gates.assert_repository_integrity(workspace=_pr_worktree(work_dir=work_dir, facts=facts))
+
+
+def _reconcile_progress(*, facts: _Facts, state: RuntimeState | None) -> tuple[str, ...]:
+    """Compare forge facts AND durable local gates, excluding timestamps and comments.
+
+    Refreshing design approval intentionally removes the code review label. When
+    review passes again, the forge facts recur but the approved design has advanced.
+    That is forward progress, not a cycle. Keep the public fact fingerprint stable
+    for attempt/failure stamps; only reconciliation needs this local checkpoint.
+    """
+    issue_number = _issue_number_of(facts=facts)
+    run = (state.get_run(issue_number=issue_number) or {}) if state and issue_number else {}
+    return (
+        _fingerprint(facts=facts),
+        str(run.get("status", "")),
+        str(run.get("design_digest", "")),
+        str(run.get("design_raw_digest", "")),
+    )
 
 
 def _reconcile(
@@ -2268,21 +2637,30 @@ def _reconcile(
     """
     last_fp: str | None = None
     last_summary = ""
+    seen_progress: set[tuple[str, ...]] = set()
+    last_progress: tuple[str, ...] | None = None
     for round_index in range(_MAX_RECONCILE_ROUNDS):
         observed = _sense(config=config, subject=subject)
         fp = _fingerprint(facts=observed.facts)
         verdict = _classify(facts=observed.facts, in_flight=False)  # 我就是那个 in-flight
+        verdict = _resume_verdict(state=state, facts=observed.facts, verdict=verdict)
+        resuming = verdict.action == _ACT_SOLVE and observed.facts.pr_number is not None
 
         if verdict.kind != _ACTIONABLE:
             _log(message=f"⏹ {subject}：{verdict.kind}（{verdict.reason or '—'}），交还 slot")
             return
 
-        if fp == last_fp:  # 零进展：我刚在这个状态上出过手，它一个字节没动
+        progress = _reconcile_progress(facts=observed.facts, state=state)
+        if (
+            fp == last_fp and progress == last_progress
+        ):  # 零进展：我刚在这个状态上出过手，它一个字节没动
             _post_attempt_stamp(
                 facts=observed.facts, fp=fp, conclusion=last_summary, agent_id=agent_id
             )
             return
 
+        seen_progress.add(progress)
+        last_progress = progress
         last_fp = fp
         # Spec-0066/T2: worker 旁路盖**活动段**阶段戳——此处 verdict 恒 ACTIONABLE（非 ACTIONABLE 已在上方
         # 交还 slot），`_phase_of` 取其 `action`，把生产者视角的泛 in-flight 解析成 solve/fix-ci/review-or-fix
@@ -2295,21 +2673,68 @@ def _reconcile(
             now=now_fn(),
         )
         label_baseline = _capture_label_targets(facts=observed.facts)
-        last_summary = _act(
-            backend=backend,
-            state=state,
-            work_dir=Path(work_dir),
-            config=config,
-            observed=observed,
-            verdict=verdict,
-            agent_id=agent_id,
-            now=now_fn(),
-            lock_fd=lock_fd,
-        )
+        allowed_removals = _allowed_label_removals(facts=observed.facts, verdict=verdict)
+        try:
+            last_summary = _act(
+                backend=backend,
+                state=state,
+                work_dir=Path(work_dir),
+                config=config,
+                observed=observed,
+                verdict=verdict,
+                agent_id=agent_id,
+                now=now_fn(),
+                lock_fd=lock_fd,
+            )
+        except gates.DesignApprovalStale:
+            # Spec-0090/T1: a changed Spec is a design lifecycle event, not an execution
+            # failure. Re-run the existing architecture gate and invalidate the old code vote.
+            _refresh_design_approval(
+                backend=_TimedBackend(
+                    inner=backend, timeout_seconds=effective_max_wall(), lock_fd=lock_fd
+                ),
+                state=state,
+                work_dir=Path(work_dir),
+                facts=observed.facts,
+            )
+            _clear_review_labels(
+                pr_number=observed.facts.pr_number or 0, labels=observed.facts.labels
+            )
+            allowed_removals = _allowed_label_removals(
+                facts=observed.facts, verdict=replace(verdict, action=_ACT_REVIEW_OR_FIX)
+            )
+            last_summary = "design approval refreshed"
+            # A changed candidate yields a new fp on the next read; an unchanged repair is
+            # stopped by the existing zero-progress guard instead of looping to round_cap.
+            last_fp = fp
+        except gates.RepositoryIntegrityStale as exc:
+            # Spec-0090/T1: repair the generated repository view through the existing
+            # implement→deliver path; do not spend the claim retry budget on a deterministic
+            # source/generated-view mismatch.
+            _repair_repository_integrity(
+                backend=_TimedBackend(
+                    inner=backend, timeout_seconds=effective_max_wall(), lock_fd=lock_fd
+                ),
+                state=state,
+                work_dir=Path(work_dir),
+                config=config,
+                facts=observed.facts,
+                reason=str(exc),
+            )
+            last_summary = "repository integrity repaired"
+            last_fp = fp
+        # Spec-0090/T1: `_do_merge` only returns after the forge reports success. Treat that
+        # result as terminal even if the next remote snapshot is briefly stale.
+        if verdict.action == _ACT_MERGE and last_summary == "merged":
+            return
+        if resuming and not _implementation_pending(state=state, facts=observed.facts):
+            # Spec-0056 recovery: checking a completed interrupted turn need not create a commit.
+            # The existing run checkpoint advanced; let the normal review path run once.
+            last_fp = None
 
         integrity_body = _restore_label_integrity(
             baseline=label_baseline,
-            allowed_removals=_allowed_label_removals(facts=observed.facts, verdict=verdict),
+            allowed_removals=allowed_removals,
         )
         if integrity_body is not None:
             _fail_automation(
@@ -2323,17 +2748,31 @@ def _reconcile(
             return
         _log(message=f"↻ {subject}：第 {round_index + 1}/{_MAX_RECONCILE_ROUNDS} 轮推进完成")
 
-    # 轮数到顶仍 ACTIONABLE：不是「卡在外部」（那会 QUIET 交还 slot），也不是「零进展」（那 fp 会重复）——
-    # 是**振荡**：每轮都真的改了 GitHub（fp 每轮都变），却在两三个状态间兜圈子。这是护栏一识别不了的死法
-    # （它只记得上一轮的 fp），且每一圈都在烧 LLM。收口为机器失败。
-    _fail_automation(
-        subject=subject,
-        facts=observed.facts,
-        category="round_cap",
-        attempts=_MAX_RECONCILE_ROUNDS,
-        reason="每轮都改变状态但未收敛，疑似 review/implement 振荡",
-        agent_id=agent_id,
-    )
+    # Spec-0090/T1: one last level-triggered read closes the action/cap boundary. A successful
+    # merge may become visible one read later; never overwrite that terminal fact with round_cap.
+    final = _sense(config=config, subject=subject)
+    final_verdict = _classify(facts=final.facts, in_flight=False)
+    if final_verdict.kind != _ACTIONABLE:
+        return
+
+    final_fp = _fingerprint(facts=final.facts)
+    final_progress = _reconcile_progress(facts=final.facts, state=state)
+    if final_fp == last_fp and final_progress == last_progress:
+        _post_attempt_stamp(
+            facts=final.facts, fp=final_fp, conclusion=last_summary, agent_id=agent_id
+        )
+        return
+    if final_progress in seen_progress:
+        _fail_automation(
+            subject=subject,
+            facts=final.facts,
+            category="fact_cycle",
+            attempts=_MAX_RECONCILE_ROUNDS,
+            reason="同一次认领中远端事实与本地门禁检查点均重复，确认状态循环",
+            agent_id=agent_id,
+        )
+        return
+    _log(message=f"↪ {subject}：{_MAX_RECONCILE_ROUNDS} 步均有新事实，交还 slot 后续接")
 
 
 def _capture_label_targets(*, facts: _Facts) -> dict[tuple[str, int], _LabelTargetSnapshot]:
@@ -2473,14 +2912,34 @@ def _act(
     Agent 只返回本角色 schema，不自行写 forge。动作异常在 worker 边界重试，耗尽再调用
     `_fail_automation`。`_AUTONOMOUS_CONTRACT` 拼进每个分支的 agent 上下文。
 
-    **硬超时**：整个动作（含其内部的 agent 子进程）超 `_AGENT_TIMEOUT_SECONDS` → 杀子进程 + 抛
+    **时间预算**：每次 backend.run 使用公共 effective_max_wall() 额度，耗尽后杀子进程 + 抛
     `_ActTimeout` → `_worker_loop` 捕获 → 持有者**自己**走 `_requeue_or_park`（释放行与锁，claimed 行永不
-    成孤儿）。flock 只回答「进程在不在」，回答不了「进程活着但挂死」——这道闸补的正是那个洞。
+    成孤儿）。该限制控制单次调用投入，不依据活动续时，也不以耗尽证明挂死。
     """
     facts = observed.facts
-    timed = _TimedBackend(inner=backend, timeout_seconds=_AGENT_TIMEOUT_SECONDS, lock_fd=lock_fd)
-    action = verdict.action
+    timed = _TimedBackend(inner=backend, timeout_seconds=effective_max_wall(), lock_fd=lock_fd)
+    action = _resume_verdict(state=state, facts=facts, verdict=verdict).action
     stage_owner = config.stages.owner_of
+
+    # Spec-0017 recovery: developers may edit; readers certify a delivered candidate only.
+    fixing_review = (
+        config.flow == agent_config.FLOW_STANDARD
+        and facts.review_state == _REVIEW_CHANGES_REQUESTED
+        and facts.review_commit_id == _short(sha=facts.head_sha)
+    )
+    candidate_stage = {
+        _ACT_E2E: agent_config.STAGE_E2E,
+        _ACT_MERGE: agent_config.STAGE_MERGE,
+        _ACT_REVIEW_OR_FIX: agent_config.STAGE_REVIEW,
+    }.get(action)
+    if (
+        candidate_stage is not None
+        and stage_owner(stage=candidate_stage) == _AGENT
+        and not (action == _ACT_REVIEW_OR_FIX and fixing_review)
+    ):
+        _prepare_candidate(
+            backend=timed, state=state, work_dir=work_dir, facts=facts, config=config
+        )
 
     if action == _ACT_REPLY:
         return _do_reply(
@@ -2499,7 +2958,11 @@ def _act(
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CONFLICT),
             on_agent=lambda: _do_rebase(
-                backend=timed, work_dir=work_dir, base=config.base, facts=facts
+                backend=timed,
+                work_dir=work_dir,
+                base=config.base,
+                facts=facts,
+                refresh_facts=lambda: _refresh_conflict_facts(facts=facts),
             ),
             on_skip=lambda: "conflict skipped",
         )
@@ -2517,7 +2980,9 @@ def _act(
             return "minimal flow stopped on CI failure"
         return route(
             owner=stage_owner(stage=agent_config.STAGE_CI),
-            on_agent=lambda: _do_fix_ci(backend=timed, work_dir=work_dir, facts=facts),
+            on_agent=lambda: _do_fix_ci(
+                backend=timed, state=state, work_dir=work_dir, facts=facts, config=config
+            ),
             on_skip=lambda: "ci skipped",
         )
     if action == _ACT_E2E:
@@ -2669,7 +3134,28 @@ def _do_solve(
     if kind != _KIND_ISSUE:
         return ""  # 裸 PR 不可能走到 solve（它天生有 PR）
     issue = github.get_issue(number=number)
+    advisory = (
+        preflight.advice_for(work_dir=work_dir, issue=issue)
+        if config.coordination == "soft"
+        else ""
+    )
+    runtime_context = _AUTONOMOUS_CONTRACT + advisory
     branch = f"{_BRANCH_PREFIX}{number}"
+    if facts.pr_number is not None:
+        # Spec-0056 recovery: an existing PR is a delivery container, not a completion signal.
+        report = _implement_and_deliver(
+            backend=backend,
+            state=state,
+            worktree=_pr_worktree(work_dir=work_dir, facts=facts),
+            facts=facts,
+            config=config,
+            resuming=True,
+            feedback="上次开发交接中断。保留已有改动，核对原任务和自测，完成剩余实现及交付；已完成部分不重做，不制造空提交。",
+            context_text=context.sections(
+                ("original issue", issue.body), ("runtime context", runtime_context)
+            ),
+        )
+        return str(report.get("summary", ""))
     worktree = git.Workspace(work_dir=work_dir).prepare(
         issue_number=number, branch=branch, base=config.base
     )
@@ -2682,7 +3168,7 @@ def _do_solve(
             issue_title=issue.title,
             issue_body=issue.body,
             branch=branch,
-            context_text=f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}",
+            context_text=f"{runtime_context}{_MINIMAL_FLOW_CONTRACT}",
         )
         if spec_report["status"] in {"PARTIAL", "BLOCKED"}:
             reason = str(spec_report.get("blocker") or spec_report.get("summary") or "blocked")
@@ -2711,7 +3197,7 @@ def _do_solve(
         )
         state.set_run(
             issue_number=number,
-            status="pr-open",
+            status=STATUS_ITERATING,
             branch=branch,
             pr_number=pr.number,
             design_digest=approved_design_digest,
@@ -2726,26 +3212,30 @@ def _do_solve(
         implementation_context = context.sections(
             ("compact objective spec", compact_text),
             ("original issue", f"# {issue.number} {issue.title}\n\n{issue.body}"),
-            ("runtime context", f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}"),
+            ("runtime context", f"{runtime_context}{_MINIMAL_FLOW_CONTRACT}"),
         )
         if config.flow == agent_config.FLOW_GENERATE_ONLY:
-            report = stages.execute_compact_spec(
+            report = _implement_and_deliver(
                 backend=backend,
-                work_dir=worktree,
-                issue_number=number,
-                pr_number=pr.number,
+                state=state,
+                worktree=worktree,
+                facts=replace(facts, pr_number=pr.number),
+                config=config,
+                resuming=False,
+                feedback="",
                 context_text=implementation_context,
             )
         else:
             implementation_before = gates.snapshot_head(workspace=worktree)
-            report = stages.implement(
+            report = _implement_and_deliver(
                 backend=backend,
-                work_dir=worktree,
-                issue_number=number,
-                pr_number=pr.number,
+                state=state,
+                worktree=worktree,
+                facts=replace(facts, pr_number=pr.number),
+                config=config,
+                resuming=False,
                 feedback="",
                 context_text=implementation_context,
-                evidence_pack=evidence_pack,
             )
             implementation_after = gates.snapshot_head(workspace=worktree)
             if implementation_after == implementation_before:
@@ -2767,10 +3257,11 @@ def _do_solve(
             backend=backend,
             worktree=worktree,
             mode=stages.MODE_DRAFT,
-            target=f"issue #{issue.number}「{issue.title}」",
+            # Spec-0081: target is a routing scalar, never a dynamic issue title.
+            target=f"issue #{issue.number}",
             branch=branch,
-            detail=issue.body,
-            context_text=_AUTONOMOUS_CONTRACT,
+            detail=context.sections(("issue title", issue.title), ("issue body", issue.body)),
+            context_text=runtime_context,
             require_delivered=False,
         )
 
@@ -2788,6 +3279,7 @@ def _do_solve(
     evidence_pack = draft_report.get("evidence_pack", []) if isinstance(draft_report, dict) else []
 
     approved_design_digest = ""
+    approved_raw_digest = ""
     architecture_owner = config.stages.owner_of(stage=agent_config.STAGE_ARCHITECTURE)
     if architecture_owner not in {_AGENT, _SKIP}:
         raise ValueError(f"未知 stage owner：{architecture_owner!r}")
@@ -2796,11 +3288,12 @@ def _do_solve(
             backend=backend,
             work_dir=worktree,
             issue_number=number,
-            context_text=_AUTONOMOUS_CONTRACT,
+            context_text=runtime_context,
             evidence_pack=evidence_pack,
         )
         if architecture_verdict["verdict"] == "PASS":
             approved_design_digest = architecture_verdict["design_digest"]
+            approved_raw_digest = architecture_verdict.get("design_raw_digest", "")
         else:
             refine_report = stages.rfc(
                 backend=backend,
@@ -2809,7 +3302,7 @@ def _do_solve(
                 target=architecture_verdict["spec_path"],
                 branch=branch,
                 detail=architecture_verdict["reason"],
-                context_text=_AUTONOMOUS_CONTRACT,
+                context_text=runtime_context,
                 require_delivered=False,
                 evidence_pack=evidence_pack,
             )
@@ -2819,9 +3312,9 @@ def _do_solve(
                 )
             # 轻量架构闸：一次独立评审 + 一次定向修订。修订后只跑确定性
             # Spec 校验并重新绑定 digest，不再消耗 LLM 做循环式复审。
-            approved_design_digest = stages.design_snapshot(work_dir=worktree, issue_number=number)[
-                "design_digest"
-            ]
+            snapshot = stages.design_snapshot(work_dir=worktree, issue_number=number)
+            approved_design_digest = snapshot["design_digest"]
+            approved_raw_digest = snapshot.get("design_raw_digest", "")
     pr = github.create_pr(
         branch=branch,
         base=config.base,
@@ -2831,42 +3324,27 @@ def _do_solve(
     )
     state.set_run(
         issue_number=number,
-        status="pr-open",
+        status=STATUS_ITERATING,
         branch=branch,
         pr_number=pr.number,
         design_digest=approved_design_digest,
+        design_raw_digest=approved_raw_digest,
         evidence_pack=evidence_pack,
     )
-    implementation_before = gates.snapshot_head(workspace=worktree)
-    implementation_report = stages.implement(
+    report = _implement_and_deliver(
         backend=backend,
-        work_dir=worktree,
-        issue_number=number,
-        pr_number=pr.number,
+        state=state,
+        worktree=worktree,
+        facts=replace(facts, pr_number=pr.number),
+        config=config,
+        resuming=False,
         feedback="",
-        context_text=_AUTONOMOUS_CONTRACT,
-        evidence_pack=evidence_pack,
+        context_text=(
+            context.sections(("original issue", issue.body), ("runtime context", runtime_context))
+            if config.coordination == "soft"
+            else runtime_context
+        ),
     )
-    implementation_after = gates.snapshot_head(workspace=worktree)
-    if implementation_after != implementation_before:
-        # Implementer may complete the delivery protocol itself.  In that case a
-        # second delivery agent sees an already-clean branch and cannot advance
-        # HEAD, which used to be misclassified as an empty delivery.  Verify the
-        # remote branch instead and avoid the redundant model call.
-        git.Workspace(work_dir=work_dir).assert_delivered(worktree=worktree, branch=branch)
-        report = implementation_report
-    else:
-        # HEAD unchanged can still mean the Implementer left valid uncommitted
-        # edits.  The delivery role remains responsible for commit and push.
-        report = stages.deliver(
-            backend=backend,
-            worktree=worktree,
-            branch=branch,
-            pr_number=pr.number,
-            issue_number=number,
-            # Spec-0075/T3: 交付段同样要给结构化一等出口——推不上去时请求 Vigil 收口为机器失败，不直接写 forge。
-            context_text=_AUTONOMOUS_CONTRACT,
-        )
     # Spec-0074 实证修复：转正**全权**归 `_classify` ⑪ 的确定性 `_do_ready`（每 tick 复检 draft，
     # level-triggered 幂等）——deliver 提示词里原 `gh pr ready`（Spec-0017/T2）是平台命令，Gitea forge
     # 下容器无 gh，agent 临场拼 REST 空转耗轮；转正零判断，机械归代码。
@@ -2874,7 +3352,213 @@ def _do_solve(
     return str(report.get("summary", ""))
 
 
-def _do_rebase(*, backend: Any, work_dir: Path, base: str, facts: _Facts) -> str:
+def _work_branch(*, facts: _Facts) -> str:
+    """Locate the existing delivery branch (Spec-0089/T1)."""
+    number = _issue_number_of(facts=facts)
+    return (
+        f"{_BRANCH_PREFIX}{number}"
+        if number
+        else github.pr_head_branch(pr_number=facts.pr_number or 0)
+    )
+
+
+def _implement_and_deliver(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    worktree: Path,
+    facts: _Facts,
+    config: agent_config.AgentConfig,
+    feedback: str,
+    context_text: str,
+    resuming: bool,
+) -> dict:
+    """Finish an existing development turn and its delivery (Spec-0089/T1)."""
+    number = _issue_number_of(facts=facts)
+    branch = _work_branch(facts=facts)
+    if resuming and config.flow in {
+        agent_config.FLOW_MINIMAL,
+        agent_config.FLOW_GENERATE_ONLY,
+    }:
+        snapshot = stages.minimal_design_snapshot(work_dir=worktree, issue_number=number)
+        context_text = context.sections(
+            ("compact objective spec", Path(snapshot["spec_path"]).read_text(encoding="utf-8")),
+            ("recovery context", context_text),
+            ("flow contract", _MINIMAL_FLOW_CONTRACT),
+        )
+    if number:
+        state.set_run(
+            issue_number=number, status=STATUS_ITERATING, branch=branch, pr_number=facts.pr_number
+        )
+    if config.flow == agent_config.FLOW_GENERATE_ONLY:
+        report = stages.execute_compact_spec(
+            backend=backend,
+            work_dir=worktree,
+            issue_number=number,
+            pr_number=facts.pr_number or 0,
+            context_text=context_text + "\n" + feedback,
+            resume_branch=branch if resuming else None,
+        )
+    else:
+        report = stages.implement(
+            backend=backend,
+            work_dir=worktree,
+            issue_number=number,
+            pr_number=facts.pr_number or 0,
+            feedback=feedback,
+            context_text=context_text,
+            evidence_pack=_evidence_pack(state=state, facts=facts),
+        )
+    workspace = git.Workspace(work_dir=worktree)
+    if not workspace.sync_delivered(worktree=worktree, branch=branch):
+        stages.deliver(
+            backend=backend,
+            worktree=worktree,
+            branch=branch,
+            pr_number=facts.pr_number or 0,
+            issue_number=number,
+            rebase_onto=config.base,
+            context_text=context_text,
+        )
+    workspace.assert_delivered(worktree=worktree, branch=branch)
+    if number:
+        state.set_run(
+            issue_number=number, status=STATUS_PR_OPEN, branch=branch, pr_number=facts.pr_number
+        )
+    return report
+
+
+def _prepare_candidate(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    work_dir: Path,
+    facts: _Facts,
+    config: agent_config.AgentConfig,
+) -> None:
+    """Recover unpublished work or align a behind-only reader (Spec-0089/T1)."""
+    worktree = _pr_worktree(work_dir=work_dir, facts=facts)
+    workspace = git.Workspace(work_dir=worktree)
+    if not workspace.sync_delivered(worktree=worktree, branch=_work_branch(facts=facts)):
+        _implement_and_deliver(
+            backend=backend,
+            state=state,
+            worktree=worktree,
+            facts=facts,
+            config=config,
+            resuming=True,
+            feedback="评审/测试前发现未交付的本地成果。保留全部改动，核对原任务，完成剩余实现、自测和提交推送；不要把未完成代码直接包装为交付。",
+            context_text=context.sections(
+                ("original issue", _issue_body_of(facts=facts)),
+                ("runtime context", _AUTONOMOUS_CONTRACT),
+            ),
+        )
+    _verify_candidate(worktree=worktree, facts=facts)
+
+
+def _verify_candidate(*, worktree: Path, facts: _Facts) -> None:
+    """Bind checks to exactly the sensed, local and remote candidate (Spec-0089/T1)."""
+    local, published = git.Workspace(work_dir=worktree).delivery_heads(
+        worktree=worktree, branch=_work_branch(facts=facts)
+    )
+    # Spec-0017: remote churn invalidates a verdict, not the execution failure budget.
+    # A reader's new, unpublished commit is still a delivery error, not remote churn.
+    if local != facts.head_sha and local != published:
+        raise git.WorkspaceError(f"PR #{facts.pr_number} 评审候选含未推送的本地提交")
+    remote = github.pr_snapshot(pr_number=facts.pr_number or 0).head_sha
+    if not remote:
+        raise git.WorkspaceError(f"PR #{facts.pr_number} 无法读取远端候选 HEAD")
+    if local != facts.head_sha or published != local or remote != local:
+        raise gates.MergeNotReady(f"PR #{facts.pr_number} 候选版本已变化，重新读取并验证")
+
+
+def _conflict_worktree(*, work_dir: Path, base: str, facts: _Facts, branch: str) -> Path:
+    """Return a worktree that is bound to the actual PR branch.
+
+    ``Workspace.ensure`` intentionally reuses an existing path.  That is correct for normal
+    implementation work, but unsafe for conflict recovery: a previous timed-out rebase may
+    have left an in-progress index, and an issue worktree may be bound to the conventional
+    issue branch while the PR head branch has been renamed.  Rebuild only a clean, published
+    worktree; preserve dirty/diverged work so unpublished commits are never discarded.
+    """
+    workspace = git.Workspace(work_dir=Path(work_dir))
+    prepare_conflict = getattr(workspace, "prepare_conflict", None)
+    if callable(prepare_conflict):
+        return prepare_conflict(branch=branch, base=base)
+
+    # Compatibility seam for older injected/fake Workspace implementations.  Production
+    # always uses the detached conflict worktree above.
+    _, number = _split_subject(subject=facts.subject)
+    worktree = workspace.ensure(issue_number=number, branch=branch)
+    if not workspace.sync_delivered(worktree=worktree, branch=branch):
+        _log(
+            message=(
+                f"… {facts.subject}：冲突工作区含未发布改动或未完成 rebase，保留现场交给 resolver "
+                f"（branch={branch}）"
+            )
+        )
+        return worktree
+    rebuilt = workspace.prepare(issue_number=number, branch=branch, base=base)
+    _log(message=f"↻ {facts.subject}：从 origin/{base} 与 origin/{branch} 重建冲突工作区")
+    return rebuilt
+
+
+def _conflict_context(*, facts: _Facts, base: str, branch: str, reason: str = "") -> str:
+    """Context contract for a repeatable, fully automated conflict attempt."""
+    fp = _conflict_fingerprint(facts=facts, base=base, branch=branch, reason=reason)
+    bounded_reason = " ".join(reason.split())[:_CONFLICT_REASON_MAX_CHARS]
+    snapshot = json.dumps(
+        {
+            "subject": facts.subject,
+            "pr_number": facts.pr_number,
+            "head_sha": facts.head_sha or "",
+            "mergeable_state": facts.mergeable_state or "",
+            "base": base,
+            "branch": branch,
+            "conflict_fingerprint": fp,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return context.sections(
+        ("runtime context", _AUTONOMOUS_CONTRACT),
+        ("conflict snapshot", snapshot),
+        (
+            "conflict recovery protocol",
+            "先检查 git status 是否存在未完成的 rebase；若存在，先恢复该 rebase，不能在冲突 index 上新建提交。"
+            "否则 fetch 最新 base 与本分支，记录 fetch 前的远端 head，只在本分支上 rebase。"
+            "按双方意图解决所有冲突，运行项目的 spec validate/render/graph 与相关测试；"
+            "若出现重复 spec 编号，先用 spec reserve-number --issue <N> --slug <slug> 在共享远端预留新编号，禁止手算；其他共享资源冲突按最新 base 的既有资源归属处理，"
+            "只有工作区干净、验证通过且使用 force-with-lease 推送到同一分支成功后才返回 delivered=true。"
+            "如果本次尝试失败，返回真实失败原因；下一次尝试会复用未完成现场或重建干净的隔离工作区继续恢复。"
+            f"上次失败诊断：{bounded_reason or '无'}。"
+            f"本次冲突指纹：{fp}",
+        ),
+    )
+
+
+def _refresh_conflict_facts(*, facts: _Facts) -> _Facts:
+    """Refresh the forge facts that define a conflict episode before each resolver attempt."""
+    if facts.pr_number is None:
+        return facts
+    snapshot = github.pr_snapshot(pr_number=facts.pr_number)
+    return replace(
+        facts,
+        head_sha=snapshot.head_sha or facts.head_sha,
+        merged=snapshot.state == "MERGED",
+        closed=snapshot.state == "CLOSED",
+        mergeable_state=_mergeable_state(snapshot=snapshot),
+    )
+
+
+def _do_rebase(
+    *,
+    backend: Any,
+    work_dir: Path,
+    base: str,
+    facts: _Facts,
+    refresh_facts: Callable[[], _Facts] | None = None,
+) -> str:
     """分支⑥：冲突 / base 前移 → 先试机械 `update_branch`（零 LLM），不行再下放 agent 解冲突。
 
     `update_branch` 只在「没冲突、只是落后」时成功；真冲突时它会失败 → 落到 `stages.conflict`（agent 按
@@ -2882,34 +3566,88 @@ def _do_rebase(*, backend: Any, work_dir: Path, base: str, facts: _Facts) -> str
     绝大多数「只是 base 前移」的情形——那本就不需要模型。
     """
     pr_number = facts.pr_number or 0
+    mechanical_reason = ""
     try:
         if github.update_branch(pr_number=pr_number, rebase=True):
             _log(message=f"↻ PR #{pr_number}：base 已并入（机械 update-branch，未叫 agent）")
             return "base 已并入（机械 update-branch）"
     except github.GithubError as exc:
+        mechanical_reason = str(exc)
         _log(message=f"… PR #{pr_number}：update-branch 不行（{exc}），下放 agent 解冲突")
     _, number = _split_subject(subject=facts.subject)
-    result = stages.conflict(
-        backend=backend,
-        work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
-        pr_number=pr_number,
-        issue_number=number if facts.subject.startswith(_KIND_ISSUE) else 0,
-        branch=github.pr_head_branch(pr_number=pr_number),
-        base=base,
-        context_text=_AUTONOMOUS_CONTRACT,
+    branch = ""
+    last_reason = mechanical_reason
+    last_facts = facts
+    for attempt in range(1, _CONFLICT_RESOLUTION_ATTEMPTS + 1):
+        try:
+            if refresh_facts is not None:
+                last_facts = refresh_facts()
+                pr_number = last_facts.pr_number or pr_number
+            # The forge can rename a head branch while a previous attempt is running; never
+            # continue a retry against the branch name from an obsolete snapshot.
+            branch = github.pr_head_branch(pr_number=pr_number)
+            worktree = _conflict_worktree(
+                work_dir=work_dir,
+                base=base,
+                facts=last_facts,
+                branch=branch,
+            )
+            conflict_fp = _conflict_fingerprint(
+                facts=last_facts, base=base, branch=branch, reason=last_reason
+            )
+            result = stages.conflict(
+                backend=backend,
+                work_dir=worktree,
+                pr_number=pr_number,
+                issue_number=number if last_facts.subject.startswith(_KIND_ISSUE) else 0,
+                branch=branch,
+                base=base,
+                context_text=_conflict_context(
+                    facts=last_facts, base=base, branch=branch, reason=last_reason
+                ),
+            )
+            if isinstance(result, dict) and result.get("delivered"):
+                return f"{result.get('summary', '冲突已解决并交付')} (conflict_fp={conflict_fp})"
+            last_reason = (
+                str(result.get("reason", "resolver 未交付"))
+                if isinstance(result, dict)
+                else str(result)
+            )
+        except Exception as exc:  # noqa: BLE001 - each attempt is isolated and retriable
+            last_reason = str(exc)
+        _log(
+            message=(
+                f"… PR #{pr_number}：冲突恢复第 {attempt}/{_CONFLICT_RESOLUTION_ATTEMPTS} 次未完成，"
+                f"下一次将复用/重建安全 worktree：{last_reason}"
+            )
+        )
+    conflict_fp = _conflict_fingerprint(
+        facts=last_facts, base=base, branch=branch, reason=last_reason
     )
-    return str(result.get("summary", ""))
+    raise git.WorkspaceError(
+        f"{_CONFLICT_RETRY_PREFIX} PR #{pr_number} 冲突恢复暂未完成 "
+        f"（conflict_fp={conflict_fp}）：{last_reason}"
+    )
 
 
-def _do_fix_ci(*, backend: Any, work_dir: Path, facts: _Facts) -> str:
+def _do_fix_ci(
+    *,
+    backend: Any,
+    state: RuntimeState,
+    work_dir: Path,
+    facts: _Facts,
+    config: agent_config.AgentConfig,
+) -> str:
     """分支⑧：当前 head 上 CI 红 → 把失败 check 的摘要喂给 implementer 去修。"""
     pr_number = facts.pr_number or 0
     logs = "\n".join(github.check_logs(pr_number=pr_number))
-    report = stages.implement(
+    report = _implement_and_deliver(
         backend=backend,
-        work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
-        issue_number=_issue_number_of(facts=facts),
-        pr_number=pr_number,
+        state=state,
+        worktree=_pr_worktree(work_dir=work_dir, facts=facts),
+        facts=facts,
+        config=config,
+        resuming=False,
         feedback=f"[ci] CI 红了，请据失败日志修复：\n{logs}",
         context_text=_AUTONOMOUS_CONTRACT,
     )
@@ -2948,6 +3686,7 @@ def _do_e2e(
     if verdict["verdict"] != "PASS":
         _log(message=f"✗ PR #{pr_number}：e2e 未过（{verdict['reason']}），不盖证据戳")
         return str(verdict["reason"])
+    _verify_candidate(worktree=_pr_worktree(work_dir=work_dir, facts=facts), facts=facts)
     identity.post_signed_comment(
         pr_number=pr_number,
         body=(
@@ -2998,6 +3737,7 @@ def _do_review_or_fix(
                 f"{_AUTONOMOUS_CONTRACT}{_MINIMAL_FLOW_CONTRACT}{_render_evidence(evidence_pack)}"
             ),
         )
+        _verify_candidate(worktree=_pr_worktree(work_dir=work_dir, facts=facts), facts=facts)
         _clear_review_labels(pr_number=pr_number, labels=facts.labels)
         if verdict["verdict"] == "PASS":
             label = f"{_LABEL_REVIEW_APPROVED_PREFIX}{_short(sha=facts.head_sha)}"
@@ -3025,11 +3765,13 @@ def _do_review_or_fix(
         detailed_feedback = state.get_review_feedback(
             issue_number=issue_number, head_sha=facts.head_sha
         )
-        report = stages.implement(
+        report = _implement_and_deliver(
             backend=backend,
-            work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
-            issue_number=_issue_number_of(facts=facts),
-            pr_number=pr_number,
+            state=state,
+            worktree=_pr_worktree(work_dir=work_dir, facts=facts),
+            facts=facts,
+            config=config,
+            resuming=False,
             feedback=(
                 f"[review] 以下是当前 head 的完整评审返工意见，请逐项修改并验证：\n"
                 f"{detailed_feedback}"
@@ -3037,7 +3779,6 @@ def _do_review_or_fix(
                 else "[review] 评审要求返工，但详细意见缺失；请复核当前实现与验收条件"
             ),
             context_text=_AUTONOMOUS_CONTRACT,
-            evidence_pack=evidence_pack,
         )
         return str(report.get("summary", ""))
 
@@ -3045,9 +3786,11 @@ def _do_review_or_fix(
         backend=backend,
         work_dir=_pr_worktree(work_dir=work_dir, facts=facts),
         pr_number=pr_number,
+        issue_number=_issue_number_of(facts=facts),
         issue_body=_issue_body_of(facts=facts),
         context_text=f"{_AUTONOMOUS_CONTRACT}{_render_evidence(evidence_pack)}",
     )
+    _verify_candidate(worktree=_pr_worktree(work_dir=work_dir, facts=facts), facts=facts)
     _clear_review_labels(pr_number=pr_number, labels=facts.labels)
     prefix = (
         _LABEL_REVIEW_APPROVED_PREFIX
@@ -3143,13 +3886,13 @@ def _do_merge(
             )
     if flow in {agent_config.FLOW_MINIMAL, agent_config.FLOW_GENERATE_ONLY}:
         with _MECHANICAL_MERGE_LOCK:
-            stages.merge_mechanical(
+            report = stages.merge_mechanical(
                 pr_number=pr_number,
                 head_sha=facts.head_sha or "",
                 require_ci=require_ci,
             )
     else:
-        stages.merge(
+        report = stages.merge(
             backend=backend,
             pr_number=pr_number,
             head_sha=facts.head_sha or "",
@@ -3157,6 +3900,8 @@ def _do_merge(
             context_text=_AUTONOMOUS_CONTRACT,
             require_ci=require_ci,
         )
+    if not report["merged"]:
+        raise gates.MergeNotReady(f"PR #{pr_number} 尚未合并：{report.get('summary', '')}")
     number = issue_number
     if number:
         state.set_run(
@@ -3260,6 +4005,14 @@ def _comments(*, facts: _Facts) -> list[github.Comment]:
     return github.list_issue_comments(number=_issue_number_of(facts=facts))
 
 
+def _failure_comments(*, subject: str) -> list[github.Comment]:
+    """Read failure markers from the same object as the writer (Spec-0088/T2)."""
+    kind, number = _split_subject(subject=subject)
+    if kind == _KIND_ISSUE:
+        return github.list_issue_comments(number=number)
+    return github.list_comments(pr_number=number)
+
+
 def _fail_automation(
     *,
     subject: str,
@@ -3268,16 +4021,17 @@ def _fail_automation(
     attempts: int,
     reason: str,
     agent_id: str,
+    projection_fp: str | None = None,
 ) -> None:
     """Persist an idempotent, self-reviving machine-failure terminal projection."""
-    fp = _fingerprint(facts=facts)
+    fp = projection_fp or _fingerprint(facts=facts)
     marker = f"{_FAILURE_MARKER} fp={fp} category={category} -->"
     body = (
         f"{marker}\n"
         f"⚠️ openagents 自动化失败\n\n"
         f"- category: `{category}`\n"
         f"- attempts: `{attempts}`\n"
-        f"- facts fingerprint: `{fp}`\n"
+        f"- projection fingerprint: `{fp}`\n"
         f"- at: `{datetime.now(UTC).isoformat()}`\n\n"
         f"最后错误：{reason}\n\n"
         "相同事实下不会再次调用模型；相关事实变化后守夜会自动清除失败态并重新判断。"
@@ -3304,7 +4058,7 @@ def _already_said(*, comments: list[github.Comment], body: str) -> bool:
 
 
 # --------------------------------------------------------------------------------------------------
-# `_act` 的硬超时：flock 只回答「进程在不在」，回答不了「进程活着但挂死在一个不返回的调用上」。
+# 单次调用总时长预算：与 Claude 共用配置，耗尽不代表挂死。
 # --------------------------------------------------------------------------------------------------
 
 
@@ -3312,7 +4066,7 @@ class _TimedBackend:
     """给 backend 的 `run` 套一层**硬墙钟**：超 `timeout_seconds` → 杀掉这次调用起的进程树 + 抛 `_ActTimeout`。
 
     为什么套在 backend 而不是包整个 `_act`：agent 调用是 `_act` 里唯一可能**永不返回**的东西（网络/模型
-    挂起），而 backend 是它的唯一入口。套在这里，超时能精确定位到「哪一次 agent 调用挂了」，也能拿到该次
+    挂起），而 backend 是它的唯一入口。套在这里，超时能定位到哪一次调用耗尽预算，也能拿到该次
     调用起的子进程去杀——包在外面就只能笼统地杀掉本进程的所有子进程，会误杀**其它 worker 正在跑的 agent**。
 
     **子进程归属靠 backend 自报，不靠猜。** 在跑 agent 的那个线程里先 `proc.track()` 开桶，backend `Popen`
@@ -3321,12 +4075,12 @@ class _TimedBackend:
     K 个 worker 也彼此并发：diff 会把别人的 `gh` 认成自己的 agent，于是超时时**杀错进程、真挂死的 agent
     还活着继续 push**，双跑就从这个洞里漏出来（而这道闸正是 flock 覆盖不到的那个洞）。
 
-    抛出后：`_worker_loop` 捕获 `_ActTimeout` → **直接 park 收口为机器失败**（不回队重试）。因为「杀干净了」只是尽力
-    而为（in-proc backend / 没自报 PID 的 backend 杀不着），把一个可能还活着的 agent 的活重新发出去正是双跑；
-    而挂死 30 分钟本就是该记录机器失败的事。其它异常（gh 抖动等）仍走回队重试。
+    抛出后沿现有有界重试处理；耗尽预算不代表挂死或验收通过。终止仍是尽力而为
+    （in-proc backend / 没自报 PID 的 backend 杀不着），本组不改变进程归属、锁或恢复保证。
+    有限值 <=0 关闭总时长限制，仍保留进程跟踪和锁登记。
     """
 
-    def __init__(self, *, inner: Any, timeout_seconds: int, lock_fd: int | None) -> None:
+    def __init__(self, *, inner: Any, timeout_seconds: float, lock_fd: int | None) -> None:
         self._inner = inner
         self._timeout_seconds = timeout_seconds
         self._lock_fd = lock_fd
@@ -3340,14 +4094,15 @@ class _TimedBackend:
             daemon=True,
         )
         thread.start()
-        thread.join(timeout=self._timeout_seconds)
+        thread.join(timeout=self._timeout_seconds if self._timeout_seconds > 0 else None)
         spawned = proc.untrack(thread_id=thread.ident or 0)
         proc.release_fds(thread_id=thread.ident or 0)
         if thread.is_alive():
             for pid, handle in sorted(spawned.items()):
                 proc.kill_tree(pid=pid, handle=handle)  # 句柄验明正身，绝不杀 PID 复用后的无辜进程
             raise _ActTimeout(
-                f"agent 调用超过 {self._timeout_seconds}s 未返回，已杀进程树 {sorted(spawned)}"
+                f"agent 调用时间预算耗尽（总时长上限 {self._timeout_seconds:g}s），"
+                f"已请求终止进程树 {sorted(spawned)}"
             )
         if "error" in box:
             raise box["error"]
@@ -3425,6 +4180,7 @@ def _repo_as_config(
         labels=repo.labels,
         repos=[repo],
         flow=repo.flow,
+        coordination=repo.coordination,
     )
 
 

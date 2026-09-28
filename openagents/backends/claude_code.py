@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
 from pathlib import Path
 
+from openagents.backends.base import MAX_WALL_ENV as MAX_WALL_ENV
 from openagents.backends.base import AgentResult, TokenUsage
+from openagents.backends.base import effective_max_wall as effective_max_wall
 from openagents.runtime.invocation import redact_text
 from openagents.utils import proc as proc_utils
 from openagents.utils import streams
@@ -49,17 +52,31 @@ def effective_permission_mode() -> str:
     return value or _DEFAULT_PERMISSION_MODE
 
 
+def _claude_child_env(*, advisory: bool) -> dict[str, str]:
+    """Lock every Claude Code subagent to this invocation's main model.
+
+    A per-call ``Agent(model=sonnet)`` overrides Claude Code's normal subagent
+    default.  FORCE makes that selection inherit the parent (CLI >= 2.1.257).
+    Pinning SUBAGENT_MODEL to ANTHROPIC_MODEL also covers older supported CLIs.
+    Never trust a caller's stale subagent override for this backend.
+    """
+    env = dict(os.environ)
+    env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] = "1"
+    model = env.get("ANTHROPIC_MODEL", "").strip()
+    if model:
+        env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+    else:
+        env.pop("CLAUDE_CODE_SUBAGENT_MODEL", None)
+    if advisory:
+        env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8192"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    return env
+
+
 # Spec-0046/T1: claude -p 流式读的 idle（停顿）看门狗旋钮，镜像上面的 effective_permission_mode 最小 env 范式。
-# 判据是「有没有新输出行（进展）」而非总时长——健康长任务持续吐 stream-json 事件，idle 计时被每来一行刷新
-# 归零，只有真僵死（挂在对 Anthropic API 的网络请求、等一个永不到来的输入、或进程僵死）才会长时间静默触发。
+# 静默只说明没有新输出，不证明挂死；每行输出刷新 idle，但不延长公共总时长预算。
 IDLE_TIMEOUT_ENV = "OPENAGENTS_CLAUDE_IDLE_TIMEOUT"
-_DEFAULT_IDLE_TIMEOUT = (
-    300.0  # 5 分钟完全静默对健康 stream-json 流已是极强的僵死信号，宽到不误杀正常长任务。
-)
-MAX_WALL_ENV = "OPENAGENTS_CLAUDE_MAX_WALL"
-_DEFAULT_MAX_WALL = (
-    3600.0  # 绝对墙钟兜底，远大于 idle，防「每 59s 吐一行垃圾但永不 result」的病态流。
-)
+_DEFAULT_IDLE_TIMEOUT = 300.0
 
 # Spec-0046/T1: terminate→kill 之间的宽限秒数（SIGTERM 后等这么久仍不退 → SIGKILL）。
 _TERMINATE_GRACE_SECONDS = 5.0
@@ -89,11 +106,6 @@ def effective_idle_timeout() -> float:
     return _effective_timeout(env_name=IDLE_TIMEOUT_ENV, default=_DEFAULT_IDLE_TIMEOUT)
 
 
-def effective_max_wall() -> float:
-    """Spec-0046/T1: 绝对墙钟兜底秒数（单一真相源）；``<=0`` 关闭该兜底。"""
-    return _effective_timeout(env_name=MAX_WALL_ENV, default=_DEFAULT_MAX_WALL)
-
-
 def _watchdog_poll_interval(*, idle, max_wall):
     """Spec-0046/T1: 看门狗轮询间隔——取活跃阈值与 ``_WATCHDOG_POLL_CAP`` 的较小者；两者皆关闭 → ``None``。
 
@@ -106,15 +118,25 @@ def _watchdog_poll_interval(*, idle, max_wall):
 
 
 def _terminate_then_kill(*, proc):
-    """Spec-0046/T1: 终止子进程——先 ``terminate()``（SIGTERM），宽限内不退再 ``kill()``（SIGKILL）。
+    """Spec-0046/T1: 终止 Claude 及其整个进程组。
 
     杀掉子进程会关闭其 stdout 管道 → 主循环的 ``for raw in proc.stdout:`` 随即结束迭代（这是唤醒阻塞读的
-    唯一手段，故读路径零改动）。尽力而为：各步吞异常，绝不把看门狗守护线程带崩（守夜第一要务是活着进下一轮）。
+    唯一手段，故读路径零改动）。Claude 会再启动 shell/MCP 子进程；只调用 ``terminate()`` 会把这些子进程
+    留成孤儿，所以 backend 在启动时创建独立 session，并在这里先杀整个 process group，再用句柄作兜底。
+    尽力而为：各步吞异常，绝不把看门狗守护线程带崩（守夜第一要务是活着进下一轮）。
     """
+    pgid = proc_utils.process_group(handle=proc)
     try:
-        proc.terminate()
+        if pgid is None and not isinstance(proc, subprocess.Popen):
+            raise TypeError("non-Popen test double")
+        if pgid is None:
+            pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)
     except Exception:
-        pass
+        try:
+            proc.terminate()
+        except Exception:
+            pass
     graceful = False
     try:
         proc.wait(timeout=_TERMINATE_GRACE_SECONDS)
@@ -122,9 +144,28 @@ def _terminate_then_kill(*, proc):
     except Exception:
         graceful = False
     if not graceful:
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                pass
         try:
             proc.kill()
         except Exception:
+            pass
+    elif pgid is not None:
+        # The Claude leader can exit after SIGTERM while a shell/MCP child keeps
+        # the pipe open.  ``wait()`` only proves the leader is gone; inspect the
+        # session before escalating so an orphan cannot survive a timed stop.
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return
+        except OSError:
+            return
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except OSError:
             pass
 
 
@@ -280,6 +321,13 @@ class ClaudeCodeBackend:
 
     name = "claude-code"
 
+    def __init__(self, *, advisory: bool = False) -> None:
+        self._advisory = advisory
+
+    def for_advisory(self) -> ClaudeCodeBackend:
+        """Spec-0091: a separate, tool-free instance; never mutate developer settings."""
+        return ClaudeCodeBackend(advisory=True)
+
     def run(self, *, work_dir: Path, task: str, context: str) -> AgentResult:
         """RFC-0001 T2 + RFC-0003: 在 work_dir 内驱动 Claude Code 改代码并报告结果。
 
@@ -289,7 +337,6 @@ class ClaudeCodeBackend:
         """
         work_dir_str = str(work_dir)
         prompt = _build_prompt(task=task, context=context)
-
         result_text, tool_events, usage = self._run_claude_streaming(
             work_dir=work_dir, prompt=prompt
         )
@@ -319,10 +366,9 @@ class ClaudeCodeBackend:
 
         Spec-0046/T1: 阻塞式逐行读外挂一道 idle（停顿）看门狗守护线程——主循环每来一行只多刷一次
         `last_activity`（monotonic）戳；看门狗轮询若发现「连续静默超 idle」或「总时长超 max_wall」，就
-        terminate()→kill() 子进程，管道随之关闭、主循环退出，收尾抛**既有的** `RuntimeError`（带停顿/墙钟
-        超时详情），交上游 per-issue/per-round try/except 隔离（这轮这个 agent 失败 → 跳过、下轮重试）。
-        判据是「有没有新输出行」而非总时长：健康长任务持续吐事件、idle 计时被每行刷新归零 → 看门狗永不介入
-        读、永不误杀，读路径逐字节零回归。
+        terminate()→kill() 子进程，管道随之关闭、主循环退出，收尾抛**既有的** `RuntimeError`（带无输出/预算
+        耗尽详情），交上游 per-issue/per-round try/except 隔离（这轮这个 agent 失败 → 跳过、下轮重试）。
+        新输出只刷新静默计时，不证明有效进展，也不延长总时长预算；已有流式读取路径保持不变。
         """
         proc = subprocess.Popen(
             [
@@ -331,18 +377,39 @@ class ClaudeCodeBackend:
                 "--permission-mode",
                 effective_permission_mode(),
                 *_STREAM_ARGS,
+                *(
+                    [
+                        "--tools",
+                        "",
+                        "--max-turns",
+                        "1",
+                        "--strict-mcp-config",
+                        "--disable-slash-commands",
+                        "--setting-sources",
+                        "",
+                    ]
+                    if self._advisory
+                    else []
+                ),
             ],
             cwd=work_dir,
+            env=_claude_child_env(advisory=self._advisory),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=True,
             # Spec-0065/T2: 把调用方登记的 fd 传给子进程继承（守夜传的是它那把 flock 存活证明）。
             # 于是「谁在干活谁持锁」——守夜进程被 SIGKILL 后，还在跑的 agent 孤儿仍持着锁，回收方抢不到、
             # 那行就不会被打回队列重领（双跑的最后一个入口）。非守夜的调用方没登记 → 空元组 → 行为不变。
             pass_fds=proc_utils.inherited_fds(),
         )
+        # Capture the session group before any watchdog/reaper can observe a dead leader.
+        try:
+            proc_utils.remember_process_group(handle=proc, pgid=os.getpgid(proc.pid))
+        except OSError:
+            pass
         # Spec-0065/T2: 自报 PID + Popen 句柄给认领桶——守夜的 `_act` 硬超时据此**精确**杀掉这次调用起的
         # 进程树；句柄用于验明正身（PID 被 reap 后可能已被复用，裸 PID 杀过去就是杀无辜者，见 utils.proc）。
         proc_utils.publish(pid=proc.pid, handle=proc)
@@ -364,7 +431,7 @@ class ClaudeCodeBackend:
         stdin_writer.start()
 
         # Spec-0046/T1: 起 idle 看门狗。last_activity 用单元素 list 做可变共享戳（monotonic，不受系统时间回拨
-        # 影响）；watchdog_reason 由看门狗在触发时填入（「停顿超时」/「墙钟超时」），收尾据此抛 RuntimeError。
+        # 影响）；watchdog_reason 记录「长时间无输出」或「时间预算耗尽」，收尾据此抛 RuntimeError。
         idle = effective_idle_timeout()
         max_wall = effective_max_wall()
         poll = _watchdog_poll_interval(idle=idle, max_wall=max_wall)
@@ -378,11 +445,11 @@ class ClaudeCodeBackend:
             while not stop_event.wait(poll):
                 now = time.monotonic()
                 if idle > 0 and now - last_activity[0] > idle:
-                    watchdog_reason.append(f"停顿超时（连续静默 {idle:.0f}s 无新输出）")
+                    watchdog_reason.append(f"长时间无输出（连续 {idle:g}s 无新输出）")
                     _terminate_then_kill(proc=proc)
                     return
                 if max_wall > 0 and now - start > max_wall:
-                    watchdog_reason.append(f"墙钟超时（单次调用总时长超 {max_wall:.0f}s）")
+                    watchdog_reason.append(f"时间预算耗尽（单次调用总时长超 {max_wall:g}s）")
                     _terminate_then_kill(proc=proc)
                     return
 

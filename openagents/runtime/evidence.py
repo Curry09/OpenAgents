@@ -12,7 +12,11 @@ class EvidenceError(ValueError):
 
 
 def validate_manifest(
-    *, verdict: str, evidence: list, require_behavior: bool = True, required_source: str | None = None
+    *,
+    verdict: str,
+    evidence: list,
+    require_behavior: bool = True,
+    required_source: str | None = None,
 ) -> None:
     """Validate evidence items and reject presence-only or explicitly failed PASS claims.
 

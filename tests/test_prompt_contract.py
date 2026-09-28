@@ -51,7 +51,11 @@ class _RecordingBackend:
 
 def _output(module) -> dict:
     values = {bool: True, str: "ok", list: []}
-    return {key: values[kind] for key, kind in module.OUTPUT_SCHEMA.items()}
+    output = {key: values[kind] for key, kind in module.OUTPUT_SCHEMA.items()}
+    # Reviewer has a stricter machine contract than the legacy type-only map.
+    if module is reviewer:
+        output["verdict"] = "PASS"
+    return output
 
 
 def _placeholders(module, tmp_path) -> dict:

@@ -116,7 +116,11 @@ def _already_diagnosed(*, subject: str, comments: list[Any]) -> bool:
 
 def _diagnostic(*, subject: str, comments: list[Any]) -> str:
     previous = next(
-        (str(comment.body).strip() for comment in reversed(comments) if LEGACY_LABEL in str(comment.body)),
+        (
+            str(comment.body).strip()
+            for comment in reversed(comments)
+            if LEGACY_LABEL in str(comment.body)
+        ),
         "No prior signed diagnostic was found; the retired label itself was preserved as the source fact.",
     )
     digest = hashlib.sha256(f"{subject}\0{previous}".encode()).hexdigest()
@@ -157,7 +161,10 @@ def _manual_owner_paths(*, value: Any, prefix: str = "") -> list[str]:
     if isinstance(value, dict):
         for key, child in value.items():
             path = f"{prefix}/{key}" if prefix else str(key)
-            if key in {"triage", "rfc", "architecture", "ci", "e2e", "review", "conflict", "merge"} and child == "human":
+            if (
+                key in {"triage", "rfc", "architecture", "ci", "e2e", "review", "conflict", "merge"}
+                and child == "human"
+            ):
                 found.append(path)
             else:
                 found.extend(_manual_owner_paths(value=child, prefix=path))
@@ -178,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--no-forge", action="store_true", help="Only inspect local config/runtime state")
+    parser.add_argument(
+        "--no-forge", action="store_true", help="Only inspect local config/runtime state"
+    )
     args = parser.parse_args(argv)
 
     local = scan_local(repo=args.repo)

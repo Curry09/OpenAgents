@@ -8,6 +8,7 @@
 import io
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from openagents.backends import claude_code
 from openagents.backends.base import AgentBackend, AgentResult
 from openagents.backends.claude_code import (
     _GUARDRAIL,
@@ -386,6 +388,27 @@ def test_invokes_claude_stream_json_in_work_dir(monkeypatch, tmp_path):
     assert kwargs["cwd"] == tmp_path
 
 
+def test_advisory_disables_tools_and_bounds_output_without_changing_developer(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", raising=False)
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+    developer = ClaudeCodeBackend()
+    developer.for_advisory().run(work_dir=tmp_path, task="plan", context="issues")
+    developer.run(work_dir=tmp_path, task="implement", context="original issue")
+    command, kwargs = popen_calls[0]
+    assert command[command.index("--tools") + 1] == ""
+    assert command[command.index("--max-turns") + 1] == "1"
+    assert "--strict-mcp-config" in command
+    assert kwargs["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
+    assert "--tools" not in popen_calls[1][0]
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in popen_calls[1][1]["env"]
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in popen_calls[1][1]["env"]
+
+
 def test_prompt_is_written_once_to_stdin_and_never_argv(monkeypatch, tmp_path):
     sentinel = "SENSITIVE-LONG-PROMPT-" * 10000
     popen_calls, _ = _patch(
@@ -560,6 +583,116 @@ def test_command_line_honors_permission_mode_override(monkeypatch, tmp_path):
     assert cmd[idx + 1] == "bypassPermissions"
 
 
+@pytest.mark.parametrize("advisory", [False, True])
+def test_subagents_are_locked_to_main_model_even_with_stale_override(
+    monkeypatch, tmp_path, advisory
+):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL", "anthropic/claude-sonnet-5")
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "0")
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+
+    ClaudeCodeBackend(advisory=advisory).run(work_dir=tmp_path, task="t", context="c")
+
+    child_env = popen_calls[0][1]["env"]
+    assert child_env["ANTHROPIC_MODEL"] == "openai/gpt-6-luna"
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL"] == "openai/gpt-6-luna"
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+
+
+def test_subagent_lock_inherits_main_when_no_explicit_model(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL", "anthropic/claude-sonnet-5")
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    child_env = popen_calls[0][1]["env"]
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in child_env
+
+
+def test_terminate_escalates_after_leader_exits_but_group_survives(monkeypatch):
+    """Kill an orphaned Claude child after the leader exits cleanly."""
+    events = []
+
+    class _Leader:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(claude_code.os, "getpgid", lambda pid: 4242)
+
+    def killpg(pgid, sig):
+        events.append(("killpg", pgid, sig))
+        if sig == signal.SIGTERM:
+            return
+        return None
+
+    monkeypatch.setattr(claude_code.os, "killpg", killpg)
+    signal_zero = []
+
+    def kill(pid, sig):
+        signal_zero.append((pid, sig))
+        if sig == 0:
+            return None
+
+    monkeypatch.setattr(claude_code.os, "kill", kill)
+    monkeypatch.setattr(claude_code.subprocess, "Popen", _Leader)
+
+    claude_code._terminate_then_kill(proc=_Leader())
+
+    assert ("killpg", 4242, signal.SIGTERM) in events
+    assert ("killpg", 4242, signal.SIGKILL) in events
+    assert signal_zero == []
+
+
+def test_terminate_uses_captured_group_after_leader_was_reaped(monkeypatch):
+    """Do not rediscover PGID from a leader that another thread already reaped."""
+    events = []
+
+    class _ReapedLeader:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    leader = _ReapedLeader()
+    proc.remember_process_group(handle=leader, pgid=4242)
+    monkeypatch.setattr(
+        claude_code.os,
+        "getpgid",
+        lambda pid: (_ for _ in ()).throw(ProcessLookupError(pid)),
+    )
+
+    def killpg(pgid, sig):
+        events.append(("killpg", pgid, sig))
+
+    monkeypatch.setattr(claude_code.os, "killpg", killpg)
+
+    claude_code._terminate_then_kill(proc=leader)
+
+    assert ("killpg", 4242, signal.SIGTERM) in events
+    assert ("killpg", 4242, signal.SIGKILL) in events
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0046/T2：claude -p 流式读的 idle（停顿）看门狗——真静默/病态流触发、健康流零回归、访问器解析
 #
@@ -642,7 +775,7 @@ def _patch_popen(monkeypatch, *, fake, git_porcelain):
 
 
 def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
-    # ① idle 触发：吐一行后长时间静默 → 连续静默超 idle → terminate 后 kill 被调 + 抛 RuntimeError 含「停顿超时」。
+    # ① 连续静默超 idle → terminate 后 kill 被调，原因记录长时间无输出。
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0.1")
     monkeypatch.setenv(MAX_WALL_ENV, "0")  # 只测 idle，关墙钟兜底
     fake = _WatchdogPopen(
@@ -653,13 +786,15 @@ def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "停顿超时" in str(exc.value)
+    assert "长时间无输出" in str(exc.value)
+    assert "预算耗尽" not in str(exc.value)
+    assert "挂死" not in str(exc.value)
     assert fake.terminated is True, "看门狗触发时应先 terminate()"
     assert fake.killed is True, "SIGTERM 宽限内未退 → 应升级到 kill()"
 
 
 def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
-    # ② 墙钟触发：每 tick 吐一行（idle 骗得过）但总时长超绝对上限 → 抛 RuntimeError 含「墙钟超时」。
+    # ② 持续吐行仍耗尽总时长预算，输出不能续时。
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")  # 关 idle：病态流一直有「新行」，idle 判据被骗过
     monkeypatch.setenv(MAX_WALL_ENV, "0.2")
     fake = _WatchdogPopen(
@@ -673,7 +808,9 @@ def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "墙钟超时" in str(exc.value)
+    assert "时间预算耗尽" in str(exc.value)
+    assert "长时间无输出" not in str(exc.value)
+    assert "挂死" not in str(exc.value)
     assert fake.killed is True
 
 
@@ -716,6 +853,13 @@ def test_effective_idle_timeout_defaults_to_300(monkeypatch):
 def test_effective_max_wall_defaults_to_3600(monkeypatch):
     # ④ 访问器：未设 → 缺省 3600s（远大于 idle）。
     monkeypatch.delenv(MAX_WALL_ENV, raising=False)
+    assert effective_max_wall() == 3600.0
+
+
+@pytest.mark.parametrize("raw", ["", " ", "invalid", "nan", "inf", "-inf"])
+def test_invalid_max_wall_falls_back_to_finite_budget(monkeypatch, raw):
+    """Spec-0046: malformed budgets must not disable the guard or overflow thread.join."""
+    monkeypatch.setenv(MAX_WALL_ENV, raw)
     assert effective_max_wall() == 3600.0
 
 

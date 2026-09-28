@@ -182,14 +182,19 @@ def run_user_test(
     except Exception as exc:
         if root is None:
             root = Path(tempfile.mkdtemp(prefix="openagents-user-test-error-"))
-        return _setup_failure(root=root, error=f"repository setup failed: {type(exc).__name__}: {exc}")
+        return _setup_failure(
+            root=root, error=f"repository setup failed: {type(exc).__name__}: {exc}"
+        )
 
     transcript_path = root / "input.jsonl"
     stdout_path = root / "stdout.log"
     stderr_path = root / "stderr.log"
     status_path = root / "status.json"
     diff_path = root / "workspace.diff"
-    transcript_lines = [json.dumps(event.json_payload(), ensure_ascii=False, sort_keys=True) for event in plan.events]
+    transcript_lines = [
+        json.dumps(event.json_payload(), ensure_ascii=False, sort_keys=True)
+        for event in plan.events
+    ]
     transcript_path.write_text("\n".join(transcript_lines) + "\n", encoding="utf-8")
 
     stdout_lines: list[str] = []
@@ -275,7 +280,9 @@ def run_user_test(
         "diff_path": str(diff_path),
         "tool_events": tool_events,
     }
-    status_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    status_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return UserTestResult(
         status=status,
         exit_code=exit_code,
@@ -318,10 +325,16 @@ def _copy_repository(*, candidate: Path, destination: Path) -> None:
     with tarfile.open(fileobj=BytesIO(archive.stdout), mode="r:") as tar:
         tar.extractall(destination)
     subprocess.run(["git", "init", "--quiet"], cwd=destination, check=True)
-    subprocess.run(["git", "config", "user.name", "OpenAgents user test"], cwd=destination, check=True)
-    subprocess.run(["git", "config", "user.email", "user-test@example.invalid"], cwd=destination, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "OpenAgents user test"], cwd=destination, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "user-test@example.invalid"], cwd=destination, check=True
+    )
     subprocess.run(["git", "add", "-A"], cwd=destination, check=True)
-    subprocess.run(["git", "commit", "--quiet", "-m", "user-test baseline"], cwd=destination, check=True)
+    subprocess.run(
+        ["git", "commit", "--quiet", "-m", "user-test baseline"], cwd=destination, check=True
+    )
 
 
 def _harness_environment(*, root: Path, repo: Path) -> dict[str, str]:

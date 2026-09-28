@@ -37,10 +37,18 @@ class NexAUBackend:
         model: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        advisory: bool = False,
     ) -> None:
+        self._advisory = advisory
         self._model = model or _required_env(MODEL_ENV)
         self._base_url = _sdk_base_url(base_url or _required_env(BASE_URL_ENV))
         self._api_key = api_key or _required_env(API_KEY_ENV)
+
+    def for_advisory(self) -> NexAUBackend:
+        """Spec-0091: one bounded model turn with no execution tools."""
+        return NexAUBackend(
+            model=self._model, base_url=self._base_url, api_key=self._api_key, advisory=True
+        )
 
     def run(self, *, work_dir: Path, task: str, context: str) -> AgentResult:
         """Run NexAU with local-shell tools and return its stop-tool payload."""
@@ -62,6 +70,17 @@ class NexAUBackend:
         # WIS requires Bearer auth. NexAU 0.4.1 also constructs an old httpx.Timeout that the
         # installed Anthropic SDK's httpx2 client cannot consume, so use a plain seconds value.
         config.llm_config.to_client_kwargs = MethodType(_client_kwargs, config.llm_config)
+        if self._advisory:
+            config.tools = []
+            config.stop_tools = set()
+            config.max_iterations = 1
+            config.retry_attempts = 0
+            config.timeout = 90
+            config.system_prompt = "Return the requested JSON. Use only the provided text."
+            config.system_prompt_type = "string"
+            config.llm_config.max_tokens = 8192
+            config.llm_config.max_retries = 0
+            config.llm_config.timeout = 90
         audit_dir = os.environ.get("OPENAGENTS_NEXAU_AUDIT_DIR", "").strip()
         tracer = None
         if audit_dir:
@@ -72,7 +91,10 @@ class NexAUBackend:
             tracer = InMemoryTracer()
             config.tracers.append(tracer)
         try:
-            output = Agent(config=config).run(message=_prompt(task=task, context=context))
+            message = (
+                f"{task}\n\n{context}" if self._advisory else _prompt(task=task, context=context)
+            )
+            output = Agent(config=config).run(message=message)
         except Exception as exc:
             if audit_dir:
                 _write_audit(
@@ -218,10 +240,7 @@ def _redact_audit_value(value: Any, *, secrets: tuple[str, ...] = ()) -> Any:
                 redacted = redacted.replace(secret, "${OPENAGENTS_NEXAU_API_KEY}")
         return redacted
     if isinstance(value, dict):
-        return {
-            str(key): _redact_audit_value(item, secrets=secrets)
-            for key, item in value.items()
-        }
+        return {str(key): _redact_audit_value(item, secrets=secrets) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_redact_audit_value(item, secrets=secrets) for item in value]
     if value is None or isinstance(value, (bool, int, float)):

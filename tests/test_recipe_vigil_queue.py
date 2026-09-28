@@ -978,7 +978,7 @@ def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, m
 
 
 def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, monkeypatch):
-    """A→B→A→B… 的振荡（review 打回 ↔ implement 推新 head）→ 到 `_MAX_RECONCILE_ROUNDS` 收口 park。
+    """A→B→A→B… 在 claim 步数耗尽后仍成环，必须收口。
 
     这是护栏一（attempt 戳）**识别不了**的死法：每一轮 fp 都真的变了（agent 真改了 GitHub），只是没走向
     终态。没有这道轮数闸，它会一轮一次 LLM 地无限转下去，直到两小时后 IN_FLIGHT 告警才有人管。
@@ -1020,7 +1020,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
         lock_fd=None,  # Spec-0065/T2: `_act` 已打桩，不起子进程 → 无 flock fd 可传
     )
 
-    assert len(acted) == _MAX_RECONCILE_ROUNDS, "振荡必须在轮数上限处停下（不许无限烧 LLM）"
+    assert len(acted) == _MAX_RECONCILE_ROUNDS, "持续振荡必须在轮数上限处停下"
     assert acted[0] == _ACT_FIX_CI
     assert stamps == [], "振荡不是「零进展」——fp 每轮都变，护栏一（attempt 戳）根本认不出它"
     assert parked == ["issue:5"], "机器判不了的振荡 → 交人"

@@ -5,9 +5,9 @@
 """
 
 from openagents.runtime.state import (
-    STATUS_FAILED,
     STATUS_CLOSED,
     STATUS_DONE,
+    STATUS_FAILED,
     STATUS_ITERATING,
     STATUS_PR_OPEN,
     STATUS_RFC_REVIEW,

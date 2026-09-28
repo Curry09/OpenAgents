@@ -162,7 +162,10 @@ def test_v02_dispatches_explicit_issue_batch(monkeypatch, tmp_path):
         seen.update(issues=issues, concurrency=concurrency)
         return BatchResult(
             plan=None,
-            nodes={issue.number: NodeResult(issue.number, "PASS", pr_number=issue.number + 10) for issue in issues},
+            nodes={
+                issue.number: NodeResult(issue.number, "PASS", pr_number=issue.number + 10)
+                for issue in issues
+            },
         )
 
     monkeypatch.setattr("openagents.v02.runner.run_batch", fake_run_batch)

@@ -86,9 +86,7 @@ def test_parallel_layer_then_dependency_and_serial_merge():
 
 
 def test_failure_blocks_only_descendants_and_independent_node_continues():
-    adapter = RecordingAdapter(
-        edges=[{"issue": 3, "blocked_by": 1}], develop_status={1: "FAILED"}
-    )
+    adapter = RecordingAdapter(edges=[{"issue": 3, "blocked_by": 1}], develop_status={1: "FAILED"})
     result = run_batch(issues=_issues(1, 2, 3), adapter=adapter, concurrency=3)
     assert result.nodes[1].status == "FAILED"
     assert result.nodes[2].status == "PASS"
@@ -117,9 +115,7 @@ def test_partial_spec_is_audited_and_not_dispatched():
 
 
 def test_bad_global_plan_dispatches_zero_developers():
-    adapter = RecordingAdapter(
-        edges=[{"issue": 1, "blocked_by": 2}, {"issue": 2, "blocked_by": 1}]
-    )
+    adapter = RecordingAdapter(edges=[{"issue": 1, "blocked_by": 2}, {"issue": 2, "blocked_by": 1}])
     result = run_batch(issues=_issues(1, 2), adapter=adapter)
     assert result.plan_error
     assert {node.status for node in result.nodes.values()} == {"PLAN_FAILED"}

@@ -1124,6 +1124,14 @@ def test_merge_pr_error_raises(monkeypatch):
         merge_pr(pr_number=42)
 
 
+def test_merge_pr_binds_native_write_to_approved_head(monkeypatch):
+    """Spec-0017 recovery: preflight alone cannot close the check-to-write race."""
+    runner = _fake_run(stdout="")
+    monkeypatch.setattr(subprocess, "run", runner)
+    merge_pr(pr_number=42, head_sha="a" * 40)
+    assert runner.calls[-1][-2:] == ["--match-head-commit", "a" * 40]
+
+
 # --------------------------------------------------------------------------- #
 # add_label（RFC-0012 决策 1/3/5：自动打 rfc-approved / needs-human）
 # --------------------------------------------------------------------------- #

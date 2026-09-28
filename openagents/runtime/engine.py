@@ -58,6 +58,23 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
     role = str(module_name).rsplit(".", 1)[-1]
     backend_name = str(getattr(backend, "name", backend.__class__.__name__))
 
+    # Spec-0087: role identity/issue come from the runner, never from a log payload.
+    from openagents.observations.evidence import prepare
+    from openagents.observations.gaps import collect_requests
+
+    issue_number = placeholders.get("issue_number")
+    if issue_number is None and role == "drafter":
+        match = re.match(r"issue #(\d+)", str(placeholders.get("target", "")))
+        issue_number = int(match[1]) if match else None
+    observation_scope = None
+    if type(issue_number) is int and issue_number > 0:
+        try:
+            observation_scope = prepare(work_dir=Path(work_dir), issue=issue_number, role=role)
+        except Exception as exc:
+            context += f"\nObservation infrastructure unavailable: {type(exc).__name__}. Do not infer missing runtime events."
+        if observation_scope is not None:
+            context += "\n\n" + observation_scope["context"]
+
     output_schema = _output_json_schema(agent_module=agent_module)
     prompt = agent_module.PROMPT.substitute(**placeholders)
     _assert_single_copy(task=prompt, context=context, values=placeholders, role=role)
@@ -74,6 +91,9 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         try:
             parsed = _parse_and_validate(text=protocol_output, schema=output_schema)
         except AgentOutputError as primary_error:
+            # Spec-0091: advisory roles may explicitly opt out of costly repair calls.
+            if not getattr(agent_module, "REPAIR_OUTPUT", True):
+                raise
             parsed = _repair_protocol_output(
                 backend=backend,
                 backend_name=backend_name,
@@ -99,6 +119,7 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
         error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        collect_requests(scope=observation_scope)
         token_usage.record(
             work_dir=work_dir,
             role=role,

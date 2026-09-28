@@ -24,6 +24,52 @@ def test_explicit_constructor_does_not_require_environment():
     assert backend.name == "nexau"
 
 
+def test_advisory_turn_has_no_tools_or_retries_and_preserves_developer(monkeypatch, tmp_path):
+    import sys
+
+    from openagents.backends import nexau as module
+
+    configs, messages = [], []
+
+    class Config:
+        @staticmethod
+        def from_yaml(**kwargs):
+            config = SimpleNamespace(
+                tools=["shell"],
+                stop_tools={"complete_task"},
+                max_iterations=100,
+                retry_attempts=5,
+                llm_config=SimpleNamespace(),
+                tracers=[],
+            )
+            configs.append(config)
+            return config
+
+    class Agent:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, *, message):
+            messages.append(message)
+            return '{"clusters":[],"notes":[],"suggested_order":[]}'
+
+    monkeypatch.setitem(sys.modules, "nexau", SimpleNamespace(Agent=Agent, AgentConfig=Config))
+    monkeypatch.setattr(module, "_bind_sandbox_work_dir", lambda **kw: None)
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=""))
+    monkeypatch.delenv("OPENAGENTS_NEXAU_AUDIT_DIR", raising=False)
+    developer = NexAUBackend(model="model", base_url="https://gateway/api", api_key="secret")
+    developer.for_advisory().run(work_dir=tmp_path, task="advice", context="issues")
+    developer.run(work_dir=tmp_path, task="implement", context="issue")
+    assert configs[0].tools == []
+    assert configs[0].max_iterations == 1
+    assert configs[0].retry_attempts == configs[0].llm_config.max_retries == 0
+    assert configs[0].llm_config.max_tokens == 8192
+    assert configs[1].tools == ["shell"]
+    assert configs[1].max_iterations == 100
+    assert "complete_task" not in messages[0]
+    assert "complete_task" in messages[1]
+
+
 def test_positive_int_falls_back_on_invalid_values(monkeypatch):
     monkeypatch.setenv("LIMIT", "bad")
     assert _positive_int("LIMIT", 12) == 12

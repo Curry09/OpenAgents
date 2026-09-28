@@ -63,7 +63,12 @@ OUTPUT_JSON_SCHEMA = {
                     "case_id": {"type": "string"},
                     "source": {
                         "type": "string",
-                        "enum": ["user_test", "original_replay", "independent_variant", "regression"],
+                        "enum": [
+                            "user_test",
+                            "original_replay",
+                            "independent_variant",
+                            "regression",
+                        ],
                     },
                     "kind": {"type": "string", "enum": ["behavior", "static"]},
                     "observed": {"type": "string"},

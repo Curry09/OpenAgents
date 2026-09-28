@@ -1,5 +1,8 @@
 """# Spec-0064/T2: recipes.stages —— 九个阶段抽成 `Vigil` 类外的独立自由函数（可单独寻址）。
 
+Spec-0089/T1: recovery accepts already-published commits; all automatic merges retain the
+approved candidate SHA through the forge write and its verification command.
+
 现状 `review` 焊在 `solve_issue` 的 for 循环、`triage` 焊在 `Vigil` 类方法里、合并各闸埋在
 `merge_pr._advance_merge` 里——阶段不可单独寻址，就没法对它设「谁把关」。本模块把
 `triage / rfc / implement / conflict / ci / e2e / review / deliver / merge` 九个阶段从
@@ -19,8 +22,8 @@
 `rfc` 阶段收敛 `planner`+`drafter` 为**单一起草函数**——只依赖 `drafter`（承接五 mode 起草判断），
 `planner` 是重复死代码（T6 删）。交付类阶段（rfc/deliver）内嵌三道确定性硬闸兜底 agent 自述：交付前
 基点由本模块经 `gates.snapshot_head` **确定性记录**（不信 agent 自述 base_sha，防 #140 报假基点让闸恒
-放行）、交付后 `assert_head_advanced` 断言 head 真前移 + `assert_evidence_stamp` 断言自报 head_sha 与
-实际 HEAD 一致。
+放行）。新起草用 `assert_head_advanced`，交付/恢复用 `Workspace.assert_delivered` 检查干净且已推送；
+`assert_evidence_stamp` 始终核对自报 head_sha 与实际 HEAD 一致（Spec-0056 recovery）。
 
 所有依赖（backend / github / gates / engine）可注入或 monkeypatch，hermetic 可测（不触真实 LLM/网络/仓库）。
 """
@@ -395,6 +398,7 @@ def execute_compact_spec(
     issue_number: int,
     pr_number: int,
     context_text: str,
+    resume_branch: str | None = None,
 ) -> dict:
     """Execute one compact objective without review or validation work.
 
@@ -411,7 +415,13 @@ def execute_compact_spec(
         pr_number=pr_number,
     )
     after = gates.snapshot_head(workspace=Path(work_dir))
-    gates.assert_head_advanced(before=before, workspace=Path(work_dir))
+    if after == before and resume_branch is not None:
+        # Spec-0056 recovery: a timed-out executor may already have pushed this exact commit.
+        Workspace(work_dir=Path(work_dir)).assert_delivered(
+            worktree=Path(work_dir), branch=resume_branch
+        )
+    else:
+        gates.assert_head_advanced(before=before, workspace=Path(work_dir))
     gates.assert_evidence_stamp(head_sha=after, claimed=verdict["head_sha"])
     return verdict
 
@@ -426,18 +436,18 @@ def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") ->
         )
         raise gates.GateError(f"issue #{issue_number} 的候选 Spec 校验失败：{details}")
     groups = spec_model.load_all(specs_root=specs_root)
-    changed_path = Workspace(work_dir=Path(work_dir)).changed_spec_group(
+    changed_paths = Workspace(work_dir=Path(work_dir)).changed_spec_groups(
         worktree=Path(work_dir), base=base
     )
-    if changed_path is not None:
-        changed_name = changed_path.name
+    if changed_paths:
+        changed_names = {path.name for path in changed_paths}
         candidates = [
             group
             for group in groups
             if spec_model.group_path(
                 specs_root=specs_root, number=group.number, slug=group.metadata.slug
             ).name
-            == changed_name
+            in changed_names
             and group.metadata.issue == issue_number
         ]
     else:
@@ -454,7 +464,12 @@ def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") ->
     spec_path = spec_model.group_path(
         specs_root=specs_root, number=group.number, slug=group.metadata.slug
     )
-    return {"design_digest": digest, "spec_path": str(spec_path)}
+    # Spec-0088/T1: preserve the unnormalized approval hash alongside v2 semantics.
+    return {
+        "design_digest": digest,
+        "design_raw_digest": spec_model.legacy_design_digest(group=group),
+        "spec_path": str(spec_path),
+    }
 
 
 def architecture(
@@ -493,19 +508,27 @@ def review(
     pr_number: int,
     issue_body: str,
     context_text: str,
+    issue_number: int = 0,
 ) -> dict:
     """评审阶段（reviewer agent）：判这版能不能过评审，返回 {verdict, reason}（PASS/REWORK）。承 solve_issue/merge_pr 的 review。
 
     「这版能不能合」是主观判断，故下放 reviewer；本函数零判断，只组占位符 + 调 engine。REWORK 时由
     T3 派 implementer 迭代（打回回环）。
     """
-    return engine.run_agent(
+    verdict = engine.run_agent(
         reviewer,
+        issue_number=issue_number,
         backend=backend,
         work_dir=Path(work_dir),
         context=context.sections(("issue", issue_body), ("runtime context", context_text)),
         pr_number=pr_number,
     )
+
+    # Transport casing must not turn an explicit approval into a rework request.
+    normalized = verdict["verdict"].strip().upper()
+    if normalized not in {"PASS", "REWORK"}:
+        raise engine.AgentOutputError(f"reviewer returned unknown verdict: {verdict['verdict']!r}")
+    return {**verdict, "verdict": normalized}
 
 
 def acceptance(
@@ -531,7 +554,12 @@ def acceptance(
         context=context.sections(
             ("original issue", f"# {issue_number} {issue_title}\n\n{issue_body}"),
             *(
-                (("user test artifact", json.dumps(user_test_result, ensure_ascii=False, sort_keys=True)),)
+                (
+                    (
+                        "user test artifact",
+                        json.dumps(user_test_result, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
                 if user_test_result is not None
                 else ()
             ),
@@ -592,7 +620,7 @@ def deliver(
     """交付阶段（deliver agent）：commit/push 把改动落到 PR head，返回交付报告 {delivered, head_sha, ...}。承 solve_issue 的 deliver。
 
     恒 agent（git 交付永远派 agent、不进 stages 策略点）。内嵌三道确定性硬闸兜底（见模块 docstring）——
-    交付前基点确定性记录、交付后断言 head 前移 + 证据戳一致，防 #140 空转/张冠李戴。
+    交付前基点确定性记录、交付后断言工作区干净且远端一致 + 证据戳一致，补 push 不要求空提交。
 
     # Spec-0065/T2: `context_text` 追加进 agent 上下文（缺省空串 = 既有调用方零变化）。守夜用它把
     # `context_text` 可追加本轮机械约束与诊断材料。
@@ -612,6 +640,7 @@ def deliver(
         worktree=Path(worktree),
         placeholders=placeholders,
         require_delivered=False,
+        resume_branch=branch,
     )
 
 
@@ -627,23 +656,26 @@ def conflict(
 ) -> dict:
     """冲突解决阶段（deliver agent 去 rebase）：读冲突/判双方意图/自测下放 agent，返回 {delivered, reason}。承 merge_pr._resolve_conflict。
 
-    backend 为 None → 回落人工（reason=unmergeable、delivered=False）；有则派 deliver agent rebase 解
-    冲突——delivered=True → resolved（下轮 mergeability 客观复检确认，谎报则下轮仍 DIRTY 自然重试）；
-    delivered=False → blocked（挂起等人，gate=conflict）。本函数自身零 git 直调（走 agent），零 state 写
-    （state 归属 T3 编排）。
+    backend 为 None 或 agent 未交付时都只返回 delivered=False 的可重试结果；上层冲突恢复队列负责
+    延迟重试，不把一次 resolver 失败投影成人工终态。有则派 deliver agent rebase 解冲突——delivered=True
+    → resolved（下轮 mergeability 客观复检确认，谎报则下轮仍 DIRTY 自然重试）。本函数自身零 git 直调
+    （走 agent），零 state 写（state 归属 T3 编排）。
     """
     if backend is None:
         return {"delivered": False, "reason": "unmergeable"}
     resolved_branch = branch or github_pr_head_branch(pr_number=pr_number)
-    report = deliver(
-        backend=backend,
-        worktree=Path(work_dir),
-        branch=resolved_branch,
-        pr_number=pr_number,
-        issue_number=issue_number,
-        rebase_onto=base,
-        context_text=context_text,  # Spec-0065/T2: 透传一等出口契约（守夜传，其它调用方缺省空串）
-    )
+    try:
+        report = deliver(
+            backend=backend,
+            worktree=Path(work_dir),
+            branch=resolved_branch,
+            pr_number=pr_number,
+            issue_number=issue_number,
+            rebase_onto=base,
+            context_text=context_text,  # Spec-0065/T2: 透传一等出口契约（守夜传，其它调用方缺省空串）
+        )
+    except gates.GateError as exc:
+        return {"delivered": False, "reason": f"delivery gate: {exc}", "gate": "conflict"}
     if report["delivered"]:
         return {"delivered": True, "reason": "resolved"}
     return {"delivered": False, "reason": "blocked", "gate": "conflict"}
@@ -713,8 +745,8 @@ def merge(
         context=context_text,
         pr_number=pr_number,
         # Spec-0074/T1: 平台命令按当前 forge 注入（GitHub=gh 原命令零变化；Gitea=openagents merge-pr）。
-        merge_command=github.merge_command_text(pr_number=pr_number),
-        verify_command=github.merge_verify_command_text(pr_number=pr_number),
+        merge_command=github.merge_command_text(pr_number=pr_number, head_sha=head_sha),
+        verify_command=github.merge_verify_command_text(pr_number=pr_number, head_sha=head_sha),
     )
 
 
@@ -728,7 +760,7 @@ def merge_mechanical(*, pr_number: int, head_sha: str, require_ci: bool = True) 
         head_sha=head_sha,
         require_ci=require_ci,
     )
-    github.merge_pr(pr_number=pr_number)
+    github.merge_pr(pr_number=pr_number, head_sha=head_sha)
     return {"merged": True, "summary": "merged mechanically"}
 
 
@@ -758,13 +790,15 @@ def _deliver_gated(
 
     交付前基点经 `gates.snapshot_head` 确定性记录（不信 agent 自述）；`require_delivered=True`（backfill
     validate 门控）时先据 agent 自述 delivered 短路——未交付即原样返回（caller 据此不开 PR、不进硬闸）；
-    否则 `assert_head_advanced` + `assert_evidence_stamp` 兜底。engine 保留字 work_dir/context 从
+    交付/恢复用 `assert_delivered`，新起草用 `assert_head_advanced`，均检查证据戳。engine 保留字 work_dir/context 从
     placeholders 取（context 必在 placeholders 里）。
     """
     before = gates.snapshot_head(workspace=Path(worktree))
     workspace = Workspace(work_dir=Path(worktree))
     resuming = bool(
-        resume_branch is not None and workspace.remote_branch_exists(branch=resume_branch)
+        agent_module is not deliver_agent
+        and resume_branch is not None
+        and workspace.remote_branch_exists(branch=resume_branch)
     )
     # placeholders 可能已含 work_dir（如 Context.for_deliver 产出）——统一以本函数的 worktree 为准，
     # 剔除 placeholders 里的 work_dir 避免与显式传参重复（engine 保留字 work_dir 单一来源）。
@@ -773,7 +807,14 @@ def _deliver_gated(
     if require_delivered and not verdict["delivered"]:
         return verdict
     after = gates.snapshot_head(workspace=Path(worktree))
-    if after == before and resuming and resume_branch is not None:
+    if agent_module is deliver_agent:
+        # Spec-0056 recovery: publishing an existing commit is progress; an empty commit is not
+        # required. Verify the actual remote and worktree, not the model's self-report alone.
+        if not verdict["delivered"] or resume_branch is None:
+            summary = str(verdict.get("summary") or "agent 未提供诊断")
+            raise gates.GateError(f"交付 agent 未完成提交推送；agent_summary={summary}")
+        workspace.assert_delivered(worktree=Path(worktree), branch=resume_branch)
+    elif after == before and resuming and resume_branch is not None:
         # A retry may be validating an artifact already committed and pushed by the
         # previous attempt. Accept it only when local HEAD exactly matches the remote
         # issue branch; this preserves the delivery and evidence gates without
