@@ -3,6 +3,9 @@ name = "openagents"
 version = "0.1.1"
 description = "RFC 驱动的多 Agent 框架"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
 # Spec-0014/T1：spec 工具需要 YAML round-trip 保真（块标量/键序/注释）与声明式校验。
 # ruamel.yaml —— 读写保留块标量样式与键序，是「源码树保持干净」的前提（决策 D8）。
 # jsonschema —— 用 JSON Schema draft 2020-12 声明式校验 Task/metadata/history（决策 D8）。
@@ -15,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+nexau = [
+    "nexau @ git+https://github.com/nex-agi/NexAU.git@5cd791b1382f1163621c9ff0b50c2cf01c4ba923",
+    "ag-ui-protocol==0.1.22",
+]
 dev = [
     "ruff>=0.9.0",
     "pytest>=8.0.0",
@@ -48,3 +55,6 @@ extend-exclude = ["docs/e2e-results/**"]
 # B: bugbear，ASYNC: 防止 async 函数中使用同步阻塞调用
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 ignore = ["E501"]  # 行宽由 formatter 负责
+
+[tool.hatch.metadata]
+allow-direct-references = true

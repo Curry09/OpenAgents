@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "status": "preparation-baseline-not-a-release",
+  "auto_designer": {
+    "repository": "https://github.com/Curry09/auto-designer",
+    "branch": "main",
+    "baseline_commit": "4dd2561a7e3664e170fe7b2c602fc7c2ab93acaa",
+    "release_branch": "main"
+  },
+  "openagents": {
+    "repository": "https://github.com/Curry09/OpenAgents",
+    "branch": "auto-designer/v0.2",
+    "baseline_commit": "122155377ed38f441501012adea0e633d23473b5",
+    "release_branch": "main",
+    "main_integration": "pending; main is ancestor of baseline, 16 commits behind as of 2026-09-28"
+  },
+  "nexau": {
+    "repository": "https://github.com/nex-agi/NexAU",
+    "commit": "5cd791b1382f1163621c9ff0b50c2cf01c4ba923"
+  },
+  "ag_ui_protocol": "0.1.22",
+  "python": ">=3.12",
+  "node_for_ui": "22",
+  "controller_generated_flow": "standard",
+  "explicit_alternative_flow": "v0.2",
+  "seed_harness_path": "backend/harness_template",
+  "release_commits": null,
+  "container_digests": null,
+  "live_canary": "not-run"
+}
