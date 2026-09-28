@@ -9,10 +9,12 @@
   },
   "openagents": {
     "repository": "https://github.com/Curry09/OpenAgents",
-    "branch": "auto-designer/v0.2",
+    "branch": "main",
     "baseline_commit": "122155377ed38f441501012adea0e633d23473b5",
     "release_branch": "main",
-    "main_integration": "pending; main is ancestor of baseline, 16 commits behind as of 2026-09-28"
+    "main_integration": "functional branch merged via PR #185; open-source preparation still pending",
+    "baseline_branch": "auto-designer/v0.2",
+    "integration_commit": "1d4976c9a9e844037ddcadef8649aacb33edd950"
   },
   "nexau": {
     "repository": "https://github.com/nex-agi/NexAU",

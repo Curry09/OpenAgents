@@ -4,7 +4,7 @@
 
 This CLI can run independently or serve as the delivery plane for auto-designer. Python 3.12+ · MIT.
 
-与 auto-designer 联用见 [联合使用说明](docs/AUTO_DESIGNER.md)。`auto-designer/v0.2` 分支支持多种 flow，运行时仍默认 `standard`；使用 `v0.2` 要显式配置。开发安装、离线测试见 [CONTRIBUTING.md](CONTRIBUTING.md)，发布状态见 [docs/RELEASING.md](docs/RELEASING.md)。桌面端仍是 experimental。
+与 auto-designer 联用见 [联合使用说明](docs/AUTO_DESIGNER.md)。`main` 已合入 v0.2 功能并支持多种 flow，运行时仍默认 `standard`；使用 `v0.2` 要显式配置。开发安装、离线测试见 [CONTRIBUTING.md](CONTRIBUTING.md)，发布状态见 [docs/RELEASING.md](docs/RELEASING.md)。桌面端仍是 experimental。
 
 ---
 
