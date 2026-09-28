@@ -1,255 +1,257 @@
 # OpenAgents
 
-**Spec 驱动的多 Agent 交付框架。** 从 issue 到 Spec、实现、验收/评审及 PR 合并，支持 GitHub/Gitea 与 Claude Code、Codex、NexAU 后端。默认质量门由 agent 执行，PR 合并自动进行；`release: manual` 仅表示发版时机由人决定。
+English | [简体中文](README.zh-CN.md)
+
+**A spec-driven framework for multi-agent software delivery.** OpenAgents takes issues through specifications, implementation, acceptance checks, review, and PR merging. It supports GitHub/Gitea and Claude Code, Codex, and NexAU backends. Agents run the quality gates by default, and PRs are merged automatically; `release: manual` only means that a person decides when to publish a release.
 
 This CLI can run independently or serve as the delivery plane for auto-designer. Python 3.12+ · MIT.
 
-与 auto-designer 联用见 [联合使用说明](docs/AUTO_DESIGNER.md)。`main` 已合入 v0.2 功能并支持多种 flow，运行时仍默认 `standard`；使用 `v0.2` 要显式配置。开发安装、离线测试见 [CONTRIBUTING.md](CONTRIBUTING.md)，发布状态见 [docs/RELEASING.md](docs/RELEASING.md)。桌面端仍是 experimental。
+For integration with auto-designer, see the [joint usage guide](docs/AUTO_DESIGNER.md) (Chinese). The v0.2 functionality has been merged into `main`, which supports multiple flows. The runtime still defaults to `standard`; configure `v0.2` explicitly to use it. See [Contributing](CONTRIBUTING.md) for development installation and offline tests, and the [release guide](docs/RELEASING.md) (Chinese) for release status. The desktop app remains experimental.
 
 ---
 
-## 启动（独立 GitHub + Claude Code 示例）
+## Quickstart: standalone GitHub + Claude Code
 
 ```bash
-# 1. 在本仓根目录安装(改了源码加 --force 重装)
+# 1. Install from the repository root (add --force after changing the source)
 uv tool install --from . openagents
 
-# 2. GitHub 鉴权（Gitea 使用环境变量 token，见联合说明）
+# 2. Authenticate with GitHub (Gitea uses an environment token; see the joint guide)
 gh auth login && gh auth status
 
-# 3. 在目标仓库根目录绑定项目
+# 3. Bind the project from the target repository root
 openagents init
 
-# 4. 提一个需求(自动打上 openagents 发现标签,才能被 vigil 发现)
-openagents issue "你的需求"
+# 4. Create a requirement (automatically adds the openagents discovery label)
+openagents issue "Your requirement"
 
-# 5. 启动守夜人,无人值守跑到合并
-#    --parallel 4 开并行(同时最多 4 个 subject);--once 只跑一轮后退出
+# 5. Start unattended delivery through to merging
+#    --parallel 4 allows up to 4 concurrent subjects; --once runs one cycle and exits
 openagents vigil
 ```
 
-> ⚠️ `vigil` / `issue` 会**真的**调用 Claude 改代码、用 `gh` 开真 PR / 发评论。**建议先在练习仓库上试。**
+> `vigil` / `issue` perform real operations: they can invoke Claude to change code and use `gh` to open PRs or post comments. Try them in a practice repository first.
 
 ---
 
-## 前置条件
+## Prerequisites
 
-- **Python ≥ 3.12** 与 [uv](https://docs.astral.sh/uv/)
-- **已鉴权的 [`gh` CLI](https://cli.github.com/)**:首次用 `gh auth login` 登录,用 `gh auth status` 确认通过。
-  > GitHub 后端委托 `gh` 鉴权；Gitea 后端读取配置指定的环境变量，YAML 不保存 token 本体。
-- **已安装的 [`claude` CLI](https://docs.claude.com/claude-code)**(默认 coding 后端)
+- **Python 3.12+** and [uv](https://docs.astral.sh/uv/).
+- **An authenticated [`gh` CLI](https://cli.github.com/)**: sign in with `gh auth login` and verify with `gh auth status`.
+  GitHub authentication is delegated to `gh`. The Gitea backend reads the environment variable named in the configuration; the YAML does not store the token itself.
+- **The [`claude` CLI](https://docs.claude.com/claude-code)** for the default coding backend.
 
 ---
 
-## 安装
+## Installation
 
 ```bash
 uv tool install --from . openagents
 ```
 
-装好后 `openagents` 在任意目录可用。改了源码后用 `--force` 重装更新:
+After installation, `openagents` is available from any directory. Reinstall with `--force` after changing the source:
 
 ```bash
 uv tool install --force --from . openagents
 ```
 
-> 注意:`openagents` 是一份 uv tool 快照——改了代码不重装,命令会跑旧代码。
+> `openagents` runs from a uv tool snapshot. Editing the source without reinstalling leaves the command running the old code.
 
-### Shell Tab 补全(可选)
+### Optional shell completion
 
-`openagents` 内置 [argcomplete](https://github.com/kislyuk/argcomplete):补全直接读现成的命令定义,覆盖全部子命令(init/vigil/backfill-rfc/issue/release/board/report)与各自的选项(如 `vigil --interval/--label/--base/--once/--parallel/--skip/--config`)。一次性启用后 `openagents <Tab>`、`openagents vigil --<Tab>` 即弹候选。
+OpenAgents includes [argcomplete](https://github.com/kislyuk/argcomplete). Completions read the command definitions directly and cover the subcommands (`init`, `vigil`, `backfill-rfc`, `issue`, `release`, `board`, and `report`) and their options, such as `vigil --interval/--label/--base/--once/--parallel/--skip/--config`. Once enabled, use `openagents <Tab>` or `openagents vigil --<Tab>` to see candidates.
 
-zsh(写进 `~/.zshrc`):
+For zsh, add to `~/.zshrc`:
 
 ```zsh
 autoload -U bcompinit && compinit
 eval "$(register-python-argcomplete openagents)"
 ```
 
-bash(写进 `~/.bashrc`):
+For bash, add to `~/.bashrc`:
 
 ```bash
 eval "$(register-python-argcomplete openagents)"
 ```
 
-> 不启用也完全不影响命令本身:argcomplete 只在 Tab 补全握手时介入,普通调用零副作用。`register-python-argcomplete` 随 argcomplete 依赖一并装好。
+> Completion is optional. Argcomplete only participates during a completion request and does not affect ordinary command invocation. `register-python-argcomplete` is installed with the argcomplete dependency.
 
 ---
 
-## 用法
+## Usage
 
-人真正要拍板的宏观动作只有四个,加上一次性绑定与只读观测,共六条命令:
-
-```bash
-openagents init                 # 绑定当前目录到仓库(一次性)
-openagents issue "你的需求"      # 主动提 issue(自动打 openagents 发现标签)
-openagents vigil                # 守夜人:发现 → 派单 → 开 PR → 守候到合并(全程无人值守)
-openagents vigil --parallel 4   # 同上,但同时最多 4 个 issue/PR 并行推进
-openagents backfill-rfc <path>  # 追溯补 RFC:扫存量代码反推 spec 开 draft PR
-openagents release              # 把 main 当前 HEAD 物化成一个版本
-openagents board                # 打开本地成果看板(只读)
-```
-
-> `rfc` / `implement` / `iterate` / `poll` / `watch` / `fleet` 等早期的手动单步命令已全部并入 `vigil`——它们不过是 `vigil` 每轮自动做的事的手动版,人不再需要单敲(Spec-0064)。
-
-### `init` —— 绑定项目
-
-把当前目录绑定 / 初始化为 OpenAgents 项目,并确保流程标签就位。缺 git / 远端时会提示你新建。除 `board` 外的所有命令执行前都会先做这项绑定预检。全新仓库也可以直接 `vigil`(无需先 `init`)——进主循环前会自举一次流程标签。
-
-### `issue` —— 立一个需求
+Common commands cover project setup, requirements, automated delivery, specification backfilling, releases, and read-only observation:
 
 ```bash
-openagents issue "支持导出 CSV"        # 建前先复述对齐、请你确认
-openagents issue "修复登录超时" --yes  # 跳过确认(供自动化)
+openagents init                 # Bind the current directory to a repository (once)
+openagents issue "Your requirement" # Create an issue with the openagents discovery label
+openagents vigil                # Discover, dispatch, open PRs, and monitor through merging
+openagents vigil --parallel 4   # Advance up to 4 issues/PRs concurrently
+openagents backfill-rfc <path>  # Infer specs from existing code and open a draft PR
+openagents release              # Create a version from the current main HEAD
+openagents board                # Open the local results dashboard (read-only)
 ```
 
-往当前仓库提一个 issue,自动打上 `openagents` 发现标签,这样才能被 `vigil` 发现、派单。也可以直接在 GitHub 网页提 issue,但需手动打上 `openagents` 标签。
+> Earlier manual commands such as `rfc`, `implement`, `iterate`, `poll`, `watch`, and `fleet` have been consolidated into `vigil`. These steps now run automatically within its reconciliation cycle (Spec-0064).
 
-常用选项:`--body <正文>`、`--label <标签>`(可重复)、`--yes`(跳过复述确认)。
+### `init`: bind a project
 
-### `vigil` —— 守夜人,一条命令跑完全程
+Bind or initialize the current directory as an OpenAgents project and ensure the workflow labels exist. If Git or a remote is missing, the command prompts you to create it. Every command except `board` performs this binding preflight. A new repository can start directly with `vigil`, without running `init` first: it bootstraps workflow labels before entering the main loop.
 
-`vigil` 让 OpenAgents **无人值守**地跑完整闭环:发现带标签的新 issue → 派单求解 → 起草 RFC 开 PR → 守候 PR 的评论 / 冲突 / CI / e2e / 评审 → 迭代 → 合并。质量门默认由 agent 执行。
+### `issue`: create a requirement
 
 ```bash
-openagents vigil                          # 读 .openagents/openagents.yml,默认串行、间隔 60s
-openagents vigil --once                   # 只跑一轮、排空队列后退出(测试/单趟)
-openagents vigil --parallel 4             # 并发上限 K=4:同时最多 4 个 subject 在跑 agent
-openagents vigil --label bug --label p0   # 覆盖发现标签门控(可重复)
-openagents vigil --interval 30            # 覆盖轮询间隔(秒)
-openagents vigil --base develop           # 覆盖派单起草的分支基线
-openagents vigil --skip ci,e2e            # 单次跳过某阶段(当 PASS 放行):等价 stages.<stage>=skip
+openagents issue "Support CSV export"       # Restate the request and ask for confirmation
+openagents issue "Fix login timeout" --yes # Skip confirmation for automation
 ```
 
-`--skip` / `--base` / `--interval` / `--label` 都是**对单次运行的覆盖**,不改磁盘上的 `openagents.yml`。
+Create an issue in the current repository with the `openagents` discovery label so that `vigil` can discover and dispatch it. You can also create an issue in the GitHub UI and add the `openagents` label manually.
 
-#### 图驱动的 level-triggered 守夜
+Common options: `--body <text>`, repeatable `--label <label>`, and `--yes` to skip confirmation.
 
-新版守夜的核心是 `recipes.vigil.run_vigil`——一个**图驱动、level-triggered reconcile** 的调度器(Spec-0065)。它不再是「发现段 + 守候段」两趟批处理,而是:
+### `vigil`: unattended delivery
 
-- **调度单元是 subject**(`issue:5` / `pr:12`),不是「事件」。`--parallel K` 是并发上限;**串行不是另一种模式,而是 `K=1` 的退化**。真正的并发上限由 issue 依赖图(GitHub 原生 `blocked_by`)天然约束。
-- **生产者 / worker 单向数据流**:主线程每 tick 按 GitHub 现态判定该动哪些 subject、入队;K 个常驻 worker 从队列领活、把 PR 推进到卡住为止。两者对 `work_queue` 的并发写全部由 SQLite `BEGIN IMMEDIATE` 序列化,无进程内锁。**没有批屏障**——worker 跑完立即领队首,慢活不拖住空闲 slot。
-- **level-triggered(边沿无关)**:谓词无历史,不问「跟上一轮比变了没」,只问「现在该不该动手」。每 tick 对每个 subject 重算,丢一轮丢一百轮都能自愈——这是 Kubernetes 的架构第一原则([设计原则](https://github.com/kubernetes/design-proposals-archive/blob/main/architecture/principles.md))。进程崩在「检测到 CI 变绿」和「真去合并」之间也不会丢事:下一 tick 从 GitHub 重新读到当前态就继续。
-
-##### reconcile 判定表(一个 subject 现在该做什么)
-
-每 tick 对每个 subject 走一遍 `_sense`(唯一的 GitHub 读)→ `_classify`(纯函数四值判定)→ 入队 / 看门狗。判定表按顺序短路,顺序本身是正确性依赖:
-
-```
-① merged / closed / automation-failed .......... 终止(事实变化后自动复活)
-② 最新评论是人发的 ............................ reply     回话
-③ 依赖(blocked_by)未全关闭 .................. 等待上游
-④ 还没有 PR ................................... solve     竖切开 PR
-⑤ mergeable = unknown(GitHub 还没算完) ...... 等待可合并性
-⑥ 冲突(mergeable = dirty) ................... rebase    变基/解冲突(必须排在 CI 前)
-⑦ 当前 head 上 CI = pending / 零个 check ...... 等待 CI
-⑧ 当前 head 上 CI = failure ................... fix-ci    修 CI
-⑨ e2e 证据缺失 / head_sha 陈旧 ................ e2e       补端到端证据
-⑩ 无 review 裁决 / 其 sha≠当前 head / 打回 .... review    评审或按意见改
-⑪ 全绿 + review-approved:<当前 head sha7> ..... merge     合并回 main
-```
-
-##### `automation-failed` 是指纹绑定的机器失败终态
-
-backend 崩溃、协议错误、硬超时或连续无进展都先在有界预算内重试。耗尽后 Vigil 给 issue/PR 加 `automation-failed`,并写入 category、attempts、不含该 label 自身的事实 fingerprint 和最后错误。同一 fingerprint 不再消耗模型;当 issue 正文、PR head、CI、依赖或有效评论发生实质变化,Vigil 会自动清除旧失败投影并重新判定。
-
-三道**护栏**只兜 agent 自己看不见的三种死法(它们在日志里都跟「一切正常」长得一样):
-
-1. **空转**(agent 以为干了活但 fp 没变)→ 零进展收工时盖一条带 fingerprint 的 attempt 戳,同 fp 的活降级为「等副作用」不再入队,不无限重跑烧钱。
-2. **状态该动却不动**(CI 永不启动 → 没人叫 agent → PR 静默烂掉)→ **看门狗**:QUIET 的 age 超阈值就落 `automation-failed` + 机械诊断。「卡了多久」是当前态的纯函数,零本地记忆。
-3. **agent 崩溃 / 被 kill / 挂死**(GitHub 上零痕迹)→ 硬超时杀子进程、`flock` 判死回收、`attempts` 计数超上限后收口为机器失败。存活且持锁的任务只告警,不失败化、不重领。
-
-##### 存储职责:两个存储,各管一层
-
-- **GitHub = 领域真相**:依赖结构(原生 `blocked_by`)、我们做的**决定**(label:`ready` 准入 / `automation-failed` 机器终态 / `review-approved:<sha7>` 裁决)、GitHub 自己维护的**事实**(checks / mergeable,读原生、**不复制成 label**)、e2e 证据评论。**分界线:决定打 label,事实读原生。**
-- **SQLite `work_queue`** 只存 GitHub 表达不了的三样:谁原子地领走了 subject、领了几次没收工、领取时的定序。丢了无害——queued 行一 tick 从 GitHub 重建。
-- **`.openagents/claims/{subject}.lock`(flock)** 是持有者的存活证明,由内核持有:进程一死锁自动释放。回收凭 flock 判死,不凭租约猜死。
-
-> 队列 DB 落在 `<repo>/.openagents/vigil-queue.db`;`SQLite + flock` 把部署钉在**单机**(禁止跨网络文件系统共享同一库,会数据损坏——[SQLite 官方](https://www.sqlite.org/whentouse.html))。多机需要换掉 4 个认领函数的实现,当前版本不预建这层抽象(奥卡姆:不为「可能」付费)。
-
-##### 硬闸(CLI 关不掉)
-
-`runtime.gates` 里有三道**确定性硬闸**,恒机器把关、`--skip` 关不掉,是防空转的安全底线:`head-advanced`(交付后 head 必须前移)、`evidence-stamp`(e2e 证据溯源戳必须匹配当前 head)、`round-cap`(reconcile 单次推进轮数上限,兜振荡)。此外 `implement` / `deliver` 恒派 agent,无「归谁把关」可选。
-
-另有 **GitHub 仓库分支保护规则**强制的 required status checks(lint / test / commitlint / spec-validate 等),要调整须去仓库 **Settings → Branches** 改——`--skip ci` 只让守夜人不再**等** CI,改不了 GitHub **允不允许合**。
-
-### `backfill-rfc` —— 追溯补 RFC
+`vigil` runs the complete loop: discover labeled issues, dispatch work, draft RFCs and open PRs, monitor comments/conflicts/CI/e2e/review, iterate, and merge. Agents execute the quality gates by default.
 
 ```bash
-openagents backfill-rfc openagents/utils/git.py     # 单文件
-openagents backfill-rfc openagents/recipes/         # 目录
+openagents vigil                          # Read .openagents/openagents.yml; serial, 60s interval by default
+openagents vigil --once                   # Run one cycle, drain the queue, and exit
+openagents vigil --parallel 4             # Run agents for up to 4 subjects concurrently
+openagents vigil --label bug --label p0   # Override discovery labels (repeatable)
+openagents vigil --interval 30            # Override the polling interval in seconds
+openagents vigil --base develop           # Override the base branch for dispatched work
+openagents vigil --skip ci,e2e            # Skip stages for this run; equivalent to stages.<stage>=skip
 ```
 
-针对「实现先行、设计后补」的存量代码:扫描代码路径反推一份 spec,并开一个 draft PR 承载它(`--base` 指定分支基线,默认 `main`)。
+`--skip`, `--base`, `--interval`, and `--label` override a single run. They do not modify `openagents.yml` on disk.
 
-### `release` —— 物化一个版本
+#### Graph-driven, level-triggered reconciliation
+
+The scheduler, `recipes.vigil.run_vigil`, uses graph-driven, level-triggered reconciliation (Spec-0065), rather than separate discovery and monitoring batches:
+
+- **The scheduling unit is a subject**, such as `issue:5` or `pr:12`, rather than an event. `--parallel K` sets the concurrency limit; serial execution is simply `K=1`. The issue dependency graph (GitHub's native `blocked_by`) further constrains which work can run concurrently.
+- **The producer feeds persistent workers.** On each tick, the main thread reads current GitHub state and queues eligible subjects. The K workers advance PRs until they must wait. SQLite `BEGIN IMMEDIATE` serializes concurrent writes to `work_queue`, without in-process locks. There is no batch barrier: a worker takes the next queued item as soon as it finishes, so slow tasks do not leave other slots idle.
+- **Level-triggered means deciding from current state.** Predicates ask whether work is needed now, rather than whether something changed since the last tick. They are recomputed for every subject on each tick, allowing recovery after missed ticks. This follows the reconciliation approach in the [Kubernetes design principles](https://github.com/kubernetes/design-proposals-archive/blob/main/architecture/principles.md). If the process crashes after observing green CI but before merging, the next tick reads the current GitHub state and continues.
+
+##### Reconciliation decisions for a subject
+
+Each tick runs `_sense` (the GitHub read), `_classify` (a pure four-outcome classifier), then queueing or watchdog handling. Conditions short-circuit in this order; the ordering matters for correctness:
+
+| Order | Current condition | Action |
+| --- | --- | --- |
+| 1 | Merged, closed, or `automation-failed` | Stop; changed facts can reactivate the subject |
+| 2 | Latest comment is from a human | `reply` |
+| 3 | Some `blocked_by` dependencies remain open | Wait for upstream work |
+| 4 | No PR yet | `solve`: implement a vertical slice and open a PR |
+| 5 | Mergeability is `unknown` | Wait for GitHub to calculate it |
+| 6 | Mergeability is `dirty` | `rebase`: resolve conflicts before checking CI |
+| 7 | CI on the current head is pending, or there are no checks | Wait for CI |
+| 8 | CI on the current head failed | `fix-ci` |
+| 9 | E2e evidence is missing or its `head_sha` is stale | `e2e`: collect current evidence |
+| 10 | Review is absent, refers to a different head, or requests changes | `review`: review or address feedback |
+| 11 | All checks pass and `review-approved:<current head sha7>` exists | `merge` into main |
+
+##### `automation-failed`: a terminal machine failure tied to a fingerprint
+
+Backend crashes, protocol errors, hard timeouts, and repeated lack of progress are retried within bounded budgets. Once the budget is exhausted, Vigil adds `automation-failed` to the issue/PR and records the category, attempts, a fact fingerprint excluding the label itself, and the last error. The same fingerprint does not consume further model calls. A material change to the issue body, PR head, CI, dependencies, or relevant comments causes Vigil to clear the stale failure state and reassess the subject.
+
+Three safeguards cover failures an agent cannot reliably detect itself:
+
+1. **No progress:** if an attempt finishes without changing the fingerprint, record an attempt stamp tied to that fingerprint. Work with the same fingerprint waits for side effects rather than being repeatedly queued and consuming model calls.
+2. **Work is stuck without an agent running:** for example, CI never starts. The watchdog marks a subject `automation-failed` with a mechanical diagnosis when its QUIET age exceeds the threshold. The duration is derived from current state, without local history.
+3. **An agent crashes, is killed, or hangs without leaving GitHub evidence:** a hard timeout kills the subprocess, `flock` determines whether its owner has died, and an attempt limit ends retries in a machine failure. A task that is alive and holds its lock receives warnings only; it is neither failed nor reclaimed.
+
+##### Storage responsibilities
+
+- **GitHub holds domain state:** dependencies (`blocked_by`), decisions (`ready`, `automation-failed`, and `review-approved:<sha7>` labels), native facts (checks and mergeability), and e2e evidence comments. Decisions use labels; native facts are read directly rather than copied into labels.
+- **SQLite `work_queue`** stores what GitHub cannot express: which worker atomically claimed a subject, how many unfinished attempts it has made, and claim ordering. Lost queued rows can be reconstructed from GitHub on the next tick.
+- **`.openagents/claims/{subject}.lock` (`flock`)** proves the owner's liveness. The kernel releases it when the process dies. Reclamation relies on the lock, rather than inferring death from an expired lease.
+
+> The queue database is at `<repo>/.openagents/vigil-queue.db`. SQLite and `flock` constrain this deployment to one machine. Do not share the database over a network filesystem because it risks corruption; see the [SQLite guidance](https://www.sqlite.org/whentouse.html). Multi-machine operation would require replacing the four claim functions; the current version does not add that abstraction in advance.
+
+##### Hard gates that the CLI cannot disable
+
+`runtime.gates` contains three deterministic gates that `--skip` cannot disable: `head-advanced` (delivery must advance the head), `evidence-stamp` (e2e provenance must match the current head), and `round-cap` (limit reconciliation rounds to stop oscillation). `implement` and `deliver` always dispatch agents and do not support configurable gate ownership.
+
+GitHub branch protection separately enforces required status checks such as lint, tests, commitlint, and spec validation. Change those rules under **Settings → Branches**. `--skip ci` only tells Vigil to stop waiting for CI; it does not change GitHub's permission to merge.
+
+### `backfill-rfc`: document existing implementations
 
 ```bash
-openagents release              # 默认 patch
+openagents backfill-rfc openagents/utils/git.py # One file
+openagents backfill-rfc openagents/recipes/    # A directory
+```
+
+For code written before its design documentation, scan the path, infer a spec, and open a draft PR containing it. Set the base branch with `--base`; the default is `main`.
+
+### `release`: create a version
+
+```bash
+openagents release              # Patch bump by default
 openagents release --bump minor
 ```
 
-人唯一的宏观决策点:预检通过则把持续推进的 main 当前 HEAD 物化成 `release/vX.Y.Z` 分支 + tag。确定性动作、不派 agent。
+Release timing is a human decision. After preflight checks pass, this command creates a `release/vX.Y.Z` branch and tag from the current `main` HEAD. These are deterministic operations and do not dispatch an agent.
 
-### `board` —— 成果看板
+### `board`: view results
 
-只读观测,渲染新栈 `RuntimeState` 的成果看板(不要求 git / 远端,可离线查看)。
+Open a read-only dashboard based on `RuntimeState`. It does not require Git or a remote and can be used offline.
 
 ---
 
-## 声明式配置 `.openagents/openagents.yml`
+## Declarative configuration: `.openagents/openagents.yml`
 
-一份 `.openagents/openagents.yml` 是「**用哪些 agent + 每道闸归谁把关**」的单一真源(Spec-0064)。**整份可省**——文件不存在或空则全回落内建默认(= 全自动、全 agent、单仓、间隔 60s),不写 YAML 的用户零感知。
+`.openagents/openagents.yml` is the single source of truth for agent backends and stage ownership (Spec-0064). The entire file is optional: a missing or empty file uses the built-in defaults, with automatic agent-driven stages, one repository, and a 60-second interval.
 
 ```yaml
 version: 1
 
-# 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。缺省角色回落 claude_code。
+# Roles can mix Claude Code, Codex, and nexau. Omitted roles use claude_code.
 agents:
   implementer: { backend: claude_code }
   reviewer:    { backend: claude_code }
 
-# 每个可配阶段为 agent(自动),允许的可选闸也可设 skip(当 PASS 放行)。
+# Configurable stages use agent; eligible optional gates also allow skip (treated as PASS).
 stages:
-  triage:   agent      # 准入门控
-  rfc:      agent      # RFC 起草(仅 agent / skip;skip 会告警——撞「先改 RFC 再改代码」)
-  conflict: agent      # 解冲突(不可 skip)
-  ci:       agent      # 等 CI 全绿(可 skip)
-  e2e:      agent      # 端到端取证(可 skip)
-  review:   agent      # 代码评审(可 skip,但 review:skip + merge:agent 会被拒——不许零闸)
-  merge:    agent      # 合并(不可 skip)
+  triage:   agent      # Admission gate
+  rfc:      agent      # RFC drafting; skip warns because design should precede code
+  conflict: agent      # Resolve conflicts; cannot skip
+  ci:       agent      # Wait for passing CI; may skip
+  e2e:      agent      # Collect end-to-end evidence; may skip
+  review:   agent      # Review; review:skip + merge:agent is rejected
+  merge:    agent      # Merge; cannot skip
 
-release: manual        # manual(人决定何时发版,默认) / auto
+release: manual        # manual (human chooses release timing, default) / auto
 
-defaults:              # 单仓库默认(多仓时被每仓 override 覆盖)
+defaults:              # Repository defaults; per-repository overrides take precedence
   interval: 60
   base: main
   labels: [openagents]
 
-repos:                 # 多仓库统管:每仓一子进程跑 run_fleet(gh/git 绑进程 cwd,一仓一进程隔离)
+repos:                 # One run_fleet subprocess per repository; isolates gh/git working directories
   - path: .
 ```
 
-约束:
+Constraints:
 
-- **不许零闸**:`review: skip` + `merge: agent` 会让未审代码自动盲合进 main,因此直接报错;自动合并必须保留 review。
-- **硬闸名进不了 stages**:`head-advanced` / `evidence-stamp` / `round-cap` 是确定性硬闸、恒机器把关;`implement` / `deliver` 恒派 agent。写进 `stages` 均 reject。
-- **skip 在感知层归一**:`ci: skip` → CI 当 success,`e2e: skip` → 证据戳记当前 head,`review: skip` → 裁决记 APPROVED@head。这样 `_classify` 保持纯粹的机械分支表。
+- **Automatic merging requires review.** `review: skip` together with `merge: agent` is rejected because it would merge unreviewed code into main.
+- **Hard gates cannot appear in `stages`.** `head-advanced`, `evidence-stamp`, and `round-cap` are always deterministic machine checks. `implement` and `deliver` always dispatch agents. These names are rejected in `stages`.
+- **Skips are normalized when sensing state.** `ci: skip` treats CI as successful; `e2e: skip` stamps evidence for the current head; `review: skip` records approval at that head. This keeps `_classify` a pure mechanical decision table.
 
-升级时若存在旧终态,先运行 `scripts/migrate-*state.py` 中的 Spec-0081 迁移器查看 dry-run 计划,确认后加 `--apply`。迁移器会幂等转换 forge label 和 runtime 失败状态;旧配置 owner 只报告精确路径,必须显式改为 `agent` 或该阶段允许的 `skip`。
+When upgrading from older terminal states, first run the Spec-0081 migrator under `scripts/migrate-*state.py` to inspect its dry-run plan, then add `--apply` after reviewing it. It idempotently converts forge labels and runtime failure states. For legacy configuration owners, it only reports the exact paths; explicitly change each owner to `agent` or, where allowed, `skip`.
 
 ---
 
-## 搭配 Claude Code 使用(推荐)
+## Working with Claude Code
 
-OpenAgents 默认的 coding 后端就是 **[Claude Code](https://docs.claude.com/claude-code)**,两者天然互补:
+[Claude Code](https://docs.claude.com/claude-code) is the default coding backend:
 
-- **用 Claude Code 开发 OpenAgents 本身,用 OpenAgents 跑闭环**。本项目正在「用自己开发自己」(dogfooding):在仓库里用 Claude Code 交互式地改 RFC / 写代码,再让 `openagents vigil` 无人值守地把 issue 推进到 PR。
-- **交互式补位,自治式兜底**。需要人紧密参与、边想边改的部分交给 Claude Code 面对面协作;明确成型、可无人值守推进的 issue 交给 `vigil` 自动跑。
-- **确保 `claude` CLI 已登录可用**:OpenAgents 会调用它作为 coding agent,先用 `claude` 跑通一次交互确认鉴权无误,再启动 `vigil`。
+- **Develop OpenAgents interactively and use it for automated delivery.** The project uses this workflow itself: work on RFCs and code with Claude Code, then let `openagents vigil` advance issues through PRs unattended.
+- **Choose the workflow to fit the task.** Use interactive Claude Code sessions for work needing close human involvement; hand well-defined issues to `vigil` for unattended execution.
+- **Check authentication first.** OpenAgents invokes the `claude` CLI as its coding agent. Complete a working interactive `claude` session before starting `vigil`.
 
-> ⚠️ `vigil` / `issue` 会**真的**调用 Claude 改代码、用 `gh` 开真 PR / 发评论。**建议先在练习仓库上试。**
+> `vigil` / `issue` perform real operations: they can invoke Claude to change code and use `gh` to open PRs or post comments. Try them in a practice repository first.
 
 ## License and project policies
 
-[MIT](LICENSE) · [Third-party sources](THIRD_PARTY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md).
+[MIT](LICENSE) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Third-party sources](THIRD_PARTY.md) (Chinese) · [Changelog](CHANGELOG.md).

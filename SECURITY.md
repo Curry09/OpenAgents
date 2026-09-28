@@ -1,11 +1,13 @@
 # Security
 
-本项目目前面向受信任的本地研究/开发环境。Agent 能执行命令、修改仓库并调用外部模型；交付流程可能自动合并 PR。Docker socket、宿主 CLI 和模型网关的权限需要按实际部署处理。实时观测 API 不应未经鉴权直接公开。
+English | [简体中文](SECURITY.zh-CN.md)
 
-报告安全问题时，请优先使用 [GitHub 私密漏洞报告](https://github.com/Curry09/OpenAgents/security/advisories/new)（维护者需在公开前启用）。若该入口不可用，请先通过维护者的既有私密联系方式取得报告渠道；不要在公开 issue 发布真实凭证、可直接利用的细节或原始用户会话。
+This project is currently intended for trusted local research and development environments. Agents can execute commands, modify repositories, and call external models; delivery workflows may merge PRs automatically. Configure access to Docker sockets, host CLIs, and model gateways for your deployment. Do not expose live observation APIs publicly without authentication.
 
-普通 bug 可使用 issue 模板，提供版本、环境、脱敏步骤和预期行为。切勿上传 `.env`、完整 profile、token、未经处理的日志或实验压缩包。
+To report a security issue, prefer [GitHub private vulnerability reporting](https://github.com/Curry09/OpenAgents/security/advisories/new) (maintainers need to enable it before public release). If that entry point is unavailable, use an existing private contact with a maintainer to arrange a reporting channel. Do not post real credentials, directly exploitable details, or raw user conversations in public issues.
 
-首次公开前需扫描全部 Git 历史及发布资产，逐项处理结果；发现仍有效的凭证先轮换。`.gitignore` 和快照过滤不是历史扫描的替代，也不保证外部服务或工具产生的全部日志已脱敏。
+For ordinary bugs, use an issue template and provide the version, environment, sanitized reproduction steps, and expected behavior. Never upload `.env` files, complete profiles, tokens, unprocessed logs, or experiment archives.
 
-本项目尚未建立独立的长期安全维护分支和响应时限；发布时会在 Release notes 说明受支持版本。
+Before the first public release, scan the entire Git history and all release assets, and address each finding. Rotate any exposed credentials that are still valid first. `.gitignore` and snapshot filters do not replace a history scan, nor do they guarantee that all logs produced by external services or tools have been sanitized.
+
+The project does not yet have a separate long-term security maintenance branch or a committed response time. Release notes will identify the supported versions when a release is published.
