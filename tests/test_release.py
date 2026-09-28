@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 # Spec-0063/T3: STATUS_* 从 runtime 权威词表、State→RuntimeState（set_run 写 dict 记录）。
-from openagents.runtime.state import STATUS_BLOCKED, STATUS_PR_OPEN, RuntimeState
+from openagents.runtime.state import STATUS_FAILED, STATUS_PR_OPEN, RuntimeState
 from openagents.utils import release as release_module
 from openagents.utils.github import PR
 from openagents.utils.release import ReleaseResult, _next_version, release
@@ -109,8 +109,8 @@ def test_next_version_rejects_unknown_bump():
 # --------------------------------------------------------------------------- #
 
 
-def test_blocked_run_blocks_release(tmp_path, monkeypatch):
-    state = _state(tmp_path, runs=[(3, STATUS_BLOCKED)])
+def test_failed_run_blocks_release(tmp_path, monkeypatch):
+    state = _state(tmp_path, runs=[(3, STATUS_FAILED)])
     _patch_github(monkeypatch)
     git_calls = _patch_git(monkeypatch, tags=["v1.0.0"])
 

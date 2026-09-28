@@ -9,10 +9,13 @@ issue #69 rust-RFC 形态（总览先行 + 单 spec 自包含）：
 
 只懂 docs/specs/ 源数据结构的纯模块（理念 10 解耦），不感知 git / GitHub。
 per-task 版本历史机制退役（决策 D3），历史交给 git + dated 设计文档，Group.history 恒为空。
+Spec-0088/T1: 设计审批摘要区分明确的自引用身份与设计语义，保留旧摘要算法。
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from io import StringIO
@@ -149,6 +152,50 @@ class E2EPlan:
 
 
 @dataclass(frozen=True)
+class ArchitectureCandidate:
+    """Represent one technically viable intervention candidate."""
+
+    id: str
+    layer: str
+    boundary: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+    tradeoffs: str = ""
+
+
+@dataclass(frozen=True)
+class ArchitectureDecision:
+    """Capture the implementation-side architecture decision."""
+
+    objective: str = ""
+    constraints: list[str] = field(default_factory=list)
+    non_goals: list[str] = field(default_factory=list)
+    candidates: list[ArchitectureCandidate] = field(default_factory=list)
+    selected: str = ""
+    affected_components: list[str] = field(default_factory=list)
+    failure_modes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BehaviorCase:
+    """Describe one positive or negative observable behavior case."""
+
+    id: str
+    polarity: str
+    stimulus: str
+    expected: str
+    observation: str
+
+
+@dataclass(frozen=True)
+class VerificationPlan:
+    """Index behavioral evidence and repository invariants."""
+
+    behavior_cases: list[BehaviorCase] = field(default_factory=list)
+    repository_invariants: list[str] = field(default_factory=list)
+    exemptions: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Metadata:
     """组级元数据（一个 spec 组 = 一个 issue/feature）。"""
 
@@ -164,6 +211,8 @@ class Metadata:
     # Spec-0040/T1：组级 e2e 粗规划（可选）。None = 未声明（既有 spec 零回归）；非 None 时由
     # validate._e2e_checks 强制 form 合法 / intent 非空 / acceptance≥1。
     e2e: E2EPlan | None = None
+    architecture: ArchitectureDecision | None = None
+    verification: VerificationPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -208,6 +257,8 @@ def load_group(*, path: Path) -> Group:
         # Spec-0072/T1：缺失即空串（既有 spec 零回归）。
         oversized_rationale=str(meta.get("oversized-rationale", "")),
         e2e=e2e_from_mapping(data=meta.get("e2e")),  # Spec-0040/T1：无 e2e 块 → None。
+        architecture=architecture_from_mapping(data=meta.get("architecture")),
+        verification=verification_from_mapping(data=meta.get("verification")),
     )
 
     overview = _parse_body(body=body)
@@ -253,6 +304,10 @@ def render_group(*, group: Group) -> str:
     # 不变、零回归）。夹在 summary 之后、tasks 之前，与其组级元数据身份一致。
     if group.metadata.e2e is not None:
         fm["e2e"] = _e2e_frontmatter(e2e=group.metadata.e2e)
+    if group.metadata.architecture is not None:
+        fm["architecture"] = CommentedMap(_plain_architecture(value=group.metadata.architecture))
+    if group.metadata.verification is not None:
+        fm["verification"] = CommentedMap(_plain_verification(value=group.metadata.verification))
     fm["tasks"] = [_task_frontmatter(task=task) for task in group.tasks]
 
     buf = StringIO()
@@ -316,6 +371,165 @@ def e2e_from_mapping(*, data: object) -> E2EPlan | None:
         intent=str(raw.get("intent", "")),
         method=str(raw.get("method", "")),
     )
+
+
+def architecture_from_mapping(*, data: object) -> ArchitectureDecision | None:
+    """Parse an optional architecture decision from frontmatter."""
+    if data is None:
+        return None
+    raw = data or {}
+    return ArchitectureDecision(
+        objective=str(raw.get("objective", "")),
+        constraints=_str_list(value=raw.get("constraints")),
+        non_goals=_str_list(value=raw.get("non-goals")),
+        candidates=[
+            ArchitectureCandidate(
+                id=str(item.get("id", "")),
+                layer=str(item.get("layer", "")),
+                boundary=_str_list(value=item.get("boundary")),
+                evidence=_str_list(value=item.get("evidence")),
+                tradeoffs=str(item.get("tradeoffs", "")),
+            )
+            for item in raw.get("candidates") or []
+        ],
+        selected=str(raw.get("selected", "")),
+        affected_components=_str_list(value=raw.get("affected-components")),
+        failure_modes=_str_list(value=raw.get("failure-modes")),
+    )
+
+
+def verification_from_mapping(*, data: object) -> VerificationPlan | None:
+    """Parse an optional behavioral verification plan from frontmatter."""
+    if data is None:
+        return None
+    raw = data or {}
+    return VerificationPlan(
+        behavior_cases=[
+            BehaviorCase(
+                id=str(item.get("id", "")),
+                polarity=str(item.get("polarity", "")),
+                stimulus=str(item.get("stimulus", "")),
+                expected=str(item.get("expected", "")),
+                observation=str(item.get("observation", "")),
+            )
+            for item in raw.get("behavior-cases") or []
+        ],
+        repository_invariants=_str_list(value=raw.get("repository-invariants")),
+        exemptions=_str_list(value=raw.get("exemptions")),
+    )
+
+
+def design_digest(*, group: Group) -> str:
+    """Return versioned design semantics with explicit self-task references normalized.
+
+    Spec-0088/T1: only prose self references are relocatable, not files or dependencies.
+    """
+    payload = _design_payload(group=group)
+    # 1. Only explicit references to this group's existing tasks have identity semantics.
+    pattern = re.compile(rf"(?<![\w/.-])Spec-{re.escape(group.number)}/(T[0-9]+)(?![\w/-]|\.\w)")
+    task_ids = {task.id for task in group.tasks}
+    for key in ("architecture", "verification", "overview"):
+        payload[key] = _normalize_self_refs(value=payload[key], pattern=pattern, task_ids=task_ids)
+    for task in payload["tasks"]:
+        for key in ("title", "scope", "acceptance"):
+            task[key] = _normalize_self_refs(value=task[key], pattern=pattern, task_ids=task_ids)
+    return "v2:" + _payload_digest(payload=payload)
+
+
+def legacy_design_digest(*, group: Group) -> str:
+    """Retain the exact pre-v2 design hash for audit and old approvals (Spec-0088/T1)."""
+    return _payload_digest(payload=_design_payload(group=group))
+
+
+def _normalize_self_refs(*, value: object, pattern: re.Pattern[str], task_ids: set[str]) -> object:
+    """Encode self references as typed segments, never a text sentinel (Spec-0088/T1)."""
+    if isinstance(value, dict):
+        return {
+            key: _normalize_self_refs(value=item, pattern=pattern, task_ids=task_ids)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _normalize_self_refs(value=item, pattern=pattern, task_ids=task_ids) for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    parts: list[object] = []
+    offset = 0
+    for match in pattern.finditer(value):
+        if match.group(1) in task_ids:
+            parts.extend((value[offset : match.start()], {"self-task": match.group(1)}))
+            offset = match.end()
+    return {"prose": parts + [value[offset:]]} if parts else value
+
+
+def _design_payload(*, group: Group) -> dict:
+    """Build the original status-independent design payload (Spec-0088/T1)."""
+    return {
+        "architecture": _plain_architecture(value=group.metadata.architecture),
+        "verification": _plain_verification(value=group.metadata.verification),
+        "overview": {attr: getattr(group.overview, attr) for _, attr in _OVERVIEW_SECTIONS},
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "priority": t.priority,
+                "depends-on": t.depends_on,
+                "files": t.files,
+                "scope": t.scope,
+                "acceptance": t.acceptance,
+            }
+            for t in group.tasks
+        ],
+    }
+
+
+def _payload_digest(*, payload: dict) -> str:
+    """Hash a deterministic design representation (Spec-0088/T1)."""
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _plain_architecture(*, value: ArchitectureDecision | None) -> dict | None:
+    if value is None:
+        return None
+    return {
+        "objective": value.objective,
+        "constraints": value.constraints,
+        "non-goals": value.non_goals,
+        "candidates": [
+            {
+                "id": c.id,
+                "layer": c.layer,
+                "boundary": c.boundary,
+                "evidence": c.evidence,
+                "tradeoffs": c.tradeoffs,
+            }
+            for c in value.candidates
+        ],
+        "selected": value.selected,
+        "affected-components": value.affected_components,
+        "failure-modes": value.failure_modes,
+    }
+
+
+def _plain_verification(*, value: VerificationPlan | None) -> dict | None:
+    if value is None:
+        return None
+    return {
+        "behavior-cases": [
+            {
+                "id": c.id,
+                "polarity": c.polarity,
+                "stimulus": c.stimulus,
+                "expected": c.expected,
+                "observation": c.observation,
+            }
+            for c in value.behavior_cases
+        ],
+        "repository-invariants": value.repository_invariants,
+        "exemptions": value.exemptions,
+    }
 
 
 def _e2e_frontmatter(*, e2e: E2EPlan) -> CommentedMap:

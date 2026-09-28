@@ -110,7 +110,9 @@ def test_intake_behaviour_unchanged_admits_and_orders_edges(monkeypatch, tmp_pat
     )
     ordered: list[object] = []
     monkeypatch.setattr(
-        vigil_module, "_order_edges", lambda *, backend, work_dir, agent_id: ordered.append(True)
+        vigil_module,
+        "_order_edges",
+        lambda *, backend, work_dir, config, agent_id: ordered.append(True),
     )
 
     _intake(backend=object(), work_dir=tmp_path, config=_config(), agent_id="vigil-1", now=_NOW)
@@ -145,6 +147,7 @@ def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
         owner="agent",
         backend=object(),
         work_dir=tmp_path,
+        config=_config(),
         issue=_issue(number=9),
         agent_id="vigil-1",
         discovery_labels=("openagents",),
@@ -167,6 +170,7 @@ def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_pat
         owner="agent",
         backend=object(),
         work_dir=tmp_path,
+        config=_config(),
         issue=_issue(number=42),
         agent_id="vigil-1",
         discovery_labels=("openagents",),
@@ -187,6 +191,7 @@ def test_admit_skip_route_does_not_log_triage_progress(monkeypatch, tmp_path, ca
         owner="skip",
         backend=object(),
         work_dir=tmp_path,
+        config=_config(),
         issue=_issue(number=7),
         agent_id="vigil-1",
         discovery_labels=("openagents",),

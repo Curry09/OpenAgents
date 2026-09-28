@@ -39,6 +39,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from openagents.recipes import vigil as vigil_module
 from openagents.recipes.vigil import (
     _ACT_FIX_CI,
@@ -103,6 +105,11 @@ def _facts(**overrides) -> _Facts:
         latest_comment_is_ours=True,
     )
     return replace(base, **overrides)
+
+
+@pytest.fixture(autouse=True)
+def _stub_failure_snapshot(monkeypatch):
+    monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts())
 
 
 def _config() -> agent_config.AgentConfig:
@@ -417,7 +424,7 @@ def test_run_claimed_clean_release_on_merge_not_ready(tmp_path, monkeypatch):
         lambda **kwargs: (_ for _ in ()).throw(gates.MergeNotReady("CI pending")),
     )
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     _run_it(tmp_path, conn, row, fd)  # 不上抛
 
@@ -428,12 +435,7 @@ def test_run_claimed_clean_release_on_merge_not_ready(tmp_path, monkeypatch):
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
-def test_run_claimed_parks_and_never_requeues_on_act_timeout(tmp_path, monkeypatch):
-    """`_ActTimeout`（agent 挂死被强杀）→ **删行 + park 交人**，绝不回队。
-
-    被杀的 agent 是否已经改了 / 推了东西无法证明——重发一次正是双跑。这是 `_ActTimeout` 与普通异常处置
-    不同的**唯一**理由。
-    """
+def test_run_claimed_requeues_act_timeout_within_bounded_budget(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     row, fd = _claim_one(tmp_path, conn, subject="issue:5")
     parked: list[str] = []
@@ -443,23 +445,17 @@ def test_run_claimed_parks_and_never_requeues_on_act_timeout(tmp_path, monkeypat
         lambda **kwargs: (_ for _ in ()).throw(_ActTimeout("超 1800s 未返回")),
     )
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     _run_it(tmp_path, conn, row, fd)
 
-    assert _count(conn) == 0, "挂死的活直接删行交人，不许回队（回队 = 可能双跑）"
-    assert parked == ["issue:5"]
+    assert _count(conn) == 1
+    assert _row(conn, subject="issue:5")["status"] == "queued"
+    assert parked == []
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
-def test_act_timeout_park_keeps_the_row_when_the_label_never_lands(tmp_path, monkeypatch):
-    """# Spec-0065/T2: `_ActTimeout` 的 park 同样**先打 label、再删行**——`gh` 抛了就什么都不许变。
-
-    反过来（先删行、后发 `gh`）时，一次 429 会把「交人」悄悄变成「重新派发」：行没了、label 也没打上，
-    下一 tick 生产者从 GitHub 重新感知 → 还是 ACTIONABLE → 重新入队 → 那个**可能还活着**的挂死 agent 的活
-    被重发一遍 → 双跑，而这恰恰是 `_ActTimeout` 不回队的**唯一**理由。行留 claimed + 锁已释放 ⇒
-    `_reclaim_dead` 下一轮捡回去重试（幂等），「交人」这个决定丢不了。
-    """
+def test_act_timeout_below_budget_does_not_write_terminal_projection(tmp_path, monkeypatch):
     _, conn = _db(tmp_path)
     row, fd = _claim_one(tmp_path, conn, subject="issue:5")
     monkeypatch.setattr(
@@ -469,15 +465,13 @@ def test_act_timeout_park_keeps_the_row_when_the_label_never_lands(tmp_path, mon
     )
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        "_fail_automation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
     )
     _run_it(tmp_path, conn, row, fd)  # 收尾失败不上抛
 
     after = _row(conn, subject="issue:5")
-    assert after is not None and after["status"] == "claimed", (
-        "label 没落地 → 行不许删（删=悄悄重新派发）"
-    )
+    assert after is not None and after["status"] == "queued"
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
@@ -509,7 +503,7 @@ def test_run_claimed_over_the_cap_parks_without_calling_reconcile_at_all(tmp_pat
         vigil_module, "_reconcile", lambda **kwargs: reconciled.append(kwargs["subject"])
     )
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     # 领取时 `attempts` +1 → 进 `_run_claimed` 时已是 `_MAX_ATTEMPTS + 1`（上一轮判了 park 但没落地）。
@@ -536,7 +530,7 @@ def test_run_claimed_over_the_cap_states_only_what_it_can_prove(tmp_path, monkey
     bodies: list[str] = []
     monkeypatch.setattr(vigil_module, "_reconcile", lambda **kwargs: None)
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: bodies.append(body)
+        vigil_module, "_fail_automation", lambda **kwargs: bodies.append(kwargs["reason"])
     )
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     conn.execute("UPDATE work_queue SET attempts=? WHERE subject='issue:5'", (_MAX_ATTEMPTS,))
@@ -546,7 +540,7 @@ def test_run_claimed_over_the_cap_states_only_what_it_can_prove(tmp_path, monkey
 
     assert len(bodies) == 1
     # 只看 `_run_claimed` 填进去的那一段「原因」，不看 `_finish` 的 body 模板里的公共话术。
-    reason = bodies[0].split("原因：", 1)[1].split("\n\n", 1)[0]
+    reason = bodies[0]
     assert str(_MAX_ATTEMPTS + 1) in reason, "能证的事实：这一行被领取了几次（给人一个可查的锚点）"
     assert "可能" in reason, (
         "成因只能是**推测**（agent 反复崩 / 守夜被无关的重启打死 / 上一轮 park 的 `gh` 没发出去），"
@@ -570,7 +564,7 @@ def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_
 
     monkeypatch.setattr(vigil_module, "_reconcile", _fake_reconcile)
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)  # 毒丸排队首
     _enqueue(conn=conn, subject="issue:6", priority=1, now=_NOW)
@@ -609,7 +603,7 @@ def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_
 def test_requeue_or_park_releases_the_lock_at_max_attempts(tmp_path, monkeypatch):
     """到顶 park 也必须释锁：park 只是「删行 + 打 label」，锁留在手里的话下一次入队的行永远判不了死。"""
     _, conn = _db(tmp_path)
-    monkeypatch.setattr(vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: None)
+    monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kwargs: None)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     for _ in range(_MAX_ATTEMPTS):
         row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
@@ -637,8 +631,8 @@ def test_finish_closes_the_fd_exactly_once_when_park_raises(tmp_path, monkeypatc
     _, conn = _db(tmp_path)
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        "_fail_automation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
     )
     monkeypatch.setattr(
         vigil_module,
@@ -834,8 +828,8 @@ def test_sweep_drops_the_row_and_stays_recoverable_when_the_park_label_never_lan
     _, conn = _db(tmp_path)
     monkeypatch.setattr(
         vigil_module,
-        "_park_needs_human",
-        lambda *, subject, body, agent_id: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        "_fail_automation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
     )
     seen_locked: dict[str, datetime] = {}
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
@@ -958,12 +952,12 @@ def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, m
     worker_conn = _connect(db_path=db_path)
     handouts: list[object] = []
 
-    def _slow_park(*, subject: str, body: str, agent_id: str) -> None:
+    def _slow_park(**kwargs) -> None:
         # 正在发 `gh` 的这几秒里：泄漏进程死了 → 锁自由 → 一个 worker 立刻来领这一行。
         os.close(leaked)
         handouts.append(_claim_next(conn=worker_conn, work_dir=tmp_path, worker_id="w", now=_NOW))
 
-    monkeypatch.setattr(vigil_module, "_park_needs_human", _slow_park)
+    monkeypatch.setattr(vigil_module, "_fail_automation", _slow_park)
     try:
         _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER)
 
@@ -984,7 +978,7 @@ def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, m
 
 
 def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, monkeypatch):
-    """A→B→A→B… 的振荡（review 打回 ↔ implement 推新 head）→ 到 `_MAX_RECONCILE_ROUNDS` 收口 park。
+    """A→B→A→B… 在 claim 步数耗尽后仍成环，必须收口。
 
     这是护栏一（attempt 戳）**识别不了**的死法：每一轮 fp 都真的变了（agent 真改了 GitHub），只是没走向
     终态。没有这道轮数闸，它会一轮一次 LLM 地无限转下去，直到两小时后 IN_FLIGHT 告警才有人管。
@@ -1012,7 +1006,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
         vigil_module, "_post_attempt_stamp", lambda **kwargs: stamps.append(kwargs["fp"])
     )
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
 
     _reconcile(
@@ -1026,7 +1020,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
         lock_fd=None,  # Spec-0065/T2: `_act` 已打桩，不起子进程 → 无 flock fd 可传
     )
 
-    assert len(acted) == _MAX_RECONCILE_ROUNDS, "振荡必须在轮数上限处停下（不许无限烧 LLM）"
+    assert len(acted) == _MAX_RECONCILE_ROUNDS, "持续振荡必须在轮数上限处停下"
     assert acted[0] == _ACT_FIX_CI
     assert stamps == [], "振荡不是「零进展」——fp 每轮都变，护栏一（attempt 戳）根本认不出它"
     assert parked == ["issue:5"], "机器判不了的振荡 → 交人"
@@ -1040,7 +1034,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
 def _park_spy(monkeypatch) -> list[str]:
     parked: list[str] = []
     monkeypatch.setattr(
-        vigil_module, "_park_needs_human", lambda *, subject, body, agent_id: parked.append(subject)
+        vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     return parked
 

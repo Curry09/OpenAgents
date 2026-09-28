@@ -5,8 +5,10 @@
 - git status 走 subprocess.run。
 """
 
+import io
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -14,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from openagents.backends import claude_code
 from openagents.backends.base import AgentBackend, AgentResult
 from openagents.backends.claude_code import (
     _GUARDRAIL,
@@ -43,9 +46,32 @@ def _assistant_tool(name, **inp):
     return json.dumps({"type": "assistant", "message": {"content": [block]}})
 
 
-def _result(text):
+def _assistant_usage(**usage):
+    """构造含中间轮 usage 的 assistant 事件；Spec-0079 要证明它不会被重复累计。"""
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "model": "intermediate-model",
+                "usage": usage,
+                "content": [{"type": "text", "text": "working"}],
+            },
+        }
+    )
+
+
+def _system_init(model):
+    return json.dumps({"type": "system", "subtype": "init", "model": model})
+
+
+def _result(text, *, usage=None, model_usage=None):
     """构造最终 result 事件（摘要来源）。"""
-    return json.dumps({"type": "result", "subtype": "success", "result": text, "is_error": False})
+    event = {"type": "result", "subtype": "success", "result": text, "is_error": False}
+    if usage is not None:
+        event["usage"] = usage
+    if model_usage is not None:
+        event["modelUsage"] = model_usage
+    return json.dumps(event)
 
 
 class _FakePopen:
@@ -53,6 +79,7 @@ class _FakePopen:
 
     def __init__(self, *, lines, returncode, pass_fds=()):
         self.stdout = iter(lines)
+        self.stdin = _RecordingStdin()
         self._returncode = returncode
         # Spec-0065/T2: 真 Popen 有 pid，后端要 proc_utils.publish(pid=proc.pid) 自报给认领桶。
         self.pid = 4242
@@ -64,6 +91,15 @@ class _FakePopen:
         return self._returncode
 
 
+class _RecordingStdin(io.StringIO):
+    def __init__(self):
+        super().__init__()
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
 class _FakeCompleted:
     """模拟 subprocess.run 的返回对象（用于 git status）。"""
 
@@ -73,18 +109,25 @@ class _FakeCompleted:
         self.stderr = ""
 
 
+class _Calls(list):
+    """List-shaped call log that also exposes constructed fake processes."""
+
+
 def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
     """打桩 Popen(claude 事件流) 与 run(git)，记录调用以便断言。"""
-    popen_calls = []
+    popen_calls = _Calls()
+    popen_instances = []
     run_calls = []
 
     def fake_popen(cmd, **kwargs):
         popen_calls.append((cmd, kwargs))
-        return _FakePopen(
+        instance = _FakePopen(
             lines=[line + "\n" for line in claude_lines],
             returncode=claude_returncode,
             pass_fds=kwargs.get("pass_fds", ()),
         )
+        popen_instances.append(instance)
+        return instance
 
     def fake_run(cmd, **kwargs):
         run_calls.append((cmd, kwargs))
@@ -92,6 +135,7 @@ def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", fake_run)
+    popen_calls.instances = popen_instances
     return popen_calls, run_calls
 
 
@@ -141,6 +185,153 @@ def test_summary_comes_from_result_event(monkeypatch, tmp_path):
     assert "done editing foo" in result.summary
 
 
+def test_stream_and_result_redact_configured_secrets(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("GITEA_TOKEN", "top-secret-token")
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _assistant_tool("Bash", command="curl -u bot:top-secret-token http://gitea"),
+            _assistant_text("using top-secret-token"),
+            _result('{"verdict":"PASS","reason":"top-secret-token removed"}'),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert "top-secret-token" not in capsys.readouterr().out
+    assert "top-secret-token" not in result.summary
+    assert "${GITEA_TOKEN}" in result.summary
+
+
+def test_token_usage_comes_from_final_aggregate_result_only(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _system_init("configured-model"),
+            _assistant_usage(
+                input_tokens=999,
+                output_tokens=999,
+                cache_creation_input_tokens=999,
+                cache_read_input_tokens=999,
+            ),
+            _result(
+                "done",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 4,
+                    "cache_creation_input_tokens": 3,
+                    "cache_read_input_tokens": 20,
+                    "server_tool_use": {"web_search_requests": 0},
+                },
+                model_usage={"user-api-model": {"inputTokens": 10, "outputTokens": 4}},
+            ),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.input_tokens == 10
+    assert result.usage.output_tokens == 4
+    assert result.usage.cache_creation_input_tokens == 3
+    assert result.usage.cache_read_input_tokens == 20
+    assert result.usage.total_tokens == 37
+    assert result.usage.total_source == "derived-components"
+    assert result.usage.model == "user-api-model"
+
+
+def test_token_usage_uses_init_model_when_model_usage_is_absent(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _system_init("nex-agi/deepseek-v3.1-nex-1"),
+            _result("done", usage={"input_tokens": 7, "output_tokens": 2}),
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.model == "nex-agi/deepseek-v3.1-nex-1"
+    assert result.usage.total_tokens == 9
+
+
+def test_token_usage_preserves_explicit_total_and_multiple_models(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[
+            _result(
+                "done",
+                usage={"input_tokens": 7, "output_tokens": 2, "total_tokens": 11},
+                model_usage={"model-b": {}, "model-a": {}},
+            )
+        ],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.total_tokens == 11
+    assert result.usage.total_source == "reported"
+    assert result.usage.model == "model-a,model-b"
+
+
+def test_reasoning_only_usage_does_not_invent_zero_total(monkeypatch, tmp_path):
+    _patch(
+        monkeypatch,
+        claude_lines=[_result("done", usage={"reasoning_tokens": 5})],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is not None
+    assert result.usage.reasoning_tokens == 5
+    assert result.usage.total_tokens is None
+    assert result.usage.total_source is None
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [None, {}, {"input_tokens": -1}, {"output_tokens": True}, {"input_tokens": "12"}],
+)
+def test_missing_or_malformed_result_usage_is_unavailable(monkeypatch, tmp_path, usage):
+    _patch(
+        monkeypatch,
+        claude_lines=[_result("done", usage=usage)],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert result.usage is None
+
+
+def test_long_result_is_only_truncated_for_display(monkeypatch, tmp_path):
+    raw = "analysis " * 400 + '{"verdict":"PASS"}'
+    _patch(
+        monkeypatch,
+        claude_lines=[_result(raw)],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    assert len(result.summary) == 2000
+    assert result.protocol_output == raw
+
+
 def test_changed_false_when_git_clean(monkeypatch, tmp_path):
     _patch(
         monkeypatch,
@@ -188,13 +379,53 @@ def test_invokes_claude_stream_json_in_work_dir(monkeypatch, tmp_path):
     assert len(popen_calls) == 1
     cmd, kwargs = popen_calls[0]
     assert cmd[:2] == [CLAUDE_BIN, "-p"]
-    prompt = cmd[2]
-    assert "修复 bug" in prompt
-    assert "历史 comment" in prompt
+    assert "修复 bug" not in cmd
+    assert "历史 comment" not in cmd
+    assert kwargs["stdin"] == subprocess.PIPE
     assert "--permission-mode" in cmd and "acceptEdits" in cmd
     # RFC-0003：实时事件流参数。
     assert "--output-format" in cmd and "stream-json" in cmd and "--verbose" in cmd
     assert kwargs["cwd"] == tmp_path
+
+
+def test_advisory_disables_tools_and_bounds_output_without_changing_developer(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", raising=False)
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+    developer = ClaudeCodeBackend()
+    developer.for_advisory().run(work_dir=tmp_path, task="plan", context="issues")
+    developer.run(work_dir=tmp_path, task="implement", context="original issue")
+    command, kwargs = popen_calls[0]
+    assert command[command.index("--tools") + 1] == ""
+    assert command[command.index("--max-turns") + 1] == "1"
+    assert "--strict-mcp-config" in command
+    assert kwargs["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
+    assert "--tools" not in popen_calls[1][0]
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in popen_calls[1][1]["env"]
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in popen_calls[1][1]["env"]
+
+
+def test_prompt_is_written_once_to_stdin_and_never_argv(monkeypatch, tmp_path):
+    sentinel = "SENSITIVE-LONG-PROMPT-" * 10000
+    popen_calls, _ = _patch(
+        monkeypatch,
+        claude_lines=[_result("ok")],
+        claude_returncode=0,
+        git_porcelain="",
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="任务", context=sentinel)
+
+    cmd, _ = popen_calls[0]
+    assert all(sentinel not in arg for arg in cmd)
+    written = popen_calls.instances[0].stdin.getvalue()
+    assert written == _build_prompt(task="任务", context=sentinel)
+    assert written.count(sentinel) == 1
+    assert popen_calls.instances[0].stdin.close_calls == 1
 
 
 def test_git_status_runs_against_work_dir(monkeypatch, tmp_path):
@@ -352,6 +583,116 @@ def test_command_line_honors_permission_mode_override(monkeypatch, tmp_path):
     assert cmd[idx + 1] == "bypassPermissions"
 
 
+@pytest.mark.parametrize("advisory", [False, True])
+def test_subagents_are_locked_to_main_model_even_with_stale_override(
+    monkeypatch, tmp_path, advisory
+):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL", "anthropic/claude-sonnet-5")
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "0")
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+
+    ClaudeCodeBackend(advisory=advisory).run(work_dir=tmp_path, task="t", context="c")
+
+    child_env = popen_calls[0][1]["env"]
+    assert child_env["ANTHROPIC_MODEL"] == "openai/gpt-6-luna"
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL"] == "openai/gpt-6-luna"
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+
+
+def test_subagent_lock_inherits_main_when_no_explicit_model(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL", "anthropic/claude-sonnet-5")
+    popen_calls, _ = _patch(
+        monkeypatch, claude_lines=[_result("ok")], claude_returncode=0, git_porcelain=""
+    )
+
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
+
+    child_env = popen_calls[0][1]["env"]
+    assert child_env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in child_env
+
+
+def test_terminate_escalates_after_leader_exits_but_group_survives(monkeypatch):
+    """Kill an orphaned Claude child after the leader exits cleanly."""
+    events = []
+
+    class _Leader:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(claude_code.os, "getpgid", lambda pid: 4242)
+
+    def killpg(pgid, sig):
+        events.append(("killpg", pgid, sig))
+        if sig == signal.SIGTERM:
+            return
+        return None
+
+    monkeypatch.setattr(claude_code.os, "killpg", killpg)
+    signal_zero = []
+
+    def kill(pid, sig):
+        signal_zero.append((pid, sig))
+        if sig == 0:
+            return None
+
+    monkeypatch.setattr(claude_code.os, "kill", kill)
+    monkeypatch.setattr(claude_code.subprocess, "Popen", _Leader)
+
+    claude_code._terminate_then_kill(proc=_Leader())
+
+    assert ("killpg", 4242, signal.SIGTERM) in events
+    assert ("killpg", 4242, signal.SIGKILL) in events
+    assert signal_zero == []
+
+
+def test_terminate_uses_captured_group_after_leader_was_reaped(monkeypatch):
+    """Do not rediscover PGID from a leader that another thread already reaped."""
+    events = []
+
+    class _ReapedLeader:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    leader = _ReapedLeader()
+    proc.remember_process_group(handle=leader, pgid=4242)
+    monkeypatch.setattr(
+        claude_code.os,
+        "getpgid",
+        lambda pid: (_ for _ in ()).throw(ProcessLookupError(pid)),
+    )
+
+    def killpg(pgid, sig):
+        events.append(("killpg", pgid, sig))
+
+    monkeypatch.setattr(claude_code.os, "killpg", killpg)
+
+    claude_code._terminate_then_kill(proc=leader)
+
+    assert ("killpg", 4242, signal.SIGTERM) in events
+    assert ("killpg", 4242, signal.SIGKILL) in events
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0046/T2：claude -p 流式读的 idle（停顿）看门狗——真静默/病态流触发、健康流零回归、访问器解析
 #
@@ -385,6 +726,7 @@ class _WatchdogPopen:
         self.terminated = False
         self.killed = False
         self.stdout = self._iter()
+        self.stdin = io.StringIO()
 
     def _iter(self):
         while True:
@@ -433,7 +775,7 @@ def _patch_popen(monkeypatch, *, fake, git_porcelain):
 
 
 def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
-    # ① idle 触发：吐一行后长时间静默 → 连续静默超 idle → terminate 后 kill 被调 + 抛 RuntimeError 含「停顿超时」。
+    # ① 连续静默超 idle → terminate 后 kill 被调，原因记录长时间无输出。
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0.1")
     monkeypatch.setenv(MAX_WALL_ENV, "0")  # 只测 idle，关墙钟兜底
     fake = _WatchdogPopen(
@@ -444,13 +786,15 @@ def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "停顿超时" in str(exc.value)
+    assert "长时间无输出" in str(exc.value)
+    assert "预算耗尽" not in str(exc.value)
+    assert "挂死" not in str(exc.value)
     assert fake.terminated is True, "看门狗触发时应先 terminate()"
     assert fake.killed is True, "SIGTERM 宽限内未退 → 应升级到 kill()"
 
 
 def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
-    # ② 墙钟触发：每 tick 吐一行（idle 骗得过）但总时长超绝对上限 → 抛 RuntimeError 含「墙钟超时」。
+    # ② 持续吐行仍耗尽总时长预算，输出不能续时。
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")  # 关 idle：病态流一直有「新行」，idle 判据被骗过
     monkeypatch.setenv(MAX_WALL_ENV, "0.2")
     fake = _WatchdogPopen(
@@ -464,7 +808,9 @@ def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "墙钟超时" in str(exc.value)
+    assert "时间预算耗尽" in str(exc.value)
+    assert "长时间无输出" not in str(exc.value)
+    assert "挂死" not in str(exc.value)
     assert fake.killed is True
 
 
@@ -507,6 +853,13 @@ def test_effective_idle_timeout_defaults_to_300(monkeypatch):
 def test_effective_max_wall_defaults_to_3600(monkeypatch):
     # ④ 访问器：未设 → 缺省 3600s（远大于 idle）。
     monkeypatch.delenv(MAX_WALL_ENV, raising=False)
+    assert effective_max_wall() == 3600.0
+
+
+@pytest.mark.parametrize("raw", ["", " ", "invalid", "nan", "inf", "-inf"])
+def test_invalid_max_wall_falls_back_to_finite_budget(monkeypatch, raw):
+    """Spec-0046: malformed budgets must not disable the guard or overflow thread.join."""
+    monkeypatch.setenv(MAX_WALL_ENV, raw)
     assert effective_max_wall() == 3600.0
 
 

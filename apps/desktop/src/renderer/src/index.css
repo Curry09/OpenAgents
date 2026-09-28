@@ -6,7 +6,7 @@
   --text: #e6edf3;
   --muted: #8b949e;
   --accent: #2f81f7;
-  --needs-human: #f85149;
+  --automation-failed: #f85149;
   --pr-merge: #3fb950;
   --new-comment: #d29922;
   --just-changed: #8b949e;
@@ -79,8 +79,8 @@ body {
   margin-top: 8px;
 }
 
-.badge--needs-human {
-  background: var(--needs-human);
+.badge--automation-failed {
+  background: var(--automation-failed);
   color: #fff;
 }
 

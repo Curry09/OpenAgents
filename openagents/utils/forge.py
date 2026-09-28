@@ -31,7 +31,7 @@ from ruamel.yaml.error import YAMLError
 # Spec-0074/T1: forge 中立的常量与错误类型——import 时静态 re-export（零 IO），不走 __getattr__。
 from openagents.utils.github import (  # noqa: F401  re-export 供消费方经 forge 取用
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISCOVERY_LABEL,
     DISPATCH_LABEL,
     PROCESS_LABELS,
@@ -100,9 +100,42 @@ def _read_config(*, start: Path) -> tuple[str, dict[str, Any]]:
         candidate = base / _CONFIG_RELPATH
         if candidate.is_file():
             return _parse_forge(path=candidate)
-        if (base / ".git").exists():
+        linked_root = _linked_main_worktree(git_file=base / ".git")
+        if linked_root is not None:
+            linked_config = linked_root / _CONFIG_RELPATH
+            if linked_config.is_file():
+                return _parse_forge(path=linked_config)
+        # Linked worktrees contain a `.git` *file*, not a directory.  Stopping on
+        # that file prevents commands executed inside the worktree from finding
+        # the main worktree's `.openagents/openagents.yml`, and silently selects
+        # the GitHub driver for a Gitea repository.  Continue through a linked
+        # worktree; only a real repository root terminates discovery.
+        if (base / ".git").is_dir():
             break  # 仓库根已到——配置只认本仓的（与 gh 的 cwd→仓库绑定语义一致）
     return FORGE_GITHUB, {}
+
+
+def _linked_main_worktree(*, git_file: Path) -> Path | None:
+    """Resolve the main worktree root from a linked worktree's `.git` pointer."""
+    if not git_file.is_file():
+        return None
+    try:
+        marker = git_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    prefix = "gitdir:"
+    if not marker.lower().startswith(prefix):
+        return None
+    raw = marker[len(prefix) :].strip()
+    if not raw:
+        return None
+    gitdir = Path(raw)
+    if not gitdir.is_absolute():
+        gitdir = (git_file.parent / gitdir).resolve()
+    # `git worktree add` points at <main>/.git/worktrees/<name>.
+    if gitdir.parent.name != "worktrees" or gitdir.parent.parent.name != ".git":
+        return None
+    return gitdir.parent.parent.parent
 
 
 def _parse_forge(*, path: Path) -> tuple[str, dict[str, Any]]:

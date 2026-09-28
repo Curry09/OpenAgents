@@ -14,7 +14,7 @@ from openagents.agents import deliver
 
 def test_prompt_is_template_and_substitutes():
     assert isinstance(deliver.PROMPT, Template)
-    text = deliver.PROMPT.substitute(branch="openagents/issue-1", pr_number=42)
+    text = deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=42)
     assert isinstance(text, str)
 
 
@@ -26,8 +26,15 @@ def test_prompt_has_no_platform_commands():
 
 def test_prompt_tells_agent_ready_is_not_its_job():
     # 显式告知「转正不归你」——否则 agent 会按旧习惯临场找平台命令补转正（生产实测的空转来源）。
-    text = deliver.PROMPT.substitute(branch="openagents/issue-1", pr_number=42)
+    text = deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=42)
     assert "不归你" in text
+
+
+def test_prompt_requires_generated_spec_integrity_before_push():
+    text = deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=42)
+    assert text.index("spec validate") < text.index("spec render") < text.index("spec graph")
+    assert text.index("spec graph") < text.index("git push")
+    assert "不得手工猜测或拼接生成文档" in text
 
 
 def test_output_schema_unchanged():

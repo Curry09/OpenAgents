@@ -35,6 +35,7 @@ _TRACKED: dict[int, dict[int, Any]] = {}
 # Spec-0065/T2: thread ident → 该线程要**传给子进程继承**的 fd（守夜用它传 flock 存活证明，见 hold_fd）。
 _INHERIT: dict[int, tuple[int, ...]] = {}
 _TRACK_LOCK = threading.Lock()
+_PROCESS_GROUP_ATTR = "_openagents_process_group"
 
 
 def track() -> None:
@@ -55,6 +56,28 @@ def publish(*, pid: int, handle: Any = None) -> None:
         bucket = _TRACKED.get(threading.get_ident())
         if bucket is not None:
             bucket[pid] = handle
+
+
+def remember_process_group(*, handle: Any, pgid: int) -> None:
+    """Bind a newly-created process handle to its independent process group.
+
+    The group id must be captured immediately after ``Popen`` returns.  Looking it up only
+    during timeout cleanup is racy: another thread may reap the leader first while a shell or
+    MCP child keeps the group alive.  The handle is the identity anchor; a bare PID/PGID is
+    never reconstructed after the leader has been reaped.
+    """
+    if pgid <= 0:
+        return
+    try:
+        setattr(handle, _PROCESS_GROUP_ATTR, pgid)
+    except Exception:
+        pass
+
+
+def process_group(*, handle: Any) -> int | None:
+    """Return the process-group id captured for ``handle``, if any."""
+    value = getattr(handle, _PROCESS_GROUP_ATTR, None)
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def untrack(*, thread_id: int) -> dict[int, Any]:
@@ -126,11 +149,56 @@ def kill_tree(*, pid: int, handle: Any = None) -> None:
     # `os.kill` 之间它们随时可能退出并被真正的父亲 reap，PID 于是可复用。要真正堵死得靠进程组（`setsid` +
     # `killpg`），那要求 backend 起进程时就开新会话——留给后续。当前窗口是毫秒级且需 PID 回绕，可接受。
     """
+    process_group_id = process_group(handle=handle) if handle is not None else None
     if handle is not None and handle.poll() is not None:
+        # A reaped leader is normally a hard no-op because its PID may be reused.  If the
+        # backend captured the independent process group at launch, it is still safe to close
+        # the surviving shell/MCP descendants without consulting the dead PID again.
+        if process_group_id is not None:
+            _kill_group(pgid=process_group_id)
         return
+    for pgid in _descendant_process_groups(pid=pid):
+        _kill_group(pgid)
+    if process_group_id is not None:
+        _kill_group(pgid=process_group_id)
     for child in _descendants(pid=pid):
         _kill_one(pid=child)
     _kill_one(pid=pid)
+
+
+def _descendant_process_groups(*, pid: int) -> set[int]:
+    """Return escaped process groups observed among ``pid``'s descendants."""
+    try:
+        root_pgid = os.getpgid(pid)
+        table = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,pgid="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return set()
+    rows: list[tuple[int, int, int]] = []
+    for line in table.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            rows.append(tuple(int(part) for part in parts))
+    children: dict[int, list[tuple[int, int]]] = {}
+    for child, parent, pgid in rows:
+        children.setdefault(parent, []).append((child, pgid))
+    groups: set[int] = set()
+    frontier = [pid]
+    seen = {pid}
+    while frontier:
+        parent = frontier.pop()
+        for child, pgid in children.get(parent, ()):
+            if child in seen:
+                continue
+            seen.add(child)
+            frontier.append(child)
+            if pgid != root_pgid and pgid > 0:
+                groups.add(pgid)
+    return groups
 
 
 def _descendants(*, pid: int) -> list[int]:
@@ -172,5 +240,13 @@ def _kill_one(*, pid: int) -> None:
     """SIGKILL 单个进程（已退出 / 无权限 → 静默忽略）。"""
     try:
         os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _kill_group(pgid: int) -> None:
+    """SIGKILL one descendant process group (already gone → no-op)."""
+    try:
+        os.killpg(pgid, signal.SIGKILL)
     except OSError:
         pass

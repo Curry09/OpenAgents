@@ -2,15 +2,13 @@
 
 覆盖：空/None → 默认全不关；单闸 / 多闸 / all 的布尔置位；未知 token（含已不合法的
 'merge'）抛 ValueError 且信息列出合法值；多余空格 / 大小写归一化；Skip 为不可变值对象；
-reconcile_hold_skip 对同一 spec 闸矛盾报错、对作用不同闸放行。
 """
 
 import dataclasses
 
 import pytest
 
-from openagents.utils.hold import parse_hold
-from openagents.utils.skip import NONE, Skip, parse_skip, reconcile_hold_skip
+from openagents.utils.skip import NONE, Skip, parse_skip
 
 
 def test_empty_and_none_default_to_no_skip():
@@ -61,7 +59,7 @@ def test_unknown_token_raises_with_valid_values_listed():
 
 
 def test_merge_is_not_a_valid_skip_token():
-    # merge 归 --hold，对 --skip 已不再合法 → 未知 token 报错（防止悄悄放行合并语义）。
+    # merge 是不可跳过的动作 → 未知 token 报错（防止悄悄放行合并语义）。
     with pytest.raises(ValueError) as exc:
         parse_skip(raw="merge")
     assert "merge" in str(exc.value)
@@ -72,20 +70,3 @@ def test_skip_is_frozen_value_object():
     assert dataclasses.is_dataclass(skip)
     with pytest.raises(dataclasses.FrozenInstanceError):
         skip.at_spec = False  # type: ignore[misc]
-
-
-def test_reconcile_raises_on_shared_spec_gate():
-    hold = parse_hold(raw="spec")
-    skip = parse_skip(raw="spec")
-    with pytest.raises(ValueError) as exc:
-        reconcile_hold_skip(hold=hold, skip=skip)
-    assert "spec" in str(exc.value)
-
-
-def test_reconcile_allows_different_gates():
-    # hold merge + skip spec：作用于不同闸，不矛盾。
-    reconcile_hold_skip(hold=parse_hold(raw="merge"), skip=parse_skip(raw="spec"))
-    # hold spec + skip ci：spec 停、ci 跳，无交集，不矛盾。
-    reconcile_hold_skip(hold=parse_hold(raw="spec"), skip=parse_skip(raw="ci"))
-    # 全空：不矛盾。
-    reconcile_hold_skip(hold=parse_hold(raw=None), skip=parse_skip(raw=None))

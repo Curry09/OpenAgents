@@ -1,9 +1,13 @@
 """Spec-0060/T3: runtime.gates 最小硬闸单测——只验客观事实，四闸各正/反例。
 
 utils.git.head_sha / utils.github.pr_head_branch 打桩，不触真实仓库/网络。
+Spec-0017 补充：2026-09-09-delivery-review-snapshot-tests-design.md 的实时 HEAD 回归。
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,6 +80,103 @@ def test_evidence_stamp_raises_on_mismatch():
         gates.assert_evidence_stamp(head_sha="abc123", claimed="def456")
 
 
+def test_integration_stamp_requires_every_version_to_match():
+    approved = gates.IntegrationStamp(
+        base_sha="base-a", head_sha="head-a", design_digest="design-a"
+    )
+    gates.assert_integration_stamp(approved=approved, current=approved)
+    for field in ("base_sha", "head_sha", "design_digest"):
+        changed = {
+            "base_sha": approved.base_sha,
+            "head_sha": approved.head_sha,
+            "design_digest": approved.design_digest,
+        }
+        changed[field] += "-changed"
+        with pytest.raises(GateError):
+            gates.assert_integration_stamp(
+                approved=approved, current=gates.IntegrationStamp(**changed)
+            )
+
+
+def test_design_approved_selects_digest_when_issue_number_is_reused(tmp_path, monkeypatch):
+    approved = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    historical = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [historical, approved])
+    monkeypatch.setattr(
+        gates.spec_model,
+        "design_digest",
+        lambda *, group: "approved" if group is approved else "historical",
+    )
+
+    gates.assert_design_approved(workspace=tmp_path, issue_number=13, approved_digest="approved")
+
+
+def test_design_approved_rejects_when_approved_digest_disappeared(tmp_path, monkeypatch):
+    changed = SimpleNamespace(metadata=SimpleNamespace(issue=13))
+    monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [changed])
+    monkeypatch.setattr(gates.spec_model, "design_digest", lambda *, group: "changed")
+
+    with pytest.raises(gates.DesignApprovalStale, match="已批准设计不存在"):
+        gates.assert_design_approved(
+            workspace=tmp_path, issue_number=13, approved_digest="approved"
+        )
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_design_approval_renumber_and_real_changes(tmp_path, legacy):
+    """Spec-0088/T1: use real persisted Specs through the merge gate, not mock digests."""
+    from openagents.spec import model
+
+    group = model.Group(
+        number="0002",
+        metadata=model.Metadata(title="guard", issue=8, slug="guard", summary="s"),
+        tasks=[
+            model.Task(
+                id="T1",
+                title="guard",
+                status="in-progress",
+                priority="P1",
+                scope="Spec-0002/T1: enforce scope",
+                acceptance="Spec-0002/T1: reject escape",
+            )
+        ],
+        overview=model.Overview(summary="Keep the user scope"),
+    )
+    path = tmp_path / "docs/specs/0002-guard.md"
+    digest = model.legacy_design_digest if legacy else model.design_digest
+    approved = digest(group=group)
+    model.dump_group(group=group, path=path)
+    gates.assert_design_approved(workspace=tmp_path, issue_number=8, approved_digest=approved)
+    group = replace(group, number="0005")
+    group.tasks[0].scope = group.tasks[0].scope.replace("0002", "0005")
+    group.tasks[0].acceptance = group.tasks[0].acceptance.replace("0002", "0005")
+    path = path.rename(path.with_name("0005-guard.md"))
+    model.dump_group(group=group, path=path)
+    if legacy:
+        # No original snapshot migration: an old approval never blesses changed raw content.
+        with pytest.raises(GateError, match="已批准设计不存在"):
+            gates.assert_design_approved(
+                workspace=tmp_path, issue_number=8, approved_digest=approved
+            )
+        return
+    gates.assert_design_approved(workspace=tmp_path, issue_number=8, approved_digest=approved)
+    group.tasks[0].acceptance = "Allow arbitrary scope escapes"
+    model.dump_group(group=group, path=path)
+    with pytest.raises(GateError, match="已批准设计不存在"):
+        gates.assert_design_approved(workspace=tmp_path, issue_number=8, approved_digest=approved)
+
+
+def test_duplicate_semantic_design_identity_is_rejected(tmp_path, monkeypatch):
+    """Spec-0088/T1: number normalization must not resolve an ambiguous approval by guessing."""
+    group = SimpleNamespace(metadata=SimpleNamespace(issue=8))
+    monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [group, group])
+    monkeypatch.setattr(gates.spec_model, "design_digest", lambda *, group: "v2:approved")
+    with pytest.raises(GateError, match="多个内容相同"):
+        gates.assert_design_approved(
+            workspace=tmp_path, issue_number=8, approved_digest="v2:approved"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Spec-0017/T3: assert_merge_allowed —— 合并不可逆红线硬闸（CI 全绿 + review-approved:<head sha7>@head）。
 # 纯读客观事实、假快照注入、不触网。四情形：全绿+approved@head 放行；否则各抛 GateError。
@@ -110,6 +211,37 @@ def _stub_merge_facts(monkeypatch, *, ci_state, ci_count, labels):
 def test_merge_allowed_passes_when_green_and_approved_at_head(monkeypatch):
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("review-approved:a1b2c3d",))
     gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)  # 不抛即通过
+
+
+def test_merge_allowed_skips_ci_but_still_requires_approved_head(monkeypatch):
+    _stub_merge_facts(
+        monkeypatch,
+        ci_state="pending",
+        ci_count=1,
+        labels=("review-approved:a1b2c3d",),
+    )
+    monkeypatch.setattr(
+        gates.github,
+        "check_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("ci:skip must not read checks")),
+    )
+    gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD, require_ci=False)
+
+    monkeypatch.setattr(
+        gates.github,
+        "pr_snapshot",
+        lambda *, pr_number: ugithub.PRSnapshot(
+            number=pr_number,
+            state="OPEN",
+            head_sha=_HEAD,
+            labels=("openagents",),
+            mergeable="MERGEABLE",
+            merge_state_status="CLEAN",
+            head_pushed_at="",
+        ),
+    )
+    with pytest.raises(GateError):
+        gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD, require_ci=False)
 
 
 def test_merge_allowed_raises_when_ci_failing(monkeypatch):
@@ -161,3 +293,28 @@ def test_merge_allowed_raises_when_label_sha_mismatches_head(monkeypatch):
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("review-approved:0000000",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
+
+
+def test_delivery_snapshot_merge_rechecks_head_even_when_old_approval_label_remains(monkeypatch):
+    """Spec-0017 补充（2026-09-09 snapshot tests）：push 不会自动删除旧审批标签。"""
+    old_label = f"review-approved:{_HEAD[:7]}"
+    _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=(old_label,))
+    monkeypatch.setattr(
+        gates.github,
+        "pr_snapshot",
+        lambda *, pr_number: ugithub.PRSnapshot(
+            number=pr_number,
+            state="OPEN",
+            head_sha="b" * 40,
+            labels=(old_label,),
+            mergeable="MERGEABLE",
+            merge_state_status="CLEAN",
+            head_pushed_at="",
+        ),
+    )
+    rejected = False
+    try:
+        gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
+    except (GateError, gates.MergeNotReady):
+        rejected = True
+    assert rejected, "远端已换版但旧标签还在，不能用感知时的旧 HEAD 放行合并"

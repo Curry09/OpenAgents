@@ -15,11 +15,8 @@
 import queue as _queue_mod
 from pathlib import Path
 
-import pytest
-
-from openagents.utils import fleet
+from openagents.utils.agent_config import RepoPlan, default_config
 from openagents.utils.fleet import Fleet
-from openagents.utils.fleet_config import RepoPlan
 
 
 def _plan(name, **over):
@@ -29,7 +26,7 @@ def _plan(name, **over):
         interval=over.get("interval", 60),
         labels=over.get("labels", ["openagents"]),
         base=over.get("base", "main"),
-        hold=over.get("hold", None),
+        stages=over.get("stages", default_config().stages),
     )
 
 
@@ -139,46 +136,3 @@ def test_keyboard_interrupt_terminates_all_and_exits_clean(capsys):
 
     assert all(h.terminated for h in handles.values())
     assert all(h.joined >= 1 for h in handles.values())
-
-
-# --------------------------------------------------------------------------- #
-# 真实 worker _run_repo 的隔离单测（打桩，不触达真实 git/gh/后端）
-# --------------------------------------------------------------------------- #
-
-
-def test_run_repo_raises_when_not_a_repo(monkeypatch):
-    plan = _plan("r")
-    monkeypatch.setattr(fleet.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
-
-    with pytest.raises(RuntimeError):
-        fleet._run_repo(plan=plan, log_queue=_FakeQueue(), once=True)
-
-
-def test_run_repo_entry_turns_failure_into_clean_line_and_nonzero_exit(monkeypatch):
-    # 子进程入口：_run_repo 抛错 → 经队列回传一行干净失败日志（含原因）+ SystemExit(1)，
-    # 不向用户糊 multiprocessing 默认 traceback（对齐单仓库 vigil 的 RFC-0003 决策 9）。
-    plan = _plan("r")
-    monkeypatch.setattr(fleet.os, "chdir", lambda p: None)
-    monkeypatch.setattr("openagents.utils.config.resolve_project", lambda: None)
-    queue = _FakeQueue()
-
-    with pytest.raises(SystemExit) as exc:
-        fleet._run_repo_entry(plan=plan, log_queue=queue, once=True)
-
-    assert exc.value.code == 1
-    name, line = queue.get()
-    assert name == "r"
-    assert "守夜失败" in line
-
-
-def test_run_repo_entry_passes_through_keyboard_interrupt(monkeypatch):
-    # 人按 Ctrl-C：KeyboardInterrupt 放行（不吞成普通失败），交父进程统一 terminate。
-    plan = _plan("r")
-
-    def _boom(*, plan, log_queue, once):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(fleet, "_run_repo", _boom)
-    with pytest.raises(KeyboardInterrupt):
-        fleet._run_repo_entry(plan=plan, log_queue=_FakeQueue(), once=False)

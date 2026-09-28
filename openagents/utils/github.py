@@ -1,5 +1,7 @@
 """RFC-0001 T3: GitHub 集成层 —— 对 gh CLI 的薄封装。
 
+Spec-0089/T1: bind automatic merges to the approved SHA with --match-head-commit.
+
 决策 3：GitHub 操作一律走 `gh` CLI 子进程，而非 REST SDK——零额外依赖，
 鉴权/分页交由 gh 处理，与 scripts/check-rfc-number-conflicts.py 的用法一致。
 决策 11：check_status 读 `gh pr checks` 的 CI 状态，失败时收集失败 check 的
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -64,7 +67,7 @@ _REPO_PLACEHOLDER = "repos/{owner}/{repo}"
 # 从此 re-import 的别名，所有调用点零改动（见 RFC-0015 决策 2）。
 DISCOVERY_LABEL: str = "openagents"  # issue 发现门控
 APPROVAL_LABEL: str = "rfc-approved"  # RFC 全票 PASS 的批准信号
-BLOCKED_LABEL: str = "needs-human"  # 超 K 轮兜底挂起、待人介入
+AUTOMATION_FAILED_LABEL: str = "automation-failed"  # 有界自动推进耗尽后的机器终态
 # Spec-0039/T1：第 4 个流程标签——跨后端可见的「已派发/认领中」信号。某后端判 fresh 决定派单
 # 时给 issue 打上它，其它后端在发现段读到即跳过，把多后端重复派单的时间窗从「起草时长（分钟
 # 级）」压到「建 worktree（秒级）」。并入 PROCESS_LABELS 同源管理，即被 ensure_prerequisites
@@ -73,7 +76,7 @@ DISPATCH_LABEL: str = "openagents-dispatching"  # issue 已被某后端认领、
 PROCESS_LABELS: tuple[str, ...] = (
     DISCOVERY_LABEL,
     APPROVAL_LABEL,
-    BLOCKED_LABEL,
+    AUTOMATION_FAILED_LABEL,
     DISPATCH_LABEL,
 )
 
@@ -484,25 +487,30 @@ def has_label(*, pr_number: int, name: str) -> bool:
     return any((label or {}).get("name") == name for label in labels)
 
 
-def merge_pr(*, pr_number: int, method: str = "merge") -> None:
+def merge_pr(*, pr_number: int, method: str = "merge", head_sha: str = "") -> None:
     """RFC-0012 决策 1：代码闸全票 PASS 后自动合入（`gh pr merge <n> --<method>`）。
 
     method ∈ {"merge", "squash", "rebase"}（默认 merge，见未解决问题 4）；合入其 base（Spec-0023
     后为 main），使 main 成为持续推进的日常分支。失败由 _run_gh 抛 GithubError。
     """
-    _run_gh(["pr", "merge", str(pr_number), f"--{method}"], allow_returncodes=set())
+    args = ["pr", "merge", str(pr_number), f"--{method}"]
+    # Spec-0017 recovery: bind the write itself, not only the earlier approval check.
+    if head_sha:
+        args.extend(["--match-head-commit", head_sha])
+    _run_gh(args, allow_returncodes=set())
 
 
-def merge_command_text(*, pr_number: int) -> str:
+def merge_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """Spec-0074/T1：merger agent 落合并动作的命令文本——GitHub 侧即既有 gh 命令（行为零变化）。
 
     merger 提示词的平台命令参数化为 $merge_command 占位符后，由 stages.merge 经本函数注入；
     Gitea driver 的同名函数返回 `openagents merge-pr --pr N`（token 处理留在 driver 内，不进提示词）。
     """
-    return f"gh pr merge {pr_number} --merge"
+    suffix = f" --match-head-commit {shlex.quote(head_sha)}" if head_sha else ""
+    return f"gh pr merge {pr_number} --merge{suffix}"
 
 
-def merge_verify_command_text(*, pr_number: int) -> str:
+def merge_verify_command_text(*, pr_number: int, head_sha: str = "") -> str:
     """Spec-0074/T1：merger agent 验证合并完成的命令文本——输出含 MERGED 即视为已合并。"""
     return f"gh pr view {pr_number} --json state"
 
@@ -510,7 +518,7 @@ def merge_verify_command_text(*, pr_number: int) -> str:
 def add_label(*, pr_number: int, name: str) -> None:
     """RFC-0012 决策 1/3：给 PR 打标签（`gh pr edit <n> --add-label <name>`）。
 
-    供 reviewer 闸自动打 rfc-approved（RFC 全票 PASS）、或卡住兜底打 needs-human（决策 5）。
+    供 reviewer 闸自动打 rfc-approved（RFC 全票 PASS）、或卡住兜底打 automation-failed（决策 5）。
     与 has_label 对称：标签是结构化信号，不与讨论评论混淆。
     """
     _run_gh(["pr", "edit", str(pr_number), "--add-label", name], allow_returncodes=set())
@@ -519,7 +527,7 @@ def add_label(*, pr_number: int, name: str) -> None:
 def remove_label(*, pr_number: int, name: str) -> None:
     """Spec-0032/T2：摘掉 PR 上的标签（`gh pr edit <n> --remove-label <name>`），与 add_label 对称。
 
-    供解挂分支自动摘 needs-human（检测到人回新评论时）。幂等容错：标签本就不在时 gh 以非零退出
+    供解挂分支自动摘 automation-failed（检测到人回新评论时）。幂等容错：标签本就不在时 gh 以非零退出
     并报「not found / does not have ... label」之类——吞掉视为成功 no-op（与 ensure_label 吞
     "already exists"、close_issue 吞 "already closed" 同一容错风格），使「人已先手动摘了标签、
     框架又摘一次」不报错。其它 gh 错误（鉴权、瞬时穿透重试后仍败）照常抛 GithubError。
@@ -598,7 +606,7 @@ def ensure_prerequisites() -> None:
     """Spec-0023/T1：幂等确保流程结构性 prerequisite 就位：全部流程标签。
 
     单一兜底来源——集中声明「流程依赖哪些 prerequisite」，由 init/release/vigil 三入口统一
-    调用，根除各入口零散且不完整的兜底（缺 needs-human/rfc-approved 标签致 add_label 报
+    调用，根除各入口零散且不完整的兜底（缺 automation-failed/rfc-approved 标签致 add_label 报
     not found）。
 
     test 分支门控退役后（Spec-0023），日常 base 改为恒存在的默认分支 main，无需任何分支

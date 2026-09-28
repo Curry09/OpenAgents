@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from openagents.cli import build_parser, main
-from openagents.runtime import timing
+from openagents.cli import _render_report, build_parser, main
+from openagents.runtime import timing, tool_usage
 from openagents.utils.config import ProjectContext
 
 
@@ -96,6 +96,58 @@ def test_report_distinguishes_ci_wait_from_review_wait(tmp_path, monkeypatch, ca
     assert "awaiting-ci" in out
     assert "review-or-fix" in out
     assert "30m0s" in out  # review 长尾清晰可见
+
+
+def test_report_includes_tool_lookup_budget_metrics(tmp_path, monkeypatch, capsys):
+    _patch_report_ctx(monkeypatch, repo_root=tmp_path)
+    monkeypatch.setattr("openagents.cli._report_interval", lambda *, ctx, args: 60)
+    path = tmp_path / ".openagents" / tool_usage.TOOL_USAGE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"role":"implementer","tool_count":9,"lookup_before_first_edit":8,'
+        '"lookup_budget_exceeded":true}\n',
+        encoding="utf-8",
+    )
+
+    assert main(["report"]) == 0
+    out = capsys.readouterr().out
+    assert "工具与取证预算" in out
+    assert "implementer" in out
+    assert "8.0" in out
+    assert "缺原因" in out
+
+
+def test_report_includes_token_totals_and_coverage(tmp_path):
+    text = _render_report(
+        events=[],
+        interval=60,
+        path=tmp_path / "timing.jsonl",
+        token_path=tmp_path / "token-usage.jsonl",
+        token_events=[
+            {
+                "role": "implementer",
+                "status": "success",
+                "usage_source": "reported",
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "cache_read_input_tokens": 20,
+                "cache_creation_input_tokens": 3,
+                "reasoning_tokens": 1,
+                "total_tokens": 36,
+                "total_source": "derived-components",
+            },
+            {
+                "role": "implementer",
+                "status": "backend_error",
+                "usage_source": "unavailable",
+            },
+        ],
+    )
+    assert "token 用量与采集覆盖率" in text
+    assert "implementer" in text
+    assert "missing" in text
+    assert "      2         1        1" in text
+    assert "missing 不计入 token 合计" in text
 
 
 # --------------------------------------------------------------------------------------------------

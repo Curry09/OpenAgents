@@ -26,8 +26,7 @@ PROMPT = Template(
 
 最后只输出一行 JSON：{"reply": "<回给这条评论的正文>", "resolved": true 或 false}
 
-这条评论的正文：
-$comment_body
+待回复评论由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 
@@ -47,8 +46,7 @@ false（reply 里写清还缺什么）。
 
 最后只输出一行 JSON：{"reply": "<回给这条评论的正文>", "resolved": true 或 false}
 
-这条评论的正文：
-$comment_body
+待回复评论由运行时在下方“上下文”区提供，只读取一次。
 """
 )
 

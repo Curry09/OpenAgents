@@ -1,0 +1,85 @@
+{
+  "successes": [
+    {
+      "round": 1,
+      "issues": 27,
+      "elapsed_seconds": 55.326,
+      "status": "success",
+      "plan_entries": {
+        "clusters": 8,
+        "suggested_order": 8,
+        "notes": 7
+      },
+      "usage": [
+        {
+          "invocation_id": "cd8e81d8db6246dabeb65a404bcf1b8c",
+          "at": "2026-09-10T19:41:15Z",
+          "role": "coordinator",
+          "backend": "_TimedBackend",
+          "status": "success",
+          "usage_source": "reported",
+          "model": "glm52_250k_yzx_fork_wr_0907",
+          "input_tokens": 15839,
+          "output_tokens": 3832,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "reasoning_tokens": null,
+          "total_tokens": 19671,
+          "total_source": "derived-components"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "issues": 25,
+      "elapsed_seconds": 20.737,
+      "status": "success",
+      "plan_entries": {
+        "clusters": 5,
+        "suggested_order": 6,
+        "notes": 3
+      },
+      "usage": [
+        {
+          "invocation_id": "5012ce0236ff436aa3b4db38adb18aca",
+          "at": "2026-09-10T19:41:52Z",
+          "role": "coordinator",
+          "backend": "_TimedBackend",
+          "status": "success",
+          "usage_source": "reported",
+          "model": "glm52_250k_yzx_fork_wr_0907",
+          "input_tokens": 15659,
+          "output_tokens": 1438,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "reasoning_tokens": null,
+          "total_tokens": 17097,
+          "total_source": "derived-components"
+        }
+      ]
+    }
+  ],
+  "failed_attempts": [
+    {
+      "round": 1,
+      "setup": "restricted sandbox",
+      "status": "fallback",
+      "seconds": 90.007,
+      "usage": "unavailable"
+    },
+    {
+      "round": 1,
+      "setup": "host proxy misconfiguration",
+      "status": "fallback",
+      "seconds": 90.009,
+      "usage": "unavailable"
+    },
+    {
+      "round": 2,
+      "setup": "host proxy misconfiguration",
+      "status": "fallback",
+      "seconds": 90.009,
+      "usage": "unavailable"
+    }
+  ]
+}

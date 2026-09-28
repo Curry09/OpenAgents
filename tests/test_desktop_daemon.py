@@ -49,16 +49,16 @@ def _seed_queue(*, db_path: Path, rows: list[tuple[str, str, int]]) -> None:
 def test_pending_category_priority_order():
     assert (
         daemon.pending_category(
-            needs_human=True,
+            automation_failed=True,
             pr_ready_to_merge=True,
             has_new_human_comment=True,
             just_changed=True,
         )
-        == daemon.PENDING_NEEDS_HUMAN
+        == daemon.PENDING_AUTOMATION_FAILED
     )
     assert (
         daemon.pending_category(
-            needs_human=False,
+            automation_failed=False,
             pr_ready_to_merge=True,
             has_new_human_comment=True,
             just_changed=True,
@@ -67,7 +67,7 @@ def test_pending_category_priority_order():
     )
     assert (
         daemon.pending_category(
-            needs_human=False,
+            automation_failed=False,
             pr_ready_to_merge=False,
             has_new_human_comment=True,
             just_changed=True,
@@ -76,7 +76,7 @@ def test_pending_category_priority_order():
     )
     assert (
         daemon.pending_category(
-            needs_human=False,
+            automation_failed=False,
             pr_ready_to_merge=False,
             has_new_human_comment=False,
             just_changed=True,
@@ -85,7 +85,7 @@ def test_pending_category_priority_order():
     )
     assert (
         daemon.pending_category(
-            needs_human=False,
+            automation_failed=False,
             pr_ready_to_merge=False,
             has_new_human_comment=False,
             just_changed=False,
@@ -118,11 +118,11 @@ def test_build_board_enrich_sets_pending():
     rows = [{"subject": "issue:1", "status": "claimed", "worker": "w1", "attempts": 1}]
 
     def _enrich(subject: str) -> dict:
-        return {"needs_human": True, "pr": 170}
+        return {"automation_failed": True, "pr": 170}
 
     board = daemon.build_board(rows=rows, enrich=_enrich)
     assert board[0]["pr"] == 170
-    assert board[0]["pending"] == daemon.PENDING_NEEDS_HUMAN
+    assert board[0]["pending"] == daemon.PENDING_AUTOMATION_FAILED
 
 
 def _run_server(server) -> threading.Thread:

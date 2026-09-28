@@ -5,9 +5,9 @@
 """
 
 from openagents.runtime.state import (
-    STATUS_BLOCKED,
     STATUS_CLOSED,
     STATUS_DONE,
+    STATUS_FAILED,
     STATUS_ITERATING,
     STATUS_PR_OPEN,
     STATUS_RFC_REVIEW,
@@ -103,4 +103,4 @@ def test_status_constants_literals():
     assert STATUS_ITERATING == "iterating"
     assert STATUS_DONE == "done"
     assert STATUS_CLOSED == "closed"
-    assert STATUS_BLOCKED == "blocked"
+    assert STATUS_FAILED == "failed"

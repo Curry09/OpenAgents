@@ -33,6 +33,41 @@ def test_default_delegates_to_github(monkeypatch, tmp_path):
     assert forge.merge_verify_command_text(pr_number=7) == "gh pr view 7 --json state"
 
 
+def test_discovery_crosses_linked_worktree_git_file(monkeypatch, tmp_path):
+    root = tmp_path / "repo"
+    worktree = root / ".openagents" / "worktrees" / "issue-7"
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text("gitdir: /tmp/common/worktrees/issue-7\n", encoding="utf-8")
+    config_dir = root / ".openagents"
+    config_dir.mkdir(exist_ok=True)
+    (config_dir / "openagents.yml").write_text(
+        "forge: gitea\ngitea:\n  base_url: http://gitea.local\n  owner: owner\n  repo: repo\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(worktree)
+    assert forge.active_forge() == forge.FORGE_GITEA
+    assert forge.merge_command_text(pr_number=7) == "openagents merge-pr --pr 7"
+
+
+def test_discovery_resolves_external_linked_worktree(monkeypatch, tmp_path):
+    root = tmp_path / "repo"
+    external = tmp_path / "external-worktree"
+    (root / ".git" / "worktrees" / "issue-8").mkdir(parents=True)
+    (root / ".openagents").mkdir()
+    (root / ".openagents" / "openagents.yml").write_text(
+        "forge: gitea\ngitea:\n  base_url: http://gitea.local\n  owner: owner\n  repo: repo\n",
+        encoding="utf-8",
+    )
+    external.mkdir()
+    (external / ".git").write_text(
+        f"gitdir: {root / '.git' / 'worktrees' / 'issue-8'}\n", encoding="utf-8"
+    )
+
+    monkeypatch.chdir(external)
+    assert forge.active_forge() == forge.FORGE_GITEA
+
+
 def test_constants_reexported_statically():
     # 常量与错误类型是静态 re-export（import 时零 IO），且与 github.py 同一份定义。
     assert forge.DISCOVERY_LABEL == github.DISCOVERY_LABEL
@@ -186,7 +221,7 @@ def test_stages_merge_injects_platform_commands(monkeypatch, tmp_path):
     monkeypatch.setattr(stages.engine, "run_agent", _fake_run_agent)
     stages.merge(backend=object(), pr_number=42, head_sha="abc", work_dir="/wt", context_text="")
     # Spec-0074/T1: merger 的平台命令按当前 forge 注入（github 侧即原 gh 命令，行为零变化）。
-    assert seen["merge_command"] == "gh pr merge 42 --merge"
+    assert seen["merge_command"] == "gh pr merge 42 --merge --match-head-commit abc"
     assert seen["verify_command"] == "gh pr view 42 --json state"
 
 
@@ -199,13 +234,13 @@ def test_cli_merge_pr_forwards_to_forge(monkeypatch, capsys):
     monkeypatch.setattr(
         forge,
         "merge_pr",
-        lambda *, pr_number, method: calls.append((pr_number, method)),
+        lambda *, pr_number, method, head_sha: calls.append((pr_number, method, head_sha)),
         raising=False,
     )
-    ns = argparse.Namespace(pr=42, method="merge")
+    ns = argparse.Namespace(pr=42, method="merge", head_sha="abc")
     code = cli._cmd_merge_pr(ns, ctx=None)
     assert code == 0
-    assert calls == [(42, "merge")]
+    assert calls == [(42, "merge", "abc")]
     assert "MERGED" in capsys.readouterr().out
 
 

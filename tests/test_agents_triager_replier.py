@@ -23,17 +23,15 @@ def test_replier_exposes_prompt_and_schema():
 
 
 def test_triager_prompt_placeholders_substitute():
-    # 分诊阶段占位符（context.for_triage 供给）齐全即不抛：issue_number / issue_body。
-    task = triager.PROMPT.substitute(issue_number=145, issue_body="正文X")
+    # Spec-0081/T1：分诊 task 只保留 issue_number，正文归 context。
+    task = triager.PROMPT.substitute(issue_number=145)
     assert "145" in task
-    assert "正文X" in task
+    assert "下方“上下文”区" in task
 
 
 def test_replier_prompt_placeholders_substitute():
-    # 回复阶段占位符（context.for_reply 供给）齐全即不抛：pr_number / branch / comment_body。
-    task = replier.PROMPT.substitute(
-        pr_number=154, branch="openagents/issue-145", comment_body="改这里"
-    )
+    # Spec-0081/T1：回复 task 只保留定位标量，评论正文归 context。
+    task = replier.PROMPT.substitute(pr_number=154, branch="openagents/issue-145")
     assert "154" in task
     assert "openagents/issue-145" in task
-    assert "改这里" in task
+    assert "下方“上下文”区" in task

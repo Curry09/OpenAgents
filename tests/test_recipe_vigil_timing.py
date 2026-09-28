@@ -98,6 +98,7 @@ def _stub_sense(monkeypatch, *, facts: _Facts, comments=()):
 def _consider_once(conn, *, subject, work_dir, in_flight=None) -> int:
     return _consider(
         conn=conn,
+        state=None,
         subject=subject,
         config=_config(),
         work_dir=work_dir,
@@ -128,11 +129,11 @@ def test_phase_of_in_flight():
     [
         ({"merged": True}, "merged"),
         ({"closed": True}, "closed"),
-        ({"labels": frozenset({"needs-human"})}, "needs-human"),
+        ({"labels": frozenset({"automation-failed"})}, "automation-failed"),
     ],
 )
 def test_phase_of_terminal_subdivides_by_facts(overrides, expected):
-    """TERMINAL 据 facts 细分 merged/closed/needs-human——单一 TERMINAL 不再糊成一段。"""
+    """TERMINAL 据 facts 细分 merged/closed/automation-failed。"""
     assert _phase_of(verdict=_Verdict(kind=_TERMINAL), facts=_facts(**overrides)) == expected
 
 

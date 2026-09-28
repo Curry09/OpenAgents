@@ -1,5 +1,7 @@
 """# Spec-0064/T5: CLI 入口——人面向收敛为 vigil / issue / backfill-rfc / release 四命令。
 
+Spec-0089/T1: forward --head-sha through merge-pr without exposing forge credentials.
+
 唯一命令入口，仅做参数解析与分发；业务逻辑下沉到各模块（命令体内延迟 import，保持 cli.py 文件归属
 单一、文件清单不重叠）。
 
@@ -13,7 +15,7 @@ Spec-0064 收敛：`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watc
   - `oa release` —— 仓库级发版（确定性动作、直连 utils.release、无 agent）。
 `init`（项目自举）与 `board`（只读观测，Unresolved Q1 暂保留独立）不进本收敛范围、照旧在册。
 
-`.openagents/openagents.yml` 是「用哪些 agent + 每道闸归谁」的单一真源（经 T1 loader）；`--hold`/`--skip`/
+`.openagents/openagents.yml` 是「用哪些 agent + 每道闸归谁」的单一真源（经 T1 loader）；`--skip`/
 `--base`/`--interval`/`--label` 仍可对**单次运行**覆盖 YAML——「单一真源」指声明式默认收敛到一处，不是
 消灭所有 flag。
 """
@@ -21,6 +23,7 @@ Spec-0064 收敛：`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watc
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -106,12 +109,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"并发上限：同时最多 K 个 issue/PR 在跑 agent（默认 1，即串行；上限 {_MAX_PARALLEL}）",
     )
     p_vigil.add_argument(
-        "--hold",
-        default=None,
-        metavar="STAGES",
-        help="单次把指定阶段交给人（停等）：如 merge / review,merge（等价 stages.<stage>=human）",
-    )
-    p_vigil.add_argument(
         "--skip",
         default=None,
         metavar="STAGES",
@@ -122,6 +119,49 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="openagents 配置文件路径（默认 .openagents/openagents.yml）",
+    )
+
+    # Spec-0085/T2: finite, explicit v0.2 batch; unlike vigil it never polls or waits for humans.
+    p_v02 = sub.add_parser(
+        "v02", help="运行一次 v0.2 批次：Spec → DAG → Developer → Acceptance → merge"
+    )
+    p_v02.add_argument(
+        "--issue",
+        type=int,
+        action="append",
+        required=True,
+        metavar="N",
+        help="批次 issue 编号（可重复）",
+    )
+    p_v02.add_argument(
+        "--parallel",
+        type=_parallel_k,
+        default=4,
+        metavar="K",
+        help="Spec/Developer 并发上限（默认 4）",
+    )
+    p_v02.add_argument("--base", default=None, help="目标分支（默认读配置，通常为 main）")
+    p_v02.add_argument(
+        "--config", default=None, metavar="PATH", help="配置文件（默认 .openagents/openagents.yml）"
+    )
+    p_v02.add_argument(
+        "--user-test-command",
+        default=None,
+        metavar="COMMAND",
+        help="实际用户测试 harness 命令（需同时提供 --user-test-transcript）",
+    )
+    p_v02.add_argument(
+        "--user-test-transcript",
+        default=None,
+        metavar="PATH",
+        help="JSON 用户事件数组；在候选副本中执行并作为 Acceptance 主证据",
+    )
+    p_v02.add_argument(
+        "--user-test-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="用户测试墙钟上限（默认 900 秒）",
     )
 
     # Spec-0064/T5：path 驱动追溯——扫存量代码路径反推 spec 并开 draft PR（实现先行、设计后补）。
@@ -189,6 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Gitea 侧的 $merge_command 即本命令，token 处理留在 driver 内、凭证不进提示词。
     p_merge_pr = sub.add_parser("merge-pr")
     p_merge_pr.add_argument("--pr", type=int, required=True, metavar="N", help="要合并的 PR 编号")
+    p_merge_pr.add_argument("--head-sha", default="", help="只合并这一已审批的候选 SHA")
     p_merge_pr.add_argument(
         "--method", default="merge", choices=["merge", "squash", "rebase"], help="合并方式"
     )
@@ -225,6 +266,10 @@ def _agent_id_for(*, ctx: ProjectContext) -> str:
 
 def _backend_for():
     # Spec-0020/T4：单列 backend 工厂——延迟 import 保持 cli 顶层轻、测试可对工厂打桩（不触真实 LLM）。
+    if os.environ.get("OPENAGENTS_BACKEND", "").strip() == "nexau":
+        from openagents.backends.nexau import NexAUBackend
+
+        return NexAUBackend()
     from openagents.backends.claude_code import ClaudeCodeBackend
 
     return ClaudeCodeBackend()
@@ -249,19 +294,22 @@ def _vigil_deps_for(*, ctx: ProjectContext):
 def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
     """Spec-0064/T5：加载 `.openagents/openagents.yml`（单一真源）+ 叠加本次运行的 flag 覆盖。
 
-    `--hold <stages>` → 把这些阶段单次交给人（owner=human，停等）；`--skip <stages>` → 单次跳过
-    （owner=skip）；`--base`/`--interval`/`--label` 覆盖 defaults。覆盖后仍守「不许零闸」（review:skip +
-    merge:agent → ValueError），且同阶段同时 hold+skip 矛盾 → ValueError。YAML + flag 并存（约束：flag
-    是单次覆盖，不改磁盘配置）。
+    `--skip <stages>` → 单次跳过（owner=skip）；`--base`/`--interval`/`--label` 覆盖 defaults。
+    覆盖后仍守阶段合法取值、架构评审配套和「不许零闸」。YAML + flag 并存（flag 是单次覆盖，
+    不改磁盘配置）。
     """
     import dataclasses
 
     from openagents.utils.agent_config import (
         OWNER_AGENT,
-        OWNER_HUMAN,
         OWNER_SKIP,
+        STAGE_ARCHITECTURE,
+        STAGE_CI,
+        STAGE_E2E,
         STAGE_MERGE,
         STAGE_REVIEW,
+        STAGE_RFC,
+        STAGE_TRIAGE,
         StagePolicy,
         load_agent_config,
     )
@@ -271,22 +319,24 @@ def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
     )
     config = load_agent_config(path=config_path)
 
-    hold_stages = _parse_gate_list(raw=args.hold)
     skip_stages = _parse_gate_list(raw=args.skip)
-    conflicting = hold_stages & skip_stages
-    if conflicting:
-        raise ValueError(f"--hold 与 --skip 对同一阶段矛盾：{sorted(conflicting)}")
+    skippable = {STAGE_TRIAGE, STAGE_RFC, STAGE_ARCHITECTURE, STAGE_CI, STAGE_E2E, STAGE_REVIEW}
+    invalid = skip_stages - skippable
+    if invalid:
+        raise ValueError(f"--skip 不支持阶段：{sorted(invalid)}")
 
     owners = dict(config.stages.owners)
-    for stage in hold_stages:
-        owners[stage] = OWNER_HUMAN
     for stage in skip_stages:
         owners[stage] = OWNER_SKIP
     # 覆盖后重守「不许零闸」（未审直接盲合进 main）。
     review = owners.get(STAGE_REVIEW, OWNER_AGENT)
     merge = owners.get(STAGE_MERGE, OWNER_AGENT)
+    rfc = owners.get(STAGE_RFC, OWNER_AGENT)
+    architecture = owners.get(STAGE_ARCHITECTURE, OWNER_AGENT)
+    if rfc != OWNER_SKIP and architecture == OWNER_SKIP:
+        raise ValueError("architecture 仅可在 rfc 同时 skip 时跳过")
     if review == OWNER_SKIP and merge == OWNER_AGENT:
-        raise ValueError("不许零闸：--skip review 时须 --hold merge（否则未审代码自动盲合进 main）")
+        raise ValueError("不许零闸：merge 恒自动执行，review 必须由 agent 把关")
 
     stages = StagePolicy(owners=owners)
     updates: dict = {"stages": stages}
@@ -300,7 +350,7 @@ def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
 
 
 def _parse_gate_list(*, raw: str | None) -> set[str]:
-    """把 `--hold ci,merge` 逗号串解析成阶段名集合（空/None → 空集）。"""
+    """把逗号分隔的阶段名解析成集合（空/None → 空集）。"""
     if not raw:
         return set()
     return {part.strip() for part in raw.split(",") if part.strip()}
@@ -327,7 +377,7 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
             print("✓ 已用包内模板覆盖配置 .openagents/openagents.yml")
         else:
             print(
-                "✓ 已生成默认配置 .openagents/openagents.yml（可编辑；oa vigil --skip/--hold 可单次覆盖）"
+                "✓ 已生成默认配置 .openagents/openagents.yml（可编辑；oa vigil --skip 可单次覆盖）"
             )
     else:
         print("· 配置已存在，跳过生成 .openagents/openagents.yml（--force 覆盖）")
@@ -350,6 +400,10 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
         run_fleet(config=config, once=args.once)
         return 0
     backend, state, agent_id = _vigil_deps_for(ctx=ctx)
+    from openagents.runtime import legacy
+
+    # Test doubles without RuntimeState's read surface do not model persisted startup state.
+    legacy.assert_migrated(state=state, inspect_forge=callable(getattr(state, "list_runs", None)))
     run_vigil(
         backend=backend,
         state=state,
@@ -360,6 +414,63 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
         agent_id=agent_id,
     )
     return 0
+
+
+def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
+    """Run one explicit v0.2 batch and print every terminal result."""
+    from openagents.runtime.user_test import load_user_test_plan
+    from openagents.utils.agent_config import load_agent_config
+    from openagents.v02.audit import write_result
+    from openagents.v02.model import IssueInput
+    from openagents.v02.openagents_adapter import OpenAgentsAdapter
+    from openagents.v02.runner import run_batch
+
+    config_path = (
+        Path(args.config) if args.config else ctx.repo_root / ".openagents" / "openagents.yml"
+    )
+    config = load_agent_config(path=config_path)
+    github.configure(name=config.forge, settings=config.gitea)
+    github.ensure_prerequisites()
+    issues = []
+    for number in dict.fromkeys(args.issue):
+        issue = github.get_issue(number=number)
+        issues.append(IssueInput(number=issue.number, title=issue.title, body=issue.body))
+    user_test_plan = _user_test_plan_from_args(args=args, loader=load_user_test_plan)
+    result = run_batch(
+        issues=issues,
+        adapter=OpenAgentsAdapter(
+            backend=_backend_for(),
+            work_dir=ctx.repo_root,
+            base=args.base or config.base,
+            user_test_plan=user_test_plan,
+        ),
+        concurrency=args.parallel,
+    )
+    audit_path = write_result(work_dir=ctx.repo_root, result=result)
+    for number in sorted(result.nodes):
+        node = result.nodes[number]
+        pr = f" PR #{node.pr_number}" if node.pr_number is not None else ""
+        detail = f" — {node.reason}" if node.reason else ""
+        print(f"{node.status:>21}  issue #{number}{pr}{detail}")
+    print(f"审计记录：{audit_path}")
+    return 0 if result.nodes and all(node.status == "PASS" for node in result.nodes.values()) else 1
+
+
+def _user_test_plan_from_args(*, args: argparse.Namespace, loader):
+    """Resolve v0.2 user-test flags without mutating the process environment."""
+    command = getattr(args, "user_test_command", None)
+    transcript = getattr(args, "user_test_transcript", None)
+    timeout = getattr(args, "user_test_timeout", None)
+    if command is None and transcript is None and timeout is None:
+        return loader()
+    values = dict(os.environ)
+    if command is not None:
+        values["OPENAGENTS_USER_TEST_COMMAND"] = command
+    if transcript is not None:
+        values["OPENAGENTS_USER_TEST_TRANSCRIPT"] = transcript
+    if timeout is not None:
+        values["OPENAGENTS_USER_TEST_TIMEOUT"] = str(timeout)
+    return loader(values)
 
 
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
@@ -418,7 +529,7 @@ def _cmd_merge_pr(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0074/T1：merger agent 的平台无关落合并出口——转发 forge.merge_pr（已合并幂等视为成功）。
     # 完成判据是输出含 "MERGED"（merger 提示词的 $verify_command 契约）；未合并成功以非零退出。
     if not github.is_merged(pr_number=args.pr):
-        github.merge_pr(pr_number=args.pr, method=args.method)
+        github.merge_pr(pr_number=args.pr, method=args.method, head_sha=args.head_sha)
     if github.is_merged(pr_number=args.pr):
         print(f"✓ PR #{args.pr} state: MERGED")
         return 0
@@ -441,12 +552,26 @@ def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
 def _cmd_report(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0066/T3：读 timing.jsonl → timing 聚合器 → stdout 文本报告。薄路由：解析路径 + 取 interval，
     # 聚合/重建全在 runtime.timing（单 issue 时间线 + 跨 issue p50/p90 + 最长尾）。空/缺文件友好提示、退出码 0。
-    from openagents.runtime import timing
+    from openagents.runtime import timing, token_usage, tool_usage
 
     path = ctx.repo_root / ".openagents" / timing.TIMING_FILENAME
     events = timing.load_events(path=path)
+    usage_path = ctx.repo_root / ".openagents" / tool_usage.TOOL_USAGE_FILENAME
+    usage_events = tool_usage.load_events(path=usage_path)
+    token_path = ctx.repo_root / ".openagents" / token_usage.TOKEN_USAGE_FILENAME
+    token_events = token_usage.load_events(path=token_path)
     interval = _report_interval(ctx=ctx, args=args)
-    print(_render_report(events=events, interval=interval, path=path))
+    print(
+        _render_report(
+            events=events,
+            interval=interval,
+            path=path,
+            usage_events=usage_events,
+            usage_path=usage_path,
+            token_events=token_events,
+            token_path=token_path,
+        )
+    )
     return 0
 
 
@@ -463,40 +588,90 @@ def _report_interval(*, ctx: ProjectContext, args: argparse.Namespace) -> int:
         return 60  # 缺配置不该让报告失败——回落内建默认轮询间隔
 
 
-def _render_report(*, events: list, interval: int, path: Path) -> str:
+def _render_report(
+    *,
+    events: list,
+    interval: int,
+    path: Path,
+    usage_events: list | None = None,
+    usage_path: Path | None = None,
+    token_events: list | None = None,
+    token_path: Path | None = None,
+) -> str:
     # Spec-0066/T3：把聚合结果排成 stdout 文本表。**显式标注墙钟精度下限 = 轮询 interval**（issue 验收项）。
-    from openagents.runtime import timing
+    from openagents.runtime import timing, token_usage, tool_usage
 
-    if not events:
+    usage_events = usage_events or []
+    token_events = token_events or []
+    if not events and not usage_events and not token_events:
         return (
             f"（timing.jsonl 为空或不存在：{path}）\n"
             "跑一轮 `oa vigil` 后各阶段信号会落到此文件，再来看报告。"
         )
 
-    lines = timing.timelines(events=events)
-    stats = timing.phase_stats(events=events, interval=interval)
     out: list[str] = []
-    out.append("═══ openagents 阶段墙钟时延报告 ═══")
-    out.append(
-        f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
-    )
-    out.append("")
-    out.append("── 单 subject 时间线（各阶段墙钟停留）──")
-    for line in lines:
-        head = f"{line.subject}"
-        if line.pr is not None:
-            head += f"（PR #{line.pr}）"
-        out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
-        for segment in line.segments:
-            out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
-    out.append("")
-    out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
-    out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
-    for stat in stats.phases:
+    if events:
+        lines = timing.timelines(events=events)
+        stats = timing.phase_stats(events=events, interval=interval)
+        out.append("═══ openagents 阶段墙钟时延报告 ═══")
         out.append(
-            f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
-            f"{_fmt_duration(seconds=stat.p90):>10}   "
-            f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+            f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
+        )
+        out.append("")
+        out.append("── 单 subject 时间线（各阶段墙钟停留）──")
+        for line in lines:
+            head = f"{line.subject}"
+            if line.pr is not None:
+                head += f"（PR #{line.pr}）"
+            out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
+            for segment in line.segments:
+                out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
+        out.append("")
+        out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
+        out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
+        for stat in stats.phases:
+            out.append(
+                f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
+                f"{_fmt_duration(seconds=stat.p90):>10}   "
+                f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+            )
+    if usage_events:
+        if out:
+            out.append("")
+        out.append("═══ agent 工具与取证预算报告 ═══")
+        out.append(f"数据：{usage_path or tool_usage.TOOL_USAGE_FILENAME}（只含工具名，不含参数）")
+        out.append(
+            f"    {'role':<18} {'调用':>6} {'编辑前取证均值':>14} {'最大':>8} "
+            f"{'超预算':>8} {'缺原因':>8}"
+        )
+        for row in tool_usage.aggregate(events=usage_events):
+            out.append(
+                f"    {row['role']:<18} {row['invocations']:>6} "
+                f"{row['average_lookup_before_edit']:>14.1f} "
+                f"{row['max_lookup_before_edit']:>8} {row['budget_exceeded']:>8} "
+                f"{row['exceeded_without_reason']:>8}"
+            )
+    if token_events:
+        if out:
+            out.append("")
+        out.append("═══ agent token 用量与采集覆盖率 ═══")
+        out.append(f"数据：{token_path or token_usage.TOKEN_USAGE_FILENAME}")
+        out.append(
+            f"    {'role':<16} {'calls':>6} {'reported':>9} {'missing':>8} "
+            f"{'input':>10} {'cache-r':>10} {'cache-w':>10} {'reason':>9} "
+            f"{'output':>10} {'total':>11} {'total(r/d)':>11}"
+        )
+        for row in token_usage.aggregate(events=token_events):
+            total_kinds = f"{row['reported_total_count']}/{row['derived_total_count']}"
+            out.append(
+                f"    {row['role']:<16} {row['invocations']:>6} {row['reported']:>9} "
+                f"{row['unavailable']:>8} {row['input_tokens']:>10} "
+                f"{row['cache_read_input_tokens']:>10} "
+                f"{row['cache_creation_input_tokens']:>10} {row['reasoning_tokens']:>9} "
+                f"{row['output_tokens']:>10} {row['total_tokens']:>11} {total_kinds:>11}"
+            )
+        out.append(
+            "注：missing 不计入 token 合计；total(r/d) = provider 显式总数/分量派生总数的调用数。"
         )
     return "\n".join(out)
 
@@ -556,6 +731,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "init": _cmd_init,
         "vigil": _cmd_vigil,
+        "v02": _cmd_v02,
         "backfill-rfc": _cmd_backfill_rfc,
         "issue": _cmd_issue,
         "reply-comment": _cmd_reply_comment,

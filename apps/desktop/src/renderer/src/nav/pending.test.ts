@@ -14,8 +14,8 @@ describe('pendingCategory', () => {
 
   it('daemon 未给时按布尔位就地推断，遵四级优先级', () => {
     expect(
-      pendingCategory(entry('issue:1', { needs_human: true, pr_ready_to_merge: true }))
-    ).toBe('needs-human')
+      pendingCategory(entry('issue:1', { automation_failed: true, pr_ready_to_merge: true }))
+    ).toBe('automation-failed')
     expect(pendingCategory(entry('issue:2', { has_new_human_comment: true }))).toBe('new-comment')
     expect(pendingCategory(entry('issue:3'))).toBeNull()
   })
@@ -26,7 +26,7 @@ describe('orderPending', () => {
     const board = [
       entry('issue:changed', { pending: 'just-changed' }),
       entry('issue:idle'),
-      entry('issue:human', { pending: 'needs-human' }),
+      entry('issue:human', { pending: 'automation-failed' }),
       entry('issue:merge', { pending: 'pr-to-merge' }),
       entry('issue:comment', { pending: 'new-comment' })
     ]
@@ -40,8 +40,8 @@ describe('orderPending', () => {
 
   it('同级按 enqueued_at 稳定定序', () => {
     const board = [
-      entry('issue:b', { pending: 'needs-human', enqueued_at: '2026-07-15T10:00:02Z' }),
-      entry('issue:a', { pending: 'needs-human', enqueued_at: '2026-07-15T10:00:01Z' })
+      entry('issue:b', { pending: 'automation-failed', enqueued_at: '2026-07-15T10:00:02Z' }),
+      entry('issue:a', { pending: 'automation-failed', enqueued_at: '2026-07-15T10:00:01Z' })
     ]
     expect(orderPending(board).map((e) => e.subject)).toEqual(['issue:a', 'issue:b'])
   })
@@ -49,7 +49,7 @@ describe('orderPending', () => {
 
 describe('nextPending', () => {
   const pending = [
-    entry('issue:human', { pending: 'needs-human' }),
+    entry('issue:human', { pending: 'automation-failed' }),
     entry('issue:merge', { pending: 'pr-to-merge' })
   ]
 

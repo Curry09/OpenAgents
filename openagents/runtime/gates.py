@@ -1,5 +1,8 @@
 """# Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。
 
+Spec-0089/T1: re-read the live PR head before accepting its SHA-bound review label.
+Spec-0090/T1: distinguish repairable Spec/integrity mismatches from other hard-gate failures.
+
 「兜底 agent 自述、防撒谎/死循环」的最后一道确定性防线。分界线严格等于 agent 分工：
 **需要判断 → agent；客观机械 → 确定性代码。** 本模块只验四类客观事实，绝不判 PASS/REWORK、
 不判「代码对不对」「冲突怎么解」——那些是 agent 的活。
@@ -18,12 +21,17 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from openagents.spec import model as spec_model
 from openagents.spec import ownership
 from openagents.spec.model import Group
+from openagents.spec.render import render as render_specs
+from openagents.spec.validate import validate as validate_specs
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
@@ -32,12 +40,50 @@ from openagents.utils import git
 # Spec-0060/T3: 评审循环默认轮次上限——超此仍未 PASS 视作死循环，兜底 raise（可由调用方覆盖）。
 DEFAULT_MAX_ROUNDS = 10
 
+
+def assert_repository_integrity(*, workspace: Path) -> None:
+    """Reject a merge candidate whose complete Spec snapshot is inconsistent."""
+    specs_root = Path(workspace) / "docs" / "specs"
+    report = validate_specs(specs_root=specs_root)
+    errors = [f"{item.where}: {item.message}" for item in report.issues if item.level == "error"]
+    if errors:
+        raise RepositoryIntegrityStale("仓库级 Spec 完整性失败：" + "; ".join(errors))
+    overview = specs_root / "OVERVIEW.md"
+    actual = overview.read_text(encoding="utf-8") if overview.exists() else ""
+    if actual != render_specs(specs_root=specs_root):
+        raise RepositoryIntegrityStale("仓库级 Spec 完整性失败：OVERVIEW.md 与候选树不一致")
+
+
+def assert_design_approved(*, workspace: Path, issue_number: int, approved_digest: str) -> None:
+    """Reject changed semantics; retain exact legacy approvals (Spec-0088/T1)."""
+    # Never migrate a legacy approval by blessing the current candidate's new digest.
+    digest_of = spec_model.design_digest
+    if re.fullmatch(r"[0-9a-f]{64}", approved_digest):
+        digest_of = spec_model.legacy_design_digest
+    issue_groups = [
+        group
+        for group in spec_model.load_all(specs_root=Path(workspace) / "docs" / "specs")
+        if group.metadata.issue == issue_number
+    ]
+    approved_groups = [group for group in issue_groups if digest_of(group=group) == approved_digest]
+    if len(approved_groups) == 1:
+        return
+    if not approved_groups:
+        current = ",".join(digest_of(group=group)[:12] for group in issue_groups) or "none"
+        raise DesignApprovalStale(
+            f"issue #{issue_number} 的已批准设计不存在："
+            f"approved={approved_digest[:12]} current={current}"
+        )
+    raise DesignApprovalStale(
+        f"issue #{issue_number} 有多个内容相同的已批准 Spec，设计身份不可验证"
+    )
+
+
 # Spec-0062/T2: 合并流水线（recipes.merge_pr）的确定性判读原语——只**读客观事实分类**、不判「能不能合」。
 # 复活窗口默认阈值：对齐旧 messages.REOPEN_REVIVE_WINDOW_SECONDS（7 天）——closed run 超此即硬化真终态。
 REVIVE_WINDOW_SECONDS = 7 * 24 * 3600
 
-# Spec-0062/T2: hold/skip 两组闸名白名单——对称短路判读只认这些闸名，未知闸名判 GateError（防拼写漂移）。
-_HOLD_GATES = ("spec", "merge")
+# Spec-0062/T2: skip 闸名白名单；未知闸名判 GateError（防拼写漂移）。
 _SKIP_GATES = ("ci", "code", "evidence", "spec")
 
 # Spec-0017/T3: 合并硬闸的两条客观判据——CI 全绿 + `review-approved:<head sha7>` label 且 sha 匹配当前 head。
@@ -51,13 +97,38 @@ class GateError(Exception):
     """# Spec-0060/T3: 最小硬闸判定客观事实不成立（未交付 / 死循环 / PR 不存在 / 戳不匹配）时抛出。"""
 
 
+class DesignApprovalStale(GateError):
+    """Spec-0090/T1: 已批准设计不再对应候选 Spec，需回到既有架构评审。"""
+
+
+class RepositoryIntegrityStale(GateError):
+    """Spec-0090/T1: 生成视图与源数据失配，需沿既有交付路径修复。"""
+
+
+@dataclass(frozen=True)
+class IntegrationStamp:
+    """The exact repository/design versions covered by an integration check."""
+
+    base_sha: str
+    head_sha: str
+    design_digest: str
+
+
+def assert_integration_stamp(*, approved: IntegrationStamp, current: IntegrationStamp) -> None:
+    """Reject reuse of an integration result after any observed input changed."""
+    if not all((current.base_sha, current.head_sha, current.design_digest)):
+        raise GateError("集成校验戳不完整")
+    if current != approved:
+        raise GateError("集成校验已失效：base、head 或 design digest 在校验后发生变化")
+
+
 class MergeNotReady(Exception):
     """Spec-0074 实证：合并前 CI 仍在跑（pending）——**不是红线，是「还没好」**。
 
     与 `GateError`（客观违规：CI 失败 / 零 check / 裁决作废 → 真挡、该交人）严格区分：pending 是**暂态**，
     下一 tick CI 绿了就能合。故本异常由 `_run_claimed` 当「干净收工」处理（删行、**不累计 attempts**），
     等生产者下轮重判——与 `_classify` ⑦ awaiting-ci 的 QUIET 语义一致。若并入 GateError 走回队重试，会在
-    CI 的 pending→success 窗口内烧光 `_MAX_ATTEMPTS` → 误挂 needs-human（GitHub check-runs 翻转快躲过，
+    CI 的 pending→success 窗口内烧光 `_MAX_ATTEMPTS` → 误挂 automation-failed（GitHub check-runs 翻转快躲过，
     Gitea Actions 落得慢才暴露；这是所有平台的潜伏问题）。
     """
 
@@ -92,7 +163,7 @@ def assert_head_advanced(*, before: str, workspace: Path) -> str:
     return after
 
 
-def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
+def assert_merge_allowed(*, pr_number: int, head_sha: str, require_ci: bool = True) -> None:
     """合并红线硬闸（Spec-0017/T3）：**实时复读** CI + labels，非「全绿 ∧ review-approved:<head sha7>@head」即抛。
 
     合并**不可逆**——当初把 `merge_pr` 留在确定性层，就是防「觉得可以合了」就合掉一份没审过的代码。把合并
@@ -107,25 +178,27 @@ def assert_merge_allowed(*, pr_number: int, head_sha: str) -> None:
     check 不算绿，比照 vigil `_ci_state`——防合并一份没跑过 CI 的代码）；review-approved = `pr_snapshot`
     的 labels 里存在 `review-approved:<当前 head 的 sha7>`。任一不满足 → GateError（合并不发生）。
     """
-    checks = github.check_snapshot(pr_number=pr_number)
-    # 零 check = 没跑过 CI → 硬挡（决不合未过 CI 的代码）；顺序在 pending 之前——count==0 时 state 可能也是
-    # pending（Gitea 空 combined），但那是「根本没 CI」不是「CI 在跑」，必须走硬红线。
-    if checks.count == 0:
-        raise GateError(
-            f"合并硬闸未放行：PR #{pr_number} 当前 head 零个 check——决不合并未过 CI 的代码"
-        )
-    # Spec-0074 实证：CI 仍在跑（pending）不是红线、是暂态——抛 MergeNotReady（`_run_claimed` 当干净收工、
-    # 不烧 attempts），等下一 tick CI 绿了再合。并入 GateError 会在 pending→success 窗口烧光重试 → 误交人。
-    if checks.state == "pending":
-        raise MergeNotReady(
-            f"PR #{pr_number} 当前 head CI 仍在跑（pending）——非红线，等下一 tick 重判"
-        )
-    if checks.state != "pass":
-        raise GateError(
-            f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
-            f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
-        )
-    labels = github.pr_snapshot(pr_number=pr_number).labels
+    if require_ci:
+        checks = github.check_snapshot(pr_number=pr_number)
+        # 零 check = 没跑过 CI → 硬挡（决不合未过 CI 的代码）；顺序在 pending 之前。
+        if checks.count == 0:
+            raise GateError(
+                f"合并硬闸未放行：PR #{pr_number} 当前 head 零个 check——决不合并未过 CI 的代码"
+            )
+        if checks.state == "pending":
+            raise MergeNotReady(
+                f"PR #{pr_number} 当前 head CI 仍在跑（pending）——非红线，等下一 tick 重判"
+            )
+        if checks.state != "pass":
+            raise GateError(
+                f"合并硬闸未放行：PR #{pr_number} 当前 head CI 非全绿"
+                f"（state={checks.state}、check 数={checks.count}）——决不合并未过 CI 的代码"
+            )
+    snapshot = github.pr_snapshot(pr_number=pr_number)
+    # Spec-0017 recovery: old labels remain after a push; they cannot certify a new PR head.
+    if snapshot.head_sha != head_sha:
+        raise MergeNotReady(f"PR #{pr_number} HEAD 已变化，重新读取候选并评审")
+    labels = snapshot.labels
     expected = f"{_REVIEW_APPROVED_LABEL_PREFIX}{head_sha[:_SHA_LABEL_LEN]}"
     if expected not in labels:
         raise GateError(
@@ -269,19 +342,8 @@ def revive_eligible(*, closed_at: str, now: datetime, window_seconds: int | None
     return (now - closed).total_seconds() <= window
 
 
-def hold_hits(*, hold: object, gate: str) -> bool:
-    """hold 短路判读：`gate` 闸是否被 `--hold` 夯住（停在闸门等人批）。gate ∈ _HOLD_GATES。
-
-    读 Hold 值对象的 `at_<gate>` 布尔位——纯读意图、零判断。与 `skip_hits` 对称（hold=停下等人、
-    skip=当 PASS 放行，语义相反）。未知闸名 raise GateError，防调用方拼错闸名静默漏短路。
-    """
-    if gate not in _HOLD_GATES:
-        raise GateError(f"未知 hold 闸名 {gate!r}（合法：{_HOLD_GATES}）")
-    return bool(getattr(hold, f"at_{gate}"))
-
-
 def skip_hits(*, skip: object, gate: str) -> bool:
-    """skip 短路判读（与 `hold_hits` 对称）：`gate` 闸是否被 `--skip` 当 PASS 放行。gate ∈ _SKIP_GATES。"""
+    """`gate` 闸是否被 `--skip` 当 PASS 放行。gate ∈ _SKIP_GATES。"""
     if gate not in _SKIP_GATES:
         raise GateError(f"未知 skip 闸名 {gate!r}（合法：{_SKIP_GATES}）")
     return bool(getattr(skip, f"at_{gate}"))

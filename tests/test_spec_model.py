@@ -7,13 +7,26 @@ qualified_id、schema 合法。
 
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import jsonschema
 import pytest
 
 from openagents.spec import model, schema
-from openagents.spec.model import E2EPlan, Group, Metadata, Overview, RelatesTo, Task
+from openagents.spec.model import (
+    ArchitectureCandidate,
+    ArchitectureDecision,
+    BehaviorCase,
+    E2EPlan,
+    Group,
+    Metadata,
+    Overview,
+    RelatesTo,
+    Task,
+    VerificationPlan,
+)
 
 
 def _sample_overview() -> Overview:
@@ -247,3 +260,117 @@ def test_e2e_from_mapping_none_returns_none() -> None:
     assert model.e2e_from_mapping(data=None) is None
     plan = model.e2e_from_mapping(data={"intent": "x", "method": "跑一下看结果"})
     assert plan == E2EPlan(intent="x", method="跑一下看结果")
+
+
+def test_architecture_round_trip_and_design_digest_ignore_status(tmp_path: Path) -> None:
+    group = _sample_group()
+    architecture = ArchitectureDecision(
+        objective="preserve user-visible output",
+        constraints=["compatible"],
+        non_goals=[],
+        candidates=[ArchitectureCandidate("runtime", "runtime", ["entry"], ["entry.py"], "cost")],
+        selected="runtime",
+        affected_components=["entry"],
+        failure_modes=["concurrency"],
+    )
+    verification = VerificationPlan(
+        behavior_cases=[
+            BehaviorCase("p", "positive", "input", "output", "replay"),
+            BehaviorCase("n", "negative", "other", "unchanged", "replay"),
+        ],
+        repository_invariants=["unique ids"],
+        exemptions=[],
+    )
+    group = Group(
+        number=group.number,
+        metadata=Metadata(
+            title=group.metadata.title,
+            issue=group.metadata.issue,
+            slug=group.metadata.slug,
+            summary=group.metadata.summary,
+            architecture=architecture,
+            verification=verification,
+        ),
+        tasks=group.tasks,
+        overview=group.overview,
+    )
+    path = _write_group(root=tmp_path, group=group)
+    loaded = model.load_group(path=path)
+    assert loaded.metadata.architecture == architecture
+    assert loaded.metadata.verification == verification
+    before = model.design_digest(group=loaded)
+    loaded.tasks[0].status = "done"
+    assert model.design_digest(group=loaded) == before
+    loaded.tasks[0].acceptance = "different behavior"
+    assert model.design_digest(group=loaded) != before
+
+
+def test_self_reference_renumber_preserves_semantics_not_raw_digest() -> None:
+    """Spec-0088/T1: mimic the live 0002 → 0004/0005 task-prose renumbering."""
+    group = _sample_group()
+    group.tasks[0].scope = "Implement Spec-0014/T3; preserve all constraints."
+    group.tasks[0].acceptance = "Spec-0014/T3: verify delivered behavior."
+    group = replace(
+        group,
+        overview=replace(
+            group.overview, reference_level="See Spec-0014/T3. Keep foreign Spec-0012/T2."
+        ),
+    )
+    approved = model.design_digest(group=group)
+    raw = model.legacy_design_digest(group=group)
+    renamed = replace(deepcopy(group), number="0015")
+    renamed.tasks[0].scope = renamed.tasks[0].scope.replace("0014", "0015")
+    renamed.tasks[0].acceptance = renamed.tasks[0].acceptance.replace("0014", "0015")
+    renamed = replace(
+        renamed,
+        overview=replace(
+            renamed.overview,
+            reference_level=renamed.overview.reference_level.replace("0014", "0015"),
+        ),
+    )
+    assert approved.startswith("v2:")
+    assert model.design_digest(group=renamed) == approved
+    assert model.legacy_design_digest(group=renamed) != raw
+    assert group.number == "0014"  # canonicalization is read-only
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Spec-0014/T99",  # nonexistent local task
+        "Spec-0012/T3",  # foreign Spec
+        "capacity=0014",  # arbitrary number
+        "OtherSpec-0014/T3",  # not a standalone reference
+        "Spec-0014/T3-extra",  # suffix must not be swallowed
+        "docs/Spec-0014/T3",  # path, not prose identity
+        "Spec-0014/T3.py",
+    ],
+)
+def test_non_self_references_are_not_normalized(text: str) -> None:
+    """Spec-0088/T1: fail closed for numeric edits outside the explicit grammar."""
+    group = _sample_group()
+    group.tasks[0].scope = text
+    approved = model.design_digest(group=group)
+    group = replace(group, number="0015")
+    group.tasks[0].scope = text.replace("0014", "0015").replace("0012", "0015")
+    assert model.design_digest(group=group) != approved
+
+
+@pytest.mark.parametrize("field", ["files", "depends_on", "scope", "acceptance", "title"])
+def test_material_task_changes_still_invalidate_approval(field: str) -> None:
+    """Spec-0088/T1: real constraints and ownership changes cannot inherit approval."""
+    group = _sample_group()
+    setattr(group.tasks[0], field, ["Spec-0014/T3"] if field in {"files", "depends_on"} else "keep")
+    approved = model.design_digest(group=group)
+    group = replace(group, number="0015")
+    setattr(group.tasks[0], field, ["Spec-0015/T3"] if field in {"files", "depends_on"} else "drop")
+    assert model.design_digest(group=group) != approved
+
+
+def test_literal_self_placeholder_cannot_impersonate_reference() -> None:
+    """Spec-0088/T1: normalization uses typed segments, not an editable sentinel."""
+    group = _sample_group()
+    group.tasks[0].scope = "Spec-0014/T3"
+    approved = model.design_digest(group=group)
+    group.tasks[0].scope = 'Spec-<self>/T3 {"self-task": "T3"}'
+    assert model.design_digest(group=group) != approved

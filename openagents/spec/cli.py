@@ -23,6 +23,7 @@ from pathlib import Path
 
 from openagents.spec import graph, model, mutate, ownership
 from openagents.spec.render import write_overview
+from openagents.spec.reservation import reserve_number
 from openagents.spec.schema import PRIORITY_VALUES, STATUS_VALUES
 from openagents.spec.validate import validate
 
@@ -53,6 +54,16 @@ def main(*, argv: list[str] | None = None) -> int:
             summary=args.summary,
             number=args.number,
         )
+    if args.command == "reserve-number":
+        print(
+            reserve_number(
+                specs_root=specs_root,
+                issue=args.issue,
+                slug=args.slug,
+                number=args.number,
+            )
+        )
+        return 0
     if args.command == "add-task":
         return _cmd_add_task(specs_root=specs_root, args=args)
     if args.command == "render":
@@ -95,7 +106,12 @@ def _build_parser() -> argparse.ArgumentParser:
     new.add_argument("--title", required=True, help="组标题")
     # Spec-0015：人话 TL;DR 必填——把「写 summary」做成建组硬步骤。
     new.add_argument("--summary", required=True, help="组级人话 TL;DR（必填）")
-    new.add_argument("--number", default=None, help="组编号 NNNN（缺省取本地下一号）")
+    new.add_argument("--number", default=None, help="组编号 NNNN（共享仓库须先在远端预留）")
+
+    reserve = sub.add_parser("reserve-number", help="为已有 spec 改号预留新编号", parents=[common])
+    reserve.add_argument("--issue", type=int, required=True, help="关联 issue 编号")
+    reserve.add_argument("--slug", required=True, help="组 slug")
+    reserve.add_argument("--number", default=None, help="指定编号 NNNN（缺省取下一空号）")
 
     add = sub.add_parser("add-task", help="往 spec 组加一个子任务", parents=[common])
     add.add_argument("group", help="组编号 NNNN 或文件名")

@@ -55,7 +55,7 @@ uv tool install --force --from . openagents
 
 ### Shell Tab 补全(可选)
 
-`openagents` 内置 [argcomplete](https://github.com/kislyuk/argcomplete):补全直接读现成的命令定义,覆盖全部子命令(init/vigil/backfill-rfc/issue/release/board/report)与各自的选项(如 `vigil --interval/--label/--base/--once/--parallel/--hold/--skip/--config`)。一次性启用后 `openagents <Tab>`、`openagents vigil --<Tab>` 即弹候选。
+`openagents` 内置 [argcomplete](https://github.com/kislyuk/argcomplete):补全直接读现成的命令定义,覆盖全部子命令(init/vigil/backfill-rfc/issue/release/board/report)与各自的选项(如 `vigil --interval/--label/--base/--once/--parallel/--skip/--config`)。一次性启用后 `openagents <Tab>`、`openagents vigil --<Tab>` 即弹候选。
 
 zsh(写进 `~/.zshrc`):
 
@@ -116,11 +116,10 @@ openagents vigil --parallel 4             # 并发上限 K=4:同时最多 4 个 
 openagents vigil --label bug --label p0   # 覆盖发现标签门控(可重复)
 openagents vigil --interval 30            # 覆盖轮询间隔(秒)
 openagents vigil --base develop           # 覆盖派单起草的分支基线
-openagents vigil --hold merge             # 单次把某阶段交给人(停等):等价 stages.merge=human
 openagents vigil --skip ci,e2e            # 单次跳过某阶段(当 PASS 放行):等价 stages.<stage>=skip
 ```
 
-`--hold` / `--skip` / `--base` / `--interval` / `--label` 都是**对单次运行的覆盖**,不改磁盘上的 `openagents.yml`;两者对同一阶段给出矛盾意图(如 `--hold ci --skip ci`)会立即报错。
+`--skip` / `--base` / `--interval` / `--label` 都是**对单次运行的覆盖**,不改磁盘上的 `openagents.yml`。
 
 #### 图驱动的 level-triggered 守夜
 
@@ -135,7 +134,7 @@ openagents vigil --skip ci,e2e            # 单次跳过某阶段(当 PASS 放�
 每 tick 对每个 subject 走一遍 `_sense`(唯一的 GitHub 读)→ `_classify`(纯函数四值判定)→ 入队 / 看门狗。判定表按顺序短路,顺序本身是正确性依赖:
 
 ```
-① merged / closed / needs-human ............... 终止,轮询停止(人摘 label 自动复活)
+① merged / closed / automation-failed .......... 终止(事实变化后自动复活)
 ② 最新评论是人发的 ............................ reply     回话
 ③ 依赖(blocked_by)未全关闭 .................. 等待上游
 ④ 还没有 PR ................................... solve     竖切开 PR
@@ -148,19 +147,19 @@ openagents vigil --skip ci,e2e            # 单次跳过某阶段(当 PASS 放�
 ⑪ 全绿 + review-approved:<当前 head sha7> ..... merge     合并回 main
 ```
 
-##### `needs-human` 是 agent 的一等出口
+##### `automation-failed` 是指纹绑定的机器失败终态
 
-agent 干不动时(CI 是上游 flaky、需求有歧义、改动超出授权)**自己打 `needs-human` label + 留一条说明理由的评论**,判定①当场终止、轮询立刻停止——不烧多余 LLM、不等超时,理由直接写在 issue 上给人看。人摘掉 label,谓词自动重新活过来(level-triggered 白送的自愈)。
+backend 崩溃、协议错误、硬超时或连续无进展都先在有界预算内重试。耗尽后 Vigil 给 issue/PR 加 `automation-failed`,并写入 category、attempts、不含该 label 自身的事实 fingerprint 和最后错误。同一 fingerprint 不再消耗模型;当 issue 正文、PR head、CI、依赖或有效评论发生实质变化,Vigil 会自动清除旧失败投影并重新判定。
 
 三道**护栏**只兜 agent 自己看不见的三种死法(它们在日志里都跟「一切正常」长得一样):
 
 1. **空转**(agent 以为干了活但 fp 没变)→ 零进展收工时盖一条带 fingerprint 的 attempt 戳,同 fp 的活降级为「等副作用」不再入队,不无限重跑烧钱。
-2. **状态该动却不动**(CI 永不启动 → 没人叫 agent → PR 静默烂掉)→ **看门狗**:QUIET 的 age 超阈值就打 `needs-human` + 贴机械诊断。「卡了多久」是当前态的纯函数,零本地记忆。
-3. **agent 崩溃 / 被 kill / 挂死**(GitHub 上零痕迹)→ 硬超时杀子进程、`flock` 判死回收、`attempts` 计数超上限交人。
+2. **状态该动却不动**(CI 永不启动 → 没人叫 agent → PR 静默烂掉)→ **看门狗**:QUIET 的 age 超阈值就落 `automation-failed` + 机械诊断。「卡了多久」是当前态的纯函数,零本地记忆。
+3. **agent 崩溃 / 被 kill / 挂死**(GitHub 上零痕迹)→ 硬超时杀子进程、`flock` 判死回收、`attempts` 计数超上限后收口为机器失败。存活且持锁的任务只告警,不失败化、不重领。
 
 ##### 存储职责:两个存储,各管一层
 
-- **GitHub = 领域真相**:依赖结构(原生 `blocked_by`)、我们做的**决定**(label:`ready` 准入 / `needs-human` 终态 / `review-approved:<sha7>` 裁决)、GitHub 自己维护的**事实**(checks / mergeable,读原生、**不复制成 label**)、e2e 证据评论。**分界线:决定打 label,事实读原生。**
+- **GitHub = 领域真相**:依赖结构(原生 `blocked_by`)、我们做的**决定**(label:`ready` 准入 / `automation-failed` 机器终态 / `review-approved:<sha7>` 裁决)、GitHub 自己维护的**事实**(checks / mergeable,读原生、**不复制成 label**)、e2e 证据评论。**分界线:决定打 label,事实读原生。**
 - **SQLite `work_queue`** 只存 GitHub 表达不了的三样:谁原子地领走了 subject、领了几次没收工、领取时的定序。丢了无害——queued 行一 tick 从 GitHub 重建。
 - **`.openagents/claims/{subject}.lock`(flock)** 是持有者的存活证明,由内核持有:进程一死锁自动释放。回收凭 flock 判死,不凭租约猜死。
 
@@ -208,15 +207,15 @@ agents:
   implementer: { backend: claude_code }
   reviewer:    { backend: claude_code }
 
-# 每个可配阶段归谁把关,三态:agent(自动) / human(停等打 needs-human) / skip(当 PASS 放行)。
+# 每个可配阶段为 agent(自动),允许的可选闸也可设 skip(当 PASS 放行)。
 stages:
-  triage:   agent      # 准入门控(triage: human 则开 PR 前问一句再放行)
+  triage:   agent      # 准入门控
   rfc:      agent      # RFC 起草(仅 agent / skip;skip 会告警——撞「先改 RFC 再改代码」)
   conflict: agent      # 解冲突(不可 skip)
   ci:       agent      # 等 CI 全绿(可 skip)
   e2e:      agent      # 端到端取证(可 skip)
   review:   agent      # 代码评审(可 skip,但 review:skip + merge:agent 会被拒——不许零闸)
-  merge:    agent      # 合并(不可 skip;merge:human 则合并前停下等人点合)
+  merge:    agent      # 合并(不可 skip)
 
 release: manual        # manual(人决定何时发版,默认) / auto
 
@@ -231,9 +230,11 @@ repos:                 # 多仓库统管:每仓一子进程跑 run_fleet(gh/git 
 
 约束:
 
-- **不许零闸**:`review: skip` + `merge: agent` 会让未审代码自动盲合进 main,直接报错——要么开 review,要么 `merge: human`(理念 5「PR 需人审」的底线)。
+- **不许零闸**:`review: skip` + `merge: agent` 会让未审代码自动盲合进 main,因此直接报错;自动合并必须保留 review。
 - **硬闸名进不了 stages**:`head-advanced` / `evidence-stamp` / `round-cap` 是确定性硬闸、恒机器把关;`implement` / `deliver` 恒派 agent。写进 `stages` 均 reject。
-- **三态 skip 在感知层归一**:`ci: skip` → CI 当 success,`e2e: skip` → 证据戳记当前 head,`review: skip` → 裁决记 APPROVED@head。这样 `_classify` 保持纯粹的机械分支表、不吃 config,策略只在两处出现。
+- **skip 在感知层归一**:`ci: skip` → CI 当 success,`e2e: skip` → 证据戳记当前 head,`review: skip` → 裁决记 APPROVED@head。这样 `_classify` 保持纯粹的机械分支表。
+
+升级时若存在旧终态,先运行 `scripts/migrate-*state.py` 中的 Spec-0081 迁移器查看 dry-run 计划,确认后加 `--apply`。迁移器会幂等转换 forge label 和 runtime 失败状态;旧配置 owner 只报告精确路径,必须显式改为 `agent` 或该阶段允许的 `skip`。
 
 ---
 

@@ -8,8 +8,11 @@ from pathlib import Path
 import pytest
 
 from openagents.utils.agent_config import (
+    FLOW_GENERATE_ONLY,
+    FLOW_MINIMAL,
+    FLOW_STANDARD,
+    FLOW_V02,
     OWNER_AGENT,
-    OWNER_HUMAN,
     OWNER_SKIP,
     RELEASE_AUTO,
     RELEASE_MANUAL,
@@ -32,7 +35,7 @@ def test_missing_file_falls_back_to_builtin_defaults(tmp_path):
     # 整份可省——文件不存在 → 全默认（全 agent stages / claude_code / manual release / 单仓）。
     cfg = load_agent_config(path=tmp_path / "nope.yml")
     assert isinstance(cfg, AgentConfig)
-    for stage in ("triage", "rfc", "conflict", "ci", "e2e", "review", "merge"):
+    for stage in ("triage", "rfc", "architecture", "conflict", "ci", "e2e", "review", "merge"):
         assert cfg.stages.owner_of(stage=stage) == OWNER_AGENT
     assert cfg.agents.backend_for(role="implementer") == "claude_code"
     assert cfg.release.mode == RELEASE_MANUAL
@@ -40,6 +43,39 @@ def test_missing_file_falls_back_to_builtin_defaults(tmp_path):
     assert cfg.interval == 60
     assert cfg.labels == ["openagents"]
     assert len(cfg.repos) == 1
+    assert cfg.flow == FLOW_STANDARD
+    assert cfg.repos[0].flow == FLOW_STANDARD
+
+
+def test_minimal_flow_round_trips_into_repo_plan(tmp_path):
+    cfg = load_agent_config(path=_write(tmp_path, "flow: minimal\n"))
+    assert cfg.flow == FLOW_MINIMAL
+    assert cfg.repos[0].flow == FLOW_MINIMAL
+
+
+def test_generate_only_flow_round_trips_into_repo_plan(tmp_path):
+    cfg = load_agent_config(path=_write(tmp_path, "flow: generate-only\n"))
+    assert cfg.flow == FLOW_GENERATE_ONLY
+    assert cfg.repos[0].flow == FLOW_GENERATE_ONLY
+    assert cfg.agents.backend_for(role="executor") == "claude_code"
+
+
+def test_v02_flow_and_roles_round_trip(tmp_path):
+    cfg = load_agent_config(
+        path=_write(
+            tmp_path,
+            "flow: v0.2\nagents:\n  developer: {backend: nexau}\n  spec_curator: {backend: nexau}\n",
+        )
+    )
+    assert cfg.flow == FLOW_V02
+    assert cfg.repos[0].flow == FLOW_V02
+    assert cfg.agents.backend_for(role="developer") == "nexau"
+    assert cfg.agents.backend_for(role="spec_curator") == "nexau"
+
+
+def test_unknown_flow_is_rejected(tmp_path):
+    with pytest.raises(AgentConfigError):
+        load_agent_config(path=_write(tmp_path, "flow: committee\n"))
 
 
 def test_empty_file_falls_back_to_defaults(tmp_path):
@@ -54,11 +90,11 @@ def test_minimal_config_overrides_only_named_stages(tmp_path):
         """
 version: 1
 stages:
-  merge: human
+  e2e: skip
 """,
     )
     conf = load_agent_config(path=cfg)
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
     # 未覆盖的阶段仍回落内建默认 agent。
     assert conf.stages.owner_of(stage="ci") == OWNER_AGENT
     assert conf.stages.owner_of(stage="review") == OWNER_AGENT
@@ -79,8 +115,8 @@ stages:
   conflict: agent
   ci:       agent
   e2e:      skip
-  review:   human
-  merge:    human
+  review:   agent
+  merge:    agent
 release: auto
 defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
 """,
@@ -91,8 +127,8 @@ defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
     # 未声明角色回落默认。
     assert conf.agents.backend_for(role="replier") == "claude_code"
     assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
-    assert conf.stages.owner_of(stage="review") == OWNER_HUMAN
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    assert conf.stages.owner_of(stage="review") == OWNER_AGENT
+    assert conf.stages.owner_of(stage="merge") == OWNER_AGENT
     assert conf.release.mode == RELEASE_AUTO
     assert conf.interval == 120
     assert conf.base == "develop"
@@ -113,8 +149,7 @@ stages:
         load_agent_config(path=cfg)
 
 
-def test_review_skip_merge_human_allowed(tmp_path):
-    # merge:human 在（人兜住）→ 跳 agent-review 站得住，不撞守卫。
+def test_retired_human_owner_reports_exact_stage(tmp_path):
     cfg = _write(
         tmp_path,
         """
@@ -123,9 +158,8 @@ stages:
   merge:  human
 """,
     )
-    conf = load_agent_config(path=cfg)
-    assert conf.stages.owner_of(stage="review") == OWNER_SKIP
-    assert conf.stages.owner_of(stage="merge") == OWNER_HUMAN
+    with pytest.raises(AgentConfigError, match="stages/merge.*已退役"):
+        load_agent_config(path=cfg)
 
 
 def test_conflict_skip_rejected(tmp_path):
@@ -141,9 +175,8 @@ def test_merge_skip_rejected(tmp_path):
 
 
 def test_rfc_human_rejected(tmp_path):
-    # rfc 仅 agent/skip，无 human。
     cfg = _write(tmp_path, "stages:\n  rfc: human\n")
-    with pytest.raises(AgentConfigError):
+    with pytest.raises(AgentConfigError, match="stages/rfc.*已退役"):
         load_agent_config(path=cfg)
 
 
@@ -154,7 +187,7 @@ def test_hardgate_name_in_stages_rejected(tmp_path):
 
 
 def test_always_agent_stage_in_stages_rejected(tmp_path):
-    cfg = _write(tmp_path, "stages:\n  implement: human\n")
+    cfg = _write(tmp_path, "stages:\n  implement: skip\n")
     with pytest.raises(AgentConfigError, match="恒派 agent"):
         load_agent_config(path=cfg)
 
@@ -171,22 +204,22 @@ def test_per_repo_stage_override_merges(tmp_path):
         tmp_path,
         """
 stages:
-  merge: human
+  e2e: skip
 repos:
   - path: .
   - path: ../other
     base: develop
-    stages: { merge: agent }
+    stages: { e2e: agent }
 """,
     )
     conf = load_agent_config(path=cfg)
     a, b = conf.repos
     assert a.name == tmp_path.resolve().name
-    # repo-a 继承顶层 merge:human。
-    assert a.stages.owner_of(stage="merge") == OWNER_HUMAN
+    # repo-a 继承顶层 e2e:skip。
+    assert a.stages.owner_of(stage="e2e") == OWNER_SKIP
     assert a.base == "main"
-    # repo-b 覆盖 merge:agent + base develop；其余阶段仍继承顶层/默认。
-    assert b.stages.owner_of(stage="merge") == OWNER_AGENT
+    # repo-b 覆盖 e2e:agent + base develop；其余阶段仍继承顶层/默认。
+    assert b.stages.owner_of(stage="e2e") == OWNER_AGENT
     assert b.stages.owner_of(stage="ci") == OWNER_AGENT
     assert b.base == "develop"
     assert b.path == (tmp_path / ".." / "other").resolve()
@@ -197,12 +230,9 @@ def test_per_repo_override_still_guarded(tmp_path):
     cfg = _write(
         tmp_path,
         """
-stages:
-  review: skip
-  merge:  human
 repos:
   - path: .
-    stages: { merge: agent }
+    stages: { review: skip }
 """,
     )
     with pytest.raises(AgentConfigError, match="不许零闸"):
@@ -248,7 +278,7 @@ def test_packaged_template_matches_builtin_defaults(tmp_path):
     assert scaffold_default_config(path=cfg_path, force=False) is True
     cfg = load_agent_config(path=cfg_path)
     builtin = default_config()
-    for stage in ("triage", "rfc", "conflict", "ci", "e2e", "review", "merge"):
+    for stage in ("triage", "rfc", "architecture", "conflict", "ci", "e2e", "review", "merge"):
         assert (
             cfg.stages.owner_of(stage=stage) == builtin.stages.owner_of(stage=stage) == OWNER_AGENT
         )
@@ -294,3 +324,13 @@ def test_scaffolded_file_loads_cleanly(tmp_path):
     cfg = load_agent_config(path=cfg_path)
     assert isinstance(cfg, AgentConfig)
     assert cfg.stages.owner_of(stage="merge") == OWNER_AGENT
+
+
+def test_architecture_owner_is_inferred_and_cannot_bypass_rfc(tmp_path) -> None:
+    with pytest.warns(UserWarning):
+        skipped = load_agent_config(path=_write(tmp_path, "stages:\n  rfc: skip\n"))
+    assert skipped.stages.owner_of(stage="architecture") == OWNER_SKIP
+
+    path = _write(tmp_path, "stages:\n  rfc: agent\n  architecture: skip\n")
+    with pytest.raises(AgentConfigError, match="architecture:skip"):
+        load_agent_config(path=path)

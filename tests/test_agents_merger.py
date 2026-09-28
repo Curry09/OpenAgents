@@ -36,10 +36,9 @@ def test_prompt_has_no_hardcoded_gh():
     assert "gh pr view" not in merger.PROMPT.template
 
 
-def test_prompt_has_structured_needs_human_exit():
-    # Spec-0075/T3: 一等出口只报告控制意图，不直接修改 forge。
+def test_prompt_reports_failure_in_role_schema():
     text = merger.PROMPT.substitute(**_KW)
-    assert '"needs_human": true' in text
+    assert '"merged": false' in text
     assert "不要自行修改 forge 标签" in text
 
 

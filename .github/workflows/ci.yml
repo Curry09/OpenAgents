@@ -2,11 +2,11 @@
 # 仅 "CI Gate" 作为分支保护的必需状态检查。
 name: CI
 
-# Spec-0023/T5：test 分支门控退役后，日常 PR 一律以 main 为 base，故 CI 只需覆盖 main——
+# Spec-0023/T5：日常 PR 以 main 为 base；v2 compatibility PR 以 auto-designer/v0.2 为 base。
 # release/vX.Y.Z 分支由已绿的 main 物化而来、不接 PR，无需在此重复门控。
 on:
   pull_request:
-    branches: [main]
+    branches: [main, auto-designer/v0.2]
 
 permissions:
   contents: read

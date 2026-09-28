@@ -24,11 +24,11 @@ def test_drafter_prompt_substitutes_for_every_mode():
     # 五 mode 复用同一占位符集（mode/target/branch/detail）——每个 mode 都能填齐、不抛。
     for mode in ("draft", "backfill", "refine", "implement", "iterate"):
         task = drafter.PROMPT.substitute(
-            mode=mode, target="issue #145「t」", branch="openagents/issue-145", detail="正文X"
+            mode=mode, target="issue #145「t」", branch="openagents/issue-145"
         )
         assert mode in task
         assert "openagents/issue-145" in task
-        assert "正文X" in task
+        assert "下方“上下文”区" in task
 
 
 def test_drafter_module_has_no_logic():

@@ -1,10 +1,10 @@
 // Spec-0073/T6: 待看优先级纯函数。从 board 条目推「待看类别 + 序」，供 Tab 导航循环。
-// 优先级（高→低）：① needs-human 挂起 > ② PR 等合并 > ③ 人类新评论待回 > ④ 刚变状态；同级按 enqueued 序。
+// 优先级（高→低）：① automation-failed 挂起 > ② PR 等合并 > ③ 人类新评论待回 > ④ 刚变状态；同级按 enqueued 序。
 import { PENDING_ORDER, type BoardEntry, type PendingCategory } from '../types'
 
 // 类别 → 排序权重（越小越靠前）。非待看（pending=null）不入序。
 const RANK: Record<PendingCategory, number> = {
-  'needs-human': 0,
+  'automation-failed': 0,
   'pr-to-merge': 1,
   'new-comment': 2,
   'just-changed': 3
@@ -15,8 +15,8 @@ export function pendingCategory(entry: BoardEntry): PendingCategory | null {
   if (entry.pending !== undefined && entry.pending !== null) {
     return entry.pending
   }
-  if (entry.needs_human) {
-    return 'needs-human'
+  if (entry.automation_failed) {
+    return 'automation-failed'
   }
   if (entry.pr_ready_to_merge) {
     return 'pr-to-merge'

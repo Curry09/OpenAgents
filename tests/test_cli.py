@@ -18,7 +18,7 @@ from openagents.utils.github import Issue
 
 # Spec-0064/T6：收敛后人面向留存命令集（init/board 观测·自举，issue/backfill-rfc/vigil/release 触发，
 # reply-comment 隐藏内部）。
-COMMANDS = ["init", "issue", "backfill-rfc", "vigil", "release", "board", "reply-comment"]
+COMMANDS = ["init", "issue", "backfill-rfc", "vigil", "v02", "release", "board", "reply-comment"]
 
 
 def test_parser_registers_retained_subcommands():
@@ -51,6 +51,16 @@ def test_unknown_command_errors():
 
 def test_no_command_returns_nonzero():
     assert main([]) != 0
+
+
+def test_backend_factory_selects_nexau_from_environment(monkeypatch):
+    import openagents.backends.nexau as nexau_backend
+    import openagents.cli as cli
+
+    marker = object()
+    monkeypatch.setenv("OPENAGENTS_BACKEND", "nexau")
+    monkeypatch.setattr(nexau_backend, "NexAUBackend", lambda: marker)
+    assert cli._backend_for() is marker
 
 
 def _patch_ensure(monkeypatch, *, repo_root="/tmp/x"):
@@ -128,6 +138,41 @@ def test_vigil_invalid_config_errors_cleanly(monkeypatch, tmp_path):
     )  # 非法：merge 不可 skip
     code = main(["vigil", "--once"])
     assert code == 1
+
+
+def test_v02_dispatches_explicit_issue_batch(monkeypatch, tmp_path):
+    from openagents.v02.model import BatchResult, NodeResult
+
+    _patch_ensure(monkeypatch, repo_root=str(tmp_path))
+    monkeypatch.setattr("openagents.cli._backend_for", lambda: "BE")
+    monkeypatch.setattr("openagents.utils.forge.configure", lambda **kw: None)
+    monkeypatch.setattr(
+        "openagents.utils.forge.get_issue",
+        lambda *, number: Issue(number=number, title=f"issue {number}", body="body"),
+    )
+    seen = {}
+
+    class FakeAdapter:
+        def __init__(self, **kwargs):
+            seen["adapter"] = kwargs
+
+    monkeypatch.setattr("openagents.v02.openagents_adapter.OpenAgentsAdapter", FakeAdapter)
+
+    def fake_run_batch(*, issues, adapter, concurrency):
+        seen.update(issues=issues, concurrency=concurrency)
+        return BatchResult(
+            plan=None,
+            nodes={
+                issue.number: NodeResult(issue.number, "PASS", pr_number=issue.number + 10)
+                for issue in issues
+            },
+        )
+
+    monkeypatch.setattr("openagents.v02.runner.run_batch", fake_run_batch)
+    assert main(["v02", "--issue", "3", "--issue", "4", "--parallel", "2"]) == 0
+    assert [issue.number for issue in seen["issues"]] == [3, 4]
+    assert seen["concurrency"] == 2
+    assert seen["adapter"]["backend"] == "BE"
 
 
 # --------------------------------------------------------------------------- #
@@ -452,8 +497,8 @@ def test_completion_covers_vigil_options():
         "--base",
         "--once",
         "--parallel",
-        "--hold",
         "--skip",
         "--config",
     ):
         assert expected in options
+    assert "--" + "hold" not in options

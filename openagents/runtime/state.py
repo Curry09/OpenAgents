@@ -26,6 +26,8 @@ import os
 import threading
 from pathlib import Path
 
+from openagents.runtime import research
+
 # Spec-0060/T5: 新栈状态文件名——与旧 state.json 独立命名空间，避免文件级冲突。
 RUNTIME_STATE_FILENAME = "runtime-state.json"
 
@@ -37,7 +39,7 @@ STATUS_PR_OPEN = "pr-open"
 STATUS_ITERATING = "iterating"
 STATUS_DONE = "done"
 STATUS_CLOSED = "closed"
-STATUS_BLOCKED = "blocked"
+STATUS_FAILED = "failed"
 
 
 class RuntimeState:
@@ -72,6 +74,9 @@ class RuntimeState:
         branch: str,
         pr_number: int | None,
         closed_at: str = "",
+        design_digest: str = "",
+        design_raw_digest: str = "",
+        evidence_pack: list | None = None,
     ) -> None:
         """写/覆盖某 issue 的 run 记录（status/branch/pr_number）。
 
@@ -80,9 +85,25 @@ class RuntimeState:
         """
         with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行（K 个 worker 并发写会丢更新）
             data = self._load()
+            previous = data.get("runs", {}).get(str(issue_number), {})
             record: dict = {"status": status, "branch": branch, "pr_number": pr_number}
             if closed_at:
                 record["closed_at"] = closed_at
+            if design_digest:
+                record["design_digest"] = design_digest
+            elif previous.get("design_digest"):
+                record["design_digest"] = previous["design_digest"]
+            # Spec-0088/T1: keep raw audit identity through later delivery status updates.
+            if design_raw_digest:
+                record["design_raw_digest"] = design_raw_digest
+            elif design_digest in {"", previous.get("design_digest")} and previous.get(
+                "design_raw_digest"
+            ):
+                record["design_raw_digest"] = previous["design_raw_digest"]
+            if evidence_pack is not None:
+                record["evidence_pack"] = research.normalize(evidence_pack)
+            elif previous.get("evidence_pack"):
+                record["evidence_pack"] = previous["evidence_pack"]
             data.setdefault("runs", {})[str(issue_number)] = record
             self._save(data=data)
 
@@ -140,6 +161,24 @@ class RuntimeState:
         with RuntimeState._LOCK:
             data = self._load()
             data.setdefault("issue_cursors", {})[str(number)] = comment_id
+            self._save(data=data)
+
+    def get_review_feedback(self, *, issue_number: int, head_sha: str) -> str | None:
+        """Return reviewer feedback only when it belongs to the exact current head."""
+        record = self._load().get("review_feedback", {}).get(str(issue_number), {})
+        if record.get("head_sha") != head_sha:
+            return None
+        reason = record.get("reason")
+        return reason if isinstance(reason, str) and reason.strip() else None
+
+    def set_review_feedback(self, *, issue_number: int, head_sha: str, reason: str) -> None:
+        """Persist the detailed REWORK reason, bound to the commit that was reviewed."""
+        with RuntimeState._LOCK:
+            data = self._load()
+            data.setdefault("review_feedback", {})[str(issue_number)] = {
+                "head_sha": head_sha,
+                "reason": reason,
+            }
             self._save(data=data)
 
     def get_agent_id(self) -> str | None:

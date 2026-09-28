@@ -1,4 +1,4 @@
-// Spec-0073/T4: 成果卡——一个 subject 的阶段 / PR / 证据戳 / 评论数 / needs-human 徽标。点击发 onOpen。
+// Spec-0073/T4: 成果卡——一个 subject 的阶段 / PR / 证据戳 / 评论数 / automation-failed 徽标。点击发 onOpen。
 import type { BoardEntry } from '../types'
 
 export interface CardProps {
@@ -8,8 +8,8 @@ export interface CardProps {
 
 // 把队列状态 + 富化字段浓成一句人话阶段（成果优先，字段以 board.html 为起点）。
 function stageLabel(entry: BoardEntry): string {
-  if (entry.needs_human) {
-    return '⏸ needs-human 等你'
+  if (entry.automation_failed) {
+    return '✗ automation-failed 机器失败'
   }
   if (entry.pr_ready_to_merge) {
     return `✅ PR#${entry.pr ?? '?'} 等合并`
@@ -42,7 +42,7 @@ export default function Card({ entry, onOpen }: CardProps): JSX.Element {
     >
       <div className="card__subject">{entry.subject}</div>
       <div className="card__stage">{stageLabel(entry)}</div>
-      {entry.needs_human && <span className="badge badge--needs-human">needs-human</span>}
+      {entry.automation_failed && <span className="badge badge--automation-failed">automation-failed</span>}
     </div>
   )
 }
