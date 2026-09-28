@@ -16,6 +16,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  OPENAGENTS_NO_SELF_UPDATE: "1"
+
 jobs:
   lint:
     name: Lint
@@ -29,9 +32,9 @@ jobs:
 
       - name: Ruff check
         run: |
-          uv sync --extra dev
-          uv run ruff check .
-          uv run ruff format --check .
+          uv sync --locked --extra dev
+          uv run --locked --extra dev ruff check .
+          uv run --locked --extra dev ruff format --check .
 
   test:
     name: Test
@@ -46,12 +49,53 @@ jobs:
 
       - name: Pytest
         run: |
-          uv sync --extra dev
+          uv sync --locked --extra dev
           if [ -d tests ]; then
-            uv run pytest tests/ -v
+            uv run --locked --extra dev pytest tests/ -v
           else
             echo "尚无 tests/ 目录，跳过"
           fi
+
+  desktop:
+    name: Desktop checks (experimental)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: apps/desktop
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: apps/desktop
+
+  package:
+    name: Wheel installation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - name: Install and run outside the checkout
+        run: |
+          uv venv /tmp/openagents-wheel --python 3.12
+          uv pip install --python /tmp/openagents-wheel/bin/python dist/*.whl
+          cd /tmp
+          /tmp/openagents-wheel/bin/openagents --help
+          /tmp/openagents-wheel/bin/spec --help
+
+  nexau:
+    name: Optional NexAU backend imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra nexau --extra dev
+      - run: uv run --locked --extra nexau --extra dev python -c "from nexau import Agent, AgentConfig; from openagents.backends.nexau import NexAUBackend"
 
   commitlint:
     name: Commit Lint
@@ -95,26 +139,26 @@ jobs:
 
       - name: Validate specs
         run: |
-          uv sync --extra dev
-          uv run spec validate --specs-root docs/specs
+          uv sync --locked --extra dev
+          uv run --locked --extra dev spec validate --specs-root docs/specs
 
       - name: OVERVIEW drift check
         run: |
-          uv run spec render --specs-root docs/specs
+          uv run --locked --extra dev spec render --specs-root docs/specs
           git diff --exit-code docs/specs/OVERVIEW.md
 
       # 2026-06-24 spec-markdown-form：需求① 现状映射。校验 docstring 规范齐全 + ARCHITECTURE 无漂移。
       - name: ARCHITECTURE drift + docstring check
         run: |
-          uv run spec graph --specs-root docs/specs
+          uv run --locked --extra dev spec graph --specs-root docs/specs
           git diff --exit-code docs/specs/ARCHITECTURE.md
-          uv run spec graph --specs-root docs/specs --check
+          uv run --locked --extra dev spec graph --specs-root docs/specs --check
 
   # --- 唯一的必需状态检查：聚合所有任务结果 ---
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [lint, test, commitlint, spec-conflicts, spec-validate]
+    needs: [lint, test, desktop, package, nexau, commitlint, spec-conflicts, spec-validate]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
@@ -126,6 +170,9 @@ jobs:
           echo "spec-validate:  ${{ needs.spec-validate.result }}"
 
           results=(
+            "${{ needs.desktop.result }}"
+            "${{ needs.package.result }}"
+            "${{ needs.nexau.result }}"
             "${{ needs.lint.result }}"
             "${{ needs.test.result }}"
             "${{ needs.commitlint.result }}"

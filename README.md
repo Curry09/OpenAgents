@@ -1,18 +1,20 @@
 # OpenAgents
 
-**RFC 驱动的多 Agent 协作框架。** 让 AI agent 替你完成「从 issue 到 PR」的完整工程闭环——先把要做的事写成 RFC、由人评审批准,再派一个 coding agent(如 Claude Code)按 RFC 写代码、开真实 GitHub PR,并根据评审评论与 CI 结果自动迭代,直到合并。
+**Spec 驱动的多 Agent 交付框架。** 从 issue 到 Spec、实现、验收/评审及 PR 合并，支持 GitHub/Gitea 与 Claude Code、Codex、NexAU 后端。默认质量门由 agent 执行，PR 合并自动进行；`release: manual` 仅表示发版时机由人决定。
 
-人退到宏观位置:你审 RFC、审 PR、按一次 release;**细节交给 agent**。
+This CLI can run independently or serve as the delivery plane for auto-designer. Python 3.12+ · MIT.
+
+与 auto-designer 联用见 [联合使用说明](docs/AUTO_DESIGNER.md)。`main` 已合入 v0.2 功能并支持多种 flow，运行时仍默认 `standard`；使用 `v0.2` 要显式配置。开发安装、离线测试见 [CONTRIBUTING.md](CONTRIBUTING.md)，发布状态见 [docs/RELEASING.md](docs/RELEASING.md)。桌面端仍是 experimental。
 
 ---
 
-## 🚀 启动
+## 启动（独立 GitHub + Claude Code 示例）
 
 ```bash
-# 1. 安装(改了源码加 --force 重装)
+# 1. 在本仓根目录安装(改了源码加 --force 重装)
 uv tool install --from . openagents
 
-# 2. 鉴权(OpenAgents 不存 token,全委托 gh)
+# 2. GitHub 鉴权（Gitea 使用环境变量 token，见联合说明）
 gh auth login && gh auth status
 
 # 3. 在目标仓库根目录绑定项目
@@ -34,7 +36,7 @@ openagents vigil
 
 - **Python ≥ 3.12** 与 [uv](https://docs.astral.sh/uv/)
 - **已鉴权的 [`gh` CLI](https://cli.github.com/)**:首次用 `gh auth login` 登录,用 `gh auth status` 确认通过。
-  > OpenAgents **不存储任何 token**,鉴权全部委托给 `gh`。
+  > GitHub 后端委托 `gh` 鉴权；Gitea 后端读取配置指定的环境变量，YAML 不保存 token 本体。
 - **已安装的 [`claude` CLI](https://docs.claude.com/claude-code)**(默认 coding 后端)
 
 ---
@@ -107,7 +109,7 @@ openagents issue "修复登录超时" --yes  # 跳过确认(供自动化)
 
 ### `vigil` —— 守夜人,一条命令跑完全程
 
-`vigil` 让 OpenAgents **无人值守**地跑完整闭环:发现带标签的新 issue → 派单求解 → 起草 RFC 开 PR → 守候 PR 的评论 / 冲突 / CI / e2e / 评审 → 迭代 → 合并,人只需要审 RFC、审 PR。
+`vigil` 让 OpenAgents **无人值守**地跑完整闭环:发现带标签的新 issue → 派单求解 → 起草 RFC 开 PR → 守候 PR 的评论 / 冲突 / CI / e2e / 评审 → 迭代 → 合并。质量门默认由 agent 执行。
 
 ```bash
 openagents vigil                          # 读 .openagents/openagents.yml,默认串行、间隔 60s
@@ -247,3 +249,7 @@ OpenAgents 默认的 coding 后端就是 **[Claude Code](https://docs.claude.com
 - **确保 `claude` CLI 已登录可用**:OpenAgents 会调用它作为 coding agent,先用 `claude` 跑通一次交互确认鉴权无误,再启动 `vigil`。
 
 > ⚠️ `vigil` / `issue` 会**真的**调用 Claude 改代码、用 `gh` 开真 PR / 发评论。**建议先在练习仓库上试。**
+
+## License and project policies
+
+[MIT](LICENSE) · [Third-party sources](THIRD_PARTY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md).

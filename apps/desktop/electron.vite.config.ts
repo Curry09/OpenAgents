@@ -23,7 +23,6 @@ export default defineConfig({
         input: resolve(__dirname, 'src/renderer/index.html')
       }
     },
-    // @ts-expect-error electron-vite 透传 vitest 的 test 段
     test: {
       globals: true,
       environment: 'jsdom',
