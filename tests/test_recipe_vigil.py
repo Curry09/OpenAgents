@@ -283,8 +283,8 @@ def test_fingerprint_covers_exactly_every_facts_field():
         "review_state": "CHANGES_REQUESTED",
         "review_commit_id": "0000000",
         "latest_comment_is_ours": False,
-            "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
-            "material_digest": "changed-material",
+        "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
+        "material_digest": "changed-material",
     }
     assert set(mutations) == {field.name for field in fields(_Facts)}
     for name, value in mutations.items():
@@ -739,7 +739,10 @@ def test_timed_backend_passes_through_normal_result():
     assert result == "ok"
 
 
-def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(monkeypatch, tmp_path):
+@pytest.mark.parametrize("budget", ["5400.5", "0"])
+def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(
+    monkeypatch, tmp_path, budget
+):
     """# Spec-0065/T2: 准入面的两次 agent 调用（triager / curator）**必须**是 `_TimedBackend`，不是裸 backend。
 
     它们跑在**生产者线程**上——那是整条守夜的主循环。任何一个挂死（模型不返回 / 网络半开），停摆的就不是
@@ -749,6 +752,7 @@ def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(mon
 
     这条路上没有认领的行（准入还没入队），故 `lock_fd=None`——不传 fd，不参与存活证明。
     """
+    monkeypatch.setenv("OPENAGENTS_CLAUDE_MAX_WALL", budget)
     raw = object()  # 裸 backend：它绝不能原样漏到任何一个 stage 手上
     seen: list[object] = []
     monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
@@ -791,6 +795,7 @@ def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(mon
         assert isinstance(backend, _TimedBackend), "裸 backend 挂死 = 整条守夜停摆，且无人看得见"
         assert backend._inner is raw  # 只是包了一层，没换掉真正干活的那个
         assert backend._lock_fd is None, "准入面没有认领的行 → 不传存活证明的 fd"
+        assert backend._timeout_seconds == float(budget)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -852,6 +857,93 @@ def test_reconcile_drives_to_a_stop_not_one_step(monkeypatch, tmp_path):
     )
     _reconcile_once(tmp_path)
     assert seen == [_ACT_E2E, _ACT_REVIEW_OR_FIX, _ACT_MERGE]
+
+
+def test_reconcile_accepts_merge_result_before_remote_snapshot_changes(monkeypatch, tmp_path):
+    """Spec-0090/T1: a successful merge must not be rewritten as round_cap by a stale read."""
+    _stub_reconcile(monkeypatch, facts_seq=[_facts()])
+    calls: list[str] = []
+    monkeypatch.setattr(
+        vigil_module, "_act", lambda **kwargs: calls.append(kwargs["verdict"].action) or "merged"
+    )
+    failed: list[str] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_fail_automation",
+        lambda **kwargs: failed.append(kwargs["category"]),
+    )
+    _reconcile_once(tmp_path)
+    assert calls == [_ACT_MERGE]
+    assert failed == []
+
+
+@pytest.mark.parametrize(
+    ("error", "helper"),
+    [
+        (vigil_module.gates.DesignApprovalStale("stale"), "_refresh_design_approval"),
+        (vigil_module.gates.RepositoryIntegrityStale("stale"), "_repair_repository_integrity"),
+    ],
+)
+def test_reconcile_routes_repairable_gate_errors_without_retry_budget(
+    monkeypatch, tmp_path, error, helper
+):
+    """Spec-0090/T1: repairable gates are routed once, not converted into claim retries."""
+    _stub_reconcile(monkeypatch, facts_seq=[_facts()])
+    calls: list[str] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_act",
+        lambda **kwargs: (_ for _ in ()).throw(error),
+    )
+
+    def recover(**kwargs):
+        assert isinstance(kwargs["backend"], _TimedBackend)
+        assert kwargs["backend"]._lock_fd is None
+        calls.append(helper)
+
+    monkeypatch.setattr(vigil_module, helper, recover)
+    monkeypatch.setattr(vigil_module, "_clear_review_labels", lambda **kwargs: None)
+    monkeypatch.setattr(vigil_module, "_post_attempt_stamp", lambda **kwargs: None)
+    failed: list[str] = []
+    monkeypatch.setattr(
+        vigil_module,
+        "_fail_automation",
+        lambda **kwargs: failed.append(kwargs["category"]),
+    )
+    _reconcile_once(tmp_path)
+    assert calls == [helper]
+    assert failed == []
+
+
+@pytest.mark.parametrize("ending", ["merged", "waiting", "progress", "cycle"])
+def test_reconcile_checks_actual_final_state_before_round_cap(monkeypatch, tmp_path, ending):
+    """Recheck terminal state; a new fact at the claim boundary yields instead of failing."""
+    facts = [_facts(head_sha=f"head-{i}") for i in range(8)]
+    final = {
+        "merged": _facts(merged=True),
+        "waiting": _facts(ci="pending"),
+        "progress": _facts(head_sha="head-8"),
+        "cycle": facts[0],
+    }[ending]
+    seen = _stub_reconcile(monkeypatch, facts_seq=[*facts, final])
+    failed = []
+    monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kw: failed.append(kw))
+    _reconcile_once(tmp_path)
+    assert len(seen) == 8
+    assert len(failed) == (1 if ending == "cycle" else 0)
+    if failed:
+        assert failed[0]["facts"] == final
+
+
+def test_implementer_summary_cannot_claim_merge_success(monkeypatch, tmp_path):
+    """Spec-0090/T1: only the merge action owns the authoritative merged result."""
+    _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="failure"), _facts()])
+    calls = []
+    monkeypatch.setattr(
+        vigil_module, "_act", lambda **kw: calls.append(kw["verdict"].action) or "merged"
+    )
+    _reconcile_once(tmp_path)
+    assert calls == [_ACT_FIX_CI, _ACT_MERGE]
 
 
 def test_reconcile_returns_the_slot_when_stuck_on_something_external(monkeypatch, tmp_path):
@@ -954,6 +1046,7 @@ def _consider_once(conn, *, work_dir, in_flight=None, quiet_counts=None) -> int:
     # Spec-0066/T2: `_consider` 增 additive 关键字参 `work_dir`（墙钟计时落盘路径）；本 seam 透传 tmp_path。
     return _consider(
         conn=conn,
+        state=None,
         subject="issue:5",
         config=_config(),
         work_dir=work_dir,
@@ -1121,7 +1214,9 @@ def test_failure_projection_revives_when_material_facts_change(monkeypatch):
     pr_calls, _ = _spy_remove_labels(monkeypatch)
     old = _facts(labels=frozenset({"automation-failed"}), material_digest="old")
     current = replace(old, material_digest="new")
-    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=old)])
+    monkeypatch.setattr(
+        vigil_module.github, "list_comments", lambda *, pr_number: [_failure_comment(facts=old)]
+    )
     out = _refresh_failure_projection(
         observed=_Observed(current, _Clock(last_progress_at=_NOW)), subject="pr:12"
     )
@@ -1135,7 +1230,9 @@ def test_failure_projection_stays_terminal_for_same_fingerprint(monkeypatch):
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
     facts = _facts(labels=frozenset({"automation-failed"}))
     observed = _Observed(facts, _Clock(last_progress_at=_NOW))
-    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=facts)])
+    monkeypatch.setattr(
+        vigil_module.github, "list_comments", lambda *, pr_number: [_failure_comment(facts=facts)]
+    )
     out = _refresh_failure_projection(observed=observed, subject="pr:12")
     assert pr_calls == [] and issue_calls == []
     assert out is observed
@@ -1153,7 +1250,10 @@ def test_failure_refresh_passthrough_without_failure_label(monkeypatch):
 def test_failure_refresh_issue_subject_uses_issue_remove_label(monkeypatch):
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
     facts = _facts(subject="issue:5", pr_number=None, labels=frozenset({"automation-failed"}))
-    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [])
+    old = replace(facts, material_digest="old")
+    monkeypatch.setattr(
+        vigil_module.github, "list_issue_comments", lambda *, number: [_failure_comment(facts=old)]
+    )
     out = _refresh_failure_projection(
         observed=_Observed(facts, _Clock(last_progress_at=_NOW)), subject="issue:5"
     )
@@ -1167,7 +1267,9 @@ def test_consider_reenqueues_after_failure_fingerprint_changes(tmp_path, monkeyp
     old = _facts(labels=frozenset({"automation-failed"}), material_digest="old")
     current = replace(old, material_digest="new", ci="failure")
     _stub_consider(monkeypatch, facts=current)
-    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=old)])
+    monkeypatch.setattr(
+        vigil_module.github, "list_issue_comments", lambda *, number: [_failure_comment(facts=old)]
+    )
     assert _consider_once(conn, work_dir=tmp_path) == 1
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 1
 
@@ -1177,10 +1279,90 @@ def test_consider_stays_terminal_for_unchanged_failure_fingerprint(tmp_path, mon
     pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
     facts = _facts(labels=frozenset({"automation-failed"}))
     _stub_consider(monkeypatch, facts=facts)
-    monkeypatch.setattr(vigil_module, "_comments", lambda *, facts: [_failure_comment(facts=facts)])
+    monkeypatch.setattr(
+        vigil_module.github,
+        "list_issue_comments",
+        lambda *, number: [_failure_comment(facts=facts)],
+    )
     assert _consider_once(conn, work_dir=tmp_path) == 0
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
     assert pr_calls == [] and issue_calls == []
+
+
+@pytest.mark.parametrize("pr_number", [None, 12])
+def test_issue_failure_write_read_round_trip_with_linked_pr(monkeypatch, pr_number):
+    """Spec-0088/T2: the real writer and reader must share the issue comment stream."""
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    facts = _facts(subject="issue:5", pr_number=pr_number)
+    comments: list[github.Comment] = []
+    added: list[tuple] = []
+    reads: list[int] = []
+
+    def list_issue_comments(*, number):
+        reads.append(number)
+        return comments
+
+    def issue_comment(*, number, body):
+        assert number == 5
+        comments.append(github.Comment(1, "bot", body, "2026-07-14T11:00:00Z"))
+
+    monkeypatch.setattr(vigil_module.github, "list_issue_comments", list_issue_comments)
+    monkeypatch.setattr(vigil_module.github, "issue_comment", issue_comment)
+    monkeypatch.setattr(
+        vigil_module.github,
+        "issue_add_label",
+        lambda *, number, name: added.append((number, name)),
+    )
+    # A conflicting PR marker is deliberately present: issue-owned failure must ignore it.
+    foreign = _failure_comment(facts=replace(facts, material_digest="foreign"))
+    monkeypatch.setattr(vigil_module.github, "list_comments", lambda *, pr_number: [foreign])
+    for _ in range(2):
+        vigil_module._fail_automation(
+            subject="issue:5",
+            facts=facts,
+            category="gate",
+            attempts=3,
+            reason="approved design not found",
+            agent_id="vigil-1",
+        )
+    assert len(comments) == 1
+    assert added == [(5, "automation-failed"), (5, "automation-failed")]
+    observed = _Observed(
+        replace(facts, labels=facts.labels | {"automation-failed"}), _Clock(last_progress_at=_NOW)
+    )
+    for _ in range(4):
+        assert _refresh_failure_projection(observed=observed, subject="issue:5") is observed
+    assert not pr_calls and not issue_calls
+    assert reads == [5] * 6
+
+    changed = replace(observed, facts=replace(observed.facts, head_sha="new-head"))
+    revived = _refresh_failure_projection(observed=changed, subject="issue:5")
+    assert "automation-failed" not in revived.facts.labels
+    assert _refresh_failure_projection(observed=revived, subject="issue:5") is revived
+    assert issue_calls == [(5, "automation-failed")]
+
+
+@pytest.mark.parametrize("subject", ["issue:5", "pr:12"])
+@pytest.mark.parametrize("marker_kind", ["missing", "unsigned", "malformed", "stale-before-bad"])
+def test_failure_missing_or_invalid_marker_is_not_new_evidence(monkeypatch, subject, marker_kind):
+    """Spec-0088/T2: missing evidence must not remove an explicit terminal failure."""
+    pr_calls, issue_calls = _spy_remove_labels(monkeypatch)
+    facts = _facts(subject=subject, labels=frozenset({"automation-failed"}))
+    old = _failure_comment(facts=replace(facts, material_digest="old"))
+    body = {
+        "missing": "unrelated comment",
+        "unsigned": "<!-- openagents:automation-failed fp=0123456789abcdef category=test -->",
+        "malformed": old.body.replace("fp=", "invalid="),
+        "stale-before-bad": old.body.replace("fp=", "invalid="),
+    }[marker_kind]
+    comment = github.Comment(2, "someone", body, "2026-07-14T12:00:00Z")
+    comments = [old, comment] if marker_kind == "stale-before-bad" else [comment]
+    monkeypatch.setattr(vigil_module.github, "list_comments", lambda *, pr_number: comments)
+    monkeypatch.setattr(vigil_module.github, "list_issue_comments", lambda *, number: comments)
+    observed = _Observed(facts, _Clock(last_progress_at=_NOW))
+    for _ in range(3):
+        assert _refresh_failure_projection(observed=observed, subject=subject) is observed
+    assert not pr_calls and not issue_calls
 
 
 def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
@@ -1445,3 +1627,51 @@ def test_producer_error_does_not_kill_the_daemon(tmp_path, monkeypatch):
         agent_id="a",
     )
     assert ticks["n"] == 2, "第一轮抛异常后生产者必须活着进第二轮"
+
+
+@pytest.mark.parametrize("refresh_design", [True, False])
+def test_review_after_design_refresh_is_progress_not_fact_cycle(
+    monkeypatch, tmp_path, refresh_design
+):
+    """N16 #107: review PASS -> refreshed design approval -> same-head review PASS."""
+    from types import SimpleNamespace
+
+    pending = _facts(review_state=None, review_commit_id=None, labels=frozenset())
+    approved = _facts()
+    _stub_reconcile(monkeypatch, facts_seq=[pending, approved, pending, approved])
+    monkeypatch.setattr(vigil_module, "_MAX_RECONCILE_ROUNDS", 3)
+    run = {
+        "status": vigil_module.STATUS_PR_OPEN,
+        "design_digest": "old",
+        "design_raw_digest": "old-raw",
+    }
+    state = SimpleNamespace(get_run=lambda **kw: run)
+    calls = []
+
+    def act(**kw):
+        calls.append(kw["verdict"].action)
+        if kw["verdict"].action == _ACT_MERGE:
+            raise vigil_module.gates.DesignApprovalStale("design changed by rebase")
+        return "review passed"
+
+    def refresh(**kw):
+        if refresh_design:
+            run.update(design_digest="new", design_raw_digest="new-raw")
+
+    monkeypatch.setattr(vigil_module, "_act", act)
+    monkeypatch.setattr(vigil_module, "_refresh_design_approval", refresh)
+    monkeypatch.setattr(vigil_module, "_clear_review_labels", lambda **kw: None)
+    failed = []
+    monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kw: failed.append(kw))
+    vigil_module._reconcile(
+        backend=None,
+        state=state,
+        work_dir=tmp_path,
+        config=_config(),
+        subject="issue:5",
+        agent_id="a",
+        now_fn=lambda: _NOW,
+        lock_fd=None,
+    )
+    assert calls == [_ACT_REVIEW_OR_FIX, _ACT_MERGE, _ACT_REVIEW_OR_FIX]
+    assert [x["category"] for x in failed] == ([] if refresh_design else ["fact_cycle"])

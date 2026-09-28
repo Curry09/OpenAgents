@@ -152,9 +152,7 @@ def test_developer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
 
 
 def test_spec_writer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
-    (tmp_path / "META_SPEC.md").write_text(
-        "# Harness Meta-Spec\n\n因果链优先。", encoding="utf-8"
-    )
+    (tmp_path / "META_SPEC.md").write_text("# Harness Meta-Spec\n\n因果链优先。", encoding="utf-8")
     received = {}
 
     monkeypatch.setattr(
@@ -195,17 +193,23 @@ def _acceptance_fixture(tmp_path: Path) -> tuple[SpecNode, DevelopmentResult]:
 def test_acceptance_fails_closed_when_user_test_times_out(monkeypatch, tmp_path):
     node, development = _acceptance_fixture(tmp_path)
     monkeypatch.setattr("openagents.v02.openagents_adapter._delivery_dirty", lambda **kwargs: "")
-    monkeypatch.setattr("openagents.v02.openagents_adapter.gates.snapshot_head", lambda **kwargs: "HEAD")
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.gates.snapshot_head", lambda **kwargs: "HEAD"
+    )
     monkeypatch.setattr(
         "openagents.v02.openagents_adapter.forge.find_pr_by_branch",
         lambda **kwargs: SimpleNamespace(number=9),
     )
     timed_out = UserTestResult(status="timed_out", artifact_dir="/tmp/user-test", error="timeout")
-    monkeypatch.setattr("openagents.v02.openagents_adapter.run_user_test", lambda **kwargs: timed_out)
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.run_user_test", lambda **kwargs: timed_out
+    )
     called = []
     monkeypatch.setattr(
         "openagents.v02.openagents_adapter.stages.acceptance",
-        lambda **kwargs: called.append(kwargs) or {"verdict": "PASS", "reason": "bad", "evidence": []},
+        lambda **kwargs: (
+            called.append(kwargs) or {"verdict": "PASS", "reason": "bad", "evidence": []}
+        ),
     )
 
     result = OpenAgentsAdapter(
@@ -243,7 +247,9 @@ def test_acceptance_rejects_candidate_head_drift_before_user_test(monkeypatch, t
 def test_acceptance_pass_is_bound_to_user_test_artifact(monkeypatch, tmp_path):
     node, development = _acceptance_fixture(tmp_path)
     monkeypatch.setattr("openagents.v02.openagents_adapter._delivery_dirty", lambda **kwargs: "")
-    monkeypatch.setattr("openagents.v02.openagents_adapter.gates.snapshot_head", lambda **kwargs: "HEAD")
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.gates.snapshot_head", lambda **kwargs: "HEAD"
+    )
     artifact_dir = tmp_path / "user-test"
     artifact_dir.mkdir()
     (artifact_dir / "stdout.log").write_text("reply\n", encoding="utf-8")
@@ -254,7 +260,9 @@ def test_acceptance_pass_is_bound_to_user_test_artifact(monkeypatch, tmp_path):
         artifact_dir=str(artifact_dir),
         status_path=str(artifact_dir / "status.json"),
     )
-    monkeypatch.setattr("openagents.v02.openagents_adapter.run_user_test", lambda **kwargs: completed)
+    monkeypatch.setattr(
+        "openagents.v02.openagents_adapter.run_user_test", lambda **kwargs: completed
+    )
     received = {}
 
     def _stage(**kwargs):

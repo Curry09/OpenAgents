@@ -3,12 +3,14 @@
 证明九阶段抽成 Vigil 类外自由函数后各 hermetic 可测：judgment 段按 agent 结构化裁决返回、机械段
 读客观事实经 gates 分类；交付类阶段的三道硬闸真兜底（head 未前移 / 证据戳不符 → raise）；rfc 阶段
 只依赖 drafter。全程不触真实 LLM/网络/仓库。
+Spec-0056 补充：2026-09-09-delivery-review-snapshot-tests-design.md 的 push-only 恢复回归。
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +18,7 @@ from openagents.backends.base import AgentResult
 from openagents.recipes import stages
 from openagents.runtime import gates
 from openagents.runtime.gates import GateError
+from openagents.utils.workspace import WorkspaceError
 
 
 def _seq_head_sha(monkeypatch, *, values):
@@ -829,13 +832,48 @@ def test_design_snapshot_prefers_branch_changed_spec_on_duplicate_issue(tmp_path
         )
     monkeypatch.setattr(
         stages.Workspace,
-        "changed_spec_group",
-        lambda self, *, worktree, base: root / "0004-candidate.md",
+        "changed_spec_groups",
+        lambda self, *, worktree, base: [root / "0004-candidate.md"],
     )
 
     snapshot = stages.design_snapshot(work_dir=tmp_path, issue_number=7)
 
     assert snapshot["spec_path"].endswith("0004-candidate.md")
+    # Spec-0088/T1: both audit identity and versioned semantic identity are retained.
+    group = model.load_group(path=root / "0004-candidate.md")
+    assert snapshot["design_raw_digest"] == model.legacy_design_digest(group=group)
+    assert snapshot["design_digest"] == model.design_digest(group=group)
+
+
+def test_design_snapshot_selects_own_spec_after_foreign_spec(tmp_path, monkeypatch):
+    from openagents.spec import model
+    from openagents.spec.model import Group, Metadata, Overview
+
+    root = tmp_path / "docs" / "specs"
+    for number, slug, issue in (("0004", "foreign", 35), ("0006", "candidate", 54)):
+        model.dump_group(
+            group=Group(
+                number=number,
+                metadata=Metadata(title=slug, issue=issue, slug=slug, summary="s"),
+                tasks=[],
+                overview=Overview(
+                    summary="s", motivation="m", reference_level="r", rationale_alternatives="a"
+                ),
+            ),
+            path=root / f"{number}-{slug}.md",
+        )
+    monkeypatch.setattr(
+        stages.Workspace,
+        "changed_spec_groups",
+        lambda self, *, worktree, base: [
+            root / "0004-foreign.md",
+            root / "0006-candidate.md",
+        ],
+    )
+
+    snapshot = stages.design_snapshot(work_dir=tmp_path, issue_number=54)
+
+    assert snapshot["spec_path"].endswith("0006-candidate.md")
 
 
 def test_architecture_dispatches_before_implementation(tmp_path, monkeypatch):
@@ -915,8 +953,24 @@ def test_implement_receives_normalized_evidence_pack(monkeypatch) -> None:
 # ---- 交付类硬闸 ----
 
 
-def test_deliver_head_not_advanced_raises(monkeypatch):
-    _seq_head_sha(monkeypatch, values=["SAME", "SAME"])  # 交付前后同 head → 未前移。
+def _stub_delivery_git(monkeypatch, *, head, remote):
+    """Spec-0056 recovery: exercise the delivery gate against explicit offline Git facts."""
+
+    def workspace_git(self, *, args, cwd, check):
+        if args[0] == "rev-parse":
+            output = head if args[1] == "HEAD" else remote
+        elif args[0] in {"fetch", "status"}:
+            output = ""
+        else:
+            raise RuntimeError(f"delivery test has no Git stub for {args!r}")
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(stages.Workspace, "_git", workspace_git)
+
+
+def test_deliver_unpublished_commit_raises(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["SAME", "SAME"])
+    _stub_delivery_git(monkeypatch, head="SAME", remote="OLDER")
     backend = _Backend(
         payloads={
             "deliver": {
@@ -927,12 +981,58 @@ def test_deliver_head_not_advanced_raises(monkeypatch):
             }
         }
     )
-    with pytest.raises(GateError):
+    with pytest.raises(WorkspaceError):
         stages.deliver(backend=backend, worktree="/wt", branch="b", pr_number=1, issue_number=1)
+
+
+def test_delivery_snapshot_push_only_delivery_does_not_require_an_empty_commit(monkeypatch):
+    """Spec-0056 补充：已 commit 的实现补 push 即交付，不应再要求 HEAD 前移。"""
+    head = "b" * 40
+    remote = {"head": "a" * 40}
+    _seq_head_sha(monkeypatch, values=[head])
+    monkeypatch.setattr(gates.git, "porcelain", lambda *, work_dir: "")
+
+    def workspace_git(self, *, args, cwd, check):
+        if args[0] == "rev-parse":
+            output = head if args[1] == "HEAD" else remote["head"]
+        elif args[0] == "ls-remote":
+            output = f"{remote['head']}\trefs/heads/b\n"
+        elif args[0] in {"fetch", "status"}:
+            output = ""
+        else:
+            raise RuntimeError(f"push-only test has no Git stub for {args!r}")
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(stages.Workspace, "_git", workspace_git)
+    backend = _Backend(
+        payloads={
+            "deliver": {
+                "delivered": True,
+                "base_sha": head,
+                "head_sha": head,
+                "summary": "pushed existing commit",
+            }
+        }
+    )
+    run = backend.run
+
+    def push_and_return(*, work_dir, task, context):
+        remote["head"] = head
+        return run(work_dir=work_dir, task=task, context=context)
+
+    monkeypatch.setattr(backend, "run", push_and_return)
+    error = None
+    try:
+        stages.deliver(backend=backend, worktree="/wt", branch="b", pr_number=1, issue_number=1)
+    except GateError as exc:
+        error = exc
+    assert backend.calls == ["deliver"] and remote["head"] == head
+    assert error is None, f"补 push 已完成，不能因没造新 commit 而报无进展：{error}"
 
 
 def test_deliver_evidence_stamp_mismatch_raises(monkeypatch):
     _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
+    _stub_delivery_git(monkeypatch, head="AFTER", remote="AFTER")
     backend = _Backend(
         payloads={
             "deliver": {
@@ -958,6 +1058,7 @@ def test_conflict_no_backend_unmergeable():
 
 def test_conflict_delivered_resolved(monkeypatch):
     _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
+    _stub_delivery_git(monkeypatch, head="AFTER", remote="AFTER")
     backend = _Backend(
         payloads={
             "deliver": {"delivered": True, "base_sha": "x", "head_sha": "AFTER", "summary": "s"}
@@ -973,6 +1074,33 @@ def test_conflict_delivered_resolved(monkeypatch):
     )
     assert out["reason"] == "resolved"
     assert backend.calls == ["deliver"]
+
+
+def test_conflict_preserves_undelivered_agent_diagnostics(monkeypatch):
+    _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
+    _stub_delivery_git(monkeypatch, head="AFTER", remote="BEFORE")
+    backend = _Backend(
+        payloads={
+            "deliver": {
+                "delivered": False,
+                "base_sha": "BEFORE",
+                "head_sha": "AFTER",
+                "summary": "rebase continue failed on generated index",
+            }
+        }
+    )
+
+    out = stages.conflict(
+        backend=backend,
+        work_dir="/wt",
+        pr_number=1,
+        issue_number=1,
+        branch="b",
+    )
+
+    assert out["delivered"] is False
+    assert "generated index" in out["reason"]
+    assert out["gate"] == "conflict"
 
 
 # ---- 机械段 ci / e2e / merge ----
@@ -1074,8 +1202,8 @@ def test_merge_mechanical_uses_gate_then_forge_without_agent(monkeypatch):
     monkeypatch.setattr(
         stages.github,
         "merge_pr",
-        lambda *, pr_number: calls.append(("merge", pr_number)),
+        lambda *, pr_number, head_sha: calls.append(("merge", pr_number, head_sha)),
     )
     out = stages.merge_mechanical(pr_number=42, head_sha="abc", require_ci=True)
-    assert calls == [("gate", 42, "abc", True), ("merge", 42)]
+    assert calls == [("gate", 42, "abc", True), ("merge", 42, "abc")]
     assert out["merged"] is True

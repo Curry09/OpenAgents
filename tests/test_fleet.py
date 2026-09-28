@@ -15,8 +15,8 @@
 import queue as _queue_mod
 from pathlib import Path
 
-from openagents.utils.fleet import Fleet
 from openagents.utils.agent_config import RepoPlan, default_config
+from openagents.utils.fleet import Fleet
 
 
 def _plan(name, **over):
@@ -86,6 +86,7 @@ def test_fan_out_spawns_one_process_per_plan(capsys):
     assert all(once is True for _, once in spawned)
     # 每个句柄都被 join 回收。
     assert all(h.joined >= 1 for h in handles.values())
+
 
 def test_logs_aggregated_with_repo_prefix(capsys):
     plans = [_plan("a"), _plan("b")]

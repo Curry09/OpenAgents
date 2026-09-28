@@ -78,6 +78,7 @@ class Context:
     def for_review(self, *, issue_number: int) -> dict:
         """评审阶段占位符：PR 编号 + issue 正文 + PR 历史上下文。"""
         return {
+            "issue_number": issue_number,
             "work_dir": self._work_dir,
             "context": self._pr_context(issue_number=issue_number),
             "pr_number": self._pr_number or 0,

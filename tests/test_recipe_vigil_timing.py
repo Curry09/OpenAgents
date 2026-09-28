@@ -98,6 +98,7 @@ def _stub_sense(monkeypatch, *, facts: _Facts, comments=()):
 def _consider_once(conn, *, subject, work_dir, in_flight=None) -> int:
     return _consider(
         conn=conn,
+        state=None,
         subject=subject,
         config=_config(),
         work_dir=work_dir,

@@ -120,7 +120,11 @@ def _merge() -> None:
     _adapter().merge(node=node, development=development)
     _write_json(
         path=_EXPORT / "merge.json",
-        payload={"status": "PASS", "head_sha": development.head_sha, "pr_number": development.pr_number},
+        payload={
+            "status": "PASS",
+            "head_sha": development.head_sha,
+            "pr_number": development.pr_number,
+        },
     )
 
 

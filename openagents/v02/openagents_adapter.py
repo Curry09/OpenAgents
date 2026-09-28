@@ -45,7 +45,12 @@ class OpenAgentsAdapter:
         self._backend = backend
         self._work_dir = Path(work_dir)
         self._base = base
-        self._user_test_plan = user_test_plan if user_test_plan is not None else load_user_test_plan()
+        from openagents.observations.gaps import sweep_async
+
+        sweep_async(work_dir=self._work_dir)
+        self._user_test_plan = (
+            user_test_plan if user_test_plan is not None else load_user_test_plan()
+        )
 
     def write_spec(self, *, issue: IssueInput) -> SpecNode | NodeResult:
         branch = f"{_BRANCH_PREFIX}{issue.number}"
@@ -311,9 +316,7 @@ def _evidence(raw: object) -> list[dict]:
     return [dict(item) for item in raw if isinstance(item, dict)]
 
 
-def _user_test_artifact_dir(
-    *, issue_number: int, work_dir: Path, candidate: Path
-) -> Path | None:
+def _user_test_artifact_dir(*, issue_number: int, work_dir: Path, candidate: Path) -> Path | None:
     configured = os.environ.get("OPENAGENTS_USER_TEST_ARTIFACT_DIR", "").strip()
     if not configured:
         configured_path = Path(work_dir) / ".openagents" / "v02-user-tests"
@@ -366,9 +369,7 @@ def _validate_user_test_manifest(*, manifest: list[dict], result: UserTestResult
                 f"User Test evidence path 不在本次 artifact 内：{item.get('path')!r}"
             ) from exc
         if not cited.is_file():
-            raise gates.GateError(
-                f"User Test evidence path 不存在或不是文件：{item.get('path')!r}"
-            )
+            raise gates.GateError(f"User Test evidence path 不存在或不是文件：{item.get('path')!r}")
 
 
 def _runtime_contract(*, base: str) -> str:

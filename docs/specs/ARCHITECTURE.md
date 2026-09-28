@@ -22,6 +22,7 @@ _# Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个
 | `__init__.py` | # Spec-0060/T4 + Spec-0064/T6: agents —— 提示词层：每个 agent 一个模块，仅含 PROMPT |
 | `acceptance.py` | Judge a candidate against the original issue and a real user interaction. |
 | `architect.py` | Review an admitted objective's implementation architecture before coding. |
+| `coordinator.py` | Spec-0091: cheap advice, never authoritative dependencies. |
 | `curator.py` | # Spec-0065/T1: agents.curator —— 依赖排序：读 ready open issue 快照 + 已有依赖边（锚点） |
 | `deliver.py` | # Spec-0060/T4: agents.deliver —— 版本控制提交/推送/解冲突 → 结构化交付报告的提示词（零逻辑）。 |
 | `developer.py` | Implement one frozen v0.2 compact specification exactly once. |
@@ -56,6 +57,16 @@ _# Spec-0073/T2: 本地 daemon 接口（HTTP+SSE），供 Electron 桌面 app �
 | `__init__.py` | # Spec-0073/T2: 本地 daemon 接口（HTTP+SSE），供 Electron 桌面 app 读 work_queue/GitHub/流。 |
 | `daemon.py` | # Spec-0073/T2: 本地 daemon 接口（HTTP + SSE），只听 127.0.0.1。 |
 
+### openagents.observations
+
+_Spec-0087: artifact-owned observation evidence and scoped gap requests._
+
+| 组件 | 职责（文件级 docstring 首行） |
+|----|----|
+| `__init__.py` | Spec-0087: artifact-owned observation evidence and scoped gap requests. |
+| `evidence.py` | Spec-0087: read opaque, issue-scoped evidence without understanding runtime events. |
+| `gaps.py` | Spec-0087: runner-authenticated gap reports, persisted before transmission. |
+
 ### openagents.recipes
 
 _# Spec-0060/T6 + Spec-0064/T6: recipes —— 编排层：每个 flow 只有控制流 + runtime.run_agent_
@@ -80,6 +91,7 @@ _# Spec-0060/T2: runtime —— 唯一允许的「机制代码」层（引擎 + 
 | `gates.py` | # Spec-0060/T3: runtime.gates —— 最小硬闸（只验客观事实，不含业务判断）。 |
 | `invocation.py` | Fail-open, redacted audit records for delivery-side agent invocations. |
 | `legacy.py` | Fail-closed detection for pre-Spec-0081 terminal state. |
+| `preflight.py` | Spec-0091: bounded, fail-open advice and transactional queue tie-breaking. |
 | `research.py` | Normalize and render bounded, objective repository evidence for role reuse. |
 | `state.py` | # Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。 |
 | `timing.py` | # Spec-0066/T1: runtime.timing —— 墙钟阶段计时的旁路事件流 + 跨轮重建聚合器。 |
@@ -100,6 +112,7 @@ _spec —— 「Spec 活快照」数据层与工具（markdown 单文件形态�
 | `mutate.py` | spec new / add-task / abandon：在组 markdown 文件上增改 Task + 自动 render。 |
 | `ownership.py` | Resolve the single-writer owner of each spec-declared file and flag unowned writes. |
 | `render.py` | spec render：把源数据派生成唯一人读视图 OVERVIEW.md。 |
+| `reservation.py` | Reserve spec numbers atomically in a shared Git remote before writing a group. |
 | `schema.py` | spec JSON Schema —— 组 markdown frontmatter / Task 的结构校验单一真源。 |
 | `signpost.py` | spec 端到端验证指路牌：从一个 spec 组的组级 Overview 抽取 e2e 脚本并渲染指路牌。 |
 | `validate.py` | spec 校验：JSON Schema + 语义规则（files 重叠 / DAG 无环 / 血缘引用）。 |
@@ -153,6 +166,7 @@ graph LR
     nopenagents_agents["openagents.agents"]
     nopenagents_agents_acceptance["agents.acceptance"]
     nopenagents_agents_architect["agents.architect"]
+    nopenagents_agents_coordinator["agents.coordinator"]
     nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
     nopenagents_agents_developer["agents.developer"]
@@ -173,6 +187,9 @@ graph LR
     nopenagents_cli["openagents.cli"]
     nopenagents_desktop["openagents.desktop"]
     nopenagents_desktop_daemon["desktop.daemon"]
+    nopenagents_observations["openagents.observations"]
+    nopenagents_observations_evidence["observations.evidence"]
+    nopenagents_observations_gaps["observations.gaps"]
     nopenagents_recipes["openagents.recipes"]
     nopenagents_recipes_backfill["recipes.backfill"]
     nopenagents_recipes_stages["recipes.stages"]
@@ -184,6 +201,7 @@ graph LR
     nopenagents_runtime_gates["runtime.gates"]
     nopenagents_runtime_invocation["runtime.invocation"]
     nopenagents_runtime_legacy["runtime.legacy"]
+    nopenagents_runtime_preflight["runtime.preflight"]
     nopenagents_runtime_research["runtime.research"]
     nopenagents_runtime_state["runtime.state"]
     nopenagents_runtime_timing["runtime.timing"]
@@ -197,6 +215,7 @@ graph LR
     nopenagents_spec_mutate["spec.mutate"]
     nopenagents_spec_ownership["spec.ownership"]
     nopenagents_spec_render["spec.render"]
+    nopenagents_spec_reservation["spec.reservation"]
     nopenagents_spec_schema["spec.schema"]
     nopenagents_spec_signpost["spec.signpost"]
     nopenagents_spec_validate["spec.validate"]
@@ -275,6 +294,12 @@ graph LR
     nopenagents_cli --> nopenagents_v02_runner
     nopenagents_desktop_daemon --> nopenagents_utils
     nopenagents_desktop_daemon --> nopenagents_utils_streams
+    nopenagents_observations_evidence --> nopenagents_observations_gaps
+    nopenagents_observations_evidence --> nopenagents_utils
+    nopenagents_observations_evidence --> nopenagents_utils_forge
+    nopenagents_observations_gaps --> nopenagents_runtime_invocation
+    nopenagents_observations_gaps --> nopenagents_utils
+    nopenagents_observations_gaps --> nopenagents_utils_forge
     nopenagents_recipes_backfill --> nopenagents_recipes
     nopenagents_recipes_backfill --> nopenagents_recipes_stages
     nopenagents_recipes_backfill --> nopenagents_utils
@@ -308,7 +333,9 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_agents_curator
     nopenagents_recipes_vigil --> nopenagents_agents_replier
     nopenagents_recipes_vigil --> nopenagents_agents_tester
+    nopenagents_recipes_vigil --> nopenagents_backends_base
     nopenagents_recipes_vigil --> nopenagents_cli
+    nopenagents_recipes_vigil --> nopenagents_observations_gaps
     nopenagents_recipes_vigil --> nopenagents_recipes
     nopenagents_recipes_vigil --> nopenagents_recipes_stages
     nopenagents_recipes_vigil --> nopenagents_runtime
@@ -317,6 +344,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_runtime_evidence
     nopenagents_recipes_vigil --> nopenagents_runtime_gates
     nopenagents_recipes_vigil --> nopenagents_runtime_legacy
+    nopenagents_recipes_vigil --> nopenagents_runtime_preflight
     nopenagents_recipes_vigil --> nopenagents_runtime_research
     nopenagents_recipes_vigil --> nopenagents_runtime_state
     nopenagents_recipes_vigil --> nopenagents_runtime_timing
@@ -331,6 +359,8 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_streams
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_forge
+    nopenagents_runtime_engine --> nopenagents_observations_evidence
+    nopenagents_runtime_engine --> nopenagents_observations_gaps
     nopenagents_runtime_engine --> nopenagents_runtime
     nopenagents_runtime_engine --> nopenagents_runtime_invocation
     nopenagents_runtime_engine --> nopenagents_runtime_token_usage
@@ -345,6 +375,11 @@ graph LR
     nopenagents_runtime_gates --> nopenagents_utils_git
     nopenagents_runtime_legacy --> nopenagents_utils
     nopenagents_runtime_legacy --> nopenagents_utils_forge
+    nopenagents_runtime_preflight --> nopenagents_agents
+    nopenagents_runtime_preflight --> nopenagents_agents_coordinator
+    nopenagents_runtime_preflight --> nopenagents_runtime
+    nopenagents_runtime_preflight --> nopenagents_runtime_engine
+    nopenagents_runtime_preflight --> nopenagents_runtime_token_usage
     nopenagents_runtime_state --> nopenagents_runtime
     nopenagents_runtime_state --> nopenagents_runtime_research
     nopenagents_runtime_token_usage --> nopenagents_backends_base
@@ -355,11 +390,13 @@ graph LR
     nopenagents_spec_cli --> nopenagents_spec_mutate
     nopenagents_spec_cli --> nopenagents_spec_ownership
     nopenagents_spec_cli --> nopenagents_spec_render
+    nopenagents_spec_cli --> nopenagents_spec_reservation
     nopenagents_spec_cli --> nopenagents_spec_schema
     nopenagents_spec_cli --> nopenagents_spec_validate
     nopenagents_spec_mutate --> nopenagents_spec
     nopenagents_spec_mutate --> nopenagents_spec_model
     nopenagents_spec_mutate --> nopenagents_spec_render
+    nopenagents_spec_mutate --> nopenagents_spec_reservation
     nopenagents_spec_ownership --> nopenagents_spec
     nopenagents_spec_ownership --> nopenagents_spec_model
     nopenagents_spec_render --> nopenagents_spec
@@ -402,6 +439,7 @@ graph LR
     nopenagents_v02_openagents_adapter --> nopenagents_agents
     nopenagents_v02_openagents_adapter --> nopenagents_agents_developer
     nopenagents_v02_openagents_adapter --> nopenagents_agents_spec_curator
+    nopenagents_v02_openagents_adapter --> nopenagents_observations_gaps
     nopenagents_v02_openagents_adapter --> nopenagents_recipes
     nopenagents_v02_openagents_adapter --> nopenagents_recipes_stages
     nopenagents_v02_openagents_adapter --> nopenagents_runtime

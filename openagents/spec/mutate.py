@@ -16,6 +16,7 @@ from pathlib import Path
 from openagents.spec import model
 from openagents.spec.model import ArchitectureDecision, Group, Metadata, Task, VerificationPlan
 from openagents.spec.render import write_overview
+from openagents.spec.reservation import reserve_number
 
 
 def create_group(
@@ -23,10 +24,10 @@ def create_group(
 ) -> Path:
     """Scaffold a new spec group markdown file, return its path; auto-render.
 
-    number 缺省取本地下一号；文件已存在抛 FileExistsError，不动磁盘。
+    共享 Git 工作区先在远端原子预留编号；本地工作区沿用下一号。
     Spec-0015：summary 为必填入参（人话 TL;DR 前置到建组当下）。
     """
-    group_number = number or model.next_number(specs_root=specs_root)
+    group_number = reserve_number(specs_root=specs_root, issue=issue, slug=slug, number=number)
     path = model.group_path(specs_root=specs_root, number=group_number, slug=slug)
     if path.exists():
         raise FileExistsError(f"spec 组已存在：{path}")
