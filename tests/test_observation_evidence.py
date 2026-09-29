@@ -262,3 +262,124 @@ def test_retry_identity_finds_later_comment_pages_and_rejects_other_authors(monk
     monkeypatch.setattr(gitea, "_request", request)
     assert gitea.observation_request_exists(number=7, identity=identity)
     assert seen == [1, 2]
+
+
+# Spec-0092/T1: both envelopes share the complete historical content validation.
+def zip_package(raw=None, *, name="evidence.json", compression=None, second=False, mode=None):
+    import io
+    import zipfile
+
+    if raw is None:
+        raw = gzip.decompress(package()[0])
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        entry = zipfile.ZipInfo(name)
+        entry.compress_type = zipfile.ZIP_DEFLATED if compression is None else compression
+        if mode is not None:
+            entry.external_attr = mode << 16
+        archive.writestr(entry, raw)
+        if second:
+            archive.writestr("other.json", raw)
+    data = buffer.getvalue()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def test_zip_and_explicit_gzip_have_identical_content():
+    data, digest = package()
+    expected = evidence.decode_package(data=data, digest=digest, issue=7, encoding="gzip")
+    data, digest = zip_package()
+    assert evidence.decode_package(data=data, digest=digest, issue=7, encoding="zip") == expected
+    for encoding in ("gzip", "unknown", None):
+        with pytest.raises(ValueError):
+            evidence.decode_package(data=data, digest=digest, issue=7, encoding=encoding)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"name": "../evidence.json"},
+        {"second": True},
+        {"compression": 0},
+        {"mode": 0o120777},
+        {"name": "evidence.json/"},
+        {"raw": b"x" * (evidence.MAX_EXPANDED + 1)},
+    ],
+)
+def test_zip_rejects_unsafe_envelopes(options):
+    data, digest = zip_package(**options)
+    with pytest.raises(ValueError):
+        evidence.decode_package(data=data, digest=digest, issue=7, encoding="zip")
+
+
+def test_zip_prepare_materializes_verified_read_only_files(configured, monkeypatch):
+    work_dir, _ = configured
+    data, digest = zip_package()
+    handle = {"asset_id": 1, "sha256": digest, "bytes": len(data), "encoding": "zip"}
+    monkeypatch.setattr(
+        forge,
+        "get_issue",
+        lambda **kw: SimpleNamespace(body=f"<!-- {evidence.MARKER} {json.dumps(handle)} -->"),
+    )
+    monkeypatch.setattr(forge, "download_observation_asset", lambda **kw: data)
+    scope = evidence.prepare(work_dir=work_dir, issue=7, role="developer")
+    assert scope["sessions"] == ["s1"] and scope["digest"] == digest
+    copied = Path(scope["request_path"]).parent / "s1/runs/r1/event-v2.tsv"
+    assert copied.read_text() == "work-token\tnew-request"
+    assert copied.stat().st_mode & 0o777 == 0o400
+
+
+@pytest.mark.parametrize("damage", ["encrypted", "truncated", "crc", "duplicate"])
+def test_zip_rejects_corruption_and_encryption(damage):
+    import io
+    import struct
+    import warnings
+    import zipfile
+
+    data, _ = zip_package()
+    if damage == "encrypted":
+        data = bytearray(data)
+        central = data.index(b"PK\x01\x02")
+        struct.pack_into("<H", data, 6, struct.unpack_from("<H", data, 6)[0] | 1)
+        struct.pack_into(
+            "<H", data, central + 8, struct.unpack_from("<H", data, central + 8)[0] | 1
+        )
+        data = bytes(data)
+    elif damage == "truncated":
+        data = data[:-12]
+    elif damage == "crc":
+        data = bytearray(data)
+        central = data.index(b"PK\x01\x02")
+        struct.pack_into("<I", data, central + 16, 0)
+        data = bytes(data)
+    else:
+        output = io.BytesIO(data)
+        with warnings.catch_warnings(), zipfile.ZipFile(output, "a") as archive:
+            warnings.simplefilter("ignore", UserWarning)
+            archive.writestr("evidence.json", b"{}")
+        data = output.getvalue()
+    with pytest.raises((ValueError, zipfile.BadZipFile)):
+        evidence.decode_package(
+            data=data, digest=hashlib.sha256(data).hexdigest(), issue=7, encoding="zip"
+        )
+
+
+def test_zip_actual_expansion_uses_bounded_read(monkeypatch):
+    import zipfile
+    from unittest.mock import Mock
+
+    data, digest = zip_package()
+    stream = Mock()
+    stream.read.return_value = b"x" * (evidence.MAX_EXPANDED + 1)
+    stream.__enter__ = Mock(return_value=stream)
+    stream.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(zipfile.ZipFile, "open", lambda *a, **kw: stream)
+    with pytest.raises(ValueError, match="expanded"):
+        evidence.decode_package(data=data, digest=digest, issue=7, encoding="zip")
+    stream.read.assert_called_once_with(evidence.MAX_EXPANDED + 1)
+
+
+def test_zip_requires_utf8_json():
+    raw = gzip.decompress(package()[0]).decode().encode("utf-16")
+    data, digest = zip_package(raw)
+    with pytest.raises(UnicodeDecodeError):
+        evidence.decode_package(data=data, digest=digest, issue=7, encoding="zip")

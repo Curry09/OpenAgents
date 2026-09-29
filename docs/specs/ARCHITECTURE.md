@@ -64,6 +64,7 @@ _Spec-0087: artifact-owned observation evidence and scoped gap requests._
 | 组件 | 职责（文件级 docstring 首行） |
 |----|----|
 | `__init__.py` | Spec-0087: artifact-owned observation evidence and scoped gap requests. |
+| `capabilities.py` | Spec-0092/T3: offline declarations of this installation's evidence reader. |
 | `evidence.py` | Spec-0087: read opaque, issue-scoped evidence without understanding runtime events. |
 | `gaps.py` | Spec-0087: runner-authenticated gap reports, persisted before transmission. |
 
@@ -188,6 +189,7 @@ graph LR
     nopenagents_desktop["openagents.desktop"]
     nopenagents_desktop_daemon["desktop.daemon"]
     nopenagents_observations["openagents.observations"]
+    nopenagents_observations_capabilities["observations.capabilities"]
     nopenagents_observations_evidence["observations.evidence"]
     nopenagents_observations_gaps["observations.gaps"]
     nopenagents_recipes["openagents.recipes"]
@@ -264,6 +266,7 @@ graph LR
     nopenagents_cli --> nopenagents_backends_nexau
     nopenagents_cli --> nopenagents_desktop
     nopenagents_cli --> nopenagents_desktop_daemon
+    nopenagents_cli --> nopenagents_observations_capabilities
     nopenagents_cli --> nopenagents_recipes
     nopenagents_cli --> nopenagents_recipes_backfill
     nopenagents_cli --> nopenagents_recipes_vigil

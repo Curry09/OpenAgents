@@ -119,37 +119,110 @@ def _token() -> str:
     return token
 
 
+# Spec-0092/T2: one authenticated attachment hop may use Gitea.com's signed R2 URL.
+_OBSERVATION_R2_HOST = re.compile(r"[a-f0-9]{32}\.r2\.cloudflarestorage\.com")
+
+
+def _observation_r2_target(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return bool(
+            parsed.scheme == "https"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.fragment
+            and _OBSERVATION_R2_HOST.fullmatch(parsed.hostname or "")
+            and not any(c.isspace() or ord(c) < 32 for c in url)
+        )
+    except ValueError:
+        return False
+
+
 def download_observation_asset(*, number: int, asset_id: int, limit: int) -> bytes:
-    """Fetch a member attachment without cross-origin redirects. Spec-0087/T1."""
+    """Read an issue member with bounded, credential-free Gitea.com redirects."""
     base, owner, repo = _ensure_configured()
+    origin = urllib.parse.urlsplit(base)
+    hosted = (
+        origin.scheme == "https"
+        and origin.hostname == "gitea.com"
+        and origin.port in (None, 443)
+        and origin.username is None
+        and origin.password is None
+        and not origin.path
+        and not origin.query
+        and not origin.fragment
+    )
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
 
-    def read(path: str, budget: int) -> bytes:
-        request = urllib.request.Request(
-            base + path,
-            headers={"Authorization": f"token {_token()}", "Accept-Encoding": "identity"},
-        )
+    def read(url: str, budget: int, *, redirect: bool = False) -> bytes:
         deadline = time.monotonic() + 15
-        chunks, size = [], 0
-        with urllib.request.build_opener(NoRedirect()).open(request, timeout=5) as response:
-            while True:
-                chunk = response.read1(min(65536, budget + 1 - size))
-                size += len(chunk)
-                if size > budget or time.monotonic() > deadline:
-                    raise ValueError("observation download exceeds budget")
-                if not chunk:
-                    break
-                chunks.append(chunk)
-        return b"".join(chunks)
+        authenticated = True
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("observation download exceeds budget")
+            headers = {"Accept-Encoding": "identity"}
+            if authenticated:
+                headers["Authorization"] = f"token {_token()}"
+            request = urllib.request.Request(url, headers=headers)
+            # A fresh opener has no cookie/auth handler or netrc lookup, but retains proxies.
+            try:
+                response = urllib.request.build_opener(NoRedirect()).open(
+                    request, timeout=min(5, remaining)
+                )
+            except urllib.error.HTTPError as exc:
+                target = exc.headers.get("Location", "")
+                status = exc.code
+                exc.close()
+                if (
+                    redirect
+                    and authenticated
+                    and hosted
+                    and status in (302, 303, 307, 308)
+                    and _observation_r2_target(target)
+                ):
+                    url, authenticated = target, False
+                    continue
+                raise ValueError("observation download refused HTTP response") from None
+            except (OSError, ValueError):
+                # urllib exceptions can include the complete signed query; never propagate them.
+                raise ValueError("observation download failed") from None
+            chunks, size = [], 0
+            with response:
+                if getattr(response, "status", 200) != 200:
+                    raise ValueError("observation download refused HTTP response")
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ValueError("observation download exceeds budget")
+                    sock = getattr(
+                        getattr(getattr(response, "fp", None), "raw", None), "_sock", None
+                    )
+                    if sock is not None:
+                        sock.settimeout(min(5, remaining))
+                    try:
+                        chunk = response.read1(min(65536, budget + 1 - size))
+                    except (OSError, ValueError):
+                        raise ValueError("observation download failed") from None
+                    size += len(chunk)
+                    if size > budget or time.monotonic() > deadline:
+                        raise ValueError("observation download exceeds budget")
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            return b"".join(chunks)
 
-    assets = json.loads(read(f"/api/v1/repos/{owner}/{repo}/issues/{number}/assets", 1_000_000))
+    assets = json.loads(
+        read(base + f"/api/v1/repos/{owner}/{repo}/issues/{number}/assets", 1_000_000)
+    )
     asset = next((a for a in assets if a["id"] == asset_id), None)
     if asset is None or not re.fullmatch(r"[a-fA-F0-9-]{36}", str(asset.get("uuid", ""))):
         raise ValueError("observation attachment outside issue")
-    return read("/attachments/" + asset["uuid"], limit)
+    return read(base + "/attachments/" + asset["uuid"], limit, redirect=True)
 
 
 def observation_request_exists(*, number: int, identity: str) -> bool:

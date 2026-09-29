@@ -44,3 +44,22 @@ GitHub CI 的跨仓 checkout 要求对方仓库可读；首次公开前若仍是
 - 构建镜像时使用该 OpenAgents checkout；发行资产记录实际镜像 digest，不能仅更新 Git ref 就宣称旧镜像含有新代码。
 
 流程为：合并整理改动 → 更新包版本与发布说明 → 固定候选提交并验证 → 打不可变 tag、构建和验收 Release 资产。候选提交到正式 tag 若有变化，应重新验证；已有正式 tag 不移动。
+
+## Evidence transport rollout (Spec-0092)
+
+Deploy the gzip/ZIP reader before enabling ZIP publication in auto-designer. Record the
+actual executable or image identity and run `openagents observation-capabilities --json`
+in that environment with `OPENAGENTS_NO_SELF_UPDATE=1`. Keep self-update disabled in
+new-path delivery processes so the checked reader remains the selected runtime.
+
+Run `uv run --locked python scripts/check_observation_reader.py` for the offline fixture
+contract, then use auto-designer's cross-repository check with the pinned producer and
+reader. Separately verify synthetic evidence on self-hosted Gitea and Gitea.com, in the
+actual E2B and container/proxy deployment paths. Require actual read-only files and
+verified session scope; continued delivery after an evidence warning is not a pass.
+
+Old gzip artifacts and handles need no migration. Reverting the publisher is safe only
+where the selected site still accepts gzip and direct same-origin downloads. On
+Gitea.com, stop new dispatches if the old transport cannot work; do not silently switch
+formats within a resumed experiment. Do not publish future commit/image digests as if
+already validated. Deployment pins and live probe results belong to the paired release.

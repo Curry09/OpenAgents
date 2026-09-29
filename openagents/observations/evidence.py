@@ -8,8 +8,10 @@ import hashlib
 import io
 import json
 import re
+import stat
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path, PurePosixPath
 
 from openagents.utils import forge
@@ -48,15 +50,43 @@ question、impact、desired_capability、verification 分别说明维护者的�
 """
 
 
-def decode_package(*, data: bytes, digest: str, issue: int) -> dict:
+def decode_package(*, data: bytes, digest: str, issue: int, encoding: str = "gzip") -> dict:
     """Validate the transport envelope and every declared file. Spec-0087/T1."""
     if len(data) > MAX_TRANSFER or hashlib.sha256(data).hexdigest() != digest:
         raise ValueError("observation attachment integrity mismatch")
-    with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
-        raw = stream.read(MAX_EXPANDED + 1)
+    # Spec-0092/T1: an absent declaration always means the historical gzip format.
+    if encoding == "gzip":
+        if not data.startswith(b"\x1f\x8b"):
+            raise ValueError("observation encoding mismatch")
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+            raw = stream.read(MAX_EXPANDED + 1)
+    elif encoding == "zip":
+        if not data.startswith(b"PK\x03\x04"):
+            raise ValueError("observation encoding mismatch")
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) != 1:
+                raise ValueError("invalid observation ZIP entries")
+            entry = entries[0]
+            mode = entry.external_attr >> 16
+            if (
+                entry.filename != "evidence.json"
+                or entry.orig_filename != "evidence.json"
+                or entry.external_attr & 0x10
+                or entry.is_dir()
+                or entry.flag_bits & 1
+                or entry.compress_type != zipfile.ZIP_DEFLATED
+                or (stat.S_IFMT(mode) not in (0, stat.S_IFREG))
+                or entry.file_size > MAX_EXPANDED
+            ):
+                raise ValueError("invalid observation ZIP entry")
+            with archive.open(entry) as stream:
+                raw = stream.read(MAX_EXPANDED + 1)
+    else:
+        raise ValueError("unsupported observation encoding")
     if len(raw) > MAX_EXPANDED:
         raise ValueError("expanded observation package exceeds budget")
-    value = json.loads(raw)
+    value = json.loads(raw.decode("utf-8") if encoding == "zip" else raw)
     if value.get("format") != MARKER or value.get("issue") != issue:
         raise ValueError("observation issue/format mismatch")
     rows = value.get("sessions")
@@ -149,7 +179,9 @@ def prepare(*, work_dir: Path, issue: int, role: str) -> dict | None:
             )
             if len(data) != handle["bytes"]:
                 raise ValueError("observation size mismatch")
-            value = decode_package(data=data, digest=digest, issue=issue)
+            value = decode_package(
+                data=data, digest=digest, issue=issue, encoding=handle.get("encoding", "gzip")
+            )
             scope["sessions"] = [row["session_id"] for row in value["sessions"]]
             for row in value["sessions"]:
                 sid = row["session_id"]
