@@ -334,3 +334,22 @@ def test_architecture_owner_is_inferred_and_cannot_bypass_rfc(tmp_path) -> None:
     path = _write(tmp_path, "stages:\n  rfc: agent\n  architecture: skip\n")
     with pytest.raises(AgentConfigError, match="architecture:skip"):
         load_agent_config(path=path)
+
+
+# Spec-0093/T1: required execution facts are a project policy, never an issue instruction.
+def test_execution_evidence_requirement_is_carried_to_every_repo(tmp_path):
+    cfg = load_agent_config(
+        path=_write(
+            tmp_path,
+            "execution_evidence:\n  required: true\nrepos:\n  - path: one\n  - path: two\n",
+        )
+    )
+    assert cfg.execution_evidence_required is True
+    assert all(repo.execution_evidence_required for repo in cfg.repos)
+    assert default_config().execution_evidence_required is False
+
+
+@pytest.mark.parametrize("value", ["{}", "{required: yes, unexpected: true}", "{required: 'true'}"])
+def test_execution_evidence_requirement_is_strict(tmp_path, value):
+    with pytest.raises(AgentConfigError):
+        load_agent_config(path=_write(tmp_path, f"execution_evidence: {value}\n"))

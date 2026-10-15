@@ -60,7 +60,9 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
 
     # Spec-0087: role identity/issue come from the runner, never from a log payload.
     from openagents.observations.evidence import prepare
+    from openagents.observations.execution_contracts import ExecutionContractUnavailable
     from openagents.observations.gaps import collect_requests
+    from openagents.runtime.context import execution_required
 
     issue_number = placeholders.get("issue_number")
     if issue_number is None and role == "drafter":
@@ -69,11 +71,22 @@ def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[s
     observation_scope = None
     if type(issue_number) is int and issue_number > 0:
         try:
-            observation_scope = prepare(work_dir=Path(work_dir), issue=issue_number, role=role)
+            required = execution_required(issue_number=issue_number)
+            observation_scope = prepare(
+                work_dir=Path(work_dir),
+                issue=issue_number,
+                role=role,
+                execution_required=required,
+            )
+        except ExecutionContractUnavailable:
+            # Spec-0093/T2: a required-condition fault stops before calling the model.
+            raise
         except Exception as exc:
             context += f"\nObservation infrastructure unavailable: {type(exc).__name__}. Do not infer missing runtime events."
         if observation_scope is not None:
             context += "\n\n" + observation_scope["context"]
+            if observation_scope.get("execution_contract_context"):
+                context += "\n\n" + observation_scope["execution_contract_context"]
 
     output_schema = _output_json_schema(agent_module=agent_module)
     prompt = agent_module.PROMPT.substitute(**placeholders)

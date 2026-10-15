@@ -383,3 +383,54 @@ def test_zip_requires_utf8_json():
     data, digest = zip_package(raw)
     with pytest.raises(UnicodeDecodeError):
         evidence.decode_package(data=data, digest=digest, issue=7, encoding="zip")
+
+
+# Spec-0093/T1: no marker deletion or transport failure can erase the trusted requirement.
+def test_required_missing_marker_fails_but_an_ordinary_issue_is_compatible(configured, monkeypatch):
+    from openagents.observations.execution_contracts import ExecutionContractUnavailable
+
+    work_dir, _ = configured
+    monkeypatch.setattr(forge, "get_issue", lambda **kw: SimpleNamespace(body="ordinary text"))
+    assert evidence.prepare(work_dir=work_dir, issue=7, role="architect") is not None
+    with pytest.raises(ExecutionContractUnavailable, match="handle missing"):
+        evidence.prepare(work_dir=work_dir, issue=7, role="architect", execution_required=True)
+
+
+def test_required_transport_exception_does_not_disclose_url(configured, monkeypatch):
+    from openagents.observations.execution_contracts import ExecutionContractUnavailable
+
+    work_dir, _ = configured
+
+    def fail(**kwargs):
+        raise OSError("https://secret.example/asset?token=do-not-disclose")
+
+    monkeypatch.setattr(forge, "download_observation_asset", fail)
+    with pytest.raises(ExecutionContractUnavailable) as caught:
+        evidence.prepare(work_dir=work_dir, issue=7, role="reviewer", execution_required=True)
+    assert "OSError" in str(caught.value)
+    assert "token" not in str(caught.value)
+
+
+def test_execution_facts_prepared_in_readonly_pages(configured, monkeypatch):
+    from test_observation_execution_contracts import sample_package
+
+    work_dir, _ = configured
+    value = sample_package()
+    data = gzip.compress(json.dumps(value).encode())
+    handle = {"asset_id": 1, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    monkeypatch.setattr(
+        forge,
+        "get_issue",
+        lambda **kw: SimpleNamespace(body=f"<!-- {evidence.MARKER} {json.dumps(handle)} -->"),
+    )
+    monkeypatch.setattr(forge, "download_observation_asset", lambda **kw: data)
+    scope = evidence.prepare(work_dir=work_dir, issue=7, role="architect", execution_required=True)
+    assert "followup_input=unavailable" in scope["execution_contract_context"]
+    page = scope["execution_pages"][0]
+    path = Path(page["path"])
+    assert path.stat().st_mode & 0o777 == 0o400
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == page["sha256"]
+    assert (
+        json.loads(path.read_text())["contracts"][0]["public_refs"][0]["path"]
+        == "session-1/goal.md"
+    )

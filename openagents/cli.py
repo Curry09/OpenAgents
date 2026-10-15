@@ -447,6 +447,7 @@ def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
             work_dir=ctx.repo_root,
             base=args.base or config.base,
             user_test_plan=user_test_plan,
+            execution_evidence_required=config.execution_evidence_required,
         ),
         concurrency=args.parallel,
     )

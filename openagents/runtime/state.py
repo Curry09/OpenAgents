@@ -107,6 +107,31 @@ class RuntimeState:
             data.setdefault("runs", {})[str(issue_number)] = record
             self._save(data=data)
 
+    def execution_requirement(self, *, issue_number: int, required: bool) -> bool:
+        """Spec-0093/T2: latch the trusted dispatch requirement across queue/recovery.
+
+        Ordinary projects leave no new record. Once negotiated, a missing issue
+        marker or later default configuration cannot silently erase the condition.
+        """
+        from openagents.observations.execution_contracts import ExecutionContractUnavailable
+
+        if type(required) is not bool or type(issue_number) is not int or issue_number <= 0:
+            raise ExecutionContractUnavailable("invalid trusted execution dispatch")
+        with RuntimeState._LOCK:
+            try:
+                data = json.loads(self._path.read_text()) if self._path.exists() else {}
+                policies = data.get("execution_requirements", {})
+                previous = policies.get(str(issue_number), False)
+                if not isinstance(policies, dict) or type(previous) is not bool:
+                    raise ValueError("invalid policy")
+            except (ValueError, OSError, AttributeError, TypeError):
+                raise ExecutionContractUnavailable("execution dispatch state unavailable") from None
+            effective = required or previous
+            if effective and not previous:
+                data.setdefault("execution_requirements", {})[str(issue_number)] = True
+                self._save(data=data)
+            return effective
+
     def find_run(self, *, pr_number: int) -> dict | None:
         """# Spec-0062/T3: 按 PR 号查 run（rfc_lifecycle refine/implement/iterate 复用）；无则 None。
 

@@ -63,3 +63,11 @@ where the selected site still accepts gzip and direct same-origin downloads. On
 Gitea.com, stop new dispatches if the old transport cannot work; do not silently switch
 formats within a resumed experiment. Do not publish future commit/image digests as if
 already validated. Deployment pins and live probe results belong to the paired release.
+
+## 执行条件协议的联合发布（Spec-0093）
+
+本次实现基于 Gitea.com reader 候选 `a752e8830a13f44d97a3043d1f3e8dd16bd8d8aa`；该值是开发基线，不代表此次功能已发布。合并时先理顺该 reader 基线，再将已通过联合验收的实际提交固定到发布端。不得预写未来 SHA 或修改既有实验的冻结版本。
+
+新增协商项为 `execution_evidence` schema 1，以及可信项目配置 `execution_evidence.required`。发布端确认实际安装具有 required dispatch 能力后才启用。两仓共享 `tests/fixtures/execution_evidence_contract.json` 的 wire 内容；发布前要比较 fixture、运行 reader 最终上下文探针及发布端真实 gzip/ZIP readback。私有评分计划、答案、原始 verifier 日志及凭证不进入该接口。
+
+默认 standard 的实际起草角色为 drafter；显式 v0.2 使用 spec_writer/developer。两条路径均通过统一 engine 注入。其他 flow 可复用同一机制，但未单独验证时不将其宣传为此次已验收范围。模型行为 canary 与确定性送达测试分别记录，见 [执行条件保留验收记录](validation/execution-contract-preservation.md)。

@@ -1,0 +1,88 @@
+{
+  "package": {
+    "execution_evidence": {
+      "assessment_summaries": [
+        {
+          "assessment_kind": "independent",
+          "contract_id": "866c9e6b8741d5c91ca9d361622d970bda8d207696afdc15cd1423dfb76982a7",
+          "metric_definition": null,
+          "passed": false,
+          "receipt_id": "assessment-1",
+          "score": null,
+          "session_id": "session-1",
+          "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "status": "completed"
+        },
+        {
+          "assessment_kind": "independent",
+          "contract_id": "2990bd19b420cfb4da6aa8113d71a1b8b9b4f1b83596f28ab691580f9f98afe2",
+          "metric_definition": null,
+          "passed": null,
+          "receipt_id": "assessment-2",
+          "score": null,
+          "session_id": "session-2",
+          "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "status": "unavailable"
+        }
+      ],
+      "execution_contracts": [
+        {
+          "budget_source": "unverified",
+          "contract_id": "2990bd19b420cfb4da6aa8113d71a1b8b9b4f1b83596f28ab691580f9f98afe2",
+          "followup_input": "possible",
+          "public_refs": [
+            {
+              "kind": "goal",
+              "path": "session-2/goal.md",
+              "sha256": "43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93"
+            }
+          ],
+          "session_id": "session-2",
+          "task_budget_seconds": null,
+          "task_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "task_id": "task-2"
+        },
+        {
+          "budget_source": "task_metadata",
+          "contract_id": "866c9e6b8741d5c91ca9d361622d970bda8d207696afdc15cd1423dfb76982a7",
+          "followup_input": "unavailable",
+          "public_refs": [
+            {
+              "kind": "goal",
+              "path": "session-1/goal.md",
+              "sha256": "43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93"
+            }
+          ],
+          "session_id": "session-1",
+          "task_budget_seconds": 7200,
+          "task_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "task_id": "task-1"
+        }
+      ],
+      "issue": 7,
+      "payload_sha256": "c407a7bc21553286ab79920f96297ff0bef16b3ab79d4ddc435573f6e976b06a",
+      "schema_version": 1
+    },
+    "format": "auto-designer:observation-evidence-v1",
+    "issue": 7,
+    "sessions": [
+      {
+        "files": {
+          "goal.md": "修复公开示例的计算结果，交付 result.txt。",
+          "manifest.json": "{\"session_id\": \"session-1\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93\"}]}"
+        },
+        "session_id": "session-1",
+        "status": "available"
+      },
+      {
+        "files": {
+          "goal.md": "修复公开示例的计算结果，交付 result.txt。",
+          "manifest.json": "{\"session_id\": \"session-2\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93\"}]}"
+        },
+        "session_id": "session-2",
+        "status": "available"
+      }
+    ]
+  },
+  "schema": "execution-evidence-contract-v1"
+}

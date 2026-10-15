@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import importlib
 import io
 import json
 import stat
@@ -21,6 +22,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from openagents.observations import evidence
+from openagents.runtime import context as runtime_context
+from openagents.runtime import engine
+from openagents.runtime.state import RuntimeState
 from openagents.utils import forge
 
 FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/observation_transport_contract.json"
@@ -105,9 +109,90 @@ def check_offline(fixture: Path = FIXTURE) -> dict:
     return {"status": "passed", "accepted": len(results), "rejected": len(cases)}
 
 
+def check_execution_contract(*, fixture: Path) -> dict:
+    """Spec-0093/T1,T3: exercise verified transport and real engine/role context.
+
+    No model is called. The backend boundary is observed, not simulated reasoning.
+    """
+    value = json.loads(fixture.read_text())["package"]
+    roles = (
+        "drafter",
+        "spec_writer",
+        "architect",
+        "implementer",
+        "developer",
+        "reviewer",
+        "acceptance",
+    )
+    calls = []
+
+    class Observed(Exception):
+        pass
+
+    class Backend:
+        name = "execution-context-probe"
+
+        def run(self, *, work_dir, task, context):
+            for contract in value["execution_evidence"]["execution_contracts"]:
+                assert contract["contract_id"] in context, "missing contract in final context"
+                assert f"followup_input={contract['followup_input']}" in context
+                assert f"budget_seconds={contract['task_budget_seconds']}" in context
+            assert value["execution_evidence"]["payload_sha256"] in context
+            assert "execution-page-" in context
+            calls.append(context)
+            raise Observed()
+
+    for encoding in ("gzip", "zip"):
+        data = encode(value, encoding)
+        digest = hashlib.sha256(data).hexdigest()
+        handle = {"asset_id": 1, "sha256": digest, "bytes": len(data), "encoding": encoding}
+        body = f"<!-- {evidence.MARKER} {json.dumps(handle)} -->"
+        with tempfile.TemporaryDirectory(prefix="oa-execution-probe-") as name:
+            root = Path(name)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            state = RuntimeState(path=root / ".openagents" / "runtime-state.json")
+            with (
+                patch.object(forge, "active_forge", return_value="gitea"),
+                patch.object(forge, "get_issue", return_value=SimpleNamespace(body=body)),
+                patch.object(forge, "download_observation_asset", return_value=data, create=True),
+                runtime_context.execution_dispatch(state=state, required=True),
+            ):
+                scope = evidence.prepare(
+                    work_dir=root, issue=value["issue"], role="developer", execution_required=True
+                )
+                verify_scope(scope=scope, expected=value, digest=digest)
+                for role in roles:
+                    module = importlib.import_module(f"openagents.agents.{role}")
+                    placeholders = {key: f"probe-{key}" for key in module.PROMPT.get_identifiers()}
+                    placeholders.update(
+                        work_dir=root,
+                        issue_number=value["issue"],
+                        context="original public issue context",
+                        target=f"issue #{value['issue']}",
+                    )
+                    try:
+                        engine.run_agent(module, backend=Backend(), **placeholders)
+                    except Observed:
+                        pass
+                    else:
+                        raise AssertionError("backend boundary was not observed")
+    return {
+        "status": "passed",
+        "encodings": ["gzip", "zip"],
+        "roles": list(roles),
+        "backend_contexts": len(calls),
+        "model_calls": 0,
+    }
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, default=FIXTURE)
+    parser.add_argument(
+        "--execution-fixture",
+        type=Path,
+        help="also verify execution facts at actual role/backend boundaries",
+    )
     parser.add_argument(
         "--live", action="store_true", help="explicitly read a synthetic probe issue"
     )
@@ -139,6 +224,10 @@ def main(argv=None) -> int:
             result["status"] = "passed"
         else:
             result = check_offline(args.fixture)
+            if args.execution_fixture:
+                result["execution_evidence"] = check_execution_contract(
+                    fixture=args.execution_fixture
+                )
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as exc:

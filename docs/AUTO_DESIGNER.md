@@ -98,3 +98,25 @@ uv run --locked python scripts/check_observation_reader.py --live \
 凭证从 `GITEA_TOKEN`（或 `--token-env` 指定的环境变量）读取；预期 JSON 包含测试 issue
 编号、授权 session 和合成文件。脚本只读取指定 issue/成员附件，临时副本验证后删除，不创建
 远端评论或调用模型。成功要求真实只读文件、scope 和 digest；“证据不可用”的降级不算通过。
+
+## 保留原任务的执行条件（Spec-0093）
+
+与支持该协议的发布端联合使用时，在**可信项目配置**启用：
+
+```yaml
+execution_evidence:
+  required: true
+```
+
+这项声明独立于 Issue 中可能缺失的附件 marker。Vigil 入队和 v0.2 首次派发会保存 required，后续重启不会因为配置回落默认值而降级；缺包、损坏、版本或授权范围不匹配时，模型不会被派发。Vigil 释放槽位等待下一轮读取；v0.2 会记录失败，可在材料修复后重跑批次。普通未协商合同的项目默认 `false`，仍使用原流程。
+
+机器合同保留每个来源的原目标/公开交付物引用、后续输入是否可用、任务预算，以及独立验收安全摘要。所有交付角色在最终 context 直接收到固定事实；较大的来源集合显式分页。历史轨迹仍只是证据，不是角色指令。`passed: null` 表示未形成二值结论，不是失败；任务失败不自动证明 Harness 根因，也不自动淘汰候选。
+
+部署前验证实际 reader：
+
+```bash
+uv run --locked python scripts/check_observation_reader.py \
+  --execution-fixture tests/fixtures/execution_evidence_contract.json
+```
+
+该检查覆盖 gzip、ZIP 与七个实际角色的最终 backend context，不调用模型。需要将能力声明中的 `execution_evidence.schema_versions=[1]`、`required_dispatch=true` 与真实探针一起核对，不能只依赖模块存在。验收边界与真实角色 canary 说明见 [验证记录](validation/execution-contract-preservation.md)。

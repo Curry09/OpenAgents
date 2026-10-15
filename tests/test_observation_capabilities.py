@@ -54,3 +54,12 @@ def test_installed_entrypoint_without_credentials(tmp_path):
     assert json.loads(result.stdout) == capabilities.describe()
     assert result.stderr == ""
     assert list(tmp_path.iterdir()) == []
+
+
+def test_declares_versioned_execution_facts_and_required_dispatch():
+    # Spec-0093/T1: the companion contract probe exercises these final contexts.
+    assert capabilities.describe()["execution_evidence"] == {
+        "schema_versions": [1],
+        "required_dispatch": True,
+        "context_projection": "all-delivery-roles-v1",
+    }

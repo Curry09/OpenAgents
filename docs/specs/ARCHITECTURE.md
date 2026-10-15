@@ -66,6 +66,7 @@ _Spec-0087: artifact-owned observation evidence and scoped gap requests._
 | `__init__.py` | Spec-0087: artifact-owned observation evidence and scoped gap requests. |
 | `capabilities.py` | Spec-0092/T3: offline declarations of this installation's evidence reader. |
 | `evidence.py` | Spec-0087: read opaque, issue-scoped evidence without understanding runtime events. |
+| `execution_contracts.py` | Spec-0093/T1: validate and project publisher-owned execution facts. |
 | `gaps.py` | Spec-0087: runner-authenticated gap reports, persisted before transmission. |
 
 ### openagents.recipes
@@ -191,6 +192,7 @@ graph LR
     nopenagents_observations["openagents.observations"]
     nopenagents_observations_capabilities["observations.capabilities"]
     nopenagents_observations_evidence["observations.evidence"]
+    nopenagents_observations_execution_contracts["observations.execution_contracts"]
     nopenagents_observations_gaps["observations.gaps"]
     nopenagents_recipes["openagents.recipes"]
     nopenagents_recipes_backfill["recipes.backfill"]
@@ -297,6 +299,8 @@ graph LR
     nopenagents_cli --> nopenagents_v02_runner
     nopenagents_desktop_daemon --> nopenagents_utils
     nopenagents_desktop_daemon --> nopenagents_utils_streams
+    nopenagents_observations_evidence --> nopenagents_observations
+    nopenagents_observations_evidence --> nopenagents_observations_execution_contracts
     nopenagents_observations_evidence --> nopenagents_observations_gaps
     nopenagents_observations_evidence --> nopenagents_utils
     nopenagents_observations_evidence --> nopenagents_utils_forge
@@ -338,6 +342,7 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_agents_tester
     nopenagents_recipes_vigil --> nopenagents_backends_base
     nopenagents_recipes_vigil --> nopenagents_cli
+    nopenagents_recipes_vigil --> nopenagents_observations_execution_contracts
     nopenagents_recipes_vigil --> nopenagents_observations_gaps
     nopenagents_recipes_vigil --> nopenagents_recipes
     nopenagents_recipes_vigil --> nopenagents_recipes_stages
@@ -360,11 +365,14 @@ graph LR
     nopenagents_recipes_vigil --> nopenagents_utils_identity
     nopenagents_recipes_vigil --> nopenagents_utils_proc
     nopenagents_recipes_vigil --> nopenagents_utils_streams
+    nopenagents_runtime_context --> nopenagents_runtime_state
     nopenagents_runtime_context --> nopenagents_utils
     nopenagents_runtime_context --> nopenagents_utils_forge
     nopenagents_runtime_engine --> nopenagents_observations_evidence
+    nopenagents_runtime_engine --> nopenagents_observations_execution_contracts
     nopenagents_runtime_engine --> nopenagents_observations_gaps
     nopenagents_runtime_engine --> nopenagents_runtime
+    nopenagents_runtime_engine --> nopenagents_runtime_context
     nopenagents_runtime_engine --> nopenagents_runtime_invocation
     nopenagents_runtime_engine --> nopenagents_runtime_token_usage
     nopenagents_runtime_engine --> nopenagents_runtime_tool_usage
@@ -383,6 +391,7 @@ graph LR
     nopenagents_runtime_preflight --> nopenagents_runtime
     nopenagents_runtime_preflight --> nopenagents_runtime_engine
     nopenagents_runtime_preflight --> nopenagents_runtime_token_usage
+    nopenagents_runtime_state --> nopenagents_observations_execution_contracts
     nopenagents_runtime_state --> nopenagents_runtime
     nopenagents_runtime_state --> nopenagents_runtime_research
     nopenagents_runtime_token_usage --> nopenagents_backends_base
@@ -450,6 +459,7 @@ graph LR
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_engine
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_gates
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_research
+    nopenagents_v02_openagents_adapter --> nopenagents_runtime_state
     nopenagents_v02_openagents_adapter --> nopenagents_runtime_user_test
     nopenagents_v02_openagents_adapter --> nopenagents_utils
     nopenagents_v02_openagents_adapter --> nopenagents_utils_forge

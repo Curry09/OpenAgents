@@ -11,10 +11,38 @@ agent PROMPT 所需的模板占位符（issue_number / pr_number / issue_body / 
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+
+from openagents.runtime.state import RuntimeState
 
 # Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
 from openagents.utils import forge as github
+
+# Spec-0093/T2: runner-owned policy follows a dispatch, never an issue/log instruction.
+_EXECUTION_DISPATCH: ContextVar[tuple[RuntimeState, bool] | None] = ContextVar(
+    "execution_dispatch", default=None
+)
+
+
+@contextmanager
+def execution_dispatch(*, state: RuntimeState, required: bool):
+    """Bind one delivery invocation; ContextVar prevents concurrent issue leakage."""
+    token = _EXECUTION_DISPATCH.set((state, required))
+    try:
+        yield
+    finally:
+        _EXECUTION_DISPATCH.reset(token)
+
+
+def execution_required(*, issue_number: int) -> bool:
+    """Read or persist the independent requirement before an agent can see the issue."""
+    scope = _EXECUTION_DISPATCH.get()
+    if scope is None:
+        return False
+    state, required = scope
+    return state.execution_requirement(issue_number=issue_number, required=required)
 
 
 def sections(*items: tuple[str, str]) -> str:

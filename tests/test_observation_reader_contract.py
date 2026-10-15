@@ -23,3 +23,12 @@ def test_unavailable_evidence_is_not_a_pass():
             expected={"sessions": []},
             digest="0" * 64,
         )
+
+
+def test_execution_contract_reaches_actual_role_backend_contexts():
+    result = reader.check_execution_contract(
+        fixture=Path(__file__).parent / "fixtures/execution_evidence_contract.json"
+    )
+    assert result["backend_contexts"] == 14
+    assert result["model_calls"] == 0
+    assert "architect" in result["roles"] and "drafter" in result["roles"]

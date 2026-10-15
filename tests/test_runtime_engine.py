@@ -494,3 +494,34 @@ def test_implementer_records_are_not_replayable(tmp_path, monkeypatch):
     data = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     assert data["role"] == "implementer"
     assert data["replayable"] is False
+
+
+def test_required_contract_error_never_reaches_backend_or_downgrades(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from openagents.observations import evidence
+    from openagents.observations.execution_contracts import ExecutionContractUnavailable
+    from openagents.runtime.context import execution_dispatch
+    from openagents.runtime.state import RuntimeState
+
+    def missing(**kwargs):
+        assert kwargs["execution_required"] is True
+        raise ExecutionContractUnavailable("required execution evidence handle missing")
+
+    monkeypatch.setattr(evidence, "prepare", missing)
+    module = SimpleNamespace(
+        __name__="openagents.agents.architect",
+        PROMPT=Template("review"),
+        OUTPUT_SCHEMA={"verdict": str},
+    )
+    backend = _CaptureBackend(summary='{"verdict":"PASS"}')
+    state = RuntimeState(path=tmp_path / "state.json")
+    with execution_dispatch(state=state, required=True):
+        with pytest.raises(ExecutionContractUnavailable):
+            engine.run_agent(module, backend=backend, work_dir=tmp_path, issue_number=7)
+    assert backend.calls == []
+    # Removing the project toggle during recovery does not erase the persisted requirement.
+    with execution_dispatch(state=RuntimeState(path=tmp_path / "state.json"), required=False):
+        with pytest.raises(ExecutionContractUnavailable):
+            engine.run_agent(module, backend=backend, work_dir=tmp_path, issue_number=7)
+    assert backend.calls == []

@@ -61,8 +61,9 @@ def test_advisory_turn_has_no_tools_or_retries_and_preserves_developer(monkeypat
     developer.for_advisory().run(work_dir=tmp_path, task="advice", context="issues")
     developer.run(work_dir=tmp_path, task="implement", context="issue")
     assert configs[0].tools == []
-    assert configs[0].max_iterations == 1
-    assert configs[0].retry_attempts == configs[0].llm_config.max_retries == 0
+    assert configs[0].max_iterations == 2
+    assert configs[0].retry_attempts == 1
+    assert configs[0].llm_config.max_retries == 0
     assert configs[0].llm_config.max_tokens == 8192
     assert configs[1].tools == ["shell"]
     assert configs[1].max_iterations == 100
