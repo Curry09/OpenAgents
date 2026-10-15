@@ -81,8 +81,12 @@ uv run --locked --extra dev --extra nexau pytest -q \
 | 联合验收脚本 | 159 passed，9.62 秒 | 七个实际角色、两种传输，共 14 个 backend context；此部分不调用模型 |
 | Ruff／格式／Spec validate、render、graph／ownership | 通过 | Spec 校验有既有跨组警告，无错误；38 项改动均有 owner 或属于生成物 |
 | GLM-5.3-Flash 负控制 | **REWORK，符合预期** | 真实 Architect 明确指出第二次 readline／continue 违反 unavailable；possible 来源不能补偿，历史 false/null 不等于候选淘汰 |
-| GLM-5.3-Flash 正控制 | **未验证** | 首次 90.08 秒请求超时；一次简短 JSON 重试约 94.13 秒超时，均没有模型 verdict |
+| GLM-5.3-Flash 正控制 | **未验证** | 首次 90.08 秒请求超时；简短 JSON 重试约 94.13 秒超时；已提交版本最后一次相同材料请求 93.79 秒超时，三次均没有模型 verdict |
 
-真实模型请求使用修复后的生产 advisory 配置，无执行工具、不重试，保留 90 秒请求超时，未放宽生产限制。正控制超时属于模型／网关请求未完成，不能记为 PASS 或 REWORK；不再反复重试。因此 T1/T2 已完成，T3 的确定性部分完成，但真实正控制仍未完成。
+真实模型请求使用修复后的生产 advisory 配置，无执行工具、不重试，保留 90 秒请求超时，未放宽生产限制。正控制超时属于模型／网关请求未完成，不能记为 PASS 或 REWORK。因此 T1/T2 已完成，T3 的确定性部分完成，但真实正控制仍未完成。
 
-本次只读 canary 在版本审计中明确标为未发布工作树；`source-manifest.json` 固定实际源码的文件摘要，不冒称已发布 reader commit。先前的无额度、零请求诊断及两次正控制超时与成功负控制分别归档，后来的成功不会覆盖早先失败。
+前几次只读 canary 在版本审计中明确标为未发布工作树；各次 `source-manifest.json` 固定实际源码摘要，不冒称已发布 reader commit。无额度、零请求诊断、三次正控制超时及成功负控制分别归档，后来的尝试不会覆盖早先失败。
+
+同日其他真实 Harness 请求恢复可用后，只追加最后一次正控制，不调整生产限制或提示：`timeout=90`、`max_tokens=8192`、`max_iterations=2`、`retry_attempts=1`，SDK `max_retries=0`。复用简短 JSON 尝试的脚本，唯一变化是输出目录；公开材料、候选代码与角色提示相同。该请求仍未返回原始模型输出，客户端记录 `Request timed out or interrupted`；单凭此信息不能认定是模型思考、网关排队或网络中的哪一层导致超时。本轮不再追加请求。
+
+最后一次产物单独保存在本地验收目录 `spec-0084-0093-20261015/real-role-canary-positive-final/`，包含 `results.json`、脱敏调用审计、完整最终输入和受控子进程收据。其 `source-manifest.json` 记录干净、已提交的 OpenAgents `57eac90a5702022c1ed2452b5b2b9918c235df39`，以及七个相关源码／fixture／探针文件和脚本的 SHA-256。此前成功负控制记录中的五个核心源码文件摘要与此提交完全一致；这一对应关系不改变正控制仍未取得判定的结论。
