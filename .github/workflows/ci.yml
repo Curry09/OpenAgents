@@ -20,12 +20,12 @@ env:
   OPENAGENTS_NO_SELF_UPDATE: "1"
 
 jobs:
-  vendored-nexau:
-    name: Vendored NexAU integrity
+  nexau-pin:
+    name: NexAU immutable dependency contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/check_vendored_nexau.py
+      - run: python3 scripts/check_nexau_dependency.py
 
   lint:
     name: Lint
@@ -102,18 +102,18 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --extra nexau --extra dev
+      - run: uv run --locked --extra nexau --extra dev python scripts/check_nexau_dependency.py --installed
       - run: uv run --locked --extra nexau --extra dev python -c "from nexau import Agent, AgentConfig; from openagents.backends.nexau import NexAUBackend"
       - name: Install the optional backend from wheels outside the checkout
         run: |
           wheel_dir="$RUNNER_TEMP/openagents-sdk-wheels"
           uv build --wheel --out-dir "$wheel_dir"
-          uv build third_party/nexau --wheel --out-dir "$wheel_dir"
           uv venv "$RUNNER_TEMP/openagents-sdk-smoke" --python 3.12
-          sdk_wheels=("$wheel_dir"/nexau-*.whl)
           app_wheels=("$wheel_dir"/openagents-*.whl)
-          uv pip install --python "$RUNNER_TEMP/openagents-sdk-smoke/bin/python" "${sdk_wheels[0]}" "${app_wheels[0]}[nexau]"
+          uv pip install --python "$RUNNER_TEMP/openagents-sdk-smoke/bin/python" "${app_wheels[0]}[nexau]"
           cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/openagents-sdk-smoke/bin/python" -c "from nexau import Agent, AgentConfig; from nexau._vendor_info import UPSTREAM_COMMIT; from openagents.backends.nexau import NexAUBackend; assert UPSTREAM_COMMIT == '5cd791b1382f1163621c9ff0b50c2cf01c4ba923'"
+          "$RUNNER_TEMP/openagents-sdk-smoke/bin/python" -c "from nexau import Agent, AgentConfig; from openagents.backends.nexau import NexAUBackend"
+          "$RUNNER_TEMP/openagents-sdk-smoke/bin/python" "$GITHUB_WORKSPACE/scripts/check_nexau_dependency.py" --project "$GITHUB_WORKSPACE" --installed
 
   commitlint:
     name: Commit Lint
@@ -176,7 +176,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [vendored-nexau, lint, test, desktop, package, nexau, commitlint, spec-conflicts, spec-validate]
+    needs: [nexau-pin, lint, test, desktop, package, nexau, commitlint, spec-conflicts, spec-validate]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
@@ -188,7 +188,7 @@ jobs:
           echo "spec-validate:  ${{ needs.spec-validate.result }}"
 
           results=(
-            "${{ needs.vendored-nexau.result }}"
+            "${{ needs.nexau-pin.result }}"
             "${{ needs.desktop.result }}"
             "${{ needs.package.result }}"
             "${{ needs.nexau.result }}"

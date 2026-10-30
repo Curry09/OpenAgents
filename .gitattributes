@@ -1,2 +1,0 @@
-# Preserve the recorded SDK bytes across Windows/Linux checkouts.
-third_party/nexau/** -text linguist-vendored

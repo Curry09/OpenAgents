@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nexau = [
-    "nexau==0.4.1",
+    "nexau @ git+https://github.com/hzhua/nexau.git@28511d9f0362191a6c378fd441b2be55309a9e32",
     "ag-ui-protocol==0.1.22",
     "anthropic<1",
     # NexAU imports SQLAlchemy's asyncio engine even without an async DB driver.
@@ -40,9 +40,6 @@ spec = "openagents.spec.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-nexau = { path = "third_party/nexau" }
-
 [tool.pytest.ini_options]
 # 让测试无需构建即可 import 顶层 openagents 包
 pythonpath = ["."]
@@ -54,7 +51,7 @@ line-length = 100
 target-version = "py312"
 # e2e 证据产物（一次性 probe 脚本/日志）不参与 lint：证据不是产品源码，
 # 否则"产证据即触发 ruff 失败"会在合并流水线 e2e 之后自发把 CI 打红（Spec-0064/#162）
-extend-exclude = ["docs/e2e-results/**", "third_party/nexau"]
+extend-exclude = ["docs/e2e-results/**"]
 
 [tool.ruff.lint]
 # E/F: pyflakes+pycodestyle，I: import 排序，UP: pyupgrade，

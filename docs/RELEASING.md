@@ -6,7 +6,7 @@
 
 `release/compatibility.json` 的 `baseline_commit` 保留整理前的审计来源，`openagents.integration_commit` 则记录当前跨仓 CI 使用的完整 SHA，**两者都不是整理完成后的正式发行版本**。整理 PR 合并并通过检查后，从双方目标分支取最终提交，生成发布资产中的完整 manifest，填写两仓 SHA/tag、NexAU、seed Harness tree、容器 digest、配置 profile、平台及验证结果。避免在提交内部记录自身 commit hash。
 
-两仓最终均从 main 发布。OpenAgents 功能分支已通过 [PR #185](https://github.com/Curry09/OpenAgents/pull/185) 合入 main，合并提交为 `1d4976c9a9e844037ddcadef8649aacb33edd950`。`chore/opensource-prep` 尚待评审合并；正式 tag 应包含这批许可、安装和 CI 整理改动。项目/前端/桌面组件版本可以不同，Release notes 解释各自范围。NexAU 的 extra 含固定 Git 来源，当前优先源码/GitHub wheel 发布；PyPI 发行前需另行验证 direct-reference 依赖政策与分发方案。
+两仓最终均从 main 发布。OpenAgents 功能分支已通过 [PR #185](https://github.com/Curry09/OpenAgents/pull/185) 合入 main，合并提交为 `1d4976c9a9e844037ddcadef8649aacb33edd950`。`chore/opensource-prep` 尚待评审合并；正式 tag 应包含这批许可、安装和 CI 整理改动。项目/前端/桌面组件版本可以不同，Release notes 解释各自范围。NexAU 的 extra 固定到 hzhua/nexau 的提交 28511d9f0362191a6c378fd441b2be55309a9e32，当前优先源码/GitHub wheel 发布；PyPI 发行前需另行验证 direct-reference 依赖政策与分发方案。
 
 ## 已纳入本轮代码的检查
 
