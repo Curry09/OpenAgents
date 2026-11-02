@@ -1,10 +1,12 @@
 # Contributing
 
-欢迎提交可复现问题、文档修正及聚焦的实现。先阅读 README 和 docs/specs/README.md；新功能或跨模块行为变化先更新对应设计契约，不把生成的 OVERVIEW/ARCHITECTURE 当源文件手改。
+English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 本地检查
+We welcome reproducible bug reports, documentation fixes, and focused implementation changes. Read the [README](README.md) and [spec guide](docs/specs/README.md) (Chinese) first. Update the relevant design contract before adding a feature or changing behavior across modules. Do not manually edit the generated `docs/specs/OVERVIEW.md` or `docs/specs/ARCHITECTURE.md` files.
 
-在本仓根目录：
+## Local checks
+
+From the repository root:
 
 ```bash
 uv sync --locked --extra dev
@@ -16,12 +18,16 @@ uv run --locked spec render
 uv run --locked spec graph
 ```
 
-前端使用 Node.js 22，在 `apps/desktop/` 执行 `npm ci`、`npm test`、`npm run build`。OpenAgents desktop 另跑 `npm run typecheck`；只做 bundle 检查可 `npm ci --ignore-scripts`，GUI 试用则需要安装 Electron 二进制。
+The desktop app requires Node.js 22. Run `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` in `apps/desktop/`. You can use `npm ci --ignore-scripts` for type checking, tests, and builds only; trying the GUI requires the Electron binary to be installed.
 
-锁文件随依赖修改一并提交，日常 CI 使用 `--locked`。涉及交付契约时在 auto-designer 中跑跨仓配置检查，并注明双方提交。普通 PR 无需模型 key；真实模型 canary 单独记录成本、版本和脱敏证据。
+Commit lockfile updates together with dependency changes; routine CI uses `--locked`. When changing the delivery contract, run the cross-repository configuration check in auto-designer and record both repository commits. Ordinary PRs do not need model API keys. For live model canary runs, record costs, versions, and sanitized evidence separately.
 
-## 提交与评审
+## Commits and review
 
-使用 Conventional Commits，例如 `fix(runtime): preserve resume identity`。PR 描述说明问题、最终行为、验证命令及限制；避免把试验轨迹、凭证或机器专用配置混入源码。新 spec 通过仓库 CLI 预留编号，修改后重生成视图。不要在整理 PR 中擅自重写既有实验结果。
+Use Conventional Commits, for example `fix(cli): preserve resume identity`. If you specify a scope, it must be one of `backend`, `cli`, `ci`, `deps`, or `docs`. Describe the problem, resulting behavior, validation commands, and limitations in the PR. Keep experiment traces, credentials, and machine-specific configuration out of source changes. Reserve new spec numbers through the repository CLI and regenerate the views after editing specs. Do not rewrite existing experiment results as part of cleanup PRs.
 
-提交贡献表示你有权提供相应代码，并同意按本项目 MIT 许可证分发该贡献。第三方材料应保留自己的许可与来源；涉及人物画像/benchmark 的内容先核对 THIRD_PARTY.md。
+By contributing, you confirm that you have the right to submit your contribution and agree to distribute it under the project's MIT license. Preserve the licenses and attribution of third-party material. Check [THIRD_PARTY.md](THIRD_PARTY.md) (Chinese) before contributing personas or benchmark content.
+
+## Bilingual documentation
+
+The root README, CONTRIBUTING, and SECURITY documents each have an English version (`.md`) and a Simplified Chinese version (`.zh-CN.md`). When editing either version, update the content, commands, and links in the other version as well, and retain the language switch at the top. Detailed design documents are currently mostly in Chinese.
