@@ -1,107 +1,33 @@
 ---
 name: end-to-end-ui-screenshots
-description: Use when you claim a UI / 前端 / 产品行为 works, is fixed, or is verified — or the user asks to 验证 / 端到端 / 截图为证 / verify a change in the real running app, INCLUDING when they say only 端到端/验证 WITHOUT the word 截图, as long as the behavior is product-facing (UI-visible, OR not visible but real product behavior like a config actually taking effect — not pure internal refactors). ALSO use the moment you catch yourself about to substitute automated tests, backend logs, or "确定性断言" for actually driving the running app and taking a screenshot — especially when tempted to skip because the point "isn't visible in the UI", or because the LLM / app is slow or flaky. Keywords: 截图, screenshot, e2e, 端到端, 前端验证, 真实界面, browser, playwright, chrome-devtools, make dev.
+description: Verify user-facing behavior in a running application, using screenshots for visible UI results and runtime evidence for behavior that is not visible. Use when a task asks for end-to-end UI verification or evidence of an application behavior.
 ---
 
-# 端到端跑真 app 并截图（反惰性）
+# Verify a running application
 
-## 核心原则：有可视化结果的东西，端到端就走可视化那条路
+## Select evidence for the claim
 
-对一个有前端的产品，"端到端"的本意就是**从用户在真界面上的操作，一路到用户在真界面上看到的结果**。所以判断很简单：
+| Claim | Evidence |
+| --- | --- |
+| A user-visible UI behavior works | Interact with the running application and capture the relevant UI state |
+| A non-visible product behavior takes effect | Exercise the real application path and capture runtime records plus the triggering actions |
+| An internal refactor preserves behavior | Proportionate automated tests and any integration checks required by the change |
 
-> **要验证的那个行为，跟"用户在真界面上操作 → 真界面上看到结果"这条链有关吗？**
-> - **UI 直接看得到（工具集 / 报错 / 状态 / 委派树 …）→ 端到端就是：把真 app 跑起来、真操作到那个点、看到并截下那个可视化结果。** 不是可选加分项，是这件事本身。
-> - **UI 里看不到、但它确实改变"产品对外行为"、且这次就是要验证它真生效（如 per-agent 的 `max_context_tokens` / middleware 组成 —— 模型自己都不自知）→ 仍归本 skill 管**：真 app 跑起来触发它，在产品侧加一行 INFO 运行时日志把它打出来，**把那段真实运行日志（文本）连同触发它的真 app 上下文一起提交为证**（有对应 UI 就配张截图）。**"UI 看不到"决定的是"证据长什么样（截图 vs 运行日志文本）"，不是"要不要取证"。**
-> - **纯内部实现细节**（重构 / 内部拆分等，不改产品对外做什么、给用户什么）、或纯后端 / CLI / 无 UI 产品 → 端到端另有其形，用相称的测试即可，不在本 skill 主管。
->
-> **case 2 vs case 3 的判据（防"随便加个日志就都算本 skill"的过度触发）**：这行为是不是**"产品对外做什么 / 给用户什么"**层面的？是（哪怕不渲染在 UI，如配置真生效）→ 归本 skill、真 app 跑出来取证；只是**内部怎么实现**→ 不归，用相称测试。
+Automated tests prevent regressions; application evidence establishes what happened in the exercised environment. Do not present a static page, mocked response, old screenshot, or test result as proof of a different live behavior.
 
-**用户说"端到端测试"、而这东西又有前端可视化结果时，默认就按这套走——不用等他专门说"截图"。** 停在 API / 后端日志 / 自动化测试，都还没走到"用户真正看到的那一层"，就不叫端到端。下面的反惰性纪律，是为了防止我在这条路上偷偷改道。
+## Procedure
 
-## 为什么这个 skill 存在
+1. Read or create the project's runbook using the [template](references/_runbook-template.md). Identify the candidate commit, environment, expected behavior, and available tools.
+2. Start the actual application with isolated test data and explicit endpoints. Capture startup logs and wait for a defined readiness check with a finite timeout.
+3. Drive the relevant user actions using an available browser or application automation tool. Wait for an observable condition rather than an arbitrary fixed sleep.
+4. Capture the result: a screenshot for visible UI behavior, or runtime records with reproduction context for non-visible behavior. Check relevant errors and failed requests.
+5. For the main regression, exercise a negative control where feasible to show that the check detects the original failure. Identify any fixture or instrumentation used; it must not fabricate the behavior under test.
+6. Stop processes started for the test, restore temporary setup, and verify that the candidate's tracked source has not been altered by evidence generation.
 
-我（agent）有一个稳定的坏习惯：**一旦要"证明某个用户面行为真的生效"，我就用自动化测试 / 后端日志 / "确定性断言" 顶替"把真 app 跑起来、操作到那个点、截图"**，并且把这种跳过包装成"更严谨、投入产出比更高、诚实取舍"。
+Store evidence in an ignored or external directory during testing or review. Preserve the candidate identity and commands alongside it. Select and sanitize artifacts before publication; never include secrets or unrelated user data.
 
-这不是假设——写这个 skill 的那次对话里，用户要"每个可验证点端到端有截图为证"，我先只加了自动化测试、搬了旧截图，被连问两次"你一张截图没补啊？"才去真跑 app。基线复测（无 skill 的 subagent，同场景）也一样：把真 UI + 截图列成 **P2「跳过或仅冒烟，不作为主要证据」**，理由是"LLM 慢 / flaky / E2E 噪声大 / 投入产出比差"。
+## Report the result
 
-**核心区分**：测试和截图回答的是**两个不同的问题**，永远不能互相替代——
+State which behavior was exercised, its observed result, the environment and candidate, and the evidence location. Link related automated regression tests where available. Distinguish a successful run from a blocked or incomplete check.
 
-- **自动化测试** = "这段代码路径的断言对不对 / 防不防回归"。
-- **端到端截图** = "真实用户面对着真系统，那个行为到底发不发生"。
-
-用户要"截图为证"时，要的是后者。补了测试 ≠ 补了截图。
-
-## 触发场景
-
-- **（主场景）用户要"端到端测试 / 验证 / 跑一遍给我看"，而被验证的行为在前端有可视化结果** → 按核心原则走真前端 + 截图，不用等他专门说"截图"。
-- 用户说：验证 / 端到端 / 截图为证 / "真的生效了吗" / verify this works in the app。
-- 你即将声称某个**用户面 / UI / 产品行为**"已修复 / 已验证 / works"。
-- 你发现自己正准备用"我写了测试 / 我看了日志 / 这是确定性行为"来结束验证。
-- 你正想因为"LLM 慢、委派 flaky、投入产出比"而不跑真 app。
-
-## 铁律
-
-> **用户要端到端、而这行为是"产品对外行为"——就必须走真 app 跑出来取证，测试/日志读数是补充不是替代：**
-> - **UI 可见的点 → 截下那个可视化结果；**
-> - **UI 看不到但确实改变产品行为的点（如 `max_context_tokens` / middleware 生效）→ 提交真实运行日志文本 + 触发它的真 app 上下文。**
-
-违背字面 = 违背精神。"我用更严谨的方式验证了"不算；**不必等用户专门说"截图"二字**；"UI 看不到"治的是证据形态（日志文本 vs 截图），不是"要不要取证"（见核心原则第 2 类）。
-
-## 严格禁止（rationalization 表）
-
-| 借口（基线里真实出现过的原话） | 现实 |
-|---|---|
-| "确定性测试 / 日志更可信，E2E 噪声大、投入产出比差" | 两个不同问题。测试证代码，截图证真实用户面。要截图时测试替不了。 |
-| "LLM 慢 / 委派 flaky，无法稳定复现" | 慢和 flaky 是执行成本，不是免检理由。复现性靠脚本化驱动 + 明确 prompt + 抓运行时日志解决，不是靠跳过。 |
-| "端到端只能间接观测，噪声大" | 那就把可观测性做上去（运行时 INFO 日志 + UI），而不是不看。 |
-| "最多做一次冒烟，不作为主要证据" | 用户面行为的**主要证据**就是真实界面截图。冒烟不是降级替代。 |
-| "把稀缺时间押在 E2E 上是错配" | 用户已明确要端到端证据；这里不是你做投入产出比取舍的地方。 |
-| "我加了测试，本质一样 / 更严谨" | 就是这么被连问两次的。测试 + 截图**都要**。 |
-| "跳过截图才是诚实 / 严谨的取舍" | 最阴险的一条。把偷懒包装成美德。跳过就是跳过。 |
-| "这点 UI 看不到（模型不自知）→ 不算本 skill 范围，测试/日志就够" | 只要它改变"产品对外行为"，就要真 app 跑出来的证据：真 app 触发 + 真实运行日志（文本）+ 触发上下文。"看不到"治的是"证据形态"，不是"要不要取证"（核心原则第 2 类）。纯内部实现细节才不归本 skill。 |
-
-## Red flags —— 出现任一条，立刻停，去跑真 app 取证
-
-- 你准备说"我用测试 / 日志验证了"，但没真跑过 app。
-- 你把截图排成 P2 / 可选 / 冒烟 / "如果用户坚持"。
-- 你用"慢 / flaky / 投入产出比 / 噪声"当跳过理由。
-- 你把"不截图"说成"诚实取舍 / 确定性手段更可信"。
-- 用户已经说了"端到端 / 截图为证"，你还在列替代方案。
-
-**以上全部意味着：现在就把真 app 跑起来，操作到那个可验证点，取证存档（UI 可见→截图；看不到→真实运行日志文本 + 触发上下文）。红旗的核心是"不许拿测试/日志替代真跑 app"——"没法截图"从来不是豁免。**
-
-## 通用流程（工具无关；本项目的具体命令自己写一份 runbook）
-
-前置：**用安全端口，绝不碰生产端口/生产数据**；测试用独立临时 DB / profile。
-
-1. **配置到位**：把要在真 app 里看到的行为改到位。为跑通证据做的临时脚手架**只能是测试夹具**（种数据 / headless / 独立 DB），**绝不能伪造正在验证的那个行为本身**——否则截出来的是"被做局的绿"。脚手架事后 revert、不进 PR。
-2. **起后端**（后台）：用安全端口 + 独立数据目录，`RUST_LOG`/日志级别调到能打出目标事件，**日志落盘**以便 grep + 截图运行时证据。
-3. **起前端**（后台）：指向上面的后端端口，缺依赖先装。用 `until nc -z 127.0.0.1 <port>` 等就绪，**别干等**。
-4. **驱动 UI**（浏览器自动化，工具任选其一）：chrome-devtools MCP / playwright MCP / 或 Playwright 脚本里 `page.screenshot`。流程：开页 → 拿元素句柄 → 操作到那个可验证点 → **轮询运行时日志等真事件到达**（真 LLM 慢，用 `until grep ... backend.log`，别定时死等）→ 截图。
-5. **证据落地**：截图 + 运行时日志片段都存进 **tracked 证据目录**（如 `docs/evidence/<id>/`）。若自动化工具只能写到它的 workspace root，先存那里再 `mv` 进去。
-6. **可观测性缝**：模型/UI 上看不出来的装配信息（middleware 组成、context 上限、工具集…）在产品侧加一行 INFO 运行时日志专门打印，UI + 日志双证。
-7. **收尾**：停掉自己起的服务（按端口 `lsof -ti tcp:<port>` kill，或 TaskStop 后台任务）；清临时文件；**revert 所有临时脚手架**；确认生产端口/数据全程未动。
-
-具体项目的落地命令见对应 runbook，例如 [references/north-coder.md](references/north-coder.md)（north-coder 的端口/二进制/env）。别的项目照它的**思路**写一份自己的。
-
-## 环境确实跑不起来时（诚实报阻塞 ≠ 合理化跳过）
-
-若本环境**客观上无法**端到端验证——没有浏览器自动化（无 browser MCP / 无显示 / headless cron）、或起不了服务、或缺权限——**明确报出「因 X 无法端到端验证，此点未验证」作为阻塞项，并说清缺什么才能验**。**禁止**在这种情况下用测试/日志顶替再声称"已验证 / works"。
-
-区别很硬：**"我这儿真跑不起来，卡在 X"** 是诚实阻塞；**"跑得起来但我觉得不值得 / 用测试更稳"** 是 red flags 表里的合理化跳过——后者不许。
-
-## 什么算合格证据
-
-- **UI 可见点的主证据**：真实界面截图，看得到那个可验证点（工具集 / 报错 / 状态 / 委派树 …）。
-- **UI 不可见但改变产品行为的点**：其**主证据就是那段真实运行日志文本**（打印模型不自知的装配信息，如 max_context_tokens / middleware）+ 触发它的真 app 上下文——**不是"日志的截图"**（文本可搜可 diff，比截一张文字的照片更好）。
-- **对照 / RED 反验（headline 结论 MUST，其余点可选）**：关掉修复 → 证据显示旧的坏行为，红/绿对比才算闭环，证明证据非空过。
-- 全部入库（tracked 目录），并在结论文档里交叉链接到对应自动化测试（测试防回归、真 app 证据证真实，两者都留）。
-
-## 完成判据（收工前逐条自检，缺一条 = 未完成）
-
-- [ ] 每个 UI 可见点：tracked 目录里有真 app 截图。
-- [ ] 每个 UI 不可见但改变产品行为的点：tracked 目录里有真实运行日志文本 + 触发上下文。
-- [ ] headline 结论有 RED 反验对照（关掉修复 → 旧坏行为）。
-- [ ] 临时脚手架全 revert；生产端口/数据未动；自起服务已停。
-- [ ] 结论文档交叉链接了对应自动化测试。
-- [ ] 客观跑不起来的点：已明写「因 X 未验证」阻塞项，未用测试/日志顶替声称"已验证"。
+If the application cannot start or the required browser, service, or permission is unavailable, identify the missing prerequisite and mark that behavior unverified. Do not replace the missing run with another kind of check and claim equivalent coverage.

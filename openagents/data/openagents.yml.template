@@ -37,8 +37,8 @@ version: 1
 # execution_evidence:
 #   required: true
 
-# 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。
-# 缺省角色回落 claude_code。v0.2 仅使用 spec_writer / spec_curator / developer / acceptance。
+# 逐角色后端声明（当前 CLI 尚未据此路由；实际由 OPENAGENTS_BACKEND 统一选择）。
+# 声明缺省值为 claude_code。v0.2 使用 spec_writer / spec_curator / developer / acceptance。
 agents:
   architect:   { backend: claude_code }
   spec_writer: { backend: claude_code }
@@ -63,7 +63,7 @@ stages:
   review:   agent      # 代码评审        取值: agent / skip
   merge:    agent      # 合并            取值: agent (不可 skip)
 
-# 顶层发版策略：manual(人决定何时发版，默认最安全) / auto。
+# 顶层发版策略：manual(显式命令发布，默认)；auto 可解析，自动发布尚未实现。
 release: manual
 
 # 单仓库默认(多仓时被每仓 override 覆盖)。

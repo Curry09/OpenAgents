@@ -130,8 +130,7 @@ tasks:
       - scripts/e2e-spec-0093-execution-contracts.sh
       - tests/test_backend_nexau_http.py
       - tests/test_execution_contract_delivery.py
-      - docs/validation/execution-contract-preservation.md
-      - docs/AUTO_DESIGNER.md
+      - docs/integrations/ahe-beta.md
       - docs/RELEASING.md
       - tests/fixtures/execution_evidence_contract.json
     scope: 覆盖真实发布读取、上下文与恢复，使用真实NexAU构造和受控HTTP验证非零模型请求，说明候选reader基线、支持范围和使用条件验收。

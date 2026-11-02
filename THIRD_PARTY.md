@@ -1,9 +1,24 @@
-# Third-party sources
+# Third-party sources and licenses
 
-项目自有代码按根 MIT LICENSE 分发；Python、Electron、React、Vite、模型 SDK 等依赖保留各自许可证，不能由本仓统一重新授权。Python 来源/版本见 `uv.lock`，桌面依赖见 `apps/desktop/package-lock.json`。
+English | [简体中文](THIRD_PARTY.zh-CN.md)
 
-NexAU 可选后端来自 [hzhua/nexau](https://github.com/hzhua/nexau)，固定提交 `28511d9f0362191a6c378fd441b2be55309a9e32`，适用 Apache-2.0。本仓不复制 SDK 源码；源码安装和 OpenAgents wheel 的 nexau extra 均声明同一固定 Git 来源，上游许可证与版权声明随 SDK 分发保留。Claude Code / Codex 是外部 CLI，使用者按其分发方式安装并遵守其条款；本项目许可证不授予外部服务访问权。
+OpenAgents' own code is distributed under the [MIT License](LICENSE). Dependencies and externally supplied materials retain their respective licenses and attribution.
 
-`openagents/spec/` 同时被 auto-designer 以 vendored 形式使用；复制时必须保留本仓 LICENSE 和可追溯的来源记录。
+## Dependency sources
 
-`docs/e2e-results/` 等实验取证、用户提供的目标代码与模型输出需要分别检查，不能仅因位于仓库就推定全部第三方内容按 MIT 分发。完整历史/发布资产扫描和依赖许可汇总列为公开前检查项。
+| Component | Source and version record | Distribution |
+| --- | --- | --- |
+| Python dependencies | [`pyproject.toml`](pyproject.toml) and [`uv.lock`](uv.lock) | Installed as separate packages; consult each package's license |
+| NexAU optional backend | [hzhua/nexau](https://github.com/hzhua/nexau), commit `28511d9f0362191a6c378fd441b2be55309a9e32` | Apache-2.0; fixed Git dependency, not a vendored source tree |
+| Desktop dependencies, including Electron, React, and Vite | [`apps/desktop/package.json`](apps/desktop/package.json) and [`package-lock.json`](apps/desktop/package-lock.json) | Installed through npm; bundled distributions must retain applicable notices |
+| Claude Code | Externally installed CLI | Distributed separately under its own terms |
+
+The base package and the `nexau` extra have different dependency sets. Source and wheel metadata declare the same fixed NexAU Git source. Keep its upstream license, copyright, and any applicable notices when distributing it. OpenAgents' MIT license does not grant access to model services or change their terms.
+
+## Reused project code
+
+AHE-Beta reuses the `openagents/spec/` tooling. Copies of that code must preserve OpenAgents' license and source provenance; the receiving project's license does not replace the original notices.
+
+## Target repositories and generated material
+
+Target repository code, task datasets, model output, and user-provided materials are not relicensed merely by being processed by OpenAgents. Review their source licenses and distribution permissions when publishing evidence or release assets. Runtime records may also contain private task content; see [Security](SECURITY.md) before sharing them.

@@ -22,7 +22,7 @@ architecture:
         - worker claim ordering
       evidence:
         - tests/test_preflight.py
-        - docs/e2e-results/preflight-20260911/REPORT.md
+        - https://github.com/Curry09/OpenAgents/blob/e5b66cef17452513373e5f1d4da192c824b288fb/docs/e2e-results/preflight-20260911/REPORT.md
       tradeoffs: Adds a bounded advisory call and cache while leaving eligibility and delivery gates unchanged.
     - id: mandatory-planning-barrier
       layer: execution scheduler
@@ -95,7 +95,6 @@ tasks:
       - tests/test_preflight.py
       - tests/test_recipe_vigil_act.py
       - tools/preflight_stress.py
-      - docs/e2e-results/preflight-20260911/REPORT.md
       - docs/specs/0091-lightweight-preflight.md
     scope: Implement bounded advisory planning, durable input fingerprints, sanitized cache persistence, cooldown/retry behavior, and queue ordering that never changes issue eligibility.
     acceptance: Unit and concurrency tests cover invalid output, timeout, cache/restart/edit, partial admission, lock contention, advisory cycles, and concurrent claims; validation records scheduling cost without presenting it as developer correctness.
@@ -142,7 +141,7 @@ Claims 继续使用 SQLite `BEGIN IMMEDIATE` 与 flock。验证覆盖 invalid ou
 
 ## Prior art
 
-实现复用现有 Vigil queue、SQLite claim 和 token ledger；没有引入新的调度器或持久化服务。验证报告位于 `docs/e2e-results/preflight-20260911/REPORT.md`。
+实现复用现有 Vigil queue、SQLite claim 和 token ledger；没有引入新的调度器或持久化服务。验证报告保留在 [Git 历史](https://github.com/Curry09/OpenAgents/blob/e5b66cef17452513373e5f1d4da192c824b288fb/docs/e2e-results/preflight-20260911/REPORT.md)中。
 
 ## Unresolved questions
 
