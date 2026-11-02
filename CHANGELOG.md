@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased — open-source preparation
+## Unreleased
 
-- Add MIT licensing, contributor/security guidance and joint-release documentation.
-- Declare the pinned optional NexAU backend and installation checks.
-- Align CI and local dependency installation with committed lockfiles.
-- Add desktop lockfile, typecheck/test/build CI and wheel installation smoke check.
-- Document Gitea, standard/v0.2 flow selection and automatic review/merge behavior.
+- Add MIT licensing and bilingual project, contributor, security, and third-party documentation.
+- Pin the optional NexAU backend to a fixed upstream commit and verify its installed provenance.
+- Use committed lockfiles for source checks; verify base and NexAU-enabled wheel installations.
+- Add desktop type checking, tests, and bundle checks.
+- Support Gitea.com evidence transport and required execution-condition delivery to agent roles.
 
-This is preparation on top of the recorded baseline, not a published release.
+Published versions and their artifacts are listed in [GitHub Releases](https://github.com/Curry09/OpenAgents/releases).

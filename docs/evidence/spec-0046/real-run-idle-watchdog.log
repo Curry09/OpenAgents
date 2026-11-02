@@ -1,6 +1,0 @@
-[14:51:21] 触发上下文: 真 Popen 起假 claude(吐1行 stream-json 后 sleep 999s), OPENAGENTS_CLAUDE_IDLE_TIMEOUT=1s, 直跑生产代码 _run_claude_streaming
-启动，正在思考...
-[14:51:23] 看门狗触发, 耗时 2.02s (≈idle 1s, 非硬超时误杀)
-    抛出 RuntimeError: Claude Code CLI 调用停顿超时（连续静默 1s 无新输出）——已终止子进程（idle=1s, max_wall=0s）
-    真子进程 pid=33207 已被终止, returncode=-15 (SIGTERM)
-    ✓ 生产代码真的杀掉了真僵死子进程并 fail-open 抛错（交上游隔离、跳过、下轮重试）

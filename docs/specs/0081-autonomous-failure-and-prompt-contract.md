@@ -242,7 +242,6 @@ tasks:
     parallel: false
     files:
       - README.md
-      - docs/e2e-results/0081-autonomous-failure-and-prompt-contract.md
       - docs/specs/0081-autonomous-failure-and-prompt-contract.md
       - scripts/e2e-spec-0058-needs-human-reply-unblock.sh
       - scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh

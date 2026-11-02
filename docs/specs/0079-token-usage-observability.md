@@ -164,7 +164,6 @@ tasks:
       - scripts/e2e-spec-0079-token-usage-observability.sh
       - scripts/live-spec-0079-token-usage-observability.sh
       - scripts/live_spec_0079_token_usage_observability.py
-      - docs/e2e-results/0079-token-usage-observability.md
     scope: 离线脚本跑 lint、针对性测试、spec validate/render/graph check；opt-in live canary 通过 OpenAgents 的现有 ClaudeCodeBackend 发最小请求，对照 result.usage、AgentResult、ledger 与 report，只保存字段名、计数和版本等脱敏证据。
     acceptance: 离线脚本全绿；在 Claude Code 已配置用户 API 的验收环境中 live 脚本至少成功一次，证据包含 backend/model、result usage 字段、账本值、报告值及三者一致性；没有成功模型响应时 T5 不得标 done。
 ---

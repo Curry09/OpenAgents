@@ -1,7 +1,7 @@
 """Spec-0093/T3: shared wire, transport, recovery and final role-input boundaries.
 
 These assertions observe deterministic delivery, not model understanding. The
-separate real-role canary is described in docs/validation/execution-contract-preservation.md.
+separate real-role canary and its limits are described in docs/VERIFICATION.md.
 """
 
 import importlib.util

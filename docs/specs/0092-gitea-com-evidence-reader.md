@@ -124,7 +124,7 @@ tasks:
       - tests/fixtures/observation_transport_contract.json
       - scripts/check_observation_reader.py
       - tests/test_observation_reader_contract.py
-      - docs/AUTO_DESIGNER.md
+      - docs/integrations/ahe-beta.md
       - docs/RELEASING.md
       - docs/cli.md
     scope: 提供稳定跨仓契约 fixture 与真实 prepare 检查入口，记录部署 reader 后启用 writer 的顺序及失败/回滚行为。

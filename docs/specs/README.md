@@ -1,12 +1,16 @@
 # OpenAgents Specs
 
-本目录存放 OpenAgents 的「当前规格」。每个 spec 组 = **一个 markdown 文件** `NNNN-slug.md`：
+本目录保存 OpenAgents 的设计规格与任务状态。每个 spec 组 = **一个 markdown 文件** `NNNN-slug.md`：
 YAML frontmatter 放结构化源数据（机器读：组元数据 + `tasks[]` 工作分解 DAG），正文放
 **组级 rust-RFC 9 段总览**（人/agent 读）。
 
 > 形态对标 [rust-lang/rfcs](https://github.com/rust-lang/rfcs)：一篇 spec 像一篇 RFC，
 > feature 全貌先讲清楚（总览先行），DAG + 文件分配收进 Reference-level（issue #69，
 > 见 `2026-06-25-spec-rfc-form-design.md`）。
+
+## 阅读入口
+
+安装和使用以[项目说明](../../README.zh-CN.md)及[配置指南](../CONFIGURATION.zh-CN.md)为准；当前模块划分见[架构指南](../ARCHITECTURE.zh-CN.md)。本目录的早期设计正文可能描述已退役模块或历史验证方式，不应直接作为当前启动步骤。单次验收产物已从工作树移除，原始记录仍可在 Git 历史中查看；`files` 映射随文件整理更新，历史背景保留原文。
 
 ## What a spec is
 

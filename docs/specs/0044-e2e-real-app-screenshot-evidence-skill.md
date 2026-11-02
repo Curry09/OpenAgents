@@ -15,7 +15,7 @@ tasks:
     parallel: false
     files:
       - docs/skills/end-to-end-ui-screenshots/SKILL.md
-      - docs/skills/end-to-end-ui-screenshots/references/north-coder.md
+      - docs/skills/end-to-end-ui-screenshots/references/reference-app.md
       - docs/skills/end-to-end-ui-screenshots/references/_runbook-template.md
     scope: 把源 ~/.claude/skills/end-to-end-ui-screenshots/ 的 SKILL.md（核心原则 + 反惰性 rationalization 表 + red flags + 通用流程 + 完成判据）与 references/north-coder.md 逐字搬进 docs/skills/end-to-end-ui-screenshots/，不改写不删纪律；另加 references/_runbook-template.md，固化「通用方法 vs 项目专属命令」拆分为填空模板。不写 .claude/（硬约束）。
     acceptance: SKILL.md 与 north-coder.md 内容与源逐字一致（含 rationalization 表全部行、case2 vs case3 判据、诚实报阻塞纪律、完成判据清单），非空壳；_runbook-template.md 含「通用方法/项目专属命令」两分区占位；grep 锚点字符串（反惰性 / rationalization / 诚实报阻塞 / 完成判据）全部命中；未新增或改动 .claude/ 下任何文件。
