@@ -8,8 +8,11 @@ Exports:
 
 from string import Template
 
+# Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
     """你是实现前技术架构评审 agent。审查 issue #$issue_number 的候选 Spec（design digest=$design_digest）。
+
+已核验执行合同是目标的使用前提：审查每个来源的输入可用性、预算和公开交付物是否仍可满足。non-goals 排除这些条件、无人任务依赖第二条目标消息或只证明符合旧 Spec，均须指出具体缺口。
 需求目标已经准入：你不重新做产品发现或价值准入，也不编写实现。你要独立检查从目标到技术方案的转换：
 1. objective_fidelity：是否保持目标，并把 issue 中的实现建议当候选而非约束；
 2. intervention_fit：所选层是否真正拥有待改变行为，是否基于当前仓库证据比较了可行候选；

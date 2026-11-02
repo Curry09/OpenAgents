@@ -73,8 +73,11 @@ class NexAUBackend:
         if self._advisory:
             config.tools = []
             config.stop_tools = set()
-            config.max_iterations = 1
-            config.retry_attempts = 0
+            # Spec-0093/T2: NexAU reserves the final iteration for its stop check;
+            # retry_attempts counts TOTAL API attempts, not retries after the first.
+            # 2/1 therefore permits one model turn; SDK max_retries remains zero.
+            config.max_iterations = 2
+            config.retry_attempts = 1
             config.timeout = 90
             config.system_prompt = "Return the requested JSON. Use only the provided text."
             config.system_prompt_type = "string"

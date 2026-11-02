@@ -6,7 +6,7 @@
 
 `release/compatibility.json` 的 `baseline_commit` 保留整理前的审计来源，`openagents.integration_commit` 则记录当前跨仓 CI 使用的完整 SHA，**两者都不是整理完成后的正式发行版本**。整理 PR 合并并通过检查后，从双方目标分支取最终提交，生成发布资产中的完整 manifest，填写两仓 SHA/tag、NexAU、seed Harness tree、容器 digest、配置 profile、平台及验证结果。避免在提交内部记录自身 commit hash。
 
-两仓最终均从 main 发布。OpenAgents 功能分支已通过 [PR #185](https://github.com/Curry09/OpenAgents/pull/185) 合入 main，合并提交为 `1d4976c9a9e844037ddcadef8649aacb33edd950`。`chore/opensource-prep` 尚待评审合并；正式 tag 应包含这批许可、安装和 CI 整理改动。项目/前端/桌面组件版本可以不同，Release notes 解释各自范围。NexAU 的 extra 含固定 Git 来源，当前优先源码/GitHub wheel 发布；PyPI 发行前需另行验证 direct-reference 依赖政策与分发方案。
+两仓最终均从 main 发布。OpenAgents 功能分支已通过 [PR #185](https://github.com/Curry09/OpenAgents/pull/185) 合入 main，合并提交为 `1d4976c9a9e844037ddcadef8649aacb33edd950`。`chore/opensource-prep` 尚待评审合并；正式 tag 应包含这批许可、安装和 CI 整理改动。项目/前端/桌面组件版本可以不同，Release notes 解释各自范围。NexAU 的 extra 固定到 hzhua/nexau 的提交 28511d9f0362191a6c378fd441b2be55309a9e32，当前优先源码/GitHub wheel 发布；PyPI 发行前需另行验证 direct-reference 依赖政策与分发方案。
 
 ## 已纳入本轮代码的检查
 
@@ -44,3 +44,30 @@ GitHub CI 的跨仓 checkout 要求对方仓库可读；首次公开前若仍是
 - 构建镜像时使用该 OpenAgents checkout；发行资产记录实际镜像 digest，不能仅更新 Git ref 就宣称旧镜像含有新代码。
 
 流程为：合并整理改动 → 更新包版本与发布说明 → 固定候选提交并验证 → 打不可变 tag、构建和验收 Release 资产。候选提交到正式 tag 若有变化，应重新验证；已有正式 tag 不移动。
+
+## Evidence transport rollout (Spec-0092)
+
+Deploy the gzip/ZIP reader before enabling ZIP publication in auto-designer. Record the
+actual executable or image identity and run `openagents observation-capabilities --json`
+in that environment with `OPENAGENTS_NO_SELF_UPDATE=1`. Keep self-update disabled in
+new-path delivery processes so the checked reader remains the selected runtime.
+
+Run `uv run --locked python scripts/check_observation_reader.py` for the offline fixture
+contract, then use auto-designer's cross-repository check with the pinned producer and
+reader. Separately verify synthetic evidence on self-hosted Gitea and Gitea.com, in the
+actual E2B and container/proxy deployment paths. Require actual read-only files and
+verified session scope; continued delivery after an evidence warning is not a pass.
+
+Old gzip artifacts and handles need no migration. Reverting the publisher is safe only
+where the selected site still accepts gzip and direct same-origin downloads. On
+Gitea.com, stop new dispatches if the old transport cannot work; do not silently switch
+formats within a resumed experiment. Do not publish future commit/image digests as if
+already validated. Deployment pins and live probe results belong to the paired release.
+
+## 执行条件协议的联合发布（Spec-0093）
+
+本次实现基于 Gitea.com reader 候选 `a752e8830a13f44d97a3043d1f3e8dd16bd8d8aa`；该值是开发基线，不代表此次功能已发布。合并时先理顺该 reader 基线，再将已通过联合验收的实际提交固定到发布端。不得预写未来 SHA 或修改既有实验的冻结版本。
+
+新增协商项为 `execution_evidence` schema 1，以及可信项目配置 `execution_evidence.required`。发布端确认实际安装具有 required dispatch 能力后才启用。两仓共享 `tests/fixtures/execution_evidence_contract.json` 的 wire 内容；发布前要比较 fixture、运行 reader 最终上下文探针及发布端真实 gzip/ZIP readback。私有评分计划、答案、原始 verifier 日志及凭证不进入该接口。
+
+默认 standard 的实际起草角色为 drafter；显式 v0.2 使用 spec_writer/developer。两条路径均通过统一 engine 注入。其他 flow 可复用同一机制，但未单独验证时不将其宣传为此次已验收范围。模型行为 canary 与确定性送达测试分别记录，见 [执行条件保留验收记录](validation/execution-contract-preservation.md)。

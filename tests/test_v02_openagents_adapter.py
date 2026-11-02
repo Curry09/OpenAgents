@@ -294,3 +294,26 @@ def test_acceptance_pass_is_bound_to_user_test_artifact(monkeypatch, tmp_path):
     assert result.evidence[0]["source"] == "user_test"
     assert received["require_user_test"] is True
     assert received["user_test_result"]["status"] == "completed"
+
+
+def test_v02_requirement_persists_before_roles_and_survives_restart(monkeypatch, tmp_path):
+    from openagents.runtime import context
+    from openagents.v02.model import NodeResult
+
+    seen = []
+
+    def inspect(self, *, issue):
+        seen.append(context.execution_required(issue_number=issue.number))
+        return NodeResult(issue.number, "BLOCKED", "controlled no-model probe")
+
+    monkeypatch.setattr(OpenAgentsAdapter, "_write_spec", inspect)
+    issue = IssueInput(7, "public issue", "no evidence marker here")
+    OpenAgentsAdapter(
+        backend=object(), work_dir=tmp_path, execution_evidence_required=True
+    ).write_spec(issue=issue)
+    OpenAgentsAdapter(backend=object(), work_dir=tmp_path).write_spec(issue=issue)
+    OpenAgentsAdapter(backend=object(), work_dir=tmp_path).write_spec(
+        issue=IssueInput(8, "ordinary", "body")
+    )
+    assert seen == [True, True, False]
+    assert context.execution_required(issue_number=7) is False

@@ -19,8 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 nexau = [
-    "nexau @ git+https://github.com/nex-agi/NexAU.git@5cd791b1382f1163621c9ff0b50c2cf01c4ba923",
+    "nexau @ git+https://github.com/hzhua/nexau.git@28511d9f0362191a6c378fd441b2be55309a9e32",
     "ag-ui-protocol==0.1.22",
+    "anthropic<1",
+    # NexAU imports SQLAlchemy's asyncio engine even without an async DB driver.
+    "greenlet>=3.0.0",
 ]
 dev = [
     "ruff>=0.9.0",

@@ -2,7 +2,7 @@
 
 项目自有代码按根 MIT LICENSE 分发；Python、Electron、React、Vite、模型 SDK 等依赖保留各自许可证，不能由本仓统一重新授权。Python 来源/版本见 `uv.lock`，桌面依赖见 `apps/desktop/package-lock.json`。
 
-NexAU 可选后端从 `pyproject.toml` 中固定的官方 Git 提交安装。Claude Code / Codex 是外部 CLI，使用者按其分发方式安装并遵守其条款；本项目许可证不授予外部服务访问权。
+NexAU 可选后端来自 [hzhua/nexau](https://github.com/hzhua/nexau)，固定提交 `28511d9f0362191a6c378fd441b2be55309a9e32`，适用 Apache-2.0。本仓不复制 SDK 源码；源码安装和 OpenAgents wheel 的 nexau extra 均声明同一固定 Git 来源，上游许可证与版权声明随 SDK 分发保留。Claude Code / Codex 是外部 CLI，使用者按其分发方式安装并遵守其条款；本项目许可证不授予外部服务访问权。
 
 `openagents/spec/` 同时被 auto-designer 以 vendored 形式使用；复制时必须保留本仓 LICENSE 和可追溯的来源记录。
 

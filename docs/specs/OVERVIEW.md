@@ -301,6 +301,14 @@ Spec 自引用重编号不撤销语义审批；合理设计变化回到已有评
 ### 0091 Lightweight advisory coordination
 Add bounded, advisory preflight planning and soft queue coordination without turning planning into a delivery barrier.
 
+### 0092 兼容 Gitea.com 的证据读取与能力声明
+兼容旧 gzip 证据并读取 ZIP，限定签名下载边界，为 auto-designer 提供真实运行时能力检查与联合验收。
+- e2e 意图：同一证据在旧自建与 Gitea.com 路径中真实被 reader 获取且旧路径无回归。
+  - 测法：使用合成授权证据和独立探针 issue，验证 gzip/ZIP 两种包在真实 prepare 中产生正确只读副本；分别检查实际部署能力、重定向认证边界和拒绝用例。
+
+### 0093 交付链保留执行条件与独立验收摘要
+验证并注入发布者提供的安全执行合同，使 Spec、架构审查和代码审查保留无人输入、预算及产物验收前提，不接触私有 grader。
+
 ## 全局看板
 
 | 组 | 任务 | 标题 | 状态 | 依赖 | 涉及文件 |
@@ -624,6 +632,13 @@ Add bounded, advisory preflight planning and soft queue coordination without tur
 | 0089 | 0089/T2 | 清理 Claude 进程组并闭合恢复后的退出边界 | in-progress | T1 | openagents/backends/claude_code.py<br>tests/test_backend_claude_code.py<br>docs/specs/0089-delivery-review-recovery.md |
 | 0090 | 0090/T1 | 终态复核与可修复故障回流 | done | — | openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_runtime_gates.py<br>scripts/e2e-spec-0090.sh<br>docs/specs/0090-convergence-safety.md |
 | 0091 | 0091/T1 | Bounded advisory preflight and soft scheduling | done | — | openagents/agents/coordinator.py<br>openagents/backends/claude_code.py<br>openagents/backends/nexau.py<br>openagents/data/openagents.yml.template<br>openagents/recipes/vigil.py<br>openagents/runtime/engine.py<br>openagents/runtime/preflight.py<br>openagents/utils/agent_config.py<br>tests/test_backend_claude_code.py<br>tests/test_backend_nexau.py<br>tests/test_preflight.py<br>tests/test_recipe_vigil_act.py<br>tools/preflight_stress.py<br>docs/e2e-results/preflight-20260911/REPORT.md<br>docs/specs/0091-lightweight-preflight.md |
+| 0092 | 0092/T1 | 兼容旧句柄的双格式证据解码 | done | — | openagents/observations/evidence.py<br>tests/test_observation_evidence.py |
+| 0092 | 0092/T2 | 仅针对 Gitea.com 的受限签名下载 | done | — | openagents/utils/gitea.py<br>tests/test_observation_transport.py |
+| 0092 | 0092/T3 | 无副作用的实际 reader 能力命令 | done | T1, T2 | openagents/cli.py<br>openagents/observations/capabilities.py<br>tests/test_observation_capabilities.py<br>tests/test_cli.py |
+| 0092 | 0092/T4 | 联合契约样例与升级验收 | done | T1, T2, T3 | tests/fixtures/observation_transport_contract.json<br>scripts/check_observation_reader.py<br>tests/test_observation_reader_contract.py<br>docs/AUTO_DESIGNER.md<br>docs/RELEASING.md<br>docs/cli.md |
+| 0093 | 0093/T1 | 安全执行合同读取和能力声明 | done | — | openagents/observations/execution_contracts.py<br>openagents/observations/evidence.py<br>openagents/observations/capabilities.py<br>scripts/check_observation_reader.py<br>tests/test_observation_execution_contracts.py<br>tests/test_observation_evidence.py<br>tests/test_observation_reader_contract.py<br>tests/test_observation_capabilities.py<br>openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>tests/test_agent_config.py |
+| 0093 | 0093/T2 | 统一上下文注入与角色使用条件检查 | done | T1 | openagents/cli.py<br>openagents/v02/openagents_adapter.py<br>tests/test_v02_openagents_adapter.py<br>openagents/backends/nexau.py<br>tests/test_backend_nexau.py<br>openagents/runtime/engine.py<br>openagents/runtime/context.py<br>openagents/agents/spec_writer.py<br>openagents/agents/architect.py<br>openagents/agents/implementer.py<br>openagents/agents/reviewer.py<br>tests/test_runtime_engine.py<br>tests/test_runtime_context.py<br>tests/test_agents_architect.py<br>openagents/agents/drafter.py<br>openagents/agents/developer.py<br>openagents/runtime/state.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py |
+| 0093 | 0093/T3 | 联合传输与真实角色验收 | in-progress | T1, T2 | scripts/e2e-spec-0093-execution-contracts.sh<br>tests/test_backend_nexau_http.py<br>tests/test_execution_contract_delivery.py<br>docs/validation/execution-contract-preservation.md<br>docs/AUTO_DESIGNER.md<br>docs/RELEASING.md<br>tests/fixtures/execution_evidence_contract.json |
 
 ## 跨 feature 关系图
 
@@ -1122,6 +1137,17 @@ graph LR
     subgraph G0091[0091 lightweight-preflight]
         n0091_T1["T1 Bounded advisory preflight and soft scheduling"]
     end
+    subgraph G0092[0092 gitea-com-evidence-reader]
+        n0092_T1["T1 兼容旧句柄的双格式证据解码"]
+        n0092_T2["T2 仅针对 Gitea.com 的受限签名下载"]
+        n0092_T3["T3 无副作用的实际 reader 能力命令"]
+        n0092_T4["T4 联合契约样例与升级验收"]
+    end
+    subgraph G0093[0093 execution-contract-preservation]
+        n0093_T1["T1 安全执行合同读取和能力声明"]
+        n0093_T2["T2 统一上下文注入与角色使用条件检查"]
+        n0093_T3["T3 联合传输与真实角色验收"]
+    end
     n0001_T2 --> n0001_T1
     n0001_T3 --> n0001_T1
     n0001_T4 --> n0001_T2
@@ -1386,6 +1412,14 @@ graph LR
     n0086_T3 --> n0086_T2
     n0088_T2 --> n0088_T1
     n0089_T2 --> n0089_T1
+    n0092_T3 --> n0092_T1
+    n0092_T3 --> n0092_T2
+    n0092_T4 --> n0092_T1
+    n0092_T4 --> n0092_T2
+    n0092_T4 --> n0092_T3
+    n0093_T2 --> n0093_T1
+    n0093_T3 --> n0093_T1
+    n0093_T3 --> n0093_T2
     n0023_T1 -.supersedes.-> n0012_T2
     n0023_T2 -.supersedes.-> n0012_T5
     n0023_T3 -.supersedes.-> n0012_T4
@@ -1403,35 +1437,39 @@ graph LR
 | apps/desktop/src/renderer/src/nav/pending.test.ts | 0073, 0081 |
 | apps/desktop/src/renderer/src/nav/pending.ts | 0073, 0081 |
 | apps/desktop/src/renderer/src/types.ts | 0073, 0081 |
+| docs/AUTO_DESIGNER.md | 0092, 0093 |
+| docs/RELEASING.md | 0092, 0093 |
+| docs/cli.md | 0079, 0092 |
 | docs/rfcs/README.md | 0007, 0008, 0013 |
 | docs/specs/README.md | 0014, 0024, 0029 |
 | openagents/__init__.py | 0001, 0029 |
 | openagents/agents/acceptance.py | 0082, 0085, 0086 |
 | openagents/agents/admitter.py | 0065, 0081 |
-| openagents/agents/architect.py | 0076, 0081 |
+| openagents/agents/architect.py | 0076, 0081, 0093 |
 | openagents/agents/curator.py | 0065, 0081 |
 | openagents/agents/deliver.py | 0017, 0060, 0081, 0089 |
-| openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081 |
+| openagents/agents/developer.py | 0085, 0093 |
+| openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081, 0093 |
 | openagents/agents/executor.py | 0082, 0089 |
-| openagents/agents/implementer.py | 0059, 0060, 0077, 0081, 0082 |
+| openagents/agents/implementer.py | 0059, 0060, 0077, 0081, 0082, 0093 |
 | openagents/agents/merger.py | 0017, 0074, 0075, 0081, 0089 |
 | openagents/agents/planner.py | 0060, 0064 |
 | openagents/agents/replier.py | 0016, 0059, 0061, 0081 |
-| openagents/agents/reviewer.py | 0060, 0076, 0081, 0089 |
-| openagents/agents/spec_writer.py | 0082, 0083, 0085 |
+| openagents/agents/reviewer.py | 0060, 0076, 0081, 0089, 0093 |
+| openagents/agents/spec_writer.py | 0082, 0083, 0085, 0093 |
 | openagents/agents/tester.py | 0060, 0076, 0081, 0089 |
 | openagents/agents/triager.py | 0061, 0081 |
 | openagents/backends/__init__.py | 0001, 0029 |
 | openagents/backends/base.py | 0001, 0029, 0046, 0078, 0079 |
 | openagents/backends/claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0073, 0078, 0079, 0081, 0089, 0091 |
-| openagents/backends/nexau.py | 0085, 0091 |
+| openagents/backends/nexau.py | 0085, 0091, 0093 |
 | openagents/backfill.py | 0025, 0029 |
 | openagents/blocknote.py | 0032, 0041 |
-| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085, 0086, 0089 |
+| openagents/cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0016, 0020, 0023, 0025, 0027, 0028, 0029, 0030, 0038, 0054, 0055, 0060, 0061, 0062, 0063, 0064, 0065, 0066, 0067, 0069, 0070, 0073, 0074, 0078, 0081, 0085, 0086, 0089, 0092, 0093 |
 | openagents/config.py | 0001, 0029, 0033 |
 | openagents/conflict.py | 0028, 0036, 0038, 0045, 0056 |
 | openagents/conflictdiag.py | 0034, 0038, 0045 |
-| openagents/data/openagents.yml.template | 0067, 0074, 0081, 0082, 0085, 0091 |
+| openagents/data/openagents.yml.template | 0067, 0074, 0081, 0082, 0085, 0091, 0093 |
 | openagents/desktop/daemon.py | 0073, 0081 |
 | openagents/e2e.py | 0013, 0029, 0040 |
 | openagents/envcheck.py | 0030, 0055 |
@@ -1441,6 +1479,8 @@ graph LR
 | openagents/github.py | 0001, 0002, 0003, 0004, 0005, 0006, 0009, 0010, 0011, 0012, 0022, 0023, 0029, 0032, 0039, 0042, 0043, 0045, 0049, 0053, 0055 |
 | openagents/identity.py | 0011, 0029, 0032, 0049 |
 | openagents/messages.py | 0001, 0005, 0006, 0009, 0011, 0012, 0020, 0021, 0022, 0023, 0028, 0029, 0031, 0032, 0034, 0036, 0038, 0040, 0041, 0042, 0045, 0051, 0053, 0054, 0055, 0057 |
+| openagents/observations/capabilities.py | 0092, 0093 |
+| openagents/observations/evidence.py | 0087, 0092, 0093 |
 | openagents/orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0028, 0029, 0030, 0036, 0038, 0039, 0040, 0043, 0044, 0045, 0047, 0049, 0051, 0052, 0055, 0056, 0057 |
 | openagents/promote.py | 0012, 0023 |
 | openagents/rebase.py | 0009, 0011, 0028, 0029, 0034 |
@@ -1450,17 +1490,17 @@ graph LR
 | openagents/recipes/poll_comments.py | 0061, 0062, 0064 |
 | openagents/recipes/rfc_lifecycle.py | 0062, 0064 |
 | openagents/recipes/solve_issue.py | 0060, 0064 |
-| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083, 0085, 0086, 0087, 0088, 0089 |
-| openagents/recipes/vigil.py | 0016, 0017, 0035, 0046, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082, 0087, 0088, 0089, 0090, 0091 |
+| openagents/recipes/stages.py | 0017, 0064, 0065, 0074, 0076, 0077, 0081, 0082, 0083, 0085, 0086, 0087, 0088, 0089, 0093 |
+| openagents/recipes/vigil.py | 0016, 0017, 0035, 0046, 0058, 0059, 0061, 0062, 0064, 0065, 0066, 0073, 0074, 0075, 0076, 0077, 0081, 0082, 0087, 0088, 0089, 0090, 0091, 0093 |
 | openagents/release.py | 0023, 0029 |
 | openagents/results.py | 0001, 0029 |
 | openagents/reviewer.py | 0012, 0021, 0029, 0030, 0040, 0041, 0044, 0047, 0048, 0050, 0052, 0055, 0057 |
 | openagents/rfc.py | 0008, 0013 |
-| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081, 0087 |
-| openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081, 0087, 0091 |
+| openagents/runtime/context.py | 0016, 0060, 0061, 0065, 0074, 0076, 0081, 0087, 0093 |
+| openagents/runtime/engine.py | 0059, 0060, 0075, 0078, 0079, 0081, 0087, 0091, 0093 |
 | openagents/runtime/evidence.py | 0076, 0086 |
 | openagents/runtime/gates.py | 0017, 0060, 0062, 0071, 0074, 0076, 0081, 0088, 0089, 0090 |
-| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081, 0088 |
+| openagents/runtime/state.py | 0016, 0060, 0062, 0063, 0065, 0076, 0077, 0081, 0088, 0093 |
 | openagents/runtime/token_usage.py | 0079, 0081 |
 | openagents/spec/cli.py | 0014, 0015, 0071 |
 | openagents/spec/model.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076, 0088 |
@@ -1471,7 +1511,7 @@ graph LR
 | openagents/spec/validate.py | 0014, 0015, 0024, 0040, 0055, 0072, 0076 |
 | openagents/state.py | 0001, 0003, 0005, 0006, 0007, 0011, 0012, 0021, 0023, 0029, 0031, 0032, 0036, 0042, 0049, 0053, 0055, 0063 |
 | openagents/templates/board.html | 0001, 0029 |
-| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081, 0082, 0085, 0091 |
+| openagents/utils/agent_config.py | 0064, 0067, 0074, 0076, 0081, 0082, 0085, 0091, 0093 |
 | openagents/utils/align.py | 0062, 0078 |
 | openagents/utils/blocknote.py | 0062, 0081 |
 | openagents/utils/config.py | 0061, 0062 |
@@ -1480,7 +1520,7 @@ graph LR
 | openagents/utils/fleet_config.py | 0061, 0062 |
 | openagents/utils/forge.py | 0074, 0081 |
 | openagents/utils/git.py | 0035, 0060, 0061 |
-| openagents/utils/gitea.py | 0074, 0075, 0081, 0087, 0089 |
+| openagents/utils/gitea.py | 0074, 0075, 0081, 0087, 0089, 0092 |
 | openagents/utils/github.py | 0017, 0060, 0061, 0062, 0065, 0074, 0081, 0089 |
 | openagents/utils/hold.py | 0061, 0062, 0081 |
 | openagents/utils/identity.py | 0016, 0061, 0062, 0063, 0064, 0074 |
@@ -1490,16 +1530,17 @@ graph LR
 | openagents/utils/skip.py | 0061, 0062, 0081 |
 | openagents/utils/workspace.py | 0035, 0062, 0068, 0081, 0089 |
 | openagents/v02/model.py | 0084, 0086 |
-| openagents/v02/openagents_adapter.py | 0085, 0086, 0087 |
+| openagents/v02/openagents_adapter.py | 0085, 0086, 0087, 0093 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |
+| scripts/check_observation_reader.py | 0092, 0093 |
 | scripts/e2e-spec-0034-conflict-diagnostics.sh | 0034, 0038 |
 | scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh | 0036, 0038 |
 | scripts/e2e-spec-0058-needs-human-reply-unblock.sh | 0058, 0081 |
 | tests/conftest.py | 0065, 0070, 0081 |
-| tests/test_agent_config.py | 0064, 0067, 0076, 0081, 0082, 0085 |
-| tests/test_agents_architect.py | 0076, 0081 |
+| tests/test_agent_config.py | 0064, 0067, 0076, 0081, 0082, 0085, 0093 |
+| tests/test_agents_architect.py | 0076, 0081, 0093 |
 | tests/test_agents_deliver.py | 0017, 0081 |
 | tests/test_agents_docstring_rule.py | 0059, 0081 |
 | tests/test_agents_drafter.py | 0062, 0076, 0081 |
@@ -1508,12 +1549,13 @@ graph LR
 | tests/test_agents_replier_issue.py | 0016, 0081 |
 | tests/test_agents_triager_replier.py | 0061, 0081 |
 | tests/test_backend_claude_code.py | 0001, 0003, 0029, 0030, 0046, 0065, 0078, 0079, 0081, 0089, 0091 |
+| tests/test_backend_nexau.py | 0091, 0093 |
 | tests/test_backfill.py | 0025, 0029 |
 | tests/test_base.py | 0001, 0029, 0078, 0079 |
 | tests/test_blocknote.py | 0032, 0081 |
 | tests/test_blocknote_hold_merge.py | 0041, 0081 |
 | tests/test_claim_dedup_integration.py | 0039, 0049 |
-| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069, 0081, 0085 |
+| tests/test_cli.py | 0001, 0002, 0003, 0004, 0005, 0009, 0011, 0012, 0020, 0023, 0025, 0029, 0030, 0038, 0055, 0063, 0065, 0067, 0069, 0081, 0085, 0092 |
 | tests/test_cli_new_stack.py | 0061, 0062, 0064, 0081 |
 | tests/test_cli_timing.py | 0066, 0078, 0079 |
 | tests/test_config.py | 0001, 0029, 0033 |
@@ -1541,6 +1583,9 @@ graph LR
 | tests/test_messages_merge_unblock.py | 0031, 0036, 0038 |
 | tests/test_messages_needs_human_unblock.py | 0032, 0036 |
 | tests/test_messages_resolve.py | 0028, 0029, 0038, 0045 |
+| tests/test_observation_capabilities.py | 0092, 0093 |
+| tests/test_observation_evidence.py | 0087, 0092, 0093 |
+| tests/test_observation_reader_contract.py | 0092, 0093 |
 | tests/test_orchestrator.py | 0001, 0003, 0005, 0007, 0008, 0011, 0012, 0013, 0022, 0023, 0024, 0025, 0029, 0030, 0040, 0044, 0047, 0051, 0055, 0056, 0057, 0062 |
 | tests/test_orchestrator_claim.py | 0039, 0049 |
 | tests/test_orchestrator_pr_body.py | 0028, 0029 |
@@ -1558,9 +1603,9 @@ graph LR
 | tests/test_results.py | 0001, 0029, 0063 |
 | tests/test_reviewer.py | 0012, 0021, 0029, 0030, 0040, 0044, 0047, 0048, 0050, 0055, 0057 |
 | tests/test_rfc.py | 0008, 0013 |
-| tests/test_runtime_context.py | 0060, 0065, 0076, 0081 |
+| tests/test_runtime_context.py | 0060, 0065, 0076, 0081, 0093 |
 | tests/test_runtime_context_issue_reply.py | 0016, 0081 |
-| tests/test_runtime_engine.py | 0060, 0075, 0078, 0079, 0081 |
+| tests/test_runtime_engine.py | 0060, 0075, 0078, 0079, 0081, 0093 |
 | tests/test_runtime_gates.py | 0017, 0060, 0076, 0081, 0088, 0089, 0090 |
 | tests/test_runtime_state.py | 0076, 0077, 0088 |
 | tests/test_runtime_state_converge.py | 0063, 0081 |
@@ -3935,4 +3980,60 @@ graph LR
     v_T1_1["T1 v1"]
     classDef st_done fill:#b7e4c7;
     class v_T1_1 st_done;
+```
+
+### 0092 兼容 Gitea.com 的证据读取与能力声明（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 兼容旧句柄的双格式证据解码"]
+    nT2["T2 仅针对 Gitea.com 的受限签名下载"]
+    nT3["T3 无副作用的实际 reader 能力命令"]
+    nT4["T4 联合契约样例与升级验收"]
+    nT1 --> nT3
+    nT2 --> nT3
+    nT1 --> nT4
+    nT2 --> nT4
+    nT3 --> nT4
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    v_T4_1["T4 v1"]
+    classDef st_done fill:#b7e4c7;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_done;
+    class v_T4_1 st_done;
+```
+
+### 0093 交付链保留执行条件与独立验收摘要（issue #0）
+
+```mermaid
+graph LR
+    nT1["T1 安全执行合同读取和能力声明"]
+    nT2["T2 统一上下文注入与角色使用条件检查"]
+    nT3["T3 联合传输与真实角色验收"]
+    nT1 --> nT2
+    nT1 --> nT3
+    nT2 --> nT3
+```
+
+演化图：
+
+```mermaid
+graph LR
+    v_T1_1["T1 v1"]
+    v_T2_1["T2 v1"]
+    v_T3_1["T3 v1"]
+    classDef st_done fill:#b7e4c7;
+    classDef st_in_progress fill:#fff3b0;
+    class v_T1_1 st_done;
+    class v_T2_1 st_done;
+    class v_T3_1 st_in_progress;
 ```

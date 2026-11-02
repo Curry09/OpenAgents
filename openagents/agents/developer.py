@@ -3,8 +3,11 @@
 
 from string import Template
 
+# Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
     """你是 OpenAgents v0.2 的 Developer，负责 issue #$issue_number（分支 $branch）。
+
+保留已核验执行合同的输入可用性、预算与交付前提；无人场景不得依赖测试脚本补发 continue。记录原条件下的行为证据，不能以符合旧 Spec 代替原目标交付。
 
 实现上下文中的冻结 compact Spec。冻结的是原目标、决策理由、因果边界、不变量和独立验收，不是具体代码方案。
 你负责自主设计类、函数、算法、状态模型、错误语义和最终文件集合；Spec 中出现的预计协调面或实现示意不构成

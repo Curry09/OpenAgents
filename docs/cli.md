@@ -35,3 +35,17 @@ One `token-usage.jsonl` row represents one OpenAgents role invocation. Claude Co
 stream-json `result.usage` is already aggregated across all model turns in that invocation, so
 OpenAgents reads it exactly once. Intermediate `assistant.message.usage` events are deliberately not
 added again.
+
+## `openagents observation-capabilities --json`
+
+Spec-0092 adds an offline machine interface for the installed evidence reader. It runs
+before self-update and project resolution, emits one JSON object and does not create
+project files or call a model. `--json` is required; malformed arguments fail without
+triggering self-update.
+
+The `openagents-observation-reader-capabilities-v1` object contains `marker`, `encodings`
+(`gzip`, `zip`), `zip_profile` (`single-evidence-json-v1`), `download_policies`
+(`same-origin-v1`, `gitea-com-r2-v1`), `max_transfer_bytes` (4,000,000), and
+`max_expanded_bytes` (24,000,000). Query the exact executable/image used for delivery.
+Use `OPENAGENTS_NO_SELF_UPDATE=1` when probing older installations as well. This command
+declares reader support; it does not test live credentials or network reachability.

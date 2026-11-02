@@ -8,8 +8,11 @@ Spec-0089/T1: review the committed candidate without modifying source or unignor
 
 from string import Template
 
+# Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
     """你是评审 agent。审查 PR #$pr_number 的改动，对照对应 spec 的验收标准逐条检查：
+
+若提供已核验执行合同，逐来源检查真实测试的输入收据、预算与交付物；无人场景被测试补发 continue/第二条目标消息后才通过，应 REWORK。心跳、查询、取消和显式预算授权分开核对。completed false 是未交付事实，归因仍可不确定；缺测不得记成 0 分，也不新增 benchmark 分数淘汰门。
 - 是否按 Task 的 acceptance 实现、代码注释是否引用 `# Spec-NNNN/Tn`；
 - ruff + pytest 是否通过、是否有明显正确性/漏测问题；
 - 全套测试必须在有界命令内实际完成；只跑定向测试、或因超时未完成全套测试，不能判 PASS。

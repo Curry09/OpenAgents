@@ -32,6 +32,7 @@ from typing import Any
 
 from openagents.agents import curator, replier, tester
 from openagents.backends.base import effective_max_wall
+from openagents.observations.execution_contracts import ExecutionContractUnavailable
 from openagents.recipes import stages
 from openagents.runtime import context, engine, evidence, gates, preflight, research, timing
 from openagents.runtime.state import STATUS_ITERATING, STATUS_PR_OPEN, RuntimeState
@@ -1772,6 +1773,12 @@ def _consider(
         return 0
 
     if verdict.kind == _ACTIONABLE:
+        # Spec-0093/T2: persist required independently before publishing queue work.
+        number = _issue_number_of(facts=observed.facts)
+        if number and isinstance(state, RuntimeState):
+            state.execution_requirement(
+                issue_number=number, required=config.execution_evidence_required
+            )
         if _enqueue(
             conn=conn,
             subject=subject,
@@ -2339,16 +2346,33 @@ def _run_claimed(
     # subject UNIQUE 保证本 worker 线程此刻独占该 subject，故「线程→subject」一一映射，bind/unbind 成对。
     streams.bind(subject=subject)
     try:
-        _reconcile(
-            backend=backend,
-            state=state,
-            work_dir=Path(work_dir),
-            config=config,
+        # Spec-0093/T2: carry the trusted project policy through every role/retry.
+        with context.execution_dispatch(state=state, required=config.execution_evidence_required):
+            _reconcile(
+                backend=backend,
+                state=state,
+                work_dir=Path(work_dir),
+                config=config,
+                subject=subject,
+                agent_id=agent_id,
+                now_fn=now_fn,
+                lock_fd=fd,
+            )
+    except ExecutionContractUnavailable:
+        # Spec-0093/T2: this is missing infrastructure, not a model/candidate verdict.
+        # Release the claim without spending retry attempts; the next poll can read repaired evidence.
+        _log(message=f"⏳ {subject}：执行合同证据不可用；保留 required，等待下一轮读取恢复")
+        _finish(
+            conn=conn,
+            task_id=row["id"],
+            fd=fd,
+            park=None,
             subject=subject,
+            reason="execution_contract_unavailable",
             agent_id=agent_id,
-            now_fn=now_fn,
-            lock_fd=fd,  # Spec-0065/T2: 传给 agent 子进程继承——存活证明要跟着真正在干活的进程走
+            config=config,
         )
+        return
     except _ActTimeout as exc:
         _log(message=f"⏱ {subject}：agent 调用时间预算耗尽（{exc}），进入有界重试")
         _finish(
@@ -4181,6 +4205,7 @@ def _repo_as_config(
         repos=[repo],
         flow=repo.flow,
         coordination=repo.coordination,
+        execution_evidence_required=repo.execution_evidence_required,
     )
 
 

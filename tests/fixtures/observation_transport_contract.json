@@ -1,0 +1,49 @@
+{
+  "schema": "observation-transport-contract-fixture-v1",
+  "package": {
+    "format": "auto-designer:observation-evidence-v1",
+    "issue": 7,
+    "sessions": [
+      {
+        "session_id": "probe-session",
+        "status": "available",
+        "files": {
+          "events.txt": "Synthetic transport probe; no user evidence.\n",
+          "manifest.json": "{\"files\": [{\"path\": \"events.txt\", \"sha256\": \"aeb7ac45e46d5b470d5e533fa4d87dab47449da32247bbb51686badaea97b455\"}], \"session_id\": \"probe-session\"}"
+        }
+      }
+    ]
+  },
+  "accepted": [
+    {
+      "encoding": "gzip",
+      "declare": false
+    },
+    {
+      "encoding": "gzip",
+      "declare": true
+    },
+    {
+      "encoding": "zip",
+      "declare": true
+    }
+  ],
+  "rejected": [
+    {
+      "case": "missing-zip-declaration",
+      "reason": "encoding mismatch"
+    },
+    {
+      "case": "unknown-encoding",
+      "reason": "unsupported"
+    },
+    {
+      "case": "wrong-digest",
+      "reason": "integrity"
+    },
+    {
+      "case": "wrong-issue",
+      "reason": "issue/format"
+    }
+  ]
+}

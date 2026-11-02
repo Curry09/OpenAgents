@@ -8,10 +8,13 @@ import hashlib
 import io
 import json
 import re
+import stat
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path, PurePosixPath
 
+from openagents.observations import execution_contracts
 from openagents.utils import forge
 
 MARKER = "auto-designer:observation-evidence-v1"
@@ -48,15 +51,43 @@ question、impact、desired_capability、verification 分别说明维护者的�
 """
 
 
-def decode_package(*, data: bytes, digest: str, issue: int) -> dict:
+def decode_package(*, data: bytes, digest: str, issue: int, encoding: str = "gzip") -> dict:
     """Validate the transport envelope and every declared file. Spec-0087/T1."""
     if len(data) > MAX_TRANSFER or hashlib.sha256(data).hexdigest() != digest:
         raise ValueError("observation attachment integrity mismatch")
-    with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
-        raw = stream.read(MAX_EXPANDED + 1)
+    # Spec-0092/T1: an absent declaration always means the historical gzip format.
+    if encoding == "gzip":
+        if not data.startswith(b"\x1f\x8b"):
+            raise ValueError("observation encoding mismatch")
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+            raw = stream.read(MAX_EXPANDED + 1)
+    elif encoding == "zip":
+        if not data.startswith(b"PK\x03\x04"):
+            raise ValueError("observation encoding mismatch")
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) != 1:
+                raise ValueError("invalid observation ZIP entries")
+            entry = entries[0]
+            mode = entry.external_attr >> 16
+            if (
+                entry.filename != "evidence.json"
+                or entry.orig_filename != "evidence.json"
+                or entry.external_attr & 0x10
+                or entry.is_dir()
+                or entry.flag_bits & 1
+                or entry.compress_type != zipfile.ZIP_DEFLATED
+                or (stat.S_IFMT(mode) not in (0, stat.S_IFREG))
+                or entry.file_size > MAX_EXPANDED
+            ):
+                raise ValueError("invalid observation ZIP entry")
+            with archive.open(entry) as stream:
+                raw = stream.read(MAX_EXPANDED + 1)
+    else:
+        raise ValueError("unsupported observation encoding")
     if len(raw) > MAX_EXPANDED:
         raise ValueError("expanded observation package exceeds budget")
-    value = json.loads(raw)
+    value = json.loads(raw.decode("utf-8") if encoding == "zip" else raw)
     if value.get("format") != MARKER or value.get("issue") != issue:
         raise ValueError("observation issue/format mismatch")
     rows = value.get("sessions")
@@ -103,12 +134,22 @@ def decode_package(*, data: bytes, digest: str, issue: int) -> dict:
             expected.add(path)
         if expected != set(files):
             raise ValueError("undeclared observation files")
+    # Spec-0093/T1: public decoder callers get the same machine-block checks.
+    execution_contracts.validate(package=value, required=False)
     return value
 
 
-def prepare(*, work_dir: Path, issue: int, role: str) -> dict | None:
+def prepare(
+    *, work_dir: Path, issue: int, role: str, execution_required: bool = False
+) -> dict | None:
     """Provide one invocation with a verified snapshot. Spec-0087/T1."""
-    if role not in ROLES or issue <= 0 or forge.active_forge() != "gitea":
+    if role not in ROLES:
+        return None
+    if issue <= 0 or forge.active_forge() != "gitea":
+        if execution_required:
+            raise execution_contracts.ExecutionContractUnavailable(
+                "required execution evidence transport unavailable"
+            )
         return None
     from openagents.observations.gaps import retry_pending
 
@@ -136,6 +177,10 @@ def prepare(*, work_dir: Path, issue: int, role: str) -> dict | None:
         body = forge.get_issue(number=issue).body
         matches = re.findall(r"<!-- " + re.escape(MARKER) + r" (\{[^\n]+\}) -->", body)
         if not matches:
+            if execution_required:
+                raise execution_contracts.ExecutionContractUnavailable(
+                    "required execution evidence handle missing"
+                )
             scope["context"] += "\n本 issue 没有已发布的制品证据入口，不能将其解释为运行时未记录。"
         elif len(matches) != 1:
             raise ValueError("ambiguous observation evidence handles")
@@ -149,7 +194,11 @@ def prepare(*, work_dir: Path, issue: int, role: str) -> dict | None:
             )
             if len(data) != handle["bytes"]:
                 raise ValueError("observation size mismatch")
-            value = decode_package(data=data, digest=digest, issue=issue)
+            value = decode_package(
+                data=data, digest=digest, issue=issue, encoding=handle.get("encoding", "gzip")
+            )
+            # Spec-0093/T1: verify machine facts before exposing any of the package.
+            execution = execution_contracts.validate(package=value, required=execution_required)
             scope["sessions"] = [row["session_id"] for row in value["sessions"]]
             for row in value["sessions"]:
                 sid = row["session_id"]
@@ -163,7 +212,29 @@ def prepare(*, work_dir: Path, issue: int, role: str) -> dict | None:
                     path.chmod(0o400)
                 scope["context"] += f"\n{sid}: {invocation / sid / 'manifest.json'}"
             scope["digest"] = digest
+            if execution is not None:
+                page_refs = []
+                for index, page in enumerate(execution_contracts.pages(payload=execution)):
+                    path = invocation / f"execution-page-{index + 1}.json"
+                    text = json.dumps(page, ensure_ascii=False, sort_keys=True, allow_nan=False)
+                    path.write_text(text, encoding="utf-8")
+                    path.chmod(0o400)
+                    page_refs.append(
+                        {"path": str(path), "sha256": hashlib.sha256(text.encode()).hexdigest()}
+                    )
+                scope["execution_evidence"] = execution
+                scope["execution_pages"] = page_refs
+                scope["execution_contract_context"] = execution_contracts.project(
+                    payload=execution, page_refs=page_refs
+                )
+    except execution_contracts.ExecutionContractUnavailable:
+        raise
     except Exception as exc:
+        if execution_required:
+            # Transport errors may contain signed URLs; report only a stable category.
+            raise execution_contracts.ExecutionContractUnavailable(
+                f"required execution evidence unavailable ({type(exc).__name__})"
+            ) from None
         scope["context"] += (
             f"\n制品证据不可用：{type(exc).__name__}；保留不确定性，不能臆造内部过程。"
         )

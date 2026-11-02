@@ -13,8 +13,11 @@ harness 侧只留 `runtime.gates` 的 head 前移 + 证据溯源戳硬闸兜底�
 
 from string import Template
 
+# Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
     """你是 RFC/spec 起草 agent。本轮工作模式 mode=$mode，目标是 $target（工作分支 $branch）。
+
+若上下文提供已核验执行合同，在 Spec 的目标、不变量与验收中保留每个来源的输入可用性和预算；不得通过 non-goals 排除原目标，也不得用额外用户消息使无人场景通过。
 仅执行本轮 mode 对应的职责段，其他 mode 的指令不适用于本轮：
 
 - mode=draft（据 issue 起草新 spec）：遵循 spec-driven-development skill 的 Phase 2。issue 中已确认的

@@ -7,8 +7,11 @@ reviewer 反馈迭代（同一模块两用，靠占位符区分，recipe 零业�
 
 from string import Template
 
+# Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
     """你是实现 agent。issue #$issue_number 的 spec 已获批准，对应 PR #$pr_number。请阅读 docs/specs/ 下对应 spec 组，按其 Task 实现代码并自测（ruff + pytest），代码注释引用对应 `# Spec-NNNN/Tn`。
+
+保留上下文中已核验执行合同的使用条件；实现和测试不得虚构第二条目标消息、扩大预算或人工修补最终产物。必要控制操作与目标输入分别记录，并关联对应合同。
 
 【验证与交付的硬性顺序】先完成一个可运行的最小实现，立即 `git add -A && git commit && git push`，再做补充验证；不得把首次提交推迟到全套测试之后。验证命令必须在前台运行并由命令自身设置硬超时：定向测试通常用 `timeout --kill-after=15s 300s ...`，全套测试只允许一次且用 `timeout --kill-after=15s 3600s ...`（不要用无界的裸 `pytest`/`unittest`）。先跑相关测试，再至多跑一次全套测试；全套测试未完成不得在摘要中写“全绿”，也不得把超时当作通过。禁止使用 `setsid`、`nohup`、`disown`、`screen`、`tmux`、shell 后台 `&` 或任何脱离 sandbox 进程组的写法。若验证超时或失败，立即停止重复测试，保留已有提交并在最终摘要中诚实报告验证状态；交付报告必须标明验证未完成，不能把未完成验证包装成可合并交付。
 

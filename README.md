@@ -57,6 +57,8 @@ uv tool install --force --from . openagents
 
 > `openagents` runs from a uv tool snapshot. Editing the source without reinstalling leaves the command running the old code.
 
+The optional NexAU backend is pinned to commit `28511d9f0362191a6c378fd441b2be55309a9e32` of [hzhua/nexau](https://github.com/hzhua/nexau). Run `uv sync --locked --extra nexau` in this repository, or install the OpenAgents wheel with the `nexau` extra, to fetch that fixed Git version. This repository does not embed a copy of the SDK source.
+
 ### Optional shell completion
 
 OpenAgents includes [argcomplete](https://github.com/kislyuk/argcomplete). Completions read the command definitions directly and cover the subcommands (`init`, `vigil`, `backfill-rfc`, `issue`, `release`, `board`, and `report`) and their options, such as `vigil --interval/--label/--base/--once/--parallel/--skip/--config`. Once enabled, use `openagents <Tab>` or `openagents vigil --<Tab>` to see candidates.

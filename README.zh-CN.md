@@ -57,6 +57,8 @@ uv tool install --force --from . openagents
 
 > 注意:`openagents` 是一份 uv tool 快照——改了代码不重装,命令会跑旧代码。
 
+可选 NexAU 后端固定使用 [hzhua/nexau](https://github.com/hzhua/nexau) 的提交 `28511d9f0362191a6c378fd441b2be55309a9e32`。在本仓运行 `uv sync --locked --extra nexau`，或安装带 `nexau` extra 的 OpenAgents wheel，均会获取该固定 Git 版本；本仓不内置 SDK 源码副本。
+
 ### Shell Tab 补全(可选)
 
 `openagents` 内置 [argcomplete](https://github.com/kislyuk/argcomplete):补全直接读现成的命令定义,覆盖全部子命令(init/vigil/backfill-rfc/issue/release/board/report)与各自的选项(如 `vigil --interval/--label/--base/--once/--parallel/--skip/--config`)。一次性启用后 `openagents <Tab>`、`openagents vigil --<Tab>` 即弹候选。

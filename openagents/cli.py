@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    # Spec-0092/T3: registered here, dispatched before self-update in main.
+    capability = sub.add_parser("observation-capabilities", help="输出离线证据读取能力")
+    capability.add_argument("--json", action="store_true", required=True)
+
     # Spec-0067/T2：init 除就绪校验外，顺手把默认 .openagents/openagents.yml 生成出来（幂等）。
     p_init = sub.add_parser("init", help="绑定/初始化当前目录为 OpenAgents 项目（并生成默认配置）")
     p_init.add_argument(
@@ -443,6 +447,7 @@ def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
             work_dir=ctx.repo_root,
             base=args.base or config.base,
             user_test_plan=user_test_plan,
+            execution_evidence_required=config.execution_evidence_required,
         ),
         concurrency=args.parallel,
     )
@@ -781,6 +786,13 @@ def _run(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    # Spec-0092/T3: even malformed capability arguments must never trigger updates.
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if effective_argv and effective_argv[0] == "observation-capabilities":
+        parser.parse_args(effective_argv)
+        from openagents.observations.capabilities import emit
+
+        return emit()
     # Spec-0069/T1：必须在 parse_args 之前调（argcomplete 文档规定的唯一正确位置）。它仅在 shell 补全
     # 握手（环境变量 _ARGCOMPLETE 存在）时读 parser 生成候选并 exit；正常运行下立即返回、零副作用，故下方
     # 分发/退出码/错误处理链全部不变。

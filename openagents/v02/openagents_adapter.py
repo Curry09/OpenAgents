@@ -11,6 +11,7 @@ from typing import Any
 from openagents.agents import developer, spec_curator
 from openagents.recipes import stages
 from openagents.runtime import context, engine, gates, research
+from openagents.runtime.state import RUNTIME_STATE_FILENAME, RuntimeState
 from openagents.runtime.user_test import (
     UserTestPlan,
     UserTestResult,
@@ -41,10 +42,13 @@ class OpenAgentsAdapter:
         work_dir: Path,
         base: str = "main",
         user_test_plan: UserTestPlan | None = None,
+        execution_evidence_required: bool = False,
     ) -> None:
         self._backend = backend
         self._work_dir = Path(work_dir)
         self._base = base
+        self._execution_required = execution_evidence_required
+        self._state = RuntimeState(path=self._work_dir / ".openagents" / RUNTIME_STATE_FILENAME)
         from openagents.observations.gaps import sweep_async
 
         sweep_async(work_dir=self._work_dir)
@@ -53,6 +57,14 @@ class OpenAgentsAdapter:
         )
 
     def write_spec(self, *, issue: IssueInput) -> SpecNode | NodeResult:
+        """Spec-0093/T2: freeze policy before the first role reads mutable issue text."""
+        self._state.execution_requirement(
+            issue_number=issue.number, required=self._execution_required
+        )
+        with context.execution_dispatch(state=self._state, required=self._execution_required):
+            return self._write_spec(issue=issue)
+
+    def _write_spec(self, *, issue: IssueInput) -> SpecNode | NodeResult:
         branch = f"{_BRANCH_PREFIX}{issue.number}"
         worktree = Workspace(work_dir=self._work_dir).prepare(
             issue_number=issue.number, branch=branch, base=self._base
@@ -118,6 +130,11 @@ class OpenAgentsAdapter:
         return list(verdict["edges"])
 
     def develop(self, *, node: SpecNode) -> DevelopmentResult:
+        """Spec-0093/T2: resume the same input conditions in the implementation role."""
+        with context.execution_dispatch(state=self._state, required=self._execution_required):
+            return self._develop(node=node)
+
+    def _develop(self, *, node: SpecNode) -> DevelopmentResult:
         stages.assert_minimal_design_approved(
             work_dir=node.worktree,
             issue_number=node.number,
@@ -182,6 +199,11 @@ class OpenAgentsAdapter:
         )
 
     def accept(self, *, node: SpecNode, development: DevelopmentResult) -> AcceptanceResult:
+        """Spec-0093/T2: acceptance cannot lose required facts after a restart."""
+        with context.execution_dispatch(state=self._state, required=self._execution_required):
+            return self._accept(node=node, development=development)
+
+    def _accept(self, *, node: SpecNode, development: DevelopmentResult) -> AcceptanceResult:
         if development.pr_number is None:
             raise gates.GateError(f"issue #{node.number} 没有 PR，不能验收")
         if dirty := _delivery_dirty(work_dir=node.worktree):

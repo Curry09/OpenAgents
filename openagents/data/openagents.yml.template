@@ -32,6 +32,11 @@ version: 1
 #   repo: your-repo
 #   token_env: GITEA_TOKEN   # 可省，默认 GITEA_TOKEN；OpenAgents 不存 token 本体
 
+# 执行条件合同 (Spec-0093)：发布者已协商该能力时启用；缺附件/损坏会暂停交付。
+# 仅由可信项目配置设置，不能由 Issue 正文关闭。普通项目默认 false。
+# execution_evidence:
+#   required: true
+
 # 每个角色接哪个后端(同项目可混接 Claude Code / Codex / nexau)。
 # 缺省角色回落 claude_code。v0.2 仅使用 spec_writer / spec_curator / developer / acceptance。
 agents:
