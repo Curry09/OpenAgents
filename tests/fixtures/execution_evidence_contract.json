@@ -4,7 +4,7 @@
       "assessment_summaries": [
         {
           "assessment_kind": "independent",
-          "contract_id": "866c9e6b8741d5c91ca9d361622d970bda8d207696afdc15cd1423dfb76982a7",
+          "contract_id": "b09758128b517cc503272bd7f87916ec8a75dc77945d1848aff21113dfd69127",
           "metric_definition": null,
           "passed": false,
           "receipt_id": "assessment-1",
@@ -15,7 +15,7 @@
         },
         {
           "assessment_kind": "independent",
-          "contract_id": "2990bd19b420cfb4da6aa8113d71a1b8b9b4f1b83596f28ab691580f9f98afe2",
+          "contract_id": "49c7e459e657c6d78e2c829571570eb6fded34264eaa54445e0d62fd26b0f55b",
           "metric_definition": null,
           "passed": null,
           "receipt_id": "assessment-2",
@@ -28,13 +28,13 @@
       "execution_contracts": [
         {
           "budget_source": "unverified",
-          "contract_id": "2990bd19b420cfb4da6aa8113d71a1b8b9b4f1b83596f28ab691580f9f98afe2",
+          "contract_id": "49c7e459e657c6d78e2c829571570eb6fded34264eaa54445e0d62fd26b0f55b",
           "followup_input": "possible",
           "public_refs": [
             {
               "kind": "goal",
               "path": "session-2/goal.md",
-              "sha256": "43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93"
+              "sha256": "05bf37b04dbd392e3e37a5ff34f9b77fec5db2300519e4200bb1788b8a140181"
             }
           ],
           "session_id": "session-2",
@@ -44,13 +44,13 @@
         },
         {
           "budget_source": "task_metadata",
-          "contract_id": "866c9e6b8741d5c91ca9d361622d970bda8d207696afdc15cd1423dfb76982a7",
+          "contract_id": "b09758128b517cc503272bd7f87916ec8a75dc77945d1848aff21113dfd69127",
           "followup_input": "unavailable",
           "public_refs": [
             {
               "kind": "goal",
               "path": "session-1/goal.md",
-              "sha256": "43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93"
+              "sha256": "05bf37b04dbd392e3e37a5ff34f9b77fec5db2300519e4200bb1788b8a140181"
             }
           ],
           "session_id": "session-1",
@@ -60,7 +60,7 @@
         }
       ],
       "issue": 7,
-      "payload_sha256": "c407a7bc21553286ab79920f96297ff0bef16b3ab79d4ddc435573f6e976b06a",
+      "payload_sha256": "e744f0984e15ca03cb5eda6bfb26eeb88e4985adb6eb99daa579449cbda9f98c",
       "schema_version": 1
     },
     "format": "auto-designer:observation-evidence-v1",
@@ -68,16 +68,16 @@
     "sessions": [
       {
         "files": {
-          "goal.md": "修复公开示例的计算结果，交付 result.txt。",
-          "manifest.json": "{\"session_id\": \"session-1\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93\"}]}"
+          "goal.md": "Fix the calculation result in the public example and deliver result.txt.",
+          "manifest.json": "{\"session_id\": \"session-1\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"05bf37b04dbd392e3e37a5ff34f9b77fec5db2300519e4200bb1788b8a140181\"}]}"
         },
         "session_id": "session-1",
         "status": "available"
       },
       {
         "files": {
-          "goal.md": "修复公开示例的计算结果，交付 result.txt。",
-          "manifest.json": "{\"session_id\": \"session-2\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"43f8a1b0e0a63eede5f0bc9c25a21d359bef424b7332f2e4cc4e751068182d93\"}]}"
+          "goal.md": "Fix the calculation result in the public example and deliver result.txt.",
+          "manifest.json": "{\"session_id\": \"session-2\", \"files\": [{\"path\": \"goal.md\", \"sha256\": \"05bf37b04dbd392e3e37a5ff34f9b77fec5db2300519e4200bb1788b8a140181\"}]}"
         },
         "session_id": "session-2",
         "status": "available"

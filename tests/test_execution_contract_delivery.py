@@ -64,7 +64,7 @@ def test_joint_publisher_canonical_protocol_when_checkout_supplied():
     if not checkout:
         pytest.skip("set AUTO_DESIGNER_CHECKOUT for the explicit two-repository protocol check")
     root = Path(checkout)
-    module_path = root / "backend/auto_designer/execution_contract.py"
+    module_path = root / "backend/ahe_beta/execution_contract.py"
     spec = importlib.util.spec_from_file_location("publisher_execution_contract", module_path)
     publisher = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(publisher)
