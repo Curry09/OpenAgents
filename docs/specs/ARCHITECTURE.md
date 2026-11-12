@@ -20,19 +20,17 @@ _Define role prompts and output schemas._
 | Component | Responsibility (first line of the module docstring) |
 |----|----|
 | `__init__.py` | Define role prompts and output schemas. |
-| `acceptance.py` | Judge a candidate against the original issue and a real user interaction. |
+| `acceptance.py` | Judge a candidate using independent evidence against the original issue. |
 | `architect.py` | Review an admitted objective's implementation architecture before coding. |
 | `coordinator.py` | Spec-0091: cheap advice, never authoritative dependencies. |
 | `curator.py` | Propose blocking dependencies for new issues. |
 | `deliver.py` | Define the Git delivery prompt and delivery receipt schema. |
-| `developer.py` | Implement one frozen v0.2 compact specification exactly once. |
 | `drafter.py` | Define the drafting, backfill, refinement, and implementation prompts. |
 | `executor.py` | Define the constrained coding executor used by generate-only delivery. |
 | `implementer.py` | Define the prompt for implementing an approved Spec or applying feedback. |
 | `merger.py` | Define the final merge action after deterministic gates pass. |
 | `replier.py` | Define reply prompts for issue comments and pull request comments. |
 | `reviewer.py` | Define the code-review prompt and verdict schema. |
-| `spec_curator.py` | Plan dependencies between frozen READY specifications without redesigning them. |
 | `spec_writer.py` | Define the compact, objective-preserving specification role. |
 | `tester.py` | Define the independent end-to-end test prompt and evidence schema. |
 | `triager.py` | Decide whether an issue can be assigned without further clarification. |
@@ -99,7 +97,6 @@ _Provide shared mechanisms for role invocation, gates, context, and state._
 | `timing.py` | Record phase transitions and reconstruct wall-clock timelines across polls. |
 | `token_usage.py` | Spec-0079: privacy-minimal, append-only token usage ledger. |
 | `tool_usage.py` | Privacy-preserving, append-only tool-usage telemetry for agent invocations. |
-| `user_test.py` | Run a real interactive acceptance test in a disposable repository copy. |
 
 ### openagents.spec
 
@@ -146,20 +143,6 @@ _Provide deterministic repository, configuration, and process helpers._
 | `worknote.py` | Render implementation and iteration receipts for pull request comments. |
 | `workspace.py` | Manage isolated worktrees and their Git lifecycle. |
 
-### openagents.v02
-
-_OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery._
-
-| Component | Responsibility (first line of the module docstring) |
-|----|----|
-| `__init__.py` | OpenAgents v0.2: frozen Specs, post-Spec DAG, one-shot delivery. |
-| `audit.py` | Persist one immutable, machine-readable v0.2 batch terminal record. |
-| `model.py` | Immutable values shared by the v0.2 planner and batch runner. |
-| `node_runtime.py` | Phase runner used inside one isolated v0.2 issue container. |
-| `openagents_adapter.py` | Production adapter from the v0.2 scheduler to existing OpenAgents mechanics. |
-| `planner.py` | Validate Curator edges, add deterministic file edges, and layer the DAG. |
-| `runner.py` | Minimal v0.2 batch orchestration, independent from the legacy Vigil state machine. |
-
 ## Import graph
 
 ```mermaid
@@ -171,14 +154,12 @@ graph LR
     nopenagents_agents_coordinator["agents.coordinator"]
     nopenagents_agents_curator["agents.curator"]
     nopenagents_agents_deliver["agents.deliver"]
-    nopenagents_agents_developer["agents.developer"]
     nopenagents_agents_drafter["agents.drafter"]
     nopenagents_agents_executor["agents.executor"]
     nopenagents_agents_implementer["agents.implementer"]
     nopenagents_agents_merger["agents.merger"]
     nopenagents_agents_replier["agents.replier"]
     nopenagents_agents_reviewer["agents.reviewer"]
-    nopenagents_agents_spec_curator["agents.spec_curator"]
     nopenagents_agents_spec_writer["agents.spec_writer"]
     nopenagents_agents_tester["agents.tester"]
     nopenagents_agents_triager["agents.triager"]
@@ -211,7 +192,6 @@ graph LR
     nopenagents_runtime_timing["runtime.timing"]
     nopenagents_runtime_token_usage["runtime.token_usage"]
     nopenagents_runtime_tool_usage["runtime.tool_usage"]
-    nopenagents_runtime_user_test["runtime.user_test"]
     nopenagents_spec["openagents.spec"]
     nopenagents_spec_cli["spec.cli"]
     nopenagents_spec_graph["spec.graph"]
@@ -243,13 +223,6 @@ graph LR
     nopenagents_utils_streams["utils.streams"]
     nopenagents_utils_worknote["utils.worknote"]
     nopenagents_utils_workspace["utils.workspace"]
-    nopenagents_v02["openagents.v02"]
-    nopenagents_v02_audit["v02.audit"]
-    nopenagents_v02_model["v02.model"]
-    nopenagents_v02_node_runtime["v02.node_runtime"]
-    nopenagents_v02_openagents_adapter["v02.openagents_adapter"]
-    nopenagents_v02_planner["v02.planner"]
-    nopenagents_v02_runner["v02.runner"]
     nopenagents_agents --> nopenagents_agents_deliver
     nopenagents_agents --> nopenagents_agents_drafter
     nopenagents_agents --> nopenagents_agents_implementer
@@ -280,7 +253,6 @@ graph LR
     nopenagents_cli --> nopenagents_runtime_timing
     nopenagents_cli --> nopenagents_runtime_token_usage
     nopenagents_cli --> nopenagents_runtime_tool_usage
-    nopenagents_cli --> nopenagents_runtime_user_test
     nopenagents_cli --> nopenagents_utils
     nopenagents_cli --> nopenagents_utils_agent_config
     nopenagents_cli --> nopenagents_utils_align
@@ -293,10 +265,6 @@ graph LR
     nopenagents_cli --> nopenagents_utils_release
     nopenagents_cli --> nopenagents_utils_results
     nopenagents_cli --> nopenagents_utils_selfupdate
-    nopenagents_cli --> nopenagents_v02_audit
-    nopenagents_cli --> nopenagents_v02_model
-    nopenagents_cli --> nopenagents_v02_openagents_adapter
-    nopenagents_cli --> nopenagents_v02_runner
     nopenagents_desktop_daemon --> nopenagents_utils
     nopenagents_desktop_daemon --> nopenagents_utils_streams
     nopenagents_observations_evidence --> nopenagents_observations
@@ -438,35 +406,4 @@ graph LR
     nopenagents_utils_release --> nopenagents_utils_forge
     nopenagents_utils_release --> nopenagents_utils_github
     nopenagents_utils_results --> nopenagents_runtime_state
-    nopenagents_v02 --> nopenagents_v02_model
-    nopenagents_v02 --> nopenagents_v02_runner
-    nopenagents_v02_audit --> nopenagents_v02_model
-    nopenagents_v02_node_runtime --> nopenagents_backends_claude_code
-    nopenagents_v02_node_runtime --> nopenagents_backends_nexau
-    nopenagents_v02_node_runtime --> nopenagents_utils
-    nopenagents_v02_node_runtime --> nopenagents_utils_forge
-    nopenagents_v02_node_runtime --> nopenagents_v02_model
-    nopenagents_v02_node_runtime --> nopenagents_v02_openagents_adapter
-    nopenagents_v02_node_runtime --> nopenagents_v02_planner
-    nopenagents_v02_openagents_adapter --> nopenagents_agents
-    nopenagents_v02_openagents_adapter --> nopenagents_agents_developer
-    nopenagents_v02_openagents_adapter --> nopenagents_agents_spec_curator
-    nopenagents_v02_openagents_adapter --> nopenagents_observations_gaps
-    nopenagents_v02_openagents_adapter --> nopenagents_recipes
-    nopenagents_v02_openagents_adapter --> nopenagents_recipes_stages
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_context
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_engine
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_gates
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_research
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_state
-    nopenagents_v02_openagents_adapter --> nopenagents_runtime_user_test
-    nopenagents_v02_openagents_adapter --> nopenagents_utils
-    nopenagents_v02_openagents_adapter --> nopenagents_utils_forge
-    nopenagents_v02_openagents_adapter --> nopenagents_utils_git
-    nopenagents_v02_openagents_adapter --> nopenagents_utils_workspace
-    nopenagents_v02_openagents_adapter --> nopenagents_v02_model
-    nopenagents_v02_planner --> nopenagents_v02_model
-    nopenagents_v02_runner --> nopenagents_v02_model
-    nopenagents_v02_runner --> nopenagents_v02_planner
 ```

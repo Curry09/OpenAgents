@@ -10,5 +10,5 @@ uv run --locked --extra dev --extra nexau pytest -q \
   tests/test_execution_contract_delivery.py \
   tests/test_backend_nexau.py tests/test_backend_nexau_http.py \
   tests/test_runtime_engine.py tests/test_runtime_context.py \
-  tests/test_v02_openagents_adapter.py tests/test_observation_capabilities.py \
+  tests/test_observation_capabilities.py \
   tests/test_agent_config.py tests/test_agents_architect.py

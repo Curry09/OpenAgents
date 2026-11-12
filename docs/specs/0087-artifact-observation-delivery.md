@@ -55,7 +55,6 @@ tasks:
       - openagents/utils/gitea.py
       - openagents/recipes/stages.py
       - openagents/recipes/vigil.py
-      - openagents/v02/openagents_adapter.py
       - openagents/runtime/context.py
       - tests/test_observation_evidence.py
     scope: "Code changes are complete. Fix the transport shell without interpreting artifact events; include evidence for the current issue only, and report gaps in maintainer diagnostics back through an authenticated runner; role contracts distinguish user feedback objectives from diagnostic objectives."
@@ -145,7 +144,7 @@ containing a stable request_id; auto-designer accepts only authenticated automat
 authorization, and records an ordinary proposal. framework scope records infrastructure diagnostics only;
 the framework remains fixed during the experiment, and no harness delivery issues are generated.
 
-On restart and while idle, Vigil's regular tick / v0.2 adapter startup triggers a single bounded background
+On restart and while idle, Vigil's regular tick triggers a single bounded background
 retry of pending reports, providing a recovery opportunity without waiting for a new agent task and without
 blocking scheduling. Report deduplication checks all necessary comment pages by authenticated account;
 when the scan limit is reached, the report remains pending, rather than assuming it does not exist and

@@ -157,7 +157,7 @@ def collect_requests(*, scope: dict | None) -> None:
 
 def sweep_async(*, work_dir: Path) -> None:
     """Retry an existing main-repository outbox without delaying scheduling. Spec-0087/T1."""
-    # Vigil / v0.2 adapters are rooted at the main checkout; per-issue calls also retry explicitly.
+    # Vigil runs from the main checkout; per-issue calls also retry explicitly.
     root = Path(work_dir) / ".git" / "observation-outbox"
     if not root.is_dir() or not any(root.glob("*.json")):
         return

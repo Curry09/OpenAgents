@@ -120,54 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="OpenAgents configuration file (default .openagents/openagents.yml)",
     )
 
-    # Spec-0085/T2: finite, explicit v0.2 batch; unlike vigil it never polls or waits for humans.
-    p_v02 = sub.add_parser(
-        "v02", help="Run one v0.2 batch: Spec, DAG, Developer, Acceptance, merge"
-    )
-    p_v02.add_argument(
-        "--issue",
-        type=int,
-        action="append",
-        required=True,
-        metavar="N",
-        help="Issue number to include in the batch; repeatable",
-    )
-    p_v02.add_argument(
-        "--parallel",
-        type=_parallel_k,
-        default=4,
-        metavar="K",
-        help="Maximum concurrent Spec and Developer jobs (default 4)",
-    )
-    p_v02.add_argument(
-        "--base", default=None, help="Target branch (default from configuration, usually main)"
-    )
-    p_v02.add_argument(
-        "--config",
-        default=None,
-        metavar="PATH",
-        help="Configuration file (default .openagents/openagents.yml)",
-    )
-    p_v02.add_argument(
-        "--user-test-command",
-        default=None,
-        metavar="COMMAND",
-        help="Harness command for the User Test; requires --user-test-transcript",
-    )
-    p_v02.add_argument(
-        "--user-test-transcript",
-        default=None,
-        metavar="PATH",
-        help="JSON array of user events to replay against a candidate copy as primary Acceptance evidence",
-    )
-    p_v02.add_argument(
-        "--user-test-timeout",
-        type=float,
-        default=None,
-        metavar="SECONDS",
-        help="User Test wall-clock limit in seconds (default 900)",
-    )
-
     # Spec-0064/T5:path driver retroactive - Script inventory code path reverses and starts draft PR (achievement first, design later).
     p_backfill = sub.add_parser(
         "backfill-rfc", help="Backfill a Spec from existing code and open a draft PR"
@@ -435,64 +387,6 @@ def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
     return 0
 
 
-def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    """Run one explicit v0.2 batch and print every terminal result."""
-    from openagents.runtime.user_test import load_user_test_plan
-    from openagents.utils.agent_config import load_agent_config
-    from openagents.v02.audit import write_result
-    from openagents.v02.model import IssueInput
-    from openagents.v02.openagents_adapter import OpenAgentsAdapter
-    from openagents.v02.runner import run_batch
-
-    config_path = (
-        Path(args.config) if args.config else ctx.repo_root / ".openagents" / "openagents.yml"
-    )
-    config = load_agent_config(path=config_path)
-    github.configure(name=config.forge, settings=config.gitea)
-    github.ensure_prerequisites()
-    issues = []
-    for number in dict.fromkeys(args.issue):
-        issue = github.get_issue(number=number)
-        issues.append(IssueInput(number=issue.number, title=issue.title, body=issue.body))
-    user_test_plan = _user_test_plan_from_args(args=args, loader=load_user_test_plan)
-    result = run_batch(
-        issues=issues,
-        adapter=OpenAgentsAdapter(
-            backend=_backend_for(),
-            work_dir=ctx.repo_root,
-            base=args.base or config.base,
-            user_test_plan=user_test_plan,
-            execution_evidence_required=config.execution_evidence_required,
-        ),
-        concurrency=args.parallel,
-    )
-    audit_path = write_result(work_dir=ctx.repo_root, result=result)
-    for number in sorted(result.nodes):
-        node = result.nodes[number]
-        pr = f" PR #{node.pr_number}" if node.pr_number is not None else ""
-        detail = f" — {node.reason}" if node.reason else ""
-        print(f"{node.status:>21}  issue #{number}{pr}{detail}")
-    print(f"Audit log: {audit_path}")
-    return 0 if result.nodes and all(node.status == "PASS" for node in result.nodes.values()) else 1
-
-
-def _user_test_plan_from_args(*, args: argparse.Namespace, loader):
-    """Resolve v0.2 user-test flags without mutating the process environment."""
-    command = getattr(args, "user_test_command", None)
-    transcript = getattr(args, "user_test_transcript", None)
-    timeout = getattr(args, "user_test_timeout", None)
-    if command is None and transcript is None and timeout is None:
-        return loader()
-    values = dict(os.environ)
-    if command is not None:
-        values["OPENAGENTS_USER_TEST_COMMAND"] = command
-    if transcript is not None:
-        values["OPENAGENTS_USER_TEST_TRANSCRIPT"] = transcript
-    if timeout is not None:
-        values["OPENAGENTS_USER_TEST_TIMEOUT"] = str(timeout)
-    return loader(values)
-
-
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
     # Spec-0064/T5: Reconnect recipes.backfill.backfill_rfc (spec drive draft PR by code path).
     from openagents.recipes import backfill
@@ -755,7 +649,6 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "init": _cmd_init,
         "vigil": _cmd_vigil,
-        "v02": _cmd_v02,
         "backfill-rfc": _cmd_backfill_rfc,
         "issue": _cmd_issue,
         "reply-comment": _cmd_reply_comment,

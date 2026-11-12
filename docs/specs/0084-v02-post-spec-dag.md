@@ -74,6 +74,8 @@ tasks:
 
 # 0084 · v0.2 post-Spec Curator DAG
 
+> **Historical design.** This design describes the retired standalone batch runner. Vigil's existing issue coordination is separate.
+
 ## Summary
 
 Curator changes from an intake triager to a batch planner: after waiting for all Specs in the current batch to be completed, it plans implementation dependencies and parallel batches only for READY Specs.

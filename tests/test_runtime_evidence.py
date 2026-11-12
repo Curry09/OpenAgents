@@ -67,24 +67,3 @@ def test_legacy_manifest_without_passed_remains_compatible() -> None:
             }
         ],
     )
-
-
-def test_required_source_can_bind_pass_to_real_user_test() -> None:
-    evidence = [
-        {
-            "case_id": "interaction",
-            "source": "user_test",
-            "kind": "behavior",
-            "observed": "reply rendered",
-            "expected": "user-visible reply renders",
-            "path": "stdout.log",
-            "passed": True,
-        }
-    ]
-    validate_manifest(verdict="PASS", evidence=evidence, required_source="user_test")
-    with pytest.raises(EvidenceError, match="source=user_test"):
-        validate_manifest(
-            verdict="PASS",
-            evidence=[{**evidence[0], "source": "original_replay"}],
-            required_source="user_test",
-        )

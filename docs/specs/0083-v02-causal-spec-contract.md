@@ -74,6 +74,8 @@ tasks:
 
 # 0083 · v0.2 Causal Spec Contract
 
+> **Historical design.** The batch runner described here has been retired. Vigil's compact Spec Writer still uses the causal design contract.
+
 ## Summary
 
 v0.2 retains only one design role per issue. The Spec Writer continuously performs objective decomposition, investigation of the repository and the actual NexAU implementation, candidate comparison, causal-chain development, and falsification design, producing a compact objective contract; this cognitive chain is no longer split among multiple roles that repeat the same in-depth investigation.

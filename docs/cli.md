@@ -30,21 +30,6 @@ The default interval is 60 seconds and concurrency is 1; `--parallel` accepts 1â
 
 Stop the process with Ctrl+C. Resume from the same target repository and configuration so the runtime can reconcile persisted work with current forge state. The local queue and locks belong on one machine; see [architecture](ARCHITECTURE.md).
 
-## Explicit batch delivery
-
-```bash
-openagents v02 --issue 12 --issue 15 --parallel 4 \
-  --user-test-command 'python3 app.py' \
-  --user-test-transcript /path/to/user-test.json \
-  --user-test-timeout 900
-```
-
-`v02` selects a finite batch of existing issues, drafts and freezes specifications, schedules the dependency DAG, runs Developer and Acceptance, then merges successful results. It prints each terminal result and saves an audit artifact. It does not poll for new issues. Default concurrency is 4.
-
-Acceptance requires a real executable and a JSON transcript containing a list of event objects or strings. An optional `wait_seconds` field sets the delay before an event and is removed before sending. Other object fields are sent as JSON lines unchanged; a string is sent as `{"message": "..."}`. Supply the protocol expected by **your target application**. The command is split into arguments rather than executed as a shell pipeline. It runs in a disposable copy of the delivered candidate; a timeout, crash, or setup failure cannot count as a passed user test.
-
-The corresponding environment variables are `OPENAGENTS_USER_TEST_COMMAND`, `OPENAGENTS_USER_TEST_TRANSCRIPT`, and `OPENAGENTS_USER_TEST_TIMEOUT`. Flags override them for this batch. This input format is for OpenAgents acceptance, rather than AHE-Beta's experiment configuration.
-
 ## Specifications and releases
 
 ```bash

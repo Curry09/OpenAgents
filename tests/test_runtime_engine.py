@@ -208,7 +208,7 @@ def test_explicit_nested_schema_repairs_spec_coverage_field_names(tmp_path):
         work_dir=tmp_path,
         context="issue body",
         issue_number=2,
-        branch="openagents/v02-issue-2",
+        branch="openagents/issue-2",
         mode="AUTHOR",
     )
 

@@ -12,7 +12,6 @@ version: 1
 #   standard      Default Spec-driven delivery.
 #   minimal       Compact Spec, one implementation, acceptance against the original issue.
 #   generate-only Compact Spec, constrained executor, mechanical merge without quality checks.
-#   v0.2          Batch Specs, post-Spec dependency graph, Developer, Acceptance, mechanical merge.
 # flow: minimal
 
 # Vigil admission coordination (Spec-0091):
@@ -41,9 +40,7 @@ version: 1
 agents:
   architect:   { backend: claude_code }
   spec_writer: { backend: claude_code }
-  spec_curator: { backend: claude_code }
   implementer: { backend: claude_code }
-  developer:   { backend: claude_code }
   acceptance:  { backend: claude_code }
   executor:    { backend: claude_code }
   reviewer:    { backend: claude_code }

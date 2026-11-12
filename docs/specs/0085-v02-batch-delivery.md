@@ -135,6 +135,8 @@ tasks:
 
 # 0085 · v0.2 Minimal Batch Development and Acceptance
 
+> **Historical design.** The standalone batch runner described here has been retired. See the [CLI guide](../cli.md) for supported delivery commands.
+
 ## Summary
 
 The v0.2 batch runner orchestrates only four responsibilities: Spec, DAG, Developer, and Acceptance; testing, head/digest, PRs, and merging are all mechanical operations. There are no Owner, Architect, traditional Reviewer, Tester, or Merger LLMs.

@@ -15,7 +15,6 @@ OpenAgents separates delivery decisions, model execution, and forge operations. 
 | `openagents/backends/` | Claude Code and NexAU execution adapters |
 | `openagents/observations/` | Authorized evidence downloads and execution-condition validation |
 | `openagents/utils/` | Git, GitHub/Gitea, workspaces, configuration, and release operations |
-| `openagents/v02/` | Explicit finite-batch DAG scheduling and its production adapter |
 | `openagents/spec/` | Spec authoring, validation, and generated views |
 | `apps/desktop/` | Experimental desktop observation interface |
 

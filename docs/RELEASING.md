@@ -1,6 +1,6 @@
 # Releasing
 
-English | [CREDIT Chinese](RELEASING.zh-CN.md)
+English | [简体中文](RELEASING.zh-CN.md)
 
 OpenAgents is versioned independently. A paired AHE-Beta release identifies a tested combination of repository commits and deployment artifacts; the two projects do not need matching version numbers.
 
@@ -16,8 +16,6 @@ For a paired release, record:
 - The pinned NexAU source and any other runtime dependency versions.
 - The actual delivery image digest or installed package identity.
 - Configuration profile, platform, and validation results.
-
-[`release/compatibility.json`](../release/compatibility.json) is a historical preparation baseline, not a declaration that current main has been jointly released. Preserve its historical identifiers; write the actual candidate manifest into release assets rather than inventing future commit hashes.
 
 ## Validate the deployment
 

@@ -625,7 +625,7 @@ Validate and inject the publisher-provided safe execution contract so that Spec,
 | 0086 | 0086/T1 | Implement an isolated User Test runner and artifact ledger | done | — | openagents/runtime/user_test.py<br>tests/test_runtime_user_test.py |
 | 0086 | 0086/T2 | Integrate User Test into the v0.2 Acceptance gate | done | T1 | openagents/agents/acceptance.py<br>openagents/recipes/stages.py<br>openagents/runtime/evidence.py<br>openagents/v02/openagents_adapter.py<br>openagents/v02/model.py |
 | 0086 | 0086/T3 | Provide CLI configuration options and traceable documentation | done | T1, T2 | openagents/cli.py<br>docs/specs/0086-user-test-acceptance.md |
-| 0087 | 0087/T1 | Restricted attachment access, role responsibilities, and reinforcement reporting | done | — | openagents/observations/evidence.py<br>openagents/observations/gaps.py<br>openagents/runtime/engine.py<br>openagents/utils/gitea.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/v02/openagents_adapter.py<br>openagents/runtime/context.py<br>tests/test_observation_evidence.py |
+| 0087 | 0087/T1 | Restricted attachment access, role responsibilities, and reinforcement reporting | done | — | openagents/observations/evidence.py<br>openagents/observations/gaps.py<br>openagents/runtime/engine.py<br>openagents/utils/gitea.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/context.py<br>tests/test_observation_evidence.py |
 | 0088 | 0088/T1 | Versioned design digests and approval auditing | pending | — | openagents/spec/model.py<br>openagents/runtime/gates.py<br>openagents/recipes/stages.py<br>openagents/runtime/state.py<br>tests/test_spec_model.py<br>tests/test_runtime_gates.py<br>tests/test_recipe_stages.py<br>tests/test_runtime_state.py |
 | 0088 | 0088/T2 | Consistent reading and writing of failure markers and conservative convergence when evidence is missing | done | T1 | openagents/recipes/vigil.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>scripts/e2e-spec-0088.sh |
 | 0089 | 0089/T1 | Resume delivery and verify the same candidate through to merge | done | — | openagents/agents/deliver.py<br>openagents/agents/executor.py<br>openagents/agents/merger.py<br>openagents/agents/reviewer.py<br>openagents/agents/tester.py<br>openagents/cli.py<br>openagents/recipes/stages.py<br>openagents/recipes/vigil.py<br>openagents/runtime/gates.py<br>openagents/utils/gitea.py<br>openagents/utils/github.py<br>openagents/utils/workspace.py<br>tests/test_forge.py<br>tests/test_gitea_driver.py<br>tests/test_github.py<br>tests/test_recipe_stages.py<br>tests/test_recipe_vigil.py<br>tests/test_recipe_vigil_act.py<br>tests/test_recipe_vigil_timing.py<br>tests/test_runtime_gates.py<br>tests/test_workspace.py<br>tests/test_delivery_recovery_git.py<br>tests/test_delivery_recovery_stress.py<br>scripts/e2e-delivery-review-recovery.sh<br>scripts/stress_delivery_recovery.py<br>docs/specs/2026-09-09-delivery-review-recovery-design.md<br>docs/specs/2026-09-09-delivery-review-snapshot-tests-design.md<br>docs/specs/2026-09-09-delivery-recovery-stress-design.md |
@@ -637,7 +637,7 @@ Validate and inject the publisher-provided safe execution contract so that Spec,
 | 0092 | 0092/T3 | An actual reader capability command with no side effects | done | T1, T2 | openagents/cli.py<br>openagents/observations/capabilities.py<br>tests/test_observation_capabilities.py<br>tests/test_cli.py |
 | 0092 | 0092/T4 | Joint contract examples and upgrade acceptance testing | done | T1, T2, T3 | tests/fixtures/observation_transport_contract.json<br>scripts/check_observation_reader.py<br>tests/test_observation_reader_contract.py<br>docs/integrations/ahe-beta.md<br>docs/RELEASING.md<br>docs/cli.md |
 | 0093 | 0093/T1 | Safe execution contract reading and capability declaration | done | — | openagents/observations/execution_contracts.py<br>openagents/observations/evidence.py<br>openagents/observations/capabilities.py<br>scripts/check_observation_reader.py<br>tests/test_observation_execution_contracts.py<br>tests/test_observation_evidence.py<br>tests/test_observation_reader_contract.py<br>tests/test_observation_capabilities.py<br>openagents/utils/agent_config.py<br>openagents/data/openagents.yml.template<br>tests/test_agent_config.py |
-| 0093 | 0093/T2 | Unified context injection and checks on conditions of use for roles | done | T1 | openagents/cli.py<br>openagents/v02/openagents_adapter.py<br>tests/test_v02_openagents_adapter.py<br>openagents/backends/nexau.py<br>tests/test_backend_nexau.py<br>openagents/runtime/engine.py<br>openagents/runtime/context.py<br>openagents/agents/spec_writer.py<br>openagents/agents/architect.py<br>openagents/agents/implementer.py<br>openagents/agents/reviewer.py<br>tests/test_runtime_engine.py<br>tests/test_runtime_context.py<br>tests/test_agents_architect.py<br>openagents/agents/drafter.py<br>openagents/agents/developer.py<br>openagents/runtime/state.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py |
+| 0093 | 0093/T2 | Unified context injection and checks on conditions of use for roles | done | T1 | openagents/cli.py<br>openagents/backends/nexau.py<br>tests/test_backend_nexau.py<br>openagents/runtime/engine.py<br>openagents/runtime/context.py<br>openagents/agents/spec_writer.py<br>openagents/agents/architect.py<br>openagents/agents/implementer.py<br>openagents/agents/reviewer.py<br>tests/test_runtime_engine.py<br>tests/test_runtime_context.py<br>tests/test_agents_architect.py<br>openagents/agents/drafter.py<br>openagents/runtime/state.py<br>openagents/recipes/vigil.py<br>openagents/recipes/stages.py |
 | 0093 | 0093/T3 | Combined transport and acceptance testing with real roles | in-progress | T1, T2 | scripts/e2e-spec-0093-execution-contracts.sh<br>tests/test_backend_nexau_http.py<br>tests/test_execution_contract_delivery.py<br>docs/integrations/ahe-beta.md<br>docs/RELEASING.md<br>tests/fixtures/execution_evidence_contract.json |
 
 ## Cross-Spec relationships
@@ -1448,7 +1448,6 @@ graph LR
 | openagents/agents/architect.py | 0076, 0081, 0093 |
 | openagents/agents/curator.py | 0065, 0081 |
 | openagents/agents/deliver.py | 0017, 0060, 0081, 0089 |
-| openagents/agents/developer.py | 0085, 0093 |
 | openagents/agents/drafter.py | 0059, 0062, 0076, 0077, 0081, 0093 |
 | openagents/agents/executor.py | 0082, 0089 |
 | openagents/agents/implementer.py | 0059, 0060, 0077, 0081, 0082, 0093 |
@@ -1530,7 +1529,7 @@ graph LR
 | openagents/utils/skip.py | 0061, 0062, 0081 |
 | openagents/utils/workspace.py | 0035, 0062, 0068, 0081, 0089 |
 | openagents/v02/model.py | 0084, 0086 |
-| openagents/v02/openagents_adapter.py | 0085, 0086, 0087, 0093 |
+| openagents/v02/openagents_adapter.py | 0085, 0086 |
 | openagents/vigil.py | 0004, 0007, 0010, 0012, 0020, 0023, 0029, 0039, 0043, 0049, 0054 |
 | openagents/workspace.py | 0005, 0008, 0029, 0056 |
 | pyproject.toml | 0001, 0014, 0069 |

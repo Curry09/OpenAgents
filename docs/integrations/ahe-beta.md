@@ -10,7 +10,7 @@ Install the backend needed by the controller's selected delivery environment. Cl
 
 The controller generates `.openagents/openagents.yml` in its delivery repository. Current configuration uses Gitea, the default `standard` flow, soft coordination, and agent review. E2e is skipped; CI is skipped by default and may be enabled by the local experiment's CI policy. Execution-condition evidence is required. This differs from the standalone defaults, where all configurable stages use agents.
 
-Configure experiments through AHE-Beta's `backend/scripts/experiment.py` entry point and its public experiment configuration. Generated OpenAgents YAML may be rewritten; editing it is not a durable way to change the experiment. The standalone `v02` batch command is a separate workflow, not an alias for the controller's delivery round.
+Configure experiments through AHE-Beta's `backend/scripts/experiment.py` entry point and its public experiment configuration. Generated OpenAgents YAML may be rewritten; editing it is not a durable way to change the experiment.
 
 The delivery process needs Git and API access to the same Gitea repository. For E2B deployments, use an address reachable from the sandbox; `127.0.0.1` refers to that sandbox, not the operator's machine. Pin the actual OpenAgents executable or image and set `OPENAGENTS_NO_SELF_UPDATE=1` to keep it fixed.
 

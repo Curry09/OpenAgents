@@ -53,9 +53,7 @@ _ROLES = (
     "drafter",
     "architect",
     "spec_writer",
-    "spec_curator",
     "implementer",
-    "developer",
     "executor",
     "acceptance",
     "reviewer",
@@ -69,7 +67,6 @@ _DEFAULT_BACKEND = "claude_code"
 FLOW_STANDARD = "standard"
 FLOW_MINIMAL = "minimal"
 FLOW_GENERATE_ONLY = "generate-only"
-FLOW_V02 = "v0.2"
 
 # Spec-0064/T1: Prefined Hardgate Name (`runtime.gates`) - Constant Machine, Constant, Skip Unable to Off (safe from #140
 # See the bottom line in the second bound, where `stages` is written as a blunder, separates the term "compatible phase" from the word "hard bottom line" to reinforce the layer.
@@ -160,7 +157,7 @@ AGENT_CONFIG_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "version": {"type": "integer"},
-        "flow": {"enum": [FLOW_STANDARD, FLOW_MINIMAL, FLOW_GENERATE_ONLY, FLOW_V02]},
+        "flow": {"enum": [FLOW_STANDARD, FLOW_MINIMAL, FLOW_GENERATE_ONLY]},
         "coordination": {"enum": ["dependencies", "soft", "off"]},
         # Spec-0093/T1: trusted project policy, independent of deletable issue markers.
         "execution_evidence": {

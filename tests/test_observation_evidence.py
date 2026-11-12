@@ -321,7 +321,7 @@ def test_zip_prepare_materializes_verified_read_only_files(configured, monkeypat
         lambda **kw: SimpleNamespace(body=f"<!-- {evidence.MARKER} {json.dumps(handle)} -->"),
     )
     monkeypatch.setattr(forge, "download_observation_asset", lambda **kw: data)
-    scope = evidence.prepare(work_dir=work_dir, issue=7, role="developer")
+    scope = evidence.prepare(work_dir=work_dir, issue=7, role="implementer")
     assert scope["sessions"] == ["s1"] and scope["digest"] == digest
     copied = Path(scope["request_path"]).parent / "s1/runs/r1/event-v2.tsv"
     assert copied.read_text() == "work-token\tnew-request"
