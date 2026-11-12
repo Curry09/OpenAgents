@@ -1,24 +1,5 @@
-"""# Spec-0064/T5: CLI 入口——人面向收敛为 vigil / issue / backfill-rfc / release 四命令。
-
-Spec-0089/T1: forward --head-sha through merge-pr without exposing forge credentials.
-
-唯一命令入口，仅做参数解析与分发；业务逻辑下沉到各模块（命令体内延迟 import，保持 cli.py 文件归属
-单一、文件清单不重叠）。
-
-Spec-0064 收敛：`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watch`/`vigil-all`/`fleet`
-九条自动化环切片命令**并入 `vigil`**（都是 vigil 每轮自动做的事的手动单步版，人不再单敲）；`reply-comment`
-降为**隐藏内部命令**（仍走 `utils.identity.post_signed_comment` 单一盖章出口，供子 agent 回评论、防自
-循环闭环，不占人心智）。人真正要的宏观触发只剩四个正交动作：
-  - `oa vigil` —— 自主环（读 `.openagents/openagents.yml` 决定用哪些 agent、每道闸归谁）；
-  - `oa issue` —— 主动提 issue（直连 github.create_issue）；
-  - `oa backfill-rfc <path>` —— path 驱动追溯（实现在前、设计在后）；
-  - `oa release` —— 仓库级发版（确定性动作、直连 utils.release、无 agent）。
-`init`（项目自举）与 `board`（只读观测，Unresolved Q1 暂保留独立）不进本收敛范围、照旧在册。
-
-`.openagents/openagents.yml` 是「用哪些 agent + 每道闸归谁」的单一真源（经 T1 loader）；`--skip`/
-`--base`/`--interval`/`--label` 仍可对**单次运行**覆盖 YAML——「单一真源」指声明式默认收敛到一处，不是
-消灭所有 flag。
-"""
+# Spec-0064/T5
+"""Expose OpenAgents project, delivery, reporting, and dashboard commands."""
 
 from __future__ import annotations
 
@@ -28,106 +9,120 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-# Spec-0069/T1：Shell Tab 补全——直接读现成 argparse parser 生成候选（命令清单单一真源仍是 build_parser，
-# 不维护第二份会漂移的补全脚本）。顶层做优雅降级导入：argcomplete 是声明依赖、正常一定装了，但万一环境缺失
-# （老快照 / 精简安装），补全应静默不可用而非拖垮整个 CLI。
+# Spec-0069/T1: Shell Tab Completion - Direct reading of argparse parser 's candidate (the single real source of the command list remains build_parser, which is still available for the command list)
+# Do not maintain the second floating completed script.
+# (old snapshot/simplified installation) The completion should be silent rather than a drag on the entire CLI.
 try:
     import argcomplete
-except ImportError:  # pragma: no cover - argcomplete 是声明依赖；缺失时补全静默降级
+except (
+    ImportError
+):  # pragma: no cover - aggcomplete is declared dependent; complete silent downgrade if missing
     argcomplete = None
 
-# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+# Spec-0074/T1: arias-import switch - Platform operations are configured by github/gitea driver to call zero changes.
 from openagents.utils import forge as github
 from openagents.utils.config import ProjectContext, ensure_project, resolve_project
 
-# Spec-0065/T2: `--parallel K` 的上限。每个 worker 是一条常驻线程 + 一条私有 sqlite 连接 + 一个 agent 子进程，
-# 且 K 个 worker 同时打 GitHub API（有速率限制）——K 大到某个程度只会换来更多的锁竞争和 429，不会更快。
-# 真正的并发上限本就由 issue 依赖图（blocked_by）约束，这个数字只是个防手滑的护栏（`--parallel 99999`）。
+# Spec-0065/T2: maximum `--parallel K`. Each workingr is a permanent range + a private sqlite connection + an agent subprocess
+# And K-worker plays GitHub API at the same time -- K-to-large will only be more locking competition and 429, not faster.
+# The true simultaneous capbook is bound by the issuer blocked_by, which is a hand-defaulted fence (`--parallel 99999`).
 _MAX_PARALLEL = 32
 
 
 def _parallel_k(value: str) -> int:
-    """argparse 的 `--parallel` 校验：必须是 `1..{_MAX_PARALLEL}` 的整数，否则当场报错。
+    """Argparse’s `--parallel` verification: Must be the integer number of `1..{_MAX_PARALLEL}`, otherwise you will be wrong on the spot.
 
-    不静默钳位（早前是 `max(1, K)`）：`--parallel 0` 明显是手滑或误解，悄悄给成 1 会让人以为「并行开了但没
-    变快」，把一个输入错误变成一个性能谜题。CLI 的错该在 CLI 里响。
+    Unquieted pliers (`max(1, K)` earlier): `--parallel 0` is obviously a slip or misunderstanding, and quietly gives one to think that ”single-off without a verse”
+    ”Flower,” turns an input error into a performance puzzle. CLI ’s error should ring in CLI.
     """
     try:
         parsed = int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"--parallel 需要一个整数，收到 {value!r}") from None
+        raise argparse.ArgumentTypeError(f"--parallel requires an integer; got {value!r}") from None
     if not 1 <= parsed <= _MAX_PARALLEL:
         raise argparse.ArgumentTypeError(
-            f"--parallel 需要落在 1..{_MAX_PARALLEL}（1 即串行），收到 {parsed}"
+            f"--parallel must be between 1 and {_MAX_PARALLEL} (1 runs serially); got {parsed}"
         )
     return parsed
 
 
-# RFC-0002 决策 5 / RFC-0004 决策 2：发现标签——单一真源。`oa issue` 提 issue 时自动附加它，vigil 发现
-# 段默认按它门控；两端共用同一常量。RFC-0015：字面量上移至 github，此处别名引用保向后兼容公共名。
+# RFC-0002 Decision 5 / RFC-0004 Decision 2: Found the label - Single Real Source. Automatically attach it to `oa issue` to issue, vigil found
+# The paragraph is defaulted on the door; both ends share the same constant. RFC-0015: the word is moved to gthub, where the aliases quote the security back to the public name.
 DISCOVERY_LABEL = github.DISCOVERY_LABEL
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="openagents",
-        description="RFC 驱动的多 Agent 框架：拉取 issue → 派单 agent → 提 PR。",
+        description="Spec-driven software delivery: triage issues, assign work, and open pull requests.",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     # Spec-0092/T3: registered here, dispatched before self-update in main.
-    capability = sub.add_parser("observation-capabilities", help="输出离线证据读取能力")
+    capability = sub.add_parser(
+        "observation-capabilities", help="Show offline evidence reader capabilities"
+    )
     capability.add_argument("--json", action="store_true", required=True)
 
-    # Spec-0067/T2：init 除就绪校验外，顺手把默认 .openagents/openagents.yml 生成出来（幂等）。
-    p_init = sub.add_parser("init", help="绑定/初始化当前目录为 OpenAgents 项目（并生成默认配置）")
+    # Spec-0067/T2:init produces the default . openagents/openagents.yml (supplexed, etc.) by hand, except for pre-reading.
+    p_init = sub.add_parser(
+        "init",
+        help="Initialize the current directory as an OpenAgents project and write the default configuration",
+    )
     p_init.add_argument(
         "--force",
         action="store_true",
-        help="用包内最新模板覆盖已存在的 .openagents/openagents.yml（默认幂等、不覆盖用户改动）",
+        help="Replace the existing .openagents/openagents.yml with the packaged template",
     )
 
-    # Spec-0064/T5：自主环——收编 rfc/implement/iterate/poll/watch/vigil-all/fleet 等自动化单步。
+    # Spec-0064/T5: Auto-ring - Automation One Step for rfc/implement/iterate/poll/watch/vigil-all/fleet etc.
     p_vigil = sub.add_parser(
-        "vigil", help="守夜人：自主监控 issue → 派单 → 守候 PR（读 openagents.yml）"
+        "vigil", help="Watch issues, assign work, and advance pull requests using openagents.yml"
     )
     p_vigil.add_argument(
-        "--interval", type=int, default=None, help="轮询间隔（秒），覆盖 YAML defaults"
+        "--interval",
+        type=int,
+        default=None,
+        help="Poll interval in seconds; overrides YAML defaults",
     )
     p_vigil.add_argument(
         "--label",
         action="append",
         default=None,
         metavar="LABEL",
-        help="issue 发现的标签门控（可重复），覆盖 YAML defaults",
+        help="Required issue discovery label; repeatable and overrides YAML defaults",
     )
-    p_vigil.add_argument("--base", default=None, help="派单起草改动的分支基线，覆盖 YAML defaults")
-    p_vigil.add_argument("--once", action="store_true", help="只跑一轮（发现+守候）后退出")
     p_vigil.add_argument(
-        # Spec-0065/T2：并发上限（同时最多几个 subject 在跑 agent）。**K=1 即退化串行**——并行不是
-        # 另一种模式，只是这个数字大于 1。上限由 issue 依赖图（blocked_by）天然约束，不需要另设旋钮。
+        "--base", default=None, help="Base branch for new work; overrides YAML defaults"
+    )
+    p_vigil.add_argument(
+        "--once", action="store_true", help="Run one discovery and reconciliation cycle, then exit"
+    )
+    p_vigil.add_argument(
+        # Spec-0065/T2: Complementation cap (and at most several sub-projects running ant)**K=1 i.e. degradation line** - parallel not
+        # Another mode, only this number is greater than 1. The ceiling is naturally bound by the assue-dependent blocked_by, without a different sling button.
         "--parallel",
         type=_parallel_k,
         default=1,
         metavar="K",
-        help=f"并发上限：同时最多 K 个 issue/PR 在跑 agent（默认 1，即串行；上限 {_MAX_PARALLEL}）",
+        help=f"Maximum concurrent issues or PRs (default 1, maximum {_MAX_PARALLEL})",
     )
     p_vigil.add_argument(
         "--skip",
         default=None,
         metavar="STAGES",
-        help="单次跳过指定阶段（当 PASS 放行）：如 ci / ci,e2e（等价 stages.<stage>=skip）",
+        help="Treat stages as passed for this run, e.g. ci,e2e (stages.<stage>=skip)",
     )
     p_vigil.add_argument(
         "--config",
         default=None,
         metavar="PATH",
-        help="openagents 配置文件路径（默认 .openagents/openagents.yml）",
+        help="OpenAgents configuration file (default .openagents/openagents.yml)",
     )
 
     # Spec-0085/T2: finite, explicit v0.2 batch; unlike vigil it never polls or waits for humans.
     p_v02 = sub.add_parser(
-        "v02", help="运行一次 v0.2 批次：Spec → DAG → Developer → Acceptance → merge"
+        "v02", help="Run one v0.2 batch: Spec, DAG, Developer, Acceptance, merge"
     )
     p_v02.add_argument(
         "--issue",
@@ -135,141 +130,161 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         required=True,
         metavar="N",
-        help="批次 issue 编号（可重复）",
+        help="Issue number to include in the batch; repeatable",
     )
     p_v02.add_argument(
         "--parallel",
         type=_parallel_k,
         default=4,
         metavar="K",
-        help="Spec/Developer 并发上限（默认 4）",
+        help="Maximum concurrent Spec and Developer jobs (default 4)",
     )
-    p_v02.add_argument("--base", default=None, help="目标分支（默认读配置，通常为 main）")
     p_v02.add_argument(
-        "--config", default=None, metavar="PATH", help="配置文件（默认 .openagents/openagents.yml）"
+        "--base", default=None, help="Target branch (default from configuration, usually main)"
+    )
+    p_v02.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="Configuration file (default .openagents/openagents.yml)",
     )
     p_v02.add_argument(
         "--user-test-command",
         default=None,
         metavar="COMMAND",
-        help="实际用户测试 harness 命令（需同时提供 --user-test-transcript）",
+        help="Harness command for the User Test; requires --user-test-transcript",
     )
     p_v02.add_argument(
         "--user-test-transcript",
         default=None,
         metavar="PATH",
-        help="JSON 用户事件数组；在候选副本中执行并作为 Acceptance 主证据",
+        help="JSON array of user events to replay against a candidate copy as primary Acceptance evidence",
     )
     p_v02.add_argument(
         "--user-test-timeout",
         type=float,
         default=None,
         metavar="SECONDS",
-        help="用户测试墙钟上限（默认 900 秒）",
+        help="User Test wall-clock limit in seconds (default 900)",
     )
 
-    # Spec-0064/T5：path 驱动追溯——扫存量代码路径反推 spec 并开 draft PR（实现先行、设计后补）。
-    p_backfill = sub.add_parser("backfill-rfc", help="扫存量代码路径反推 spec 并开 draft PR")
-    p_backfill.add_argument("path", help="要反向补全的代码路径（单文件或目录）")
-    p_backfill.add_argument("--base", default="main", help="分支基线（默认 main）")
+    # Spec-0064/T5:path driver retroactive - Script inventory code path reverses and starts draft PR (achievement first, design later).
+    p_backfill = sub.add_parser(
+        "backfill-rfc", help="Backfill a Spec from existing code and open a draft PR"
+    )
+    p_backfill.add_argument("path", help="File or directory to inspect for Spec backfill")
+    p_backfill.add_argument("--base", default="main", help="Base branch (default main)")
 
-    # RFC-0002 T2：主动往当前项目仓库提一个 GitHub issue（独立创造工作的动作，直连 github.create_issue）。
-    p_issue = sub.add_parser("issue", help="往当前项目仓库提一个 GitHub issue")
-    p_issue.add_argument("title", help="issue 标题")
-    p_issue.add_argument("--body", default="", help="issue 正文，默认空")
+    # RFC-0002 T2: Proactively bring a GitHub issue (activated independent creation work, straight to github.create_issue) to the current project warehouse.
+    p_issue = sub.add_parser("issue", help="Open an issue in the current GitHub repository")
+    p_issue.add_argument("title", help="Issue title")
+    p_issue.add_argument("--body", default="", help="Issue body (empty by default)")
     p_issue.add_argument(
         "--label",
         action="append",
         default=[],
         metavar="LABEL",
-        help=f"给 issue 打标签（可重复）；总会附带发现标签 {DISCOVERY_LABEL!r}（决策 5）",
+        help=f"Add a label (repeatable); always includes discovery label {DISCOVERY_LABEL!r}",
     )
     p_issue.add_argument(
         "--yes",
         action="store_true",
-        help="跳过建 issue 前的对齐确认，直接创建（供 vigil/CI 等自动化路径）",
+        help="Create the issue without interactive confirmation",
     )
 
-    # Spec-0023/T4：release —— 人唯一的宏观决策点：预检通过则把持续推进的 main 物化成版本。
-    p_release = sub.add_parser("release", help="把 main 当前 HEAD 发布为一个版本（预检通过后物化）")
+    # Spec-0023/T4:release - the only macro-decision point for people: Pre-screening translates the main object that continues to advance into a version.
+    p_release = sub.add_parser(
+        "release", help="Release the current main HEAD after preflight checks"
+    )
     p_release.add_argument(
         "--bump",
         choices=["patch", "minor", "major"],
         default="patch",
-        help="版本号递增位（默认 patch；从最新 vX.Y.Z tag 递增，无 tag 则起点 v0.1.0）",
+        help="Version component to bump (default patch); starts at v0.1.0 if there is no tag",
     )
 
-    sub.add_parser("board", help="启动本地成果看板")
+    sub.add_parser("board", help="Open the local delivery dashboard")
 
-    # Spec-0073/T2：desktop 起本地 daemon（HTTP+SSE）供 Electron 桌面 app 读 work_queue/流；只读呈现。
+    # Spec-0073/T2: desktop up local daemon (HTTP+SSE) for the Electron desktop app to read work_queue/ streams; read-only presentation.
     p_desktop = sub.add_parser(
-        "desktop", help="启动本地 daemon（HTTP+SSE）供桌面 app 呈现 vigil --parallel 并行成果"
+        "desktop", help="Start the local HTTP and SSE daemon for the desktop dashboard"
     )
     p_desktop.add_argument(
-        "--host", default="127.0.0.1", metavar="HOST", help="监听地址（默认仅本机 127.0.0.1）"
+        "--host", default="127.0.0.1", metavar="HOST", help="Listen address (default 127.0.0.1)"
     )
     p_desktop.add_argument(
-        "--port", type=int, default=8765, metavar="PORT", help="监听端口（默认 8765；0=系统分配）"
+        "--port",
+        type=int,
+        default=8765,
+        metavar="PORT",
+        help="Listen port (default 8765; 0 lets the OS choose)",
     )
 
-    # Spec-0066/T3：读 .openagents/timing.jsonl，输出单 issue 各阶段墙钟时长 + 跨 issue p50/p90 文本报告
-    # （定位流水线瓶颈：CI 排队 / review 卡顿 / 轮询等待各占多久）。薄路由，聚合逻辑在 runtime.timing。
+    # Spec-0066/T3: Read. openagents/timing.jsonl, output single issue: length of wall clocks at each stage + cross issue p50/p90 text report
+    # (Liability flow line bottlenecks: CI queue / review / waiting for how long each of the questions is waiting). Thin route, polymer logic in runtime.timing.
     p_report = sub.add_parser(
-        "report", help="读 timing.jsonl 输出各阶段墙钟时延报告（单 issue 时间线 + p50/p90）"
+        "report",
+        help="Report phase timings from timing.jsonl, with per-issue timelines and p50/p90",
     )
     p_report.add_argument(
         "--config",
         default=None,
         metavar="PATH",
-        help="openagents 配置文件路径（默认 .openagents/openagents.yml，用于读轮询 interval 作精度下限标注）",
+        help="Configuration file for the poll interval (default .openagents/openagents.yml)",
     )
 
-    # Spec-0064/T5：reply-comment 降隐藏内部命令——被派子 agent（解冲突 agent 等）盖签名回评论的唯一
-    # 出口，删了会破坏防自循环闭环（约束③）。仍走 identity.post_signed_comment。**不传 `help=`**：argparse
-    # 只在提供 help 时才把子命令登进帮助清单，故省略 help 使它从 `--help` 列表隐去、但仍可解析分发（不占
-    # 人心智；help=SUPPRESS 反而会打印字面 "==SUPPRESS==" 噪声）。
-    # Spec-0074/T1：merge-pr 隐藏内部命令——merger agent 落合并的**平台无关**出口（与 reply-comment 同
-    # 定位：不传 help= 从帮助清单隐去、仍可解析分发）。GitHub 侧 merger 仍直接跑 gh pr merge（零变化）；
-    # Gitea 侧的 $merge_command 即本命令，token 处理留在 driver 内、凭证不进提示词。
+    # Spec-0064/T5: hide internal commands -- only signed by a given (conflict resolution agent etc.) to comment back
+    # The exits are broken by the removal of the self-reconcretional closed loop (bound to be 3 and still to identity.post_signed_comment.** Untransmitted `help=`**:argparse
+    # Only add sub-commands to help list when they are available, so leave help to hide from the `--help` list but still interpret the distribution (no share)
+    # The human mind; the help = SUPPRESS instead prints the text "=SUPPRESS=" noise.
+    # Spec-0074/T1:merge-pr hides internal commands --merger agent down to merged**
+    # Positioning: no help= hidden from the help list and still parsed for distribution. GitHub side meger still runs gh pr merge (zero changes);
+    # $merge_command on Gitea is this command that token processes to stay in the driver without a hint.
     p_merge_pr = sub.add_parser("merge-pr")
-    p_merge_pr.add_argument("--pr", type=int, required=True, metavar="N", help="要合并的 PR 编号")
-    p_merge_pr.add_argument("--head-sha", default="", help="只合并这一已审批的候选 SHA")
     p_merge_pr.add_argument(
-        "--method", default="merge", choices=["merge", "squash", "rebase"], help="合并方式"
+        "--pr", type=int, required=True, metavar="N", help="Pull request number to merge"
+    )
+    p_merge_pr.add_argument("--head-sha", default="", help="Merge only this approved candidate SHA")
+    p_merge_pr.add_argument(
+        "--method", default="merge", choices=["merge", "squash", "rebase"], help="Merge method"
     )
 
     p_reply = sub.add_parser("reply-comment")
-    # Spec-0016/T5：--pr / --issue 二选一（互斥必选组）——issue #149 把签名回复从 PR 扩到 issue 页，
-    # 手动出口对称补 --issue。仍不传 help=（隐藏内部命令，Spec-0064/T5 定位不变）。
+    # Spec-0016/T5: --pr / --issue Second and First (Crust each other) - issue #149 - expand the number of signatures from PR to issue page.
+    # Manual exit symmetry --issue. Still without help= (hidden internal command, Spec-0064/T5 position unchanged).
     p_reply_target = p_reply.add_mutually_exclusive_group(required=True)
-    p_reply_target.add_argument("--pr", type=int, metavar="N", help="要回复的 PR 编号")
-    p_reply_target.add_argument("--issue", type=int, metavar="N", help="要回复的 issue 编号")
-    p_reply.add_argument("--body", required=True, help="回复正文（会自动盖上本 agent 签名）")
+    p_reply_target.add_argument(
+        "--pr", type=int, metavar="N", help="Pull request number to reply to"
+    )
+    p_reply_target.add_argument("--issue", type=int, metavar="N", help="Issue number to reply to")
+    p_reply.add_argument(
+        "--body", required=True, help="Reply body; signed automatically with the agent identity"
+    )
 
     return parser
 
 
 # --------------------------------------------------------------------------------------------------
-# 工厂：backend / state / 身份 / e2e 能力固化（延迟 import 保持 cli 顶层轻、测试可打桩）。
+# Plant: Backend / state / Identity / e2e capacity solidification (delaying Import to keep cli top floor light, test to stick).
 # --------------------------------------------------------------------------------------------------
 
 
 def _persist_ui_capable(*, ctx: ProjectContext) -> None:
-    # Spec-0055/T1：守夜入口启动时把「前端 e2e 能力」固化进 state（单一真相源）。
+    # Spec-0055/T1: Zuile the "e2e capability" into state (single source of truth) when the Vigil entrance is launched.
     from openagents.utils import envcheck
 
     _new_runtime_state_for(ctx=ctx).set_ui_capable(value=envcheck.ui_capable())
 
 
 def _agent_id_for(*, ctx: ProjectContext) -> str:
-    # RFC-0011 决策 7：接线处解析一次本实例身份，注入下游（vigil / reply-comment）。
+    # RFC-0011 Decision 7: The connection analyzes this example of identity and injects it downstream (vigil / reply-comment).
     from openagents.utils import identity
 
     return identity.resolve_agent_id(state=_new_runtime_state_for(ctx=ctx))
 
 
 def _backend_for():
-    # Spec-0020/T4：单列 backend 工厂——延迟 import 保持 cli 顶层轻、测试可对工厂打桩（不触真实 LLM）。
+    # Spec-0020/T4: Single-line backend factory - delay import keeps cli top level light and tests can place a pillar on the plant (without touching the real LLM).
     if os.environ.get("OPENAGENTS_BACKEND", "").strip() == "nexau":
         from openagents.backends.nexau import NexAUBackend
 
@@ -280,27 +295,27 @@ def _backend_for():
 
 
 def _new_runtime_state_for(*, ctx: ProjectContext):
-    # Spec-0061/T4：新栈 RuntimeState 工厂——独立命名空间文件 runtime-state.json。
+    # Spec-0061/T4: New Dock RunteSlate Plant - Independent Namespace File runtime-state.json.
     from openagents.runtime.state import RUNTIME_STATE_FILENAME, RuntimeState
 
     return RuntimeState(path=ctx.repo_root / ".openagents" / RUNTIME_STATE_FILENAME)
 
 
 def _vigil_deps_for(*, ctx: ProjectContext):
-    """Spec-0064/T5：新栈守夜依赖三件套 (backend, state, agent_id)——run_vigil 的单一接线点。
+    """Spec-0064/T5: New Inn Vigil relies on a single link point for three sets (backend, state, agent_id) - run_vigil.
 
-    backend/state/身份一次构造，保证同一守夜进程内一致。recipes.vigil 的多仓子进程内联入口
-    `_run_repo_inline` 也调本工厂（与 CLI `vigil` 同源），故本工厂是新栈守夜的单一接线点。
+    backend/state/ identity is constructed to ensure consistency within the same Vigil process. The multiple-gauge recipes.vigil process interface
+    `_run_repo_inline` also moved to the plant (which is co-sourced with CLI `vigil`), which is therefore a single point of contact for the Vigil of the new inn.
     """
     return _backend_for(), _new_runtime_state_for(ctx=ctx), _agent_id_for(ctx=ctx)
 
 
 def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
-    """Spec-0064/T5：加载 `.openagents/openagents.yml`（单一真源）+ 叠加本次运行的 flag 覆盖。
+    """Spec-0064/T5: Load `.openagents/openagents.yml` (Single Real Source)+ superimpose the flag overlay of this run.
 
-    `--skip <stages>` → 单次跳过（owner=skip）；`--base`/`--interval`/`--label` 覆盖 defaults。
-    覆盖后仍守阶段合法取值、架构评审配套和「不许零闸」。YAML + flag 并存（flag 是单次覆盖，
-    不改磁盘配置）。
+    `--skip <stages>`  →  One-time Skip (owner=skip); `--base` / `--interval` / `--label` over over overdone defaults.
+    The coverage is still in its stages of legal extraction, a framework review package and ”no zero locks”.
+    Do not change disk configuration.
     """
     import dataclasses
 
@@ -327,20 +342,20 @@ def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
     skippable = {STAGE_TRIAGE, STAGE_RFC, STAGE_ARCHITECTURE, STAGE_CI, STAGE_E2E, STAGE_REVIEW}
     invalid = skip_stages - skippable
     if invalid:
-        raise ValueError(f"--skip 不支持阶段：{sorted(invalid)}")
+        raise ValueError(f"--skip does not support these stages: {sorted(invalid)}")
 
     owners = dict(config.stages.owners)
     for stage in skip_stages:
         owners[stage] = OWNER_SKIP
-    # 覆盖后重守「不许零闸」（未审直接盲合进 main）。
+    # The coverage is re-enacted by "No Zero Gate" (without trial and blinding directly into the main).
     review = owners.get(STAGE_REVIEW, OWNER_AGENT)
     merge = owners.get(STAGE_MERGE, OWNER_AGENT)
     rfc = owners.get(STAGE_RFC, OWNER_AGENT)
     architecture = owners.get(STAGE_ARCHITECTURE, OWNER_AGENT)
     if rfc != OWNER_SKIP and architecture == OWNER_SKIP:
-        raise ValueError("architecture 仅可在 rfc 同时 skip 时跳过")
+        raise ValueError("architecture can be skipped only when rfc is also skipped")
     if review == OWNER_SKIP and merge == OWNER_AGENT:
-        raise ValueError("不许零闸：merge 恒自动执行，review 必须由 agent 把关")
+        raise ValueError("Automatic merge requires agent review")
 
     stages = StagePolicy(owners=owners)
     updates: dict = {"stages": stages}
@@ -354,37 +369,37 @@ def _effective_config(*, ctx: ProjectContext, args: argparse.Namespace):
 
 
 def _parse_gate_list(*, raw: str | None) -> set[str]:
-    """把逗号分隔的阶段名解析成集合（空/None → 空集）。"""
+    """The comma-separated phase is deciphered into a collection (empty/None-square collection)."""
     if not raw:
         return set()
     return {part.strip() for part in raw.split(",") if part.strip()}
 
 
 # --------------------------------------------------------------------------------------------------
-# 命令 handler。
+# Command handler.
 # --------------------------------------------------------------------------------------------------
 
 
 def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0067/T2：就绪校验后顺手 scaffold 默认 .openagents/openagents.yml（幂等，--force 覆盖）——
-    # 让首次上手即有一份带注释、可直接改的声明式默认。生成物只是默认，运行时 flag 仍可单次覆盖它。
+    # Spec-0067/T2: Check and check and check and check and check and check. openagents/openagents.yml (Quix et al., --force over) --
+    # Allows to have a commentable, directly reversible, declaration default for first time. The generator is only default, and the flag can still be overridden once in a run.
     from openagents.utils import envcheck
     from openagents.utils.agent_config import scaffold_default_config
 
     github.ensure_prerequisites()
-    print(f"✓ 项目已就绪：{ctx.repo_root}（远端：{ctx.remote}）")
+    print(f"✓ Project ready: {ctx.repo_root} (remote: {ctx.remote})")
 
     config_path = ctx.repo_root / ".openagents" / "openagents.yml"
     existed = config_path.exists()
     if scaffold_default_config(path=config_path, force=args.force):
         if existed:
-            print("✓ 已用包内模板覆盖配置 .openagents/openagents.yml")
+            print("✓ Replaced .openagents/openagents.yml with the packaged template")
         else:
             print(
-                "✓ 已生成默认配置 .openagents/openagents.yml（可编辑；oa vigil --skip 可单次覆盖）"
+                "✓ Wrote .openagents/openagents.yml. Edit it or override stages once with oa vigil --skip."
             )
     else:
-        print("· 配置已存在，跳过生成 .openagents/openagents.yml（--force 覆盖）")
+        print("· Kept the existing .openagents/openagents.yml. Use --force to replace it.")
 
     print()
     print(envcheck.check().text)
@@ -392,9 +407,9 @@ def _cmd_init(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _cmd_vigil(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0065/T2：守夜主循环——读 openagents.yml（+flag 单次覆盖）→ run_vigil 图驱动并行守夜
-    # （level-triggered reconcile：生产者按 GitHub 现态判定入队，K 个 worker 领 subject 推进）。
-    # `--parallel K` 是并发上限；**K=1 即退化串行**（不是另一种模式）。多仓 → run_fleet 每仓一子进程。
+    # Spec-0065/T2: Vigil Main Cycle - Read openagents.yml (+flag One-time overlay) run_vigil Chart-drived Parallel Vigil
+    # (level-triggered reconcile: Producers are rated in GitHub, K-worker leads subproject).
+    # `--parallel K` is the concurring cap;**K=1 is the degradation swab**(not another way) → run_fleet One process per warehouse.
     from openagents.recipes.vigil import run_fleet, run_vigil
 
     config = _effective_config(ctx=ctx, args=args)
@@ -457,7 +472,7 @@ def _cmd_v02(args: argparse.Namespace, ctx: ProjectContext) -> int:
         pr = f" PR #{node.pr_number}" if node.pr_number is not None else ""
         detail = f" — {node.reason}" if node.reason else ""
         print(f"{node.status:>21}  issue #{number}{pr}{detail}")
-    print(f"审计记录：{audit_path}")
+    print(f"Audit log: {audit_path}")
     return 0 if result.nodes and all(node.status == "PASS" for node in result.nodes.values()) else 1
 
 
@@ -479,84 +494,84 @@ def _user_test_plan_from_args(*, args: argparse.Namespace, loader):
 
 
 def _cmd_backfill_rfc(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0064/T5：改接 recipes.backfill.backfill_rfc（据代码路径反推 spec 开 draft PR）。
+    # Spec-0064/T5: Reconnect recipes.backfill.backfill_rfc (spec drive draft PR by code path).
     from openagents.recipes import backfill
 
     github.ensure_prerequisites()
     result = backfill.backfill_rfc(
         path=args.path, base=args.base, backend=_backend_for(), work_dir=ctx.repo_root
     )
-    print(f"✓ 已为 `{args.path}` 反向补全 spec 并开 draft PR #{result['pr_number']}")
+    print(f"✓ Backfilled the Spec for `{args.path}` and opened draft PR #{result['pr_number']}")
     return 0
 
 
 def _cmd_issue(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # RFC-0002 T2：提 issue（直连 github.create_issue）+ 追加发现标签去重保序。
+    # RFC-0002 T2: Raise issue (Cront github.create_issue)+ Add Found Tags to reorder.
     labels = list(dict.fromkeys([*args.label, DISCOVERY_LABEL]))
     if not args.yes and not _confirm_issue_alignment(title=args.title, body=args.body):
-        print("✗ 未确认对齐，已取消创建 issue", file=sys.stderr)
+        print("✗ Issue creation canceled", file=sys.stderr)
         return 1
     github.ensure_label(name=DISCOVERY_LABEL)
     issue = github.create_issue(title=args.title, body=args.body, labels=labels)
-    print(f"✓ 已创建 issue #{issue.number}：{issue.title}")
+    print(f"✓ Created issue #{issue.number}：{issue.title}")
     return 0
 
 
 def _confirm_issue_alignment(*, title: str, body: str) -> bool:
-    # Spec-0020/T4：建 issue 前的前门对齐——复述给人看，读应答判定是否放行。
+    # Spec-0020/T4: Build front door alignment before issue - repeat to read answer to decide whether release is granted.
     from openagents.utils import align
 
     alignment = align.restate(draft=align.Draft(title=title, body=body), backend=_backend_for())
-    print("提 issue 前先对齐一下范围：")
+    print("Confirm the scope before creating the issue:")
     print(alignment.render())
-    answer = input("看起来对吗？确认创建请输入 y / yes：")
+    answer = input("Create this issue? Enter y or yes: ")
     return align.is_confirmed(answer=answer)
 
 
 def _cmd_reply_comment(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0064/T5：隐藏内部命令——coding agent 回评论的唯一出口。post_signed_comment 盖签名 + 同步后
-    # 校验漏签 edit 补（约束③），使回复不被下一轮 poll 当成新人类评论（防自循环）。
-    # Spec-0016/T5：--issue 路由到 issue 版签名出口 post_signed_comment_on_issue（防自循环闭环同构）；
-    # --pr 维持既有 post_signed_comment（零回归）。二者由 argparse 互斥必选组保证恰有其一。
+    # Spec-0064/T5: Hide Internal Command - coding agent returns the only exit to comment. post_signed_comment Queue Sign + Sync
+    # Verifying the omission of the signature edit supplement (bound 3) so that the response is not considered a new human comment (prevent self-recycling).
+    # Spec-0016/T5：--issue Roadway to the issue Signature export post_signed_comment_on_issue(Cyclical conjunction);
+    # --pr maintains the existing post_signed_comment (no behavior change). The two are guaranteed by the mutual rebuffing of the Árgparse.
     from openagents.utils import identity
 
     agent_id = _agent_id_for(ctx=ctx)
     if args.issue is not None:
         identity.post_signed_comment_on_issue(number=args.issue, body=args.body, agent_id=agent_id)
-        print(f"✓ 已以本 agent 身份回复 issue #{args.issue} 的评论")
+        print(f"✓ Posted an agent reply to issue #{args.issue}")
         return 0
     identity.post_signed_comment(pr_number=args.pr, body=args.body, agent_id=agent_id)
-    print(f"✓ 已以本 agent 身份回复 PR #{args.pr} 的评论")
+    print(f"✓ Posted an agent reply to PR #{args.pr}")
     return 0
 
 
 def _cmd_merge_pr(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0074/T1：merger agent 的平台无关落合并出口——转发 forge.merge_pr（已合并幂等视为成功）。
-    # 完成判据是输出含 "MERGED"（merger 提示词的 $verify_command 契约）；未合并成功以非零退出。
+    # The platform for Spec-0074/T1:merger agent does not have a connection to the merger export - forwarding forge.merge_pr (merged, etc. is considered successful).
+    # The sentence is output. "MERGED"（merger The word of the hint. $verify_command Contract; successful merger with non-zero exit.
     if not github.is_merged(pr_number=args.pr):
         github.merge_pr(pr_number=args.pr, method=args.method, head_sha=args.head_sha)
     if github.is_merged(pr_number=args.pr):
         print(f"✓ PR #{args.pr} state: MERGED")
         return 0
-    print(f"✗ PR #{args.pr} 未能合并（合并后复读仍非 MERGED）", file=sys.stderr)
+    print(f"✗ PR #{args.pr} is still not marked MERGED after the merge attempt", file=sys.stderr)
     return 1
 
 
 def _cmd_release(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0023/T4：确定性发版动作、无 agent——预检通过则物化 release/vX.Y.Z 分支 + tag。
+    # Spec-0023/T4: Determine hairstyle action, no agent - pre-checked and materialized release/vX.Y.Z branch + tag.
     from openagents.utils.release import release
 
     result = release(state=_new_runtime_state_for(ctx=ctx), bump=args.bump)
     if result.released:
-        print(f"✓ 已发布 {result.version}（release/{result.version} 分支 + tag）")
+        print(f"✓ Released {result.version} (release/{result.version} branch and tag)")
         return 0
-    print(f"✗ release 预检未通过：{result.reason}", file=sys.stderr)
+    print(f"✗ Release preflight failed: {result.reason}", file=sys.stderr)
     return 1
 
 
 def _cmd_report(args: argparse.Namespace, ctx: ProjectContext) -> int:
-    # Spec-0066/T3：读 timing.jsonl → timing 聚合器 → stdout 文本报告。薄路由：解析路径 + 取 interval，
-    # 聚合/重建全在 runtime.timing（单 issue 时间线 + 跨 issue p50/p90 + 最长尾）。空/缺文件友好提示、退出码 0。
+    # Spec-0066/T3: Read timing.jsonl  → titleting polymer  →  stdout text report. Thin route: Parsing path + fetch interval,
+    # Aggregation/reconstruction is all on runtime.timing (uniissue time line + cross issue p50/p90 + Longest). Empty/missing file friendly tip, exit code 0.
     from openagents.runtime import timing, token_usage, tool_usage
 
     path = ctx.repo_root / ".openagents" / timing.TIMING_FILENAME
@@ -581,7 +596,7 @@ def _cmd_report(args: argparse.Namespace, ctx: ProjectContext) -> int:
 
 
 def _report_interval(*, ctx: ProjectContext, args: argparse.Namespace) -> int:
-    # Spec-0066/T3：轮询 interval 作墙钟精度下限标注——从 openagents.yml 读，读不到回落内建默认 60s。
+    # Spec-0066/T3: Round interval as a limit for wall clock accuracy -- read from openagents.yml, cannot read to create a default 60s for the return-down.
     from openagents.utils.agent_config import AgentConfigError, load_agent_config
 
     config_path = (
@@ -590,7 +605,9 @@ def _report_interval(*, ctx: ProjectContext, args: argparse.Namespace) -> int:
     try:
         return load_agent_config(path=config_path).interval
     except (AgentConfigError, FileNotFoundError, OSError):
-        return 60  # 缺配置不该让报告失败——回落内建默认轮询间隔
+        return (
+            60  # Missing profile should not fail the report - Build default query interval back in
+        )
 
 
 def _render_report(
@@ -603,51 +620,53 @@ def _render_report(
     token_events: list | None = None,
     token_path: Path | None = None,
 ) -> str:
-    # Spec-0066/T3：把聚合结果排成 stdout 文本表。**显式标注墙钟精度下限 = 轮询 interval**（issue 验收项）。
+    # Spec-0066/T3: Synthesize the fusion result into a stdout text table.** A visible indicator indicates the lower limit of the wall clock accuracy = a round of inquiry acceptance** (issue acceptance).
     from openagents.runtime import timing, token_usage, tool_usage
 
     usage_events = usage_events or []
     token_events = token_events or []
     if not events and not usage_events and not token_events:
         return (
-            f"（timing.jsonl 为空或不存在：{path}）\n"
-            "跑一轮 `oa vigil` 后各阶段信号会落到此文件，再来看报告。"
+            f"timing.jsonl is empty or missing: {path}\n"
+            "Run `oa vigil` to collect phase timings before generating a report."
         )
 
     out: list[str] = []
     if events:
         lines = timing.timelines(events=events)
         stats = timing.phase_stats(events=events, interval=interval)
-        out.append("═══ openagents 阶段墙钟时延报告 ═══")
+        out.append("OpenAgents phase timings")
         out.append(
-            f"⚠ 墙钟精度下限 = 轮询 interval（本次 {interval}s）：各段时延有 ±{interval}s 粒度误差，勿当精确值。"
+            f"Phase durations are approximate to within the {interval}s poll interval (±{interval}s)."
         )
         out.append("")
-        out.append("── 单 subject 时间线（各阶段墙钟停留）──")
+        out.append("Time spent in each phase, by subject")
         for line in lines:
             head = f"{line.subject}"
             if line.pr is not None:
-                head += f"（PR #{line.pr}）"
-            out.append(f"• {head}  总计 {_fmt_duration(seconds=line.total)}")
+                head += f" (PR #{line.pr})"
+            out.append(f"• {head}  total {_fmt_duration(seconds=line.total)}")
             for segment in line.segments:
                 out.append(f"    {segment.phase:<20} {_fmt_duration(seconds=segment.seconds)}")
         out.append("")
-        out.append("── 跨 subject 每阶段分布（p50 / p90 + 最长尾）──")
-        out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   最长尾")
+        out.append("Phase duration distribution across subjects")
+        out.append(f"    {'phase':<20} {'p50':>10} {'p90':>10}   Longest")
         for stat in stats.phases:
             out.append(
                 f"    {stat.phase:<20} {_fmt_duration(seconds=stat.p50):>10} "
                 f"{_fmt_duration(seconds=stat.p90):>10}   "
-                f"{stat.max_subject}（{_fmt_duration(seconds=stat.max_seconds)}）"
+                f"{stat.max_subject} ({_fmt_duration(seconds=stat.max_seconds)})"
             )
     if usage_events:
         if out:
             out.append("")
-        out.append("═══ agent 工具与取证预算报告 ═══")
-        out.append(f"数据：{usage_path or tool_usage.TOOL_USAGE_FILENAME}（只含工具名，不含参数）")
+        out.append("Agent tool usage and evidence lookup budgets")
         out.append(
-            f"    {'role':<18} {'调用':>6} {'编辑前取证均值':>14} {'最大':>8} "
-            f"{'超预算':>8} {'缺原因':>8}"
+            f"Data: {usage_path or tool_usage.TOOL_USAGE_FILENAME} (tool names only; arguments excluded)"
+        )
+        out.append(
+            f"    {'role':<18} {'Calls':>6} {'Avg. lookups':>14} {'Max':>8} "
+            f"{'Over limit':>8} {'No reason':>8}"
         )
         for row in tool_usage.aggregate(events=usage_events):
             out.append(
@@ -659,8 +678,8 @@ def _render_report(
     if token_events:
         if out:
             out.append("")
-        out.append("═══ agent token 用量与采集覆盖率 ═══")
-        out.append(f"数据：{token_path or token_usage.TOKEN_USAGE_FILENAME}")
+        out.append("Agent token usage and reporting coverage")
+        out.append(f"Data: {token_path or token_usage.TOKEN_USAGE_FILENAME}")
         out.append(
             f"    {'role':<16} {'calls':>6} {'reported':>9} {'missing':>8} "
             f"{'input':>10} {'cache-r':>10} {'cache-w':>10} {'reason':>9} "
@@ -676,13 +695,13 @@ def _render_report(
                 f"{row['output_tokens']:>10} {row['total_tokens']:>11} {total_kinds:>11}"
             )
         out.append(
-            "注：missing 不计入 token 合计；total(r/d) = provider 显式总数/分量派生总数的调用数。"
+            "Missing counts are excluded. total(r/d) counts calls with reported or derived totals."
         )
     return "\n".join(out)
 
 
 def _fmt_duration(*, seconds: float) -> str:
-    # Spec-0066/T3：秒 → 人读时长（0s / 45s / 3m0s / 1h2m）。纯展示，不改聚合值。
+    # Spec-0066/T3: Second  →  time for reading people (0s / 45s / 3m0s / 1h2m). Pure display, no change in the aggregate value.
     total = int(round(seconds))
     if total < 60:
         return f"{total}s"
@@ -694,20 +713,20 @@ def _fmt_duration(*, seconds: float) -> str:
 
 
 def _cmd_board(args: argparse.Namespace) -> int:
-    # RFC-0001 T6：board 不要求 git/remote（跳过 preflight），读新栈 RuntimeState 渲染看板。
+    # RFC-0001 T6：board No request. git/remote( Skipping) preflight）Read the new inn. RuntimeState Rendering board.
     from openagents.utils.results import board
 
     ctx = resolve_project()
     if ctx is None:
         ctx = ProjectContext(repo_root=Path.cwd(), remote=None)
     path = board(state=_new_runtime_state_for(ctx=ctx))
-    print(f"✓ 成果看板：{path}")
+    print(f"✓ Delivery dashboard: {path}")
     return 0
 
 
 def _cmd_desktop(args: argparse.Namespace) -> int:
-    # Spec-0073/T2：起本地 daemon（HTTP+SSE）。只读 work_queue + streams ring buffer，不操作仓库/远端，
-    # 故跳过 preflight（同 board）。db 在 <repo>/.openagents/vigil-queue.db（vigil --parallel 落盘处）。
+    # Spec-0073/T2: Start local daemon (HTTP+SSE). Read only work_queue + streads ring Buffer, do not operate the repository/map, and do not operate the database.
+    # So skip the preflight (sympathetic) db at <repo> /.openagents/vigil-queue.db (vigil --parallel drop-down).
     from openagents.desktop import daemon
 
     ctx = resolve_project()
@@ -719,13 +738,13 @@ def _cmd_desktop(args: argparse.Namespace) -> int:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
-    # board 不操作仓库，跳过 preflight（决策 10）。
+    # Board does not operate the warehouse, skips the preflight.
     if args.command == "board":
         return _cmd_board(args)
-    # Spec-0073/T2：desktop 只读本地 work_queue/流，不操作仓库/远端，同样跳过 preflight。
+    # Spec-0073/T2: desktop read only local work_queue/ streams, do not operate the repository/distant, and skip preflight.
     if args.command == "desktop":
         return _cmd_desktop(args)
-    # Spec-0066/T3：report 只读本地 timing.jsonl，不操作仓库/远端，同样跳过 preflight（无 remote 也能出报告）。
+    # Spec-0066/T3: report only local timing.jsonl, does not operate the repository/distant end, also skips preflight (no remote can report).
     if args.command == "report":
         ctx = resolve_project()
         if ctx is None:
@@ -747,9 +766,9 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    # RFC-0003 决策 9：把已知运行期错误转成干净一行提示 + 非零退出，不糊 traceback（业务异常延迟 import）。
-    # Spec-0064/T5：错误类型改接收敛后新栈——backfill 编排失败走 recipes.backfill.BackfillError；配置
-    # 非法走 utils.agent_config.AgentConfigError；runtime GateError / AgentOutputError；utils 稳定面
+    # RFC-0003 Decision 9: Converts known run-time errors into a clean line of tips + Non-zero exit without trailback (business abnormal delay import).
+    # Spec-0064/T5: Error type change to accept back-up post-closure inn -backfill configuration failed to walk recipes.backfill.BackfillError; configuration
+    # Illegally utils.agent_config.AgentConfigError; runtime GateError / AgentOutputError;utils stabilization face
     # GithubError / WorkspaceError。
     from openagents.recipes.backfill import BackfillError
     from openagents.runtime.engine import AgentOutputError
@@ -765,8 +784,8 @@ def _run(args: argparse.Namespace) -> int:
         if top == "openagents":
             raise
         print(
-            f"✗ 缺少依赖 '{exc.name}'：请在项目根目录重装依赖后重试："
-            f"uv pip install -e .（或 uv sync）",
+            f"✗ Missing dependency '{exc.name}'. Reinstall from the project root and retry:"
+            f"uv pip install -e . (or uv sync)",
             file=sys.stderr,
         )
         return 1
@@ -793,16 +812,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         from openagents.observations.capabilities import emit
 
         return emit()
-    # Spec-0069/T1：必须在 parse_args 之前调（argcomplete 文档规定的唯一正确位置）。它仅在 shell 补全
-    # 握手（环境变量 _ARGCOMPLETE 存在）时读 parser 生成候选并 exit；正常运行下立即返回、零副作用，故下方
-    # 分发/退出码/错误处理链全部不变。
+    # Spec-0069/T1: It must be tuned before parse_args (the only correct position specified in the argcomplete document). It is only filled with shell
+    # Read parser when handshake (environmental variable _ARGCOMPLETE exists) create candidate and exit; return immediately in full operation, zero side effects, so below
+    # Distribution/Exit Code/The chain of error processing is unchanged.
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
-    # Spec-0070/T1：自更新预检——每次命令前保证跑在最新 uv tool 快照上（快照与 git 源码解耦，源码 pull 后
-    # 快照不自动更新）。落后且可安全更新则 pull --ff-only + uv tool install --force + execvp 重执行本命令；
-    # 否则打印可操作提示并 fail-open 继续（离线/脏工作区/feature 分支绝不阻断、绝不动 WIP）。仅接 openagents
-    # 入口（spec 独立命令不接）；传 sys.argv（重执行要完整进程 argv，非 main(argv) 的可选测试入参）。放在
-    # argcomplete 之后：补全握手时 argcomplete 已 exit，走不到这里；正常运行才做预检。
+    # Spec-0070/T1: Self-update Pre-screening - Ensured running on the latest uv tool before each command (scrap to git source decorate, source after pull)
+    # The snapshot does not update automatically. pull --ff-only + uv tool install --force + execvp (a) Re-enforce this order;
+    # Otherwise print actionable tips and fail-open Continue (offline)/Dirty workspace/feature The branch will never stop, never move. WIP）。Just answer openagents
+    # Entry (spec command not answered); pass sys.argv (optional test participation for re-examining argv, not maain (argv)).
+    # After argcomplete: argcomplete is out of here when handshake is completed; run a pre-check.
     from openagents.utils import selfupdate
 
     selfupdate.precheck(argv=sys.argv)

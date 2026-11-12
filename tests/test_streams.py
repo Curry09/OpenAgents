@@ -1,7 +1,7 @@
-"""# Spec-0073/T1: agent 输出按 subject 分流（stream tee）单测。
+"""# Spec-0073/T1: agent output measured by subproject diversion (stream tee).
 
-覆盖：两线程各绑一个 subject 并发 emit → 各自 ring buffer 只含自己的行不串扰；未绑定线程 emit 只打 stdout、
-不进 buffer；ring buffer 定长丢最旧 + `read_since` 增量补发；`bind/unbind` 成对后线程回到未绑定态。
+Overwrite: two threads tied to one subject and sent emit rimsing but no entanglement; emit tied to a string only stdout,
+Do not enter a buffer; ring buffer will lose the oldest + `read_since` increment; `bind/unbind` in pairs back to unbounded back.
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ def test_unbound_emit_prints_stdout_only(capsys):
 
 def test_bind_routes_to_subject_buffer(capsys):
     streams.bind(subject="issue:1")
-    streams.emit(line="改代码")
-    assert capsys.readouterr().out == "改代码\n"  # 照旧打 stdout
+    streams.emit(line="Change code.")
+    assert capsys.readouterr().out == "Change code.\n"  # Play the same as always, stdout.
     lines, seq = streams.read_since(subject="issue:1", after_seq=-1)
-    assert lines == ["改代码"]
+    assert lines == ["Change code."]
     assert seq == 1
     streams.unbind()
     assert streams.current_subject() is None
@@ -87,4 +87,4 @@ def test_ring_buffer_is_bounded(monkeypatch):
     for i in range(5):
         streams.emit(line=f"line-{i}")
     lines, _ = streams.read_since(subject="issue:5", after_seq=-1)
-    assert lines == ["line-2", "line-3", "line-4"]  # 只留最新 3 行
+    assert lines == ["line-2", "line-3", "line-4"]  # Only the latest 3 lines will be left

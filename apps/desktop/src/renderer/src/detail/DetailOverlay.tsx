@@ -1,4 +1,4 @@
-// Spec-0073/T5: 全屏大窗——上半实时流（StreamView），下半成果锚点（PR/阶段）；「下一个 ▶」快切、Esc 关闭。
+// Spec-0073/T5: Show the live stream and delivery status in a full-screen overlay.
 import { useEffect } from 'react'
 import { useDesktop } from '../App'
 import { nextPending } from '../nav/pending'
@@ -9,7 +9,7 @@ export default function DetailOverlay(): JSX.Element | null {
   const { board, pending, selected, open } = useDesktop()
   const lines = useStream(selected)
 
-  // Esc 关闭大窗回看板。
+  // Return to the board on Escape.
   useEffect(() => {
     const onKey = (evt: KeyboardEvent): void => {
       if (evt.key === 'Escape') {
@@ -26,7 +26,7 @@ export default function DetailOverlay(): JSX.Element | null {
   const entry = board.find((e) => e.subject === selected) ?? null
 
   return (
-    <div className="overlay" role="dialog" aria-label={`大窗 ${selected}`}>
+    <div className="overlay" role="dialog" aria-label={`Delivery details for ${selected}`}>
       <div className="overlay__bar">
         <strong>{selected}</strong>
         <span>
@@ -39,18 +39,18 @@ export default function DetailOverlay(): JSX.Element | null {
               }
             }}
           >
-            下一个 ▶
+            Next ▶
           </button>
           <button type="button" onClick={() => open(null)}>
-            关闭 ✕
+            Close ✕
           </button>
         </span>
       </div>
       <StreamView lines={lines} />
       {entry?.pr && (
         <div className="overlay__anchor">
-          成果：PR #{entry.pr}
-          {entry.pending === 'pr-to-merge' && ' —— 等你合并'}
+          Deliverable: PR #{entry.pr}
+          {entry.pending === 'pr-to-merge' && ' — Awaiting merge'}
         </div>
       )}
     </div>

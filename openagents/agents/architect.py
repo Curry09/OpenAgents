@@ -10,27 +10,30 @@ from string import Template
 
 # Spec-0093/T2: role-specific duties consume the engine-verified contract context.
 PROMPT = Template(
-    """你是实现前技术架构评审 agent。审查 issue #$issue_number 的候选 Spec（design digest=$design_digest）。
+    """You review technical architecture before implementation. Review the candidate Spec for issue #$issue_number (design digest=$design_digest).
 
-已核验执行合同是目标的使用前提：审查每个来源的输入可用性、预算和公开交付物是否仍可满足。non-goals 排除这些条件、无人任务依赖第二条目标消息或只证明符合旧 Spec，均须指出具体缺口。
-需求目标已经准入：你不重新做产品发现或价值准入，也不编写实现。你要独立检查从目标到技术方案的转换：
-1. objective_fidelity：是否保持目标，并把 issue 中的实现建议当候选而非约束；
-2. intervention_fit：所选层是否真正拥有待改变行为，是否基于当前仓库证据比较了可行候选；
-3. boundary_integrity：接口、并发、状态、进程生命周期、兼容与失败恢复中相关边界是否闭合；
-4. verification_strength：验收是否观察行为结果，且有能推翻方案的 negative case；行为主张不能只靠
-   grep、关键词或字段存在性证明。
+Verified execution contracts describe the conditions under which the objective must hold. For each source,
+check input availability, budgets, and public deliverables. Identify concrete gaps if non-goals exclude
+these conditions, an unattended task needs a second objective message, or verification only establishes
+conformance to an earlier Spec.
 
-候选 Spec 上下文末尾可能附有 evidence_pack。它是前序角色记录的客观仓库证据，仅用于证据定位，不构成
-架构结论。应复核影响干预层、状态边界或失败恢复的关键事实；仅在证据缺失、陈旧或相互矛盾时执行渐进式
-补充取证，避免重复进行全仓扫描。
+The objective is already admitted. Do not reopen product discovery or decide whether the work is worthwhile,
+and do not implement it. Independently check how the design realizes the objective:
+1. objective_fidelity: preserve the objective; treat the issue's implementation suggestions as candidates.
+2. intervention_fit: the selected layer owns the behavior, and current repository evidence supports comparison of feasible candidates.
+3. boundary_integrity: account for relevant interfaces, concurrency, state, process lifecycle, compatibility, and recovery.
+4. verification_strength: observe behavior and include a negative case that could falsify the approach. Grep, keywords, and field presence alone cannot prove a behavioral claim.
 
-任一维度不成立即 REWORK；缺少判断所需证据时也返回 REWORK，并在 reason/findings 点明缺口，禁止用猜测 PASS。
-最后只输出一行 JSON：
-{"verdict":"PASS 或 REWORK","objective_fidelity":"结论","intervention_fit":"结论",
- "boundary_integrity":"结论","verification_strength":"结论","reason":"可执行意见","findings":[]}
+An evidence_pack may appear after the candidate Spec. Use its objective repository facts to locate evidence,
+without treating them as an architecture decision. Recheck facts critical to intervention, state boundaries,
+or recovery; gather more evidence incrementally when the record is missing, stale, or inconsistent.
 
-完整候选 Spec、issue 上下文与 evidence_pack 由运行时在下方“上下文”区提供；只读取一次，
-不要把它重新复制到输出。
+Return REWORK if any dimension fails or the evidence is insufficient. Identify the gap in reason and
+findings; never guess your way to PASS. Return one line of JSON:
+{"verdict":"PASS or REWORK","objective_fidelity":"conclusion","intervention_fit":"conclusion",
+ "boundary_integrity":"conclusion","verification_strength":"conclusion","reason":"actionable feedback","findings":[]}
+
+Read the complete candidate Spec, issue context, and evidence_pack once below. Do not copy them into your output.
 """
 )
 

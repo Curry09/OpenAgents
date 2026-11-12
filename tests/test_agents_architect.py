@@ -24,12 +24,12 @@ class _Backend:
 def _verdict(value: str) -> dict:
     return {
         "verdict": value,
-        "objective_fidelity": "目标保持",
-        "intervention_fit": "运行时拥有行为",
-        "boundary_integrity": "进程边界闭合",
-        "verification_strength": "含正反例",
-        "reason": "ok" if value == "PASS" else "应改到进程边界",
-        "findings": [] if value == "PASS" else ["prompt 不拥有子进程"],
+        "objective_fidelity": "Targets maintained.",
+        "intervention_fit": "Behavior on Runtime",
+        "boundary_integrity": "Process border closure",
+        "verification_strength": "With positive and negative examples",
+        "reason": "ok" if value == "PASS" else "Should be moved to the process boundary",
+        "findings": [] if value == "PASS" else ["Prompt does not own subprocesses"],
     }
 
 

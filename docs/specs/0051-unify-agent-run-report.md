@@ -1,12 +1,12 @@
 ---
 number: "0051"
-title: 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
+title: "Unify PR comments posted after agent execution: fill in the silent steps in implement/iterate/finalize_runbook/executor/the evidence gate (centralizing observability)"
 issue: 131
 slug: unify-agent-run-report
-summary: 把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层（messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在 _process_rfc_review/_process_coding/_evidence_gate 的收口点统一「执行完→render_*→identity.post_signed_comment（带防刷屏去重）」，补齐 implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤，让人盯 PR 即知每步进展（理念 8），且 executor/evidence_gate 保持不碰 IO 的解耦定位（理念 10）。
+summary: "Centralize “dispatch an agent to execute → post a signed explanatory comment on the PR when execution finishes” in the orchestration layer (messages), replacing scattered wiring in individual methods: provide render_* pure functions for executor/evidence_gate/orchestration steps, and consistently apply “execution finishes → render_* → identity.post_signed_comment (with deduplication to prevent comment spam)” at the convergence points in _process_rfc_review/_process_coding/_evidence_gate. Fill in the five silent steps—implement / iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence—so that anyone watching the PR can see each step's progress (Principle 8), while preserving executor/evidence_gate's decoupled role of performing no IO (Principle 10)."
 tasks:
   - id: T1
-    title: executor.render_result 纯函数（ExecutorResult→PR 评论）
+    title: "executor.render_result pure function (ExecutorResult → PR comment)"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/executor.py
       - tests/test_executor.py
-    scope: '在 executor 加 render_result(*, result: ExecutorResult)->str 纯函数（仿 reviewer.render_decision）：以稳定标题「## 证据执行」开头，渲 outcome(passed/failed/skipped 中文化)/form/notes；不 import github/identity、不碰 IO，保持 executor「只返结构化结果」的解耦定位（理念 10）'
-    acceptance: render_result 对 passed/failed/skipped 三种 outcome 均产出含标题「## 证据执行」的确定性 Markdown（notes 非空时体现）；纯函数无副作用、不触 IO；ruff check + ruff format --check + pytest tests/test_executor.py 通过
+    scope: "Add the pure function render_result(*, result: ExecutorResult)->str to executor (modeled on reviewer.render_decision): start with the stable heading “## Evidence Execution” and render outcome (passed/failed/skipped as user-facing English labels)/form/notes; do not import github/identity or perform IO, preserving executor's decoupled role of “returning only structured results” (Principle 10)"
+    acceptance: "render_result produces deterministic Markdown containing the heading “## Evidence Execution” for all three outcomes, passed/failed/skipped (including notes when nonempty); the pure function has no side effects and performs no IO; ruff check + ruff format --check + pytest tests/test_executor.py pass"
   - id: T2
-    title: evidence_gate.render_decision 纯函数（EvidenceDecision→PR 评论）
+    title: "evidence_gate.render_decision pure function (EvidenceDecision → PR comment)"
     status: done
     priority: P1
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/evidence_gate.py
       - tests/test_evidence_gate.py
-    scope: '在 evidence_gate 加 render_decision(*, decision: EvidenceDecision)->str 纯函数（仿 reviewer.render_decision）：标题「## 证据闸判决」，渲 passed(✅/❌) + feedback（非空附代码块）；不 import identity、不碰 IO，evidence_gate 保持「只返结构化结果」'
-    acceptance: render_decision 对 passed=True/False 均产出含标题「## 证据闸判决」的确定性 Markdown，FAIL 时含 feedback 块、PASS 时不含；纯函数无副作用；ruff + ruff format --check + pytest tests/test_evidence_gate.py 通过
+    scope: "Add the pure function render_decision(*, decision: EvidenceDecision)->str to evidence_gate (modeled on reviewer.render_decision): use the heading “## Evidence Gate Decision” and render passed (✅/❌) + feedback (append a code block when nonempty); do not import identity or perform IO, keeping evidence_gate's role of “returning only structured results”"
+    acceptance: "render_decision produces deterministic Markdown containing the heading “## Evidence Gate Decision” for both passed=True/False, with a feedback block on FAIL and none on PASS; the pure function has no side effects; ruff + ruff format --check + pytest tests/test_evidence_gate.py pass"
   - id: T3
-    title: worknote 新模块：implement/iterate/runbook「本轮做了什么」渲染
+    title: "New worknote module: rendering “what was done this round” for implement/iterate/runbook"
     status: done
     priority: P1
     tags: []
@@ -42,10 +42,10 @@ tasks:
     files:
       - openagents/worknote.py
       - tests/test_worknote.py
-    scope: 新增 openagents/worknote.py（仿 blocknote/replynote 小型渲染模块）：render_implement(*, summary)→「## 实现自述」、render_iterate(*, reason, summary)→「## 迭代自述（reason 中文化）」、render_runbook(*, form, runbook_path)→「## 说明书定稿」；均只吃基元 str 入参、无副作用、不反向 import orchestrator；summary 空回落占位
-    acceptance: 三个 render_* 各产出带各自稳定标题的确定性 Markdown；reason 覆盖 ci/review/e2e 中文化；summary='' 回落占位不报错；worknote 无外部 import 副作用；ruff + ruff format --check + pytest tests/test_worknote.py 通过
+    scope: "Add openagents/worknote.py (a small rendering module modeled on blocknote/replynote): render_implement(*, summary) → “## Implementation Report”, render_iterate(*, reason, summary) → “## Iteration Report (reason rendered as a user-facing English label)”, render_runbook(*, form, runbook_path) → “## Runbook Finalization”; all accept only primitive str arguments, have no side effects, and do not import orchestrator back in the reverse direction; use a fallback placeholder when summary is empty"
+    acceptance: "Each of the three render_* functions produces deterministic Markdown with its own stable heading; reason covers ci/review/e2e rendered as user-facing English labels; summary='' falls back to a placeholder without raising an error; worknote has no external import side effects; ruff + ruff format --check + pytest tests/test_worknote.py pass"
   - id: T4
-    title: orchestrator.implement 返回 result.summary（None→str）
+    title: "orchestrator.implement returns result.summary (None → str)"
     status: done
     priority: P1
     tags: []
@@ -55,10 +55,10 @@ tasks:
     files:
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
-    scope: 把 orchestrator.implement 的返回从 None 改为 result.summary（与 iterate/refine_rfc 同款返回 str），使 messages 收口点拿得到「本轮实现了什么」摘要；不改 implement 其余编排语义（backend.run/commit_and_push/mark_ready/状态流转不变）。若回执需展示 e2e form，评估在 RunbookHandle 补 form 字段（见 Unresolved）
-    acceptance: implement 返回非空 str（agent 无摘要时回落占位）、其余行为逐字节不变；既有忽略返回值的 cli 调用不受影响；ruff + ruff format --check + pytest tests/test_orchestrator.py 通过
+    scope: "Change orchestrator.implement's return value from None to result.summary (returning str like iterate/refine_rfc), allowing the messages convergence point to obtain a summary of “what was implemented this round”; do not change implement's other orchestration semantics (backend.run/commit_and_push/mark_ready/state transitions remain unchanged). If the report needs to display the e2e form, evaluate adding a form field to RunbookHandle (see Unresolved)"
+    acceptance: "implement returns a nonempty str (falling back to a placeholder when the agent provides no summary), with all other behavior unchanged byte for byte; existing cli calls that ignore the return value are unaffected; ruff + ruff format --check + pytest tests/test_orchestrator.py pass"
   - id: T5
-    title: messages 收口：_post_agent_report + 防刷屏去重 + 五处接线
+    title: "Centralization in messages: _post_agent_report + deduplication to prevent comment spam + wiring at five points"
     status: done
     priority: P0
     tags: []
@@ -73,10 +73,10 @@ tasks:
       - openagents/messages.py
       - tests/test_messages.py
       - tests/test_messages_agent_report.py
-    scope: 在 messages 加唯一 IO 出口 _post_agent_report（去重 fail-open→identity.post_signed_comment，整段 try/except 尽力而为，镜像 _post_review_decision 骨架）+ _report_already_posted（以标题行为锚点，最近同标题回执正文规范化相等则跳过，仿 _decision_already_posted）；在 _process_rfc_review(implement)/_process_coding(iterate ci·review)/_evidence_gate(finalize_runbook·run_executor·review_evidence) 五处接线「执行完→render_*→_post_agent_report」；reason=human 保持只走 _post_comment_reply 不双贴；并同步更新既有 messages 环测试替身（implement 返回 str）
-    acceptance: 五处收口各贴一条署名回执、内容取自对应 render_*；reason=human 不叠加迭代自述；重复 poll 同内容不新增评论（_report_already_posted 命中）；post_comment 抛错时链路仍推进、仅 _progress 告警；executor/evidence_gate 不因此 import identity；ruff + ruff format --check + pytest tests/test_messages.py tests/test_messages_agent_report.py 通过
+    scope: "Add a single IO outlet, _post_agent_report, to messages (fail-open deduplication → identity.post_signed_comment, with the entire sequence wrapped in a best-effort try/except, mirroring the structure of _post_review_decision), plus _report_already_posted (use the heading line as an anchor; skip if the normalized body matches the most recent report with the same heading, modeled on _decision_already_posted); wire “execution finishes → render_* → _post_agent_report” at the five points in _process_rfc_review(implement)/_process_coding(iterate ci·review)/_evidence_gate(finalize_runbook·run_executor·review_evidence); keep reason=human going only through _post_comment_reply to avoid double posting; also update the existing messages-loop test doubles (implement returns str)"
+    acceptance: "Each of the five convergence points posts one signed report whose content comes from the corresponding render_* function; reason=human does not add an iteration report; repeated polls with identical content add no comments (_report_already_posted matches); when post_comment raises an error, the workflow continues and only _progress emits a warning; executor/evidence_gate do not import identity as a result; ruff + ruff format --check + pytest tests/test_messages.py tests/test_messages_agent_report.py pass"
   - id: T6
-    title: 成果测试：整链回执集成测试 + e2e 脚本
+    title: "Outcome tests: integration tests for reports across the full workflow + e2e script"
     status: done
     priority: P1
     tags: []
@@ -87,173 +87,174 @@ tasks:
     files:
       - scripts/e2e-spec-0051-unify-agent-run-report.sh
       - tests/test_agent_report_integration.py
-    scope: 内存假 GitHub（评论账本记 body+created_at、list_comments 回读）+ 假 backend 驱动 MessageLoop 走完 rfc-pass→implement→ci→review→证据闸(finalize→executor→review_evidence FAIL→e2e) 全链，断言五处收口各留一条署名回执、已有正例不双贴、重复 poll 不刷屏、发评论故障不阻断编排；e2e 脚本跑 ruff+ruff format --check+定向 pytest+spec validate 并打印三条断言证据（浏览器 e2e 不适用：无产品前端界面，成果=PR 机器评论流）
-    acceptance: bash scripts/e2e-spec-0051-unify-agent-run-report.sh 退出码 0；集成测试断言五处收口各一条回执 + human 不双贴 + 重复 poll 零新增 + 发评论故障不阻断全部通过；脚本输出可作 PR 指路牌收录的可复现证据
+    scope: "Use an in-memory fake GitHub (a comment ledger records body+created_at, with list_comments reading it back) + a fake backend to drive MessageLoop through the full rfc-pass → implement → ci → review → evidence gate (finalize → executor → review_evidence FAIL → e2e) workflow. Assert that each of the five convergence points leaves one signed report, existing positive cases do not double post, repeated polls do not spam comments, and comment-posting failures do not block orchestration; the e2e script runs ruff+ruff format --check+targeted pytest+spec validate and prints three pieces of assertion evidence (browser e2e is not applicable: there is no product frontend UI, and the outcome is the stream of machine-generated PR comments)"
+    acceptance: "bash scripts/e2e-spec-0051-unify-agent-run-report.sh exits with code 0; integration-test assertions all pass: one report at each of the five convergence points + no double posting for human + zero new comments on repeated polls + comment-posting failures do not block execution; the script output can serve as reproducible evidence included in the PR signpost"
 ---
 
-# 0051 · 统一 agent 执行后回贴 PR 评论：补齐 implement/iterate/finalize_runbook/executor/证据闸的静默步骤（可观测性收口）
+# 0051 · Standardize PR comments after agent execution: cover silent steps in implement/iterate/finalize_runbook/executor/the evidence gate (centralizing observability)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in nine rust-RFC sections. -->
 
 ## Summary
 
-OpenAgents 的守夜编排每轮会「派一个 coding agent 去执行（`backend.run`）」若干步：实现代码、据反馈迭代、
-定稿 e2e 说明书、真跑系统、判证据。**这些执行完后要不要在 PR 上回贴一条『我干了什么』的说明评论，
-今天是各方法各自零散接的——有的接了（refine / reviewer 裁决 / 人类解挂后的迭代 / 解冲突 agent），
-有的没接**，导致「代码 reviewer PASS → 定稿说明书 → 真跑 → 判证据」这条 e2e 链路对盯 PR 的人是**黑盒**。
+In each round, OpenAgents' Vigil orchestration “dispatches a coding agent to execute (`backend.run`)” several steps: implement code, iterate on feedback,
+finalize the e2e runbook, actually run the system, and evaluate evidence. **Whether to post a “what I did” explanatory comment on the PR after these executions
+is currently handled piecemeal by individual methods—some do it (refine / reviewer decisions / iteration after a human unblocks a run / conflict-resolution agents),
+and some do not**, making the e2e chain “code reviewer PASS → finalize runbook → actual execution → evaluate evidence” a **black box** for people watching the PR.
 
-本 spec 把「执行完 → 回贴说明评论」这件事**收口到编排层（`messages`）统一**：给三个缺口域各配一个
-`render_*` **纯函数**（`executor.render_result` 渲 `ExecutorResult`、`evidence_gate.render_decision`
-渲 `EvidenceDecision`、新增 `worknote` 模块渲 implement / iterate / runbook 定稿的「本轮做了什么」摘要），
-然后在 `messages` 的三个编排收口点（`_process_rfc_review` / `_process_coding` / `_evidence_gate`）
-统一走「执行完 → `render_*` → `identity.post_signed_comment`（带防刷屏去重）」。补齐 issue 审计出的
-**五处静默步骤**：`implement`、`iterate(ci·review·e2e)`、`finalize_runbook`、`run_executor`、
-`review_evidence`。收口后：IO（发评论）集中在 `messages` 一层，`executor` / `evidence_gate` 保持
-「不碰 IO、只返结构化结果」的解耦定位（理念 10），发评论有**唯一收口**，将来新增 agent 步骤不会再漏。
+This spec **centralizes “execution complete → post an explanatory comment” in the orchestration layer (`messages`)**: each of the three areas with gaps gets a
+`render_*` **pure function** (`executor.render_result` renders `ExecutorResult`, `evidence_gate.render_decision`
+renders `EvidenceDecision`, and a new `worknote` module renders “what was done this round” summaries for implement / iterate / runbook finalization).
+Then the three orchestration convergence points in `messages` (`_process_rfc_review` / `_process_coding` / `_evidence_gate`)
+uniformly follow “execution complete → `render_*` → `identity.post_signed_comment` (with deduplication to prevent comment spam).” This covers the
+**five silent steps** identified by the issue audit: `implement`, `iterate(ci·review·e2e)`, `finalize_runbook`, `run_executor`,
+and `review_evidence`. After centralization: IO (posting comments) is concentrated in the `messages` layer, while `executor` / `evidence_gate` retain
+their decoupled role of “no IO, only returning structured results” (Principle 10). Comment posting has a **single convergence point**, so newly added agent steps will no longer be missed.
 
 ## Motivation
 
-**现状（就地复述，不靠裸引用承载必要信息）。** OpenAgents 的 `vigil` 守夜循环对每个在推进的 issue/PR
-每轮 `poll` 一次，`messages.MessageLoop` 按 `RunRecord.status` 把它路由到某道闸。与本 spec 相关的编排
-收口点有三个，串起一条「起草 spec → 评审 → 实现 → CI → 代码评审 → **证据闸** → 合并」的流水线：
+**Current state (restated here, without relying on bare references to carry necessary information).** OpenAgents' `vigil` Vigil loop
+performs one `poll` per round for each issue/PR being advanced, and `messages.MessageLoop` routes it to a gate according to `RunRecord.status`. The three orchestration
+convergence points relevant to this spec connect a pipeline of “draft spec → review → implement → CI → code review → **evidence gate** → merge”:
 
-- `_process_rfc_review`（`openagents/messages.py:418`）：spec 评审闸。reviewer 全票 PASS（或已有人工批准
-  标签）→ 调 `orchestrator.implement`（`messages.py:423` / `:434`）派 agent **按 spec 写代码**、把 draft
-  PR 转正。
-- `_process_coding`（`messages.py:451`）：代码闸。CI 失败 → `iterate(reason="ci")`（`:496`）；CI 绿 +
-  代码 reviewer PASS → 进证据闸 → 合并；reviewer 打回 → `iterate(reason="review")`（`:533`）。
-- `_evidence_gate`（`messages.py:555`）：证据闸（Spec-0040）。链路 = `finalize_runbook`（派实现者把
-  e2e 粗规划落成可执行 `runbook.md` 并 commit，`:574`）→ `executor.run_executor`（独立 agent 照 runbook
-  真跑系统、把 `result.md` 写进 `evidence_dir`，`:578`）→ `commit_evidence`（`:586`）→
-  `evidence_gate.review_evidence`（拿 RFC 意图对照证据判 PASS/FAIL，`:588`）；FAIL 且未攒满 K 轮 →
-  `iterate(reason="e2e")`（`:601`），攒满 K → `_block`。
+- `_process_rfc_review` (`openagents/messages.py:418`): the spec review gate. Unanimous reviewer PASS (or an existing human approval
+  label) → call `orchestrator.implement` (`messages.py:423` / `:434`) to dispatch an agent to **write code according to the spec** and mark the draft
+  PR ready.
+- `_process_coding` (`messages.py:451`): the code gate. CI failure → `iterate(reason="ci")` (`:496`); green CI +
+  code reviewer PASS → enter the evidence gate → merge; reviewer rejection → `iterate(reason="review")` (`:533`).
+- `_evidence_gate` (`messages.py:555`): the evidence gate (Spec-0040). Chain = `finalize_runbook` (dispatch the implementer to turn
+  the rough e2e plan into an executable `runbook.md` and commit it, `:574`) → `executor.run_executor` (an independent agent follows the runbook
+  to actually run the system and writes `result.md` into `evidence_dir`, `:578`) → `commit_evidence` (`:586`) →
+  `evidence_gate.review_evidence` (compare the evidence against the RFC's intent to decide PASS/FAIL, `:588`); FAIL before K rounds have accumulated →
+  `iterate(reason="e2e")` (`:601`); once K rounds have accumulated → `_block`.
 
-**「执行完发评论」今天已有的正例（说明这是既定约定，只是没贯彻到底）：**
+**Existing positive examples of “post a comment after execution” (showing that this is an established convention that has simply not been applied throughout):**
 
-| Agent 执行点 | 方法（文件:行） | 执行完发 PR 评论？ |
+| Agent execution point | Method (file:line) | Posts a PR comment after execution? |
 |---|---|---|
-| 评审 spec / 代码 | `review_rfc`/`review_code`→`_review`（`orchestrator.py:539`） | ✅ 每轮 `_post_review_decision`（渲 `reviewer.render_decision` → 盖章发） |
-| 精炼 spec | `refine_rfc`（`orchestrator.py:472`，`announce=True`） | ✅ `_REFINE_COMMENT`（`orchestrator.py:500`） |
-| 人类解挂后迭代 | `iterate(reason="human")`（`messages.py:372`） | ✅ `_post_comment_reply`（引用原评论贴回） |
-| 解合并冲突 | `conflict.resolve`（Spec-0038） | ✅ agent 自带 reply-comment 工具自回 |
+| Review spec / code | `review_rfc`/`review_code`→`_review` (`orchestrator.py:539`) | ✅ `_post_review_decision` every round (render with `reviewer.render_decision` → sign and post) |
+| Refine spec | `refine_rfc` (`orchestrator.py:472`, `announce=True`) | ✅ `_REFINE_COMMENT` (`orchestrator.py:500`) |
+| Iterate after a human unblocks the run | `iterate(reason="human")` (`messages.py:372`) | ✅ `_post_comment_reply` (reply quoting the original comment) |
+| Resolve merge conflicts | `conflict.resolve` (Spec-0038) | ✅ The agent replies itself using its built-in reply-comment tool |
 
-**为什么要改——五处执行了却对人静默的编排步骤（issue #131 审计，以 `origin/main`＝跑 #128 的代码为准）：**
+**Why change this—five orchestration steps that execute but remain silent to humans (audit in issue #131, using `origin/main`, the code running #128, as the reference):**
 
-1. **`implement`（实现代码，`orchestrator.py:509`）** — 整个「按 spec 写代码」只 `backend.run` +
-   `commit_and_push`（`feat: implement …`）+ `mark_ready`，返回 `None`；旧的一次性 smoke 自述已退役，
-   **无 agent 自述**——实现了哪些内容、自测结果如何，盯 PR 的人看不到。
-2. **`iterate`（`orchestrator.py:694`）的 `ci`/`review`/`e2e` 三种反馈迭代** — 据 CI 日志 / reviewer 反馈 /
-   证据闸反馈改代码，`commit_and_push`（`fix: address {reason} feedback …`）后**不说改了啥**；`iterate`
-   已经 `return result.summary`（`AgentResult.summary` 数据现成），但这三个收口点把它丢掉了（只有
-   `reason="human"` 那条被 `messages._post_comment_reply` 贴了出来）。
-3. **`finalize_runbook`（定稿说明书，`orchestrator.py:624`）** — 派 agent 把 e2e 粗规划落成 `runbook.md`、
-   `commit_and_push`（`test: finalize e2e runbook …`），产出 durable 的说明书文件，却**无评论**。
-4. **`run_executor`（真跑系统，`executor.py:94`）** — 独立 agent 照 runbook 真跑、把 `result.md`
-   （`outcome`/`form`/`notes`）写进磁盘，**无评论**；证据只落磁盘，人在 PR 上看不到「真跑了没、跑成啥样」。
-5. **`review_evidence`（证据闸判决，`evidence_gate.py:80`）** — 每轮判完只 `return EvidenceDecision`
-   （`passed`/`feedback`）；FAIL 时静默 `iterate(reason="e2e")`，只有攒满 K 轮 `_block` 才发一次评论。
+1. **`implement` (implement code, `orchestrator.py:509`)** — The entire “write code according to the spec” process only performs `backend.run` +
+   `commit_and_push` (`feat: implement …`) + `mark_ready`, then returns `None`; the old one-off smoke-test self-report has been retired,
+   leaving **no agent self-report**—people watching the PR cannot see what was implemented or the self-test results.
+2. **The three feedback iteration types `ci`/`review`/`e2e` in `iterate` (`orchestrator.py:694`)** — The agent changes code based on CI logs / reviewer feedback /
+   evidence-gate feedback, then **does not say what changed** after `commit_and_push` (`fix: address {reason} feedback …`); `iterate`
+   already does `return result.summary` (`AgentResult.summary` is readily available), but these three convergence points discard it (only
+   the `reason="human"` path posts it through `messages._post_comment_reply`).
+3. **`finalize_runbook` (finalize the runbook, `orchestrator.py:624`)** — Dispatch an agent to turn the rough e2e plan into `runbook.md`,
+   then `commit_and_push` (`test: finalize e2e runbook …`), producing a durable runbook file but **no comment**.
+4. **`run_executor` (actually run the system, `executor.py:94`)** — An independent agent follows the runbook to actually run the system and writes `result.md`
+   (`outcome`/`form`/`notes`) to disk, with **no comment**; evidence is stored only on disk, so people on the PR cannot see “whether it actually ran and how it went.”
+5. **`review_evidence` (evidence-gate decision, `evidence_gate.py:80`)** — Each round only does `return EvidenceDecision`
+   (`passed`/`feedback`) after evaluation; on FAIL, it silently calls `iterate(reason="e2e")`, posting a comment only when K rounds have accumulated and `_block` is invoked.
 
-**触发案例（实证）。** PR #128 卡死排查：证据闸链路（上面 3+4+5 叠加）**跑了 28 分钟、6 个 commit、
-全程对人静默**，只在终局升级挂起时发一条 FAIL 快照评论。人无法在过程中判断「是卡住了还是在正常推进」——
-这正是理念 8（可观测性：人盯 PR 即知进展）被击穿的地方。
+**Triggering case (empirical evidence).** Investigation of a stalled PR #128: the evidence-gate chain (the combination of 3+4+5 above) **ran for 28 minutes, produced 6 commits,
+and remained silent to humans throughout**, posting a single FAIL snapshot comment only when it finally escalated to a blocked state. During execution, people could not tell “whether it was stuck or progressing normally”—
+this is precisely where Principle 8 (observability: people can understand progress just by watching the PR) broke down.
 
-**期望行为（验收目标）。**
-- 凡是派 agent 执行（`backend.run`）并产生 durable 产物的编排步骤，执行完都在 PR 上回贴**一条**署名说明评论。
-- 上述五处静默步骤全部补齐；已有正例（refine / reviewer / human-iterate / 解冲突）行为不变、不重复贴。
-- 发评论逻辑**收口到编排层（`messages`）唯一出口**，不再散落各模块；`executor` / `evidence_gate`
-  仍不 import `identity`、不碰 IO（理念 10）。
-- 幂等/防刷屏：同一步骤同内容在重复 poll 时不重复贴（参照既有 `_decision_already_posted` 的去重）。
+**Expected behavior (acceptance criteria).**
+- Every orchestration step that dispatches an agent (`backend.run`) and produces a durable artifact posts **one** signed explanatory comment on the PR after execution.
+- All five silent steps above are covered; the existing positive examples (refine / reviewer / human-iterate / conflict resolution) retain their behavior without duplicate posts.
+- Comment-posting logic **converges on a single exit point in the orchestration layer (`messages`)**, rather than being scattered across modules; `executor` / `evidence_gate`
+  still do not import `identity` or perform IO (Principle 10).
+- Idempotency / spam prevention: repeated polls do not post the same content again for the same step (following the existing `_decision_already_posted` deduplication).
 
 ## Guide-level explanation
 
-把编排层想成一条流水线，每个「派 agent 干活」的工位干完活都要在 PR 上**打一张署名的工单回执**，
-让盯 PR 的人不用进服务器看磁盘，光看 PR 评论流就知道每步进展。今天有些工位打了回执（评审、精炼、
-人类回复、解冲突），有些没打（实现、迭代、定稿说明书、真跑、判证据）——本 spec 把没打的补齐，
-并且把「打回执」这个动作从「每个工位自己想着打」改成「**统一在流水线控制台（`messages`）打**」。
+Think of the orchestration layer as a pipeline: every station that “dispatches an agent to do work” must **issue a signed work receipt** on the PR when it finishes,
+so people watching the PR can understand each step's progress from the PR comment stream alone, without logging into the server to inspect the disk. Today, some stations issue receipts (review, refinement,
+human replies, conflict resolution), while others do not (implementation, iteration, runbook finalization, actual execution, evidence evaluation)—this spec fills those gaps
+and changes “issuing receipts” from “each station must remember to do it itself” to “**do it centrally at the pipeline control console (`messages`)**.”
 
-- **回执长什么样（`render_*` 纯函数）。** 每类工单配一个把结构化结果渲染成 Markdown 的纯函数，
-  仿现成的 `reviewer.render_decision`（它把裁决渲成「## 评审闸裁决 / 类型 / 裁决 / 票数」那段评论）：
-  - `executor.render_result(result)` → 「## 证据执行」+ 真跑的 `outcome`（passed/failed/skipped）/ `form` / `notes`；
-  - `evidence_gate.render_decision(decision)` → 「## 证据闸判决」+ `passed` / `feedback`；
-  - `worknote.render_implement(summary)` → 「## 实现自述」+ agent 的 `AgentResult.summary`；
-  - `worknote.render_iterate(reason, summary)` → 「## 迭代自述（ci/review/e2e）」+ summary；
-  - `worknote.render_runbook(form, runbook_path)` → 「## 说明书定稿」+ 形态与 runbook 路径。
+- **What a receipt looks like (`render_*` pure functions).** Each type of work gets a pure function that renders structured results as Markdown,
+  following the existing `reviewer.render_decision` (which renders a decision into the comment section “## Review Gate Decision / Type / Decision / Vote Count”):
+  - `executor.render_result(result)` → “## Evidence Execution” + the actual run's `outcome` (passed/failed/skipped) / `form` / `notes`;
+  - `evidence_gate.render_decision(decision)` → “## Evidence Gate Decision” + `passed` / `feedback`;
+  - `worknote.render_implement(summary)` → “## Implementation Self-Report” + the agent's `AgentResult.summary`;
+  - `worknote.render_iterate(reason, summary)` → “## Iteration Self-Report (ci/review/e2e)” + summary;
+  - `worknote.render_runbook(form, runbook_path)` → “## Runbook Finalization” + form and runbook path.
 
-  这些函数**只拼字符串、无副作用、不 import github/identity**——渲染是每个域自己的知识
-  （票数/证据结论/本轮摘要），发评论不是。
+  These functions **only assemble strings, have no side effects, and do not import github/identity**—rendering uses knowledge specific to each domain
+  (vote counts / evidence conclusions / this round's summary); posting comments does not.
 
-- **回执在哪打（收口到 `messages`）。** 控制台在每个工位执行完后，调对应 `render_*` 拿到回执正文，
-  再走**唯一出口** `messages._post_agent_report(pr_number, body)`：它盖上本实例签名
-  （`identity.post_signed_comment`）贴到 PR。IO 集中在这一层，`executor` / `evidence_gate` 谁都不用去
-  `import identity`。
+- **Where receipts are issued (centralized in `messages`).** After each station finishes execution, the console calls the corresponding `render_*` to obtain the receipt body,
+  then uses the **single exit point** `messages._post_agent_report(pr_number, body)`: it adds this instance's signature
+  (`identity.post_signed_comment`) and posts to the PR. IO is concentrated in this layer; neither `executor` nor `evidence_gate` needs to
+  `import identity`.
 
-- **不刷屏（去重）。** 每张回执以它的标题行（`## 证据执行` 等）为稳定锚点；`_post_agent_report` 贴前先看
-  PR 上**最近一条同标题回执**，若正文规范化后与本轮完全相同就跳过——参照既有 `_decision_already_posted`
-  的做法（它止住了 PR #61 那种「33 条相同 PASS 裁决」刷屏）。去重是**尽力而为旁路**：查询/比对抖动一律
-  fail-open 照发，宁可多发一条也不因抖动漏发回执、损害可观测性。
+- **Preventing spam (deduplication).** Each receipt uses its heading line (`## Evidence Execution`, etc.) as a stable anchor; before posting, `_post_agent_report` checks
+  the **most recent receipt with the same heading** on the PR and skips posting if its normalized body is exactly the same as this round's—following the existing `_decision_already_posted`
+  approach (which stopped comment spam like the “33 identical PASS decisions” on PR #61). Deduplication is a **best-effort auxiliary path**: any query/comparison instability
+  must fail open and allow posting. An extra comment is preferable to missing a receipt because of transient instability and impairing observability.
 
-- **发评论绝不阻断编排。** 和现成的 `_post_review_decision` 一样，`_post_agent_report` 把
-  `post_signed_comment` 包在 `try/except` 里——任何 `gh` 故障只记 `_progress`、不上抛，绝不阻断
-  实现/迭代/证据闸/合并这条主干（理念 8 的可观测性是**增益**，不能反过来成为主干的故障点）。
+- **Comment posting must never block orchestration.** Like the existing `_post_review_decision`, `_post_agent_report` wraps
+  `post_signed_comment` in `try/except`—any `gh` failure is only recorded through `_progress`, never propagated, and must never block
+  the main implementation/iteration/evidence-gate/merge flow (the observability in Principle 8 is an **enhancement** and must not itself become a failure point in the main flow).
 
-对使用者/运维：行为上，一个正在推进的 PR，评论流会**按发生顺序**出现「实现自述 → （CI 失败则）迭代自述(ci)
-→ （reviewer 打回则）迭代自述(review) → 说明书定稿 → 证据执行 → 证据闸判决 →（FAIL 则）迭代自述(e2e) → …」
-这样一串署名回执；#128 那种「28 分钟黑盒、只在终局看到一张 FAIL 快照」不再发生。
+For users/operators: on a PR being actively advanced, the comment stream will show signed receipts **in the order they occur**:
+“Implementation Self-Report → (if CI fails) Iteration Self-Report (ci)
+→ (if the reviewer rejects it) Iteration Self-Report (review) → Runbook Finalization → Evidence Execution → Evidence Gate Decision → (on FAIL) Iteration Self-Report (e2e) → …”.
+Situations like #128's “28-minute black box, with only a FAIL snapshot visible at the end” will no longer occur.
 
 ## Reference-level explanation
 
-### 技术方案（三个 `render_*` 域 + 一个 `messages` 收口 + 五个接线点）
+### Technical approach (three `render_*` domains + one `messages` convergence point + five integration points)
 
-**① `render_*` 纯函数（各归其域，理念 10）。** 三处新增，均仿 `reviewer.render_decision`（纯字符串、
-无副作用、只依赖本模块自己的结构化类型，不 import github/identity）：
+**① Pure `render_*` functions (each in its own domain, Principle 10).** Add functions in three places, all modeled on `reviewer.render_decision` (pure strings,
+no side effects, dependent only on their own module's structured types, with no imports of github/identity):
 
-- `openagents/executor.py`：`render_result(*, result: ExecutorResult) -> str`。以稳定标题 `## 证据执行`
-  开头，渲 `result.outcome`（`passed`/`failed`/`skipped` 中文化）、`result.form`、`result.notes`。
-- `openagents/evidence_gate.py`：`render_decision(*, decision: EvidenceDecision) -> str`。标题
-  `## 证据闸判决`，渲 `decision.passed`（✅/❌）+ `decision.feedback`（非空时附代码块，仿 render_decision 的
-  「反馈摘要」块）。
-- `openagents/worknote.py`（**新模块**，仿 `blocknote.py` / `replynote.py` 的小型渲染模块惯例）：
-  - `render_implement(*, summary: str) -> str` → `## 实现自述`；
-  - `render_iterate(*, reason: str, summary: str) -> str` → `## 迭代自述（<reason 中文化>）`；
-  - `render_runbook(*, form: str, runbook_path: str) -> str` → `## 说明书定稿`。
-  三者只吃**基元参数**（str），不依赖 orchestrator/handle 类型，避免反向 import；`summary` 为空时回落
-  占位「（无摘要）」（与 `_REFINE_COMMENT` 现状一致）。
+- `openagents/executor.py`: `render_result(*, result: ExecutorResult) -> str`. Start with the stable heading `## Evidence Execution`
+  and render `result.outcome` (`passed`/`failed`/`skipped` localized into Chinese), `result.form`, and `result.notes`.
+- `openagents/evidence_gate.py`: `render_decision(*, decision: EvidenceDecision) -> str`. Use the heading
+  `## Evidence Gate Decision` and render `decision.passed` (✅/❌) + `decision.feedback` (append a code block when nonempty, modeled on the
+  “Feedback Summary” block in render_decision).
+- `openagents/worknote.py` (**new module**, following the convention of small rendering modules such as `blocknote.py` / `replynote.py`):
+  - `render_implement(*, summary: str) -> str` → `## Implementation Report`;
+  - `render_iterate(*, reason: str, summary: str) -> str` → `## Iteration Report (<reason localized into Chinese>)`;
+  - `render_runbook(*, form: str, runbook_path: str) -> str` → `## Runbook Finalized`.
+  All three accept only **primitive parameters** (str), with no dependencies on orchestrator/handle types, to avoid reverse imports; when `summary` is empty, fall back to
+  the placeholder “(No summary)” (consistent with the current `_REFINE_COMMENT`).
 
-**② `messages` 收口（唯一 IO 出口 + 去重）。** 在 `openagents/messages.py` 新增两个私有方法：
+**② Convergence in `messages` (single I/O outlet + deduplication).** Add two private methods in `openagents/messages.py`:
 
-- `_post_agent_report(self, *, pr_number: int, body: str) -> None`：贴前调 `_report_already_posted`
-  去重（异常 fail-open），再 `identity.post_signed_comment(pr_number=..., body=body, agent_id=self._agent_id)`，
-  整段包 `try/except`、失败只 `_progress`（**逐字节镜像** `orchestrator._post_review_decision` 的骨架）。
-- `_report_already_posted(self, *, pr_number: int, body: str) -> bool`：取 `body` 首行（`## …` 标题）为
-  锚点，在 `github.list_comments(pr_number=...)` 里筛出**同标题**的回执评论，按 `created_at` 取最近一条，
-  正文规范化（逐行 strip、去空行、去 identity 追加的签名尾巴）后与本轮相等即判重复（仿
-  `_decision_already_posted` 的「最近一条同类、结论+反馈都相同才跳过」，只是锚点从 reviewer 的
-  `DecisionContent` 简化为「标题行 + 规范化全文」——回执无票数语义，不需 reviewer 那套结构化反解）。
+- `_post_agent_report(self, *, pr_number: int, body: str) -> None`: Call `_report_already_posted`
+  before posting to deduplicate (fail-open on exceptions), then call `identity.post_signed_comment(pr_number=..., body=body, agent_id=self._agent_id)`;
+  wrap the entire block in `try/except`, and on failure call only `_progress` (**mirror the skeleton of `orchestrator._post_review_decision` byte for byte**).
+- `_report_already_posted(self, *, pr_number: int, body: str) -> bool`: Use the first line of `body` (the `## …` heading) as
+  the anchor, filter report comments with **the same heading** from `github.list_comments(pr_number=...)`, select the most recent by `created_at`,
+  and normalize the body (strip each line, remove blank lines, and remove the signature suffix appended by identity). Treat it as a duplicate if it equals this round's body after normalization (modeled on
+  `_decision_already_posted`: “skip only when the latest comment of the same kind has both the same conclusion and the same feedback,” except that the anchor is simplified from the reviewer's
+  `DecisionContent` to “heading line + normalized full text”—reports have no vote-count semantics, so they do not need the reviewer's structured parsing).
 
-**③ 五个接线点（把静默步骤接上收口）。** 均为「拿到执行结果 → `render_*` → `_post_agent_report`」，
-改动最小、不动各步骤的编排语义（不改 e2e 是否跑通、不改闸的判定/合并/挂起）：
+**③ Five integration points (connect silent steps to the convergence point).** All follow “obtain execution result → `render_*` → `_post_agent_report`,”
+with minimal changes and no changes to the orchestration semantics of any step (no changes to whether e2e passes, or to the gate's decision/merge/suspension behavior):
 
-| # | 收口点（方法:行） | 现状 | 接线 |
+| # | Convergence point (method:line) | Current behavior | Integration |
 |---|---|---|---|
-| 1 | `_process_rfc_review`（`messages.py:423`/`:434`）| `implement` 返回 `None` | 令 `orchestrator.implement` 返回 `result.summary`（`None`→`str`，与 `iterate`/`refine_rfc` 同款）；收口点 `render_implement` → 贴 |
-| 2 | `_process_coding`（`messages.py:496`/`:533`）| `iterate(ci/review)` 丢弃 summary | 捕获 `iterate` 返回的 summary → `render_iterate(reason, summary)` → 贴 |
-| 3 | `_evidence_gate`（`messages.py:574`）| `finalize_runbook` 无评论 | `handle` 非 None 时 `render_runbook(handle.form?, handle.runbook_path)` → 贴（form 由 plan 提供，见下方 Unresolved） |
-| 4 | `_evidence_gate`（`messages.py:578`）| `run_executor` 返回值被丢 | 捕获 `ExecutorResult` → `render_result(result)` → 贴 |
-| 5 | `_evidence_gate`（`messages.py:588`/`:601`）| `review_evidence` 每轮判决无评论 | 判决后 `render_decision(decision)` → 贴（PASS/FAIL 都贴，FAIL 的 `iterate(e2e)` 另贴迭代自述）|
+| 1 | `_process_rfc_review` (`messages.py:423`/`:434`) | `implement` returns `None` | Make `orchestrator.implement` return `result.summary` (`None`→`str`, as with `iterate`/`refine_rfc`); at the convergence point, `render_implement` → post |
+| 2 | `_process_coding` (`messages.py:496`/`:533`) | `iterate(ci/review)` discards the summary | Capture the summary returned by `iterate` → `render_iterate(reason, summary)` → post |
+| 3 | `_evidence_gate` (`messages.py:574`) | `finalize_runbook` produces no comment | When `handle` is not None, `render_runbook(handle.form?, handle.runbook_path)` → post (form is supplied by the plan; see Unresolved below) |
+| 4 | `_evidence_gate` (`messages.py:578`) | The return value of `run_executor` is discarded | Capture `ExecutorResult` → `render_result(result)` → post |
+| 5 | `_evidence_gate` (`messages.py:588`/`:601`) | `review_evidence` produces no comment for each round's decision | After the decision, `render_decision(decision)` → post (post for both PASS/FAIL; for FAIL, `iterate(e2e)` also posts a separate iteration report) |
 
-已有正例**保持不变、不双贴**：`reason="human"` 仍只走 `_post_comment_reply`（`messages.py:372`，
-引用原评论的针对性回应），不再叠加 `render_iterate`；`refine_rfc`/`review` 裁决沿用各自现成评论。
+Existing positive examples **remain unchanged, with no duplicate posts**: `reason="human"` still goes only through `_post_comment_reply` (`messages.py:372`,
+a targeted response quoting the original comment), without an additional `render_iterate`; `refine_rfc`/`review` decisions continue to use their existing comments.
 
-### 模块 / DAG / 文件分配
+### Modules / DAG / file allocation
 
 ```mermaid
 graph TD
-    T1["T1 executor.py<br/>render_result（ExecutorResult→## 证据执行）"]
-    T2["T2 evidence_gate.py<br/>render_decision（EvidenceDecision→## 证据闸判决）"]
-    T3["T3 worknote.py（新模块）<br/>render_implement/iterate/runbook（本轮做了什么）"]
-    T4["T4 orchestrator.py<br/>implement 返回 result.summary（None→str）"]
-    T5["T5 messages.py（收口）<br/>_post_agent_report + _report_already_posted + 五处接线"]
-    T6["T6 成果测试<br/>整链回执集成测试 + e2e 脚本"]
+    T1["T1 executor.py<br/>render_result (ExecutorResult→## Evidence Execution)"]
+    T2["T2 evidence_gate.py<br/>render_decision (EvidenceDecision→## Evidence Gate Decision)"]
+    T3["T3 worknote.py (new module)<br/>render_implement/iterate/runbook (what was done this round)"]
+    T4["T4 orchestrator.py<br/>implement returns result.summary (None→str)"]
+    T5["T5 messages.py (convergence point)<br/>_post_agent_report + _report_already_posted + five integration points"]
+    T6["T6 Outcome tests<br/>Full-chain report integration tests + e2e script"]
     T1 --> T5
     T2 --> T5
     T3 --> T5
@@ -261,113 +262,112 @@ graph TD
     T5 --> T6
 ```
 
-| Task | 拥有文件（互斥） | 关键交付 |
+| Task | Owned files (mutually exclusive) | Key deliverables |
 |---|---|---|
-| T1 | `openagents/executor.py`, `tests/test_executor.py` | `render_result` 纯函数（不碰 IO，保持 executor 只返结构化结果） |
-| T2 | `openagents/evidence_gate.py`, `tests/test_evidence_gate.py` | `render_decision` 纯函数（同上，evidence_gate 不 import identity） |
-| T3 | `openagents/worknote.py`, `tests/test_worknote.py` | 新模块：implement/iterate/runbook 的「本轮做了什么」渲染（基元入参、无反向 import） |
-| T4 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | `implement` 返回 `result.summary`（`None`→`str`），使收口点拿得到摘要 |
-| T5 | `openagents/messages.py`, `tests/test_messages.py`, `tests/test_messages_agent_report.py` | 收口：`_post_agent_report`（唯一 IO 出口 + 签名 + 尽力而为）+ `_report_already_posted`（防刷屏）+ 五处接线；并更新既有 messages 环测试替身 |
-| T6 | `scripts/e2e-spec-0051-unify-agent-run-report.sh`, `tests/test_agent_report_integration.py` | 成果测试：假 GitHub 评论账本驱动整条 coding→证据链，断言五处收口各贴一条、重复 poll 不刷屏 |
+| T1 | `openagents/executor.py`, `tests/test_executor.py` | Pure `render_result` function (no I/O; keep executor returning only structured results) |
+| T2 | `openagents/evidence_gate.py`, `tests/test_evidence_gate.py` | Pure `render_decision` function (same as above; evidence_gate does not import identity) |
+| T3 | `openagents/worknote.py`, `tests/test_worknote.py` | New module: “what was done this round” rendering for implement/iterate/runbook (primitive inputs, no reverse imports) |
+| T4 | `openagents/orchestrator.py`, `tests/test_orchestrator.py` | `implement` returns `result.summary` (`None`→`str`), making the summary available at the convergence point |
+| T5 | `openagents/messages.py`, `tests/test_messages.py`, `tests/test_messages_agent_report.py` | Convergence: `_post_agent_report` (single I/O outlet + signature + best effort) + `_report_already_posted` (prevent comment spam) + five integration points; also update existing messages-loop test doubles |
+| T6 | `scripts/e2e-spec-0051-unify-agent-run-report.sh`, `tests/test_agent_report_integration.py` | Outcome tests: use a fake GitHub comment ledger to drive the entire coding→evidence chain, asserting that each of the five convergence points posts one report and repeated polls do not spam comments |
 
-文件跨 Task 互斥（理念 6 单一 writer）：`executor.py`(T1) / `evidence_gate.py`(T2) / `worknote.py`(T3) /
-`orchestrator.py`(T4) / `messages.py`+既有 messages 测试(T5) / 脚本+集成测试(T6) 无重叠。T5 因是唯一改
-`messages.py` 者，一并接管既有 `tests/test_messages.py`——`implement` 返回值由 `None` 变 `str`、且收口点
-新增回贴，会触及既有 messages 环测试的替身（`_FakeOrchestrator.implement` 需返回 str、断言需容纳新回执），
-按理念 6 归到 T5 独占（不与他 Task 争写；参考 Spec-0031「Task 触及共享 prod 代码须同步更新既有测试替身」）。
+Files are mutually exclusive across Tasks (Principle 6, single writer): `executor.py`(T1) / `evidence_gate.py`(T2) / `worknote.py`(T3) /
+`orchestrator.py`(T4) / `messages.py`+existing messages tests(T5) / script+integration tests(T6) do not overlap. Because T5 is the only task modifying
+`messages.py`, it also takes ownership of the existing `tests/test_messages.py`—changing the return value of `implement` from `None` to `str`, and adding
+report comments at the convergence points, will affect the test doubles in the existing messages-loop tests (`_FakeOrchestrator.implement` must return str, and assertions must accommodate the new reports).
+Under Principle 6, these belong exclusively to T5 (no competing writes with other Tasks; see Spec-0031, “Tasks that touch shared prod code must also update existing test doubles”).
 
-### 成果测试（理念 8）与 e2e 脚本
+### Outcome tests (Principle 8) and e2e script
 
-**浏览器 e2e 适用性自检：不适用。** 本 feature 的「成果」是 **GitHub PR 上的机器评论流**（可观测性），
-本仓库**无任何产品前端界面可驱动**（无导航/交互/截图可断言的视觉成果），且真发评论需真 GitHub。因此
-成果测试形态为**确定性集成复现**（pytest 驱动整条链 + 一条 shell e2e 脚本跑它并打印证据），而非浏览器 e2e。
+**Browser e2e applicability self-check: not applicable.** The “outcome” of this feature is **a stream of machine comments on GitHub PRs** (observability).
+This repository **has no product frontend UI to drive** (no visual outcome with navigation/interactions/screenshots to assert), and actually posting comments requires real GitHub. Therefore,
+the outcome tests take the form of **deterministic integration reproduction** (pytest drives the entire chain + a shell e2e script runs it and prints evidence), rather than browser e2e.
 
-- **集成测试** `tests/test_agent_report_integration.py`：用**内存假 GitHub**（评论账本：记录每条 `post_comment`
-  的 body + `created_at`，`list_comments` 回读）+ 假 backend（`AgentResult(changed, summary)` 可编排）
-  驱动 `MessageLoop` 走完「rfc-pass → implement → CI 失败→iterate(ci) → CI 绿→review 打回→iterate(review)
-  → 证据闸：finalize_runbook→run_executor→review_evidence FAIL→iterate(e2e)」，断言：
-  1. **五处收口各留一条署名回执**：PR 上出现 `## 实现自述` / `## 迭代自述（ci）`/`（review）`/`（e2e）` /
-     `## 说明书定稿` / `## 证据执行` / `## 证据闸判决`，各带 `<!-- openagents:agent=… -->` 签名；
-  2. **已有正例不双贴**：`reason="human"` 路径仍只出 `_post_comment_reply` 那条，无叠加的迭代自述；
-  3. **防刷屏**：对同一步骤重复 poll（内容不变）→ `_report_already_posted` 命中、**不新增**评论；
-  4. **发评论不阻断编排**：让假 `post_comment` 抛错，断言链路仍推进到合并/挂起、仅 `_progress` 告警。
-- **e2e 脚本** `scripts/e2e-spec-0051-unify-agent-run-report.sh`：跑 `ruff check` + `ruff format --check`
-  + 定向 `pytest`（上述集成测试 + T1–T4 单测）+ `spec validate`，把「五处收口各一条回执 / 重复 poll 不刷屏 /
-  发评论故障不阻断」三条断言的通过输出作为可复现证据（被 PR 指路牌自动收录）。
+- **Integration test** `tests/test_agent_report_integration.py`: Use an **in-memory fake GitHub** (a comment ledger: record the body + `created_at` of every `post_comment`,
+  and read them back through `list_comments`) + a fake backend (with configurable `AgentResult(changed, summary)` behavior)
+  to drive `MessageLoop` through “rfc-pass → implement → CI fails→iterate(ci) → CI green→review rejects→iterate(review)
+  → evidence gate: finalize_runbook→run_executor→review_evidence FAIL→iterate(e2e),” asserting:
+  1. **Each of the five convergence points leaves one signed report**: The PR contains `## Implementation Report` / `## Iteration Report (ci)`/`(review)`/`(e2e)` /
+     `## Runbook Finalized` / `## Evidence Execution` / `## Evidence Gate Decision`, each with an `<!-- openagents:agent=… -->` signature;
+  2. **No duplicate posts for existing positive examples**: The `reason="human"` path still produces only the `_post_comment_reply` comment, without an additional iteration report;
+  3. **Spam prevention**: Repeated polls for the same step (with unchanged content) → `_report_already_posted` matches, and **no new** comments are added;
+  4. **Posting comments does not block orchestration**: Make the fake `post_comment` raise an error, and assert that the chain still advances to merge/suspension, with warnings only through `_progress`.
+- **e2e script** `scripts/e2e-spec-0051-unify-agent-run-report.sh`: Run `ruff check` + `ruff format --check`
+  + targeted `pytest` (the integration test above + T1–T4 unit tests) + `spec validate`, and use the passing output for the three assertions—“one report at each of the five convergence points / repeated polls do not spam comments /
+  comment-posting failures do not block execution”—as reproducible evidence (automatically included by the PR signpost).
 
 ## Drawbacks
 
-- **PR 评论增多。** 补齐五处后，一个正常推进的 PR 评论流会明显变长（实现 1 条 + 每轮迭代 1 条 +
-  证据闸每轮 3 条：说明书/执行/判决）。缓解：① 防刷屏去重压掉「同步同内容」重复；② 回执简短、标题化，
-  盯 PR 的人可按 `## …` 标题快速略读；③ 这正是理念 8 要的「过程可见」——噪声与可观测性的取舍偏向后者。
-- **每收口点多一次（可能两次）`gh` 调用。** 每条回执一次 `post_comment`，去重再读一次 `list_comments`。
-  但都在「本就要派 agent 跑几十秒~几分钟」的重步骤之后，相对开销可忽略；且全为尽力而为旁路，抖动不阻断主干。
-- **`implement` 返回类型变更（`None`→`str`）是跨调用方改动。** `cli.py` 的 `implement` 调用忽略返回值
-  不受影响；但既有 `messages` 环测试里 `_FakeOrchestrator.implement` 若断言/返回 `None` 需同步更新
-  （已在 T5 文件归属里显式接管，见 Reference-level；对应 Spec-0031 教训）。
-- **仍是「事后回执」，非实时流。** 回执在每步**执行完**才贴，一步内部若跑很久（如 executor 真跑），
-  过程中人仍看不到该步的中途进展；本 spec 只把「步与步之间」变透明，不做步内实时日志流（见 Future）。
+- **More PR comments.** Once all five gaps are filled, the comment stream on a normally progressing PR will become noticeably longer (1 for implementation + 1 per iteration +
+  3 per evidence gate round: runbook/execution/decision). Mitigations: ① Anti-spam deduplication suppresses duplicates with “the same content in the same round”; ② Reports are brief and organized under headings,
+  so people following the PR can skim quickly by `## …` heading; ③ This is precisely the “process visibility” required by Principle 8—the tradeoff between noise and observability favors the latter.
+- **One extra (possibly two) `gh` calls at each reporting point.** Each report requires one `post_comment`, and deduplication requires another read via `list_comments`.
+  However, these all follow substantial steps that “already require dispatching an agent to run for tens of seconds to several minutes,” so the relative overhead is negligible; all are best-effort side paths, and transient failures do not block the main flow.
+- **The change to the return type of `implement` (`None`→`str`) affects callers across the codebase.** The `implement` call in `cli.py` ignores the return value
+  and is unaffected; however, if `_FakeOrchestrator.implement` in existing `messages` loop tests asserts or returns `None`, it must be updated accordingly
+  (explicitly covered by T5's file ownership, see Reference-level; this addresses the lesson from Spec-0031).
+- **These are still “after-the-fact reports,” not a real-time stream.** Reports are posted only **after execution finishes** for each step. If a step takes a long time internally (such as an actual executor run),
+  people still cannot see intermediate progress within that step; this spec only makes the transitions “between steps” transparent and does not provide a real-time log stream within a step (see Future).
 
 ## Rationale and alternatives
 
-**为何选「各域 `render_*` 纯函数 + `messages` 唯一收口」。** 它同时满足两个理念：**理念 8**（每步可见）——
-补齐所有静默步骤；**理念 10**（解耦）——渲染知识留在各域（executor 懂自己的 outcome、evidence_gate 懂
-自己的判决、worknote 懂「本轮摘要」），而**发评论这个 IO 只有 `messages` 一个出口**。好处是
-`executor`/`evidence_gate` 不必人手 import identity、不碰 github，保持「只吃 backend 协议、只返结构化结果」
-的可测纯度；新增 agent 步骤时，只要在 `messages` 收口点加一行接线，不会再像今天这样「零散自接、接漏一个」。
-复用既有 `identity.post_signed_comment`（唯一发评论出口）与 `_decision_already_posted`（去重范式），新增面极小。
+**Why choose “pure `render_*` functions in each domain + `messages` as the sole reporting point.”** This satisfies two principles at once: **Principle 8** (visibility at every step)—
+fill in all silent steps; **Principle 10** (decoupling)—rendering knowledge stays in each domain (executor understands its own outcome, evidence_gate understands
+its own decision, and worknote understands the “summary of this round”), while **`messages` is the sole outlet for the IO of posting comments**. The benefit is that
+`executor`/`evidence_gate` do not each need to import identity or interact with github, preserving their testable purity of “consuming only the backend protocol and returning only structured results”;
+when adding an agent step, only one line of wiring is needed at the reporting point in `messages`, avoiding today's situation of “scattered individual wiring with one connection missed.”
+Reusing the existing `identity.post_signed_comment` (the sole outlet for posting comments) and `_decision_already_posted` (the deduplication pattern) keeps the new surface area minimal.
 
-**备选 A：每个模块自己 import identity、执行完自己发评论（延续现状路子，只是补齐）。** 最直接。
-缺点：正是 issue 诊断的**病根**——「发评论散落各处」。executor / evidence_gate 会被迫 import identity/github、
-从「纯计算模块」退化成「带 IO 的模块」，破坏理念 10 的解耦，也让「哪些步骤发了评论」再次无处集中审计、
-将来必然再漏。**取舍**：收口到 `messages` 一层，把「发评论」从 N 个模块的自觉收敛成 1 个出口的约定，故不选 A。
+**Alternative A: Each module imports identity and posts its own comment after execution (continuing the current approach, just filling the gaps).** The most direct approach.
+Disadvantage: This is exactly the **root cause** diagnosed in the issue—“comment posting is scattered throughout the codebase.” executor / evidence_gate would be forced to import identity/github,
+degrading from “pure computation modules” to “modules with IO,” breaking the decoupling required by Principle 10 and again leaving no central place to audit “which steps posted comments”;
+future omissions would be inevitable. **Tradeoff**: Centralize this in the `messages` layer, turning “posting comments” from a matter of diligence in N modules into a convention at 1 outlet, so A is not selected.
 
-**备选 B：让每个 agent 自己带 reply-comment 工具、执行完自回（仿解冲突 agent，Spec-0038）。** 把回执交给
-agent 自己在会话里发。优点：无需编排层接线，天然「谁干谁说」。缺点：① 依赖每个 agent 都可靠地调工具、
-不可控（agent 可能忘了发、发得不规范）；② 回执格式不统一、无法机器去重；③ 对 `run_executor`/`review_evidence`
-这类「结构化结果由框架判定」的步骤，结论其实在框架手里（`ExecutorResult`/`EvidenceDecision`），让 agent
-复述反而失真。**取舍**：解冲突场景 agent 自回是因为「回应人类具体评论」需要 agent 的语境；而本 spec 的五处
-是「框架已有结构化结果、要稳定统一地播报」，用框架渲染 + 收口更可控，故 B 仅适配解冲突、不作为本 spec 主线。
+**Alternative B: Give each agent its own reply-comment tool and let it reply after execution (following the conflict-resolution agent, Spec-0038).** Let
+the agent post the report itself within its session. Advantage: No orchestration-layer wiring is needed; naturally, “whoever does the work reports it.” Disadvantages: ① It relies on every agent reliably calling the tool,
+which is not controllable (an agent may forget to post or post in a nonstandard format); ② Report formats are inconsistent and cannot be deduplicated mechanically; ③ For steps such as `run_executor`/`review_evidence`,
+where “the framework determines the structured result,” the conclusion is actually held by the framework (`ExecutorResult`/`EvidenceDecision`); asking the agent
+to restate it may introduce distortion. **Tradeoff**: In conflict resolution, the agent replies itself because “responding to a specific human comment” requires the agent's context; the five locations in this spec,
+however, involve “structured results the framework already has and needs to report reliably and consistently.” Framework rendering + centralized reporting is more controllable, so B is suitable only for conflict resolution and is not the main approach for this spec.
 
-**备选 C：把回执渲染也塞进 `messages`（不新增 `worknote`、不在 executor/evidence_gate 加 `render_*`）。**
-省一个模块和两处域内函数。缺点：渲染需要 `ExecutorResult`/`EvidenceDecision` 的字段语义，塞进 `messages`
-等于让编排层反向耦合各域的数据格式（今天 `reviewer.render_decision` 明确不这么做——票数语义归 reviewer）。
-**取舍**：渲染归域、发送归 messages 才是既有 `render_decision`+`_post_review_decision` 的分工范式，照抄它
-最一致，故不选 C。
+**Alternative C: Put report rendering into `messages` as well (do not add `worknote` or add `render_*` to executor/evidence_gate).**
+This saves one module and two domain-local functions. Disadvantage: Rendering requires understanding the field semantics of `ExecutorResult`/`EvidenceDecision`; putting it into `messages`
+would make the orchestration layer depend in reverse on each domain's data format (the existing `reviewer.render_decision` explicitly avoids this—vote semantics belong to reviewer).
+**Tradeoff**: Keeping rendering in the domain and sending in messages follows the existing division of responsibilities between `render_decision`+`_post_review_decision`. Following that pattern
+is the most consistent choice, so C is not selected.
 
 ## Prior art
 
-- **rust-lang/rfcs 的 RFC 形态**（本 spec 9 段结构本身，https://github.com/rust-lang/rfcs）。
-- **本仓库既有的「渲染归域、发送归编排、尽力而为旁路」范式**（RFC-0018 的 `reviewer.render_decision` +
-  `orchestrator._post_review_decision`，注释见 `orchestrator.py:539-596`）——本 spec 是把这套已验证的分工
-  从「评审裁决」一处推广到「五处静默步骤」；现状与其分工已在 Motivation/Reference-level 就地复述完整，
-  本条仅作线索，不承载理解本 spec 所需的必要信息。
-- **本仓库既有的防刷屏去重**（Spec-0022/T3 → Spec-0047/T2 的 `_decision_already_posted`：最近一条同类
-  评论「结论+反馈都相同才跳过」，止住 PR #61 的 33 条相同 PASS）——本 spec 的 `_report_already_posted`
-  是它的简化同构（锚点从结构化 `DecisionContent` 简化为「标题行 + 规范化全文」）。
-- **小型渲染模块惯例**：`blocknote.py`（挂起结构化评论）/ `replynote.py`（引用回复评论）——新增
-  `worknote.py` 沿用同款「纯拼字符串、被 messages 调用」的定位。
+- **The RFC format of rust-lang/rfcs** (the nine-section structure of this spec itself, https://github.com/rust-lang/rfcs).
+- **This repository's existing pattern of “domain-owned rendering, orchestration-owned sending, and best-effort side paths”** (RFC-0018's `reviewer.render_decision` +
+  `orchestrator._post_review_decision`; see the comments at `orchestrator.py:539-596`)—this spec extends that proven division of responsibilities
+  from the single location of “review decisions” to “five silent steps”; the current state and its division of responsibilities are already fully restated in place in Motivation/Reference-level.
+  This entry serves only as a pointer and carries no information essential to understanding this spec.
+- **This repository's existing anti-spam deduplication** (`_decision_already_posted` from Spec-0022/T3 → Spec-0047/T2: for the latest comment of the same type,
+  “skip only if both the conclusion and feedback are identical,” stopping the 33 identical PASS comments on PR #61)—this spec's `_report_already_posted`
+  is a simplified counterpart with the same structure (the anchor is simplified from structured `DecisionContent` to “heading line + normalized full text”).
+- **The convention of small rendering modules**: `blocknote.py` (structured suspension comments) / `replynote.py` (quoted reply comments)—the new
+  `worknote.py` follows the same role of “pure string construction, called by messages.”
 
 ## Unresolved questions
 
-- **`finalize_runbook` 的 `form` 从哪取给回执？** `RunbookHandle`（`orchestrator.py` 返回）当前暴露
-  `worktree`/`runbook_path`/`evidence_dir`/`intent`，`form`（e2e 形态，来自 `_e2e_plan`）未在 handle 上。
-  回执要展示 form 时，需 T4 在 `RunbookHandle` 补一个 `form` 字段，或 T5 只用 `runbook_path`
-  不展示 form。倾向前者（信息更全），待评审确认是否值得动 handle。
-- **回执签名与「人类解挂读侧」的交互。** 回执经 `identity.post_signed_comment` 带 `<!-- openagents:agent=… -->`
-  签名，理应被解挂读侧 `new_human_comments` 按签名滤掉（不自触发解挂）；需在 T5/T6 验证新增回执不会被
-  误当成「人类新评论」而触发解挂环（既有机制按签名过滤，预期天然安全，但要测到）。
-- **`_report_already_posted` 的锚点粒度。** 以「标题行」为锚点时，`迭代自述（ci）` 与 `迭代自述（review）`
-  标题不同、天然分桶；但同 reason 连续两轮内容不同的迭代自述应当**照发**（理由各异），这与
-  `_decision_already_posted`「结论同+反馈不同则照发」一致——需确认规范化正文比较能正确放行「同标题但正文不同」。
+- **Where should the report get the `form` for `finalize_runbook`?** `RunbookHandle` (returned by `orchestrator.py`) currently exposes
+  `worktree`/`runbook_path`/`evidence_dir`/`intent`; `form` (the e2e form, from `_e2e_plan`) is not on the handle.
+  To display form in the report, T4 needs to add a `form` field to `RunbookHandle`, or T5 can use only `runbook_path`
+  without displaying form. The preference is the former (more complete information), pending review confirmation on whether changing the handle is worthwhile.
+- **Interaction between report signatures and the “human-triggered resumption read path.”** Reports carry the `<!-- openagents:agent=… -->`
+  signature through `identity.post_signed_comment` and should therefore be filtered out by signature in `new_human_comments` on the resumption read path (so they do not trigger resumption themselves);
+  T5/T6 must verify that the new reports are not mistaken for “new human comments” and trigger a resumption loop (the existing mechanism filters by signature, so this is expected to be inherently safe, but it must be tested).
+- **Anchor granularity for `_report_already_posted`.** When the “heading line” is used as the anchor, `Iteration self-report (ci)` and `Iteration self-report (review)`
+  have different headings and naturally fall into separate buckets; however, iteration self-reports with the same reason but different content in two consecutive rounds should **still be posted** (their rationales differ). This is consistent with
+  `_decision_already_posted`'s rule of “post if the conclusion is the same but the feedback differs”—we need to confirm that normalized body comparison correctly allows “the same heading but different body text.”
 
 ## Future possibilities
 
-- **步内实时进展流**：对 `run_executor` 这类耗时步骤，把 agent 的中途输出以「进度评论/编辑同一条评论」
-  的方式流式贴出，让步内也可见（本 spec 只做步间可见）。
-- **回执折叠/汇总**：PR 收尾时把一串过程回执折叠成一条「本次交付小结」，降低长 PR 的评论噪声。
-- **把「执行完→回执」抽象成编排装饰器**：若将来 `messages` 收口点继续增多，可把「跑 agent → render → 收口贴」
-  提炼成一个统一包装（如 `_run_and_report(step, render_fn, …)`），从结构上杜绝「新增步骤忘接回执」。
-- **回执驱动的前端成果视图**：把这些结构化回执（执行/判决/自述）喂给未来的成果前端（理念 8 的可视化收口），
-  让盯 PR 从「读评论」升级为「看进度看板」。
-
+- **Real-time progress streams within steps**: For time-consuming steps such as `run_executor`, stream the agent's intermediate output as “progress comments/edits to the same comment,”
+  making progress within a step visible as well (this spec provides visibility only between steps).
+- **Report collapsing/aggregation**: When a PR wraps up, collapse a series of process reports into a single “delivery summary” to reduce comment noise on long PRs.
+- **Abstract “execution finishes → report” into an orchestration decorator**: If reporting points in `messages` continue to multiply, extract “run agent → render → post centrally”
+  into a unified wrapper (such as `_run_and_report(step, render_fn, …)`), structurally preventing “forgetting to wire up reporting for a new step.”
+- **A report-driven frontend results view**: Feed these structured reports (execution/decision/self-report) into a future results frontend (the centralized visualization called for by Principle 8),
+  turning PR monitoring from “reading comments” into “viewing a progress board.”

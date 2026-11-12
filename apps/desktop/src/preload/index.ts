@@ -1,5 +1,5 @@
-// Spec-0073/T3: preload——只读呈现（理念 8），renderer 直连 daemon，不需要越权的 Node/IPC 能力。
-// 仅暴露一个只读的运行期信息位（daemon 基址由环境变量给，便于打包后指向自定端口），保持 contextIsolation。
+// Spec-0073/T3: Expose only the daemon address to the renderer.
+// Keep context isolation; the renderer needs no Node or IPC access.
 import { contextBridge } from 'electron'
 
 const api = {

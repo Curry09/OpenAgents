@@ -1,6 +1,6 @@
 # Releasing
 
-English | [简体中文](RELEASING.zh-CN.md)
+English | [CREDIT Chinese](RELEASING.zh-CN.md)
 
 OpenAgents is versioned independently. A paired AHE-Beta release identifies a tested combination of repository commits and deployment artifacts; the two projects do not need matching version numbers.
 

@@ -1,19 +1,19 @@
 [project]
 name = "openagents"
 version = "0.1.1"
-description = "RFC 驱动的多 Agent 框架"
+description = "Spec-driven software delivery with coding agents"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
-# Spec-0014/T1：spec 工具需要 YAML round-trip 保真（块标量/键序/注释）与声明式校验。
-# ruamel.yaml —— 读写保留块标量样式与键序，是「源码树保持干净」的前提（决策 D8）。
-# jsonschema —— 用 JSON Schema draft 2020-12 声明式校验 Task/metadata/history（决策 D8）。
+# Spec-0014/T1: The Spec CLI needs round-trip YAML and schema validation.
+# ruamel.yaml preserves scalar styles and key order (decision D8).
+# jsonschema validates Spec metadata and tasks against Draft 2020-12.
 dependencies = [
     "ruamel.yaml>=0.18",
     "jsonschema>=4.0",
-    # Spec-0069/T1：Shell Tab 补全——读现成 argparse parser 生成 zsh/bash 补全候选，
-    # 提供 register-python-argcomplete 入口脚本供用户一次性启用（见 README）。
+    # Spec-0069/T1：Generate shell completions from the argparse parser.
+    # See the README for one-time registration.
     "argcomplete>=3.0",
 ]
 
@@ -31,9 +31,9 @@ dev = [
 ]
 
 [project.scripts]
-# RFC-0001 T1: CLI 入口
+# RFC-0001 T1: CLI entry point
 openagents = "openagents.cli:main"
-# Spec-0014/T1：spec 工具独立 console_script（决策 D10），实现在 openagents.spec 包内。
+# Spec-0014/T1: The Spec CLI has a separate entry point (decision D10).
 spec = "openagents.spec.cli:main"
 
 [build-system]
@@ -41,23 +41,23 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-# 让测试无需构建即可 import 顶层 openagents 包
+# Let tests import the source package without a build.
 pythonpath = ["."]
 testpaths = ["tests"]
 
-# Ruff lint/format 配置（对应 CLAUDE.md「代码检查」约定，行宽 100）
+# Ruff settings follow the conventions in CLAUDE.md.
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# e2e 证据产物（一次性 probe 脚本/日志）不参与 lint：证据不是产品源码，
-# 否则"产证据即触发 ruff 失败"会在合并流水线 e2e 之后自发把 CI 打红（Spec-0064/#162）
+# Exclude generated end-to-end evidence from source linting.
+# Evidence files are not part of the source tree (Spec-0064/#162).
 extend-exclude = ["docs/e2e-results/**"]
 
 [tool.ruff.lint]
-# E/F: pyflakes+pycodestyle，I: import 排序，UP: pyupgrade，
-# B: bugbear，ASYNC: 防止 async 函数中使用同步阻塞调用
+# E/F: pycodestyle and Pyflakes; I: import order; UP: pyupgrade.
+# B: flake8-bugbear; ASYNC: blocking calls in async functions.
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
-ignore = ["E501"]  # 行宽由 formatter 负责
+ignore = ["E501"]  # Line wrapping is handled by the formatter.
 
 [tool.hatch.metadata]
 allow-direct-references = true

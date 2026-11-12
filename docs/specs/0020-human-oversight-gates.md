@@ -1,12 +1,12 @@
 ---
 number: "0020"
-title: 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+title: "Human oversight gates: requirements alignment before issue creation + tiered vigil --hold gates"
 issue: 59
 slug: human-oversight-gates
-summary: 给 OpenAgents 加两道人类监督闸门：提 issue 前的「需求对齐」（把模糊想法复述成 做什么X/边界Y/不做Z 让人确认），以及 vigil 自治循环的分级 --hold 闸（在 spec 批准、PR 合并等关键点停下等人点头）。让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，不改既有 issue→PR 自动流程的内部逻辑。
+summary: "Add two human oversight gates to OpenAgents: \"requirements alignment\" before issue creation (restate a vague idea as what to do X / boundaries Y / what not to do Z for a human to confirm), and tiered --hold gates in the vigil autonomous loop (pause at key points such as spec approval and PR merging to wait for human approval). Shift humans from watching details to overseeing the big picture; insert configurable pauses only at key points, without changing the internal logic of the existing issue→PR automated workflow."
 tasks:
   - id: T1
-    title: 前门对齐模块：把模糊想法复述成 X/边界Y/不做Z
+    title: "Entry-point alignment module: restate vague ideas as X / boundaries Y / what not to do Z"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/align.py
       - tests/test_align.py
-    scope: 新建纯模块 openagents/align.py：给定 issue 草稿（title/body），调注入的 backend 用大白话复述成结构化「我理解你要 X，边界是 Y，不做 Z」三段，供调用方拿去给人确认。仅做复述渲染 + 确认判定，不碰 GitHub、不碰 CLI argparse。复述生成（要 backend）与确认判定（纯谓词）拆成两个函数，便于 --yes 自动化路径跳过复述。模块 docstring 引用 Spec-0020。
-    acceptance: restate(*, draft, backend) 给定 issue 草稿，调注入 backend 返回含 want(X)/boundary(Y)/non_goals(Z) 三段的 Alignment，其人类可读渲染含三段标识；确认判定是独立纯谓词，肯定应答→放行、否定/空应答→不放行，且不调 backend；模块不含任何 GitHub/argparse/stdin 读取，backend 以关键字参数注入；tests/test_align.py 以打桩 backend 全绿、hermetic（不触达真实 LLM）。
+    scope: "Create a pure module openagents/align.py: given an issue draft (title/body), call an injected backend to restate it in plain language as three structured sections, \"I understand that you want X, the boundaries are Y, and Z is out of scope,\" for the caller to present to a human for confirmation. Handle only restatement rendering and confirmation evaluation; do not interact with GitHub or CLI argparse. Split restatement generation (which requires a backend) and confirmation evaluation (a pure predicate) into two functions so that the --yes automation path can skip restatement. Reference Spec-0020 in the module docstring."
+    acceptance: "restate(*, draft, backend), given an issue draft, calls the injected backend and returns an Alignment containing three sections: want(X)/boundary(Y)/non_goals(Z); its human-readable rendering includes identifiers for all three sections. Confirmation evaluation is a separate pure predicate: an affirmative response allows proceeding, while a negative/empty response does not, and it does not call the backend. The module contains no GitHub/argparse/stdin reads, and the backend is injected as a keyword argument. All tests in tests/test_align.py pass with a stubbed backend and are hermetic (never accessing a real LLM)."
   - id: T2
-    title: hold 配置模型：解析 spec,merge 成闸门集合
+    title: "hold configuration model: parse spec,merge into a set of gates"
     status: done
     priority: P1
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/hold.py
       - tests/test_hold.py
-    scope: 新建纯模块 openagents/hold.py：把 --hold 的逗号分隔字符串（'spec'/'merge'/'spec,merge'/空）解析成不可变 Hold 配置（含 at_spec/at_merge 谓词）。逐 token 去空白、归一化大小写映射，空/None→全不停（默认 vigil 行为），非法 token 立即抛携带合法取值的清晰错误。无任何 I/O、无 argparse、无 GitHub。模块 docstring 引用 Spec-0020。
-    acceptance: parse_hold(*, raw)：''/None→默认 Hold(at_spec=at_merge=False)；'spec'→仅 at_spec；'merge'→仅 at_merge；'spec,merge' 与 'merge,spec'→两者皆 True；未知 token（如 'foo'）→抛 ValueError 类错误并列出合法取值(spec/merge)；多余空格/大小写（如 ' Spec , Merge '）归一化后正确解析；Hold 为不可变值对象仅暴露 at_spec/at_merge；tests/test_hold.py 全绿（纯函数）。
+    scope: "Create a pure module openagents/hold.py: parse the comma-separated --hold string ('spec'/'merge'/'spec,merge'/empty) into an immutable Hold configuration (with at_spec/at_merge predicates). Trim whitespace from each token and normalize case for mapping; empty/None→no pauses anywhere (the default vigil behavior). For an invalid token, immediately raise a clear error that includes the valid values. No I/O, argparse, or GitHub. Reference Spec-0020 in the module docstring."
+    acceptance: "parse_hold(*, raw): ''/None→default Hold(at_spec=at_merge=False); 'spec'→at_spec only; 'merge'→at_merge only; 'spec,merge' and 'merge,spec'→both True; an unknown token (such as 'foo')→raise a ValueError-type error and list the valid values (spec/merge); extra whitespace/case variations (such as ' Spec , Merge ') are normalized and parsed correctly; Hold is an immutable value object exposing only at_spec/at_merge; all tests in tests/test_hold.py pass (pure functions)."
   - id: T3
-    title: 流水线分级闸：hold 穿到 poll 两道闸分流
+    title: "Tiered pipeline gates: pass hold through to poll to branch at the two gates"
     status: done
     priority: P0
     tags: []
@@ -45,10 +45,10 @@ tasks:
       - openagents/messages.py
       - tests/test_vigil.py
       - tests/test_messages.py
-    scope: vigil.run 接收 Hold 并透传到 messages.poll；messages 在 spec 闸(_process_rfc_review)与 merge 闸(_process_coding)按 Hold 分流：hold.at_spec→停掉自动 reviewer、只认人工 rfc-approved label；hold.at_merge→CI 绿 + review PASS 后不自动 merge_pr，留给人。默认 Hold（全不停）行为与现状逐字节一致。hold 走 poll 方法参数而非 Messages 构造参数，保持 T3/T4 文件边界干净。改动处引用 Spec-0020。
-    acceptance: vigil.run 接收 hold 并逐轮透传给 messages.poll（可断言 poll 收到的 hold 即传入值）；spec 闸 hold.at_spec：无 rfc-approved label→不调自动 reviewer/不打 label/不 implement（停在 rfc-review），带人工 label→照常 implement；merge 闸 hold.at_merge：CI 绿 + PASS→不调 merge_pr、状态不变，人手动 merge 后下一轮 is_merged 分支照常 reconcile 成 done；spec,merge 组合两闸各自停；默认 Hold 下既有自动评审/自动合并用例全绿、零回归；tests/test_vigil.py + tests/test_messages.py 全绿。
+    scope: "vigil.run accepts Hold and passes it through to messages.poll; messages branches according to Hold at the spec gate (_process_rfc_review) and the merge gate (_process_coding): hold.at_spec→disable the automatic reviewer and recognize only a human-applied rfc-approved label; hold.at_merge→after CI is green and review is PASS, do not automatically call merge_pr, leaving the merge to a human. Behavior with the default Hold (no pauses anywhere) is byte-for-byte identical to the current behavior. Pass hold as a poll method argument rather than a Messages constructor argument, keeping the T3/T4 file boundaries clean. Reference Spec-0020 at the modified locations."
+    acceptance: "vigil.run accepts hold and passes it through to messages.poll on every iteration (it must be possible to assert that the hold received by poll is the value passed in); spec gate with hold.at_spec: without an rfc-approved label→do not call the automatic reviewer/apply a label/call implement (remain in rfc-review), with a human-applied label→call implement as usual; merge gate with hold.at_merge: CI green + PASS→do not call merge_pr, leave the state unchanged, and after a human merges manually, the is_merged branch on the next iteration reconciles to done as usual; the spec,merge combination pauses at each gate independently; with the default Hold, existing automatic review/automatic merge cases all pass with zero regressions; all tests in tests/test_vigil.py + tests/test_messages.py pass."
   - id: T4
-    title: CLI 接线：issue 前门对齐 + vigil --hold 标志
+    title: "CLI wiring: alignment at the issue entry point + vigil --hold flag"
     status: done
     priority: P0
     tags: []
@@ -61,10 +61,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: 在 cli.py 这一处接线层：(1) openagents issue 在调 create_issue 前插一轮对齐确认——用 T1 align 复述、人确认才落 issue；加 --yes 跳过供自动化。(2) vigil 子命令加 --hold 标志，用 T2 parse_hold 解析成 Hold（None→默认全不停），传给 T3 的 vigil.run(hold=...)；非法值经既有异常通道转一行提示。align/hold 延迟 import。仅做参数解析与分发，业务逻辑下沉到 align/hold/vigil。改动处引用 Spec-0020。
-    acceptance: openagents issue 默认路径建 issue 前调 align.restate 复述并请人确认，确认(y)才 create_issue、否定(n)则不建且非零退出；openagents issue --yes 跳过复述与确认直接 create_issue；openagents vigil --hold spec|merge|spec,merge 用 parse_hold 解析后以该 Hold 调 vigil.run(hold=...)，无 --hold→默认全不停；--hold 非法值→干净一行错误 + 非零退出（不 traceback）；cli.py 仅做参数解析/分发；tests/test_cli.py 全绿、hermetic（打桩 align/github/vigil）。
+    scope: "Wire this in cli.py as the single wiring layer: (1) For openagents issue, insert one round of alignment confirmation before calling create_issue—use T1 align to restate, and create the issue only after human confirmation; add --yes to skip this for automation. (2) Add a --hold flag to the vigil subcommand, use T2 parse_hold to parse it into Hold (None→the default of no pauses anywhere), and pass it to T3's vigil.run(hold=...); route invalid values through the existing exception channel to produce a one-line message. Import align/hold lazily. Handle only argument parsing and dispatch, with business logic delegated to align/hold/vigil. Reference Spec-0020 at the modified locations."
+    acceptance: "The default openagents issue path calls align.restate to restate the request and asks for human confirmation before creating an issue; only confirmation (y) leads to create_issue, while rejection (n) creates no issue and exits with a nonzero status; openagents issue --yes skips restatement and confirmation and calls create_issue directly; openagents vigil --hold spec|merge|spec,merge parses the value with parse_hold and calls vigil.run(hold=...) with that Hold, while omitting --hold→the default of no pauses anywhere; an invalid --hold value→a clean one-line error + nonzero exit (no traceback); cli.py handles only argument parsing/dispatch; all tests in tests/test_cli.py pass and are hermetic (with align/github/vigil stubbed)."
   - id: T5
-    title: e2e 脚本：演示停在 spec → 人批 → 继续
+    title: "e2e script: demonstrate pausing at spec → human approval → continuation"
     status: done
     priority: P2
     tags: []
@@ -75,91 +75,90 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0020-hold-gate.sh
-    scope: 新增离线 e2e 脚本 scripts/e2e-spec-0020-hold-gate.sh（沿用现有 scripts/e2e-*.sh 风格，打桩/本地 state 模拟 GitHub，CI 可跑）：演示 vigil --hold spec 在 spec 写完后停住等人；模拟人工打 rfc-approved label 后再 poll 一轮，流水线继续进入 coding。脚本顶部注释引用 Spec-0020，并点明 spec 批准依据（OVERVIEW summary）的 issue-58 软依赖。
-    acceptance: scripts/e2e-spec-0020-hold-gate.sh 离线可独立 bash 运行（打桩/本地 State 模拟 GitHub、无需凭证、CI 可跑可重复）；演示时间线：以 --hold spec 跑一轮→断言停在 spec 闸（未自动评审/未自动打 label/未 implement，状态仍 rfc-review），模拟人工打 rfc-approved label 后再跑一轮→断言继续推进（走 implement、进入 coding）；打印人类可读的「停→批→继续」轨迹，全部断言通过则退出码 0、任一失败即非零退出；与既有 e2e 脚本同目录、同命名规约(e2e-spec-NNNN-<slug>.sh)。
+    scope: "Add an offline e2e script scripts/e2e-spec-0020-hold-gate.sh (following the style of existing scripts/e2e-*.sh, using stubs/local state to simulate GitHub, runnable in CI): demonstrate vigil --hold spec pausing to wait for a human after the spec is written; simulate a human applying the rfc-approved label, then poll once more so that the pipeline continues into coding. The comment at the top of the script references Spec-0020 and explicitly identifies the soft dependency on issue-58 for the basis of spec approval (the OVERVIEW summary)."
+    acceptance: "scripts/e2e-spec-0020-hold-gate.sh can run independently offline with bash (using stubs/local State to simulate GitHub, requiring no credentials, runnable in CI and repeatable); demonstration timeline: run one iteration with --hold spec→assert that it pauses at the spec gate (no automatic review/no automatic label application/no implement call, with the state still rfc-review), simulate a human applying the rfc-approved label, then run another iteration→assert that progress resumes (calls implement and enters coding); print a human-readable \"pause→approve→continue\" trace, exit with code 0 if all assertions pass, and exit with a nonzero code if any assertion fails; use the same directory and naming convention as the existing e2e scripts (e2e-spec-NNNN-<slug>.sh)."
 ---
 
-# 0020 · 人类监督闸门：提 issue 前需求对齐 + vigil 分级 --hold 闸控
+# 0020 · Human Oversight Gates: Requirements Alignment Before Issue Creation + Tiered vigil --hold Gating
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给 OpenAgents 加两道**人类监督闸门**，把人的把关从「事后审 PR」前移到意图层：
+Add two **human oversight gates** to OpenAgents, moving human review upstream from “reviewing PRs after the fact” to the intent level:
 
-1. **前门对齐**——提 issue 前先让 agent 用大白话把你的模糊想法复述成「我理解你要 **X**，边界是 **Y**，不做 **Z**」三段，你点头才正式建 issue（`--yes` 可跳过供自动化）。
-2. **vigil 分级 `--hold` 闸**——给自治循环加一个可选标志，让流水线在关键节点停下等人：`--hold spec` 写完 spec、动代码前停住，只认人工 `rfc-approved` label 才放行；`--hold merge` 一路自动到 PR、把最后 merge 留给人；不带 `--hold` 时一切照旧全自动。
+1. **Front-door alignment**—before creating an issue, have the agent restate your vague idea in plain language in three parts: “I understand that you want **X**, the boundaries are **Y**, and we will not do **Z**.” Create the issue only after you approve (`--yes` can skip this for automation).
+2. **Tiered vigil `--hold` gates**—add an optional flag to the autonomous loop so the pipeline pauses at key points to wait for a person: `--hold spec` pauses after the spec is written and before any code changes, proceeding only when a human applies the `rfc-approved` label; `--hold merge` automatically proceeds all the way to a PR, leaving the final merge to a person; without `--hold`, everything remains fully automatic as before.
 
-让人从盯细节转向把控宏观；只在关键节点插入可配置暂停，**不改既有 issue→PR 自动流程的内部逻辑**。
+Let people shift from watching details to overseeing the big picture; insert configurable pauses only at key points, **without changing the internal logic of the existing issue→PR automation flow**.
 
 ## Motivation
 
-**现状（完整复述，不要求读者去翻别的 spec）。** OpenAgents 此前的 poll 状态机已把人的触点收敛到「提 issue」与「promote / release」：issue 被领取后 agent 起草 spec、开 draft PR；spec 闸由 agent reviewer **自动评审、自动打 `rfc-approved` label** 放行进 coding；merge 闸在 **CI 全绿 + reviewer PASS** 后**自动 merge**。整条 issue→PR→合并链路全自动，人原则上不在中途介入。
+**Current behavior (restated in full, without requiring readers to consult another spec).** OpenAgents’ existing poll state machine has already narrowed human touchpoints to “creating an issue” and “promote / release”: after an issue is claimed, the agent drafts a spec and opens a draft PR; at the spec gate, an agent reviewer **automatically reviews it and automatically applies the `rfc-approved` label** to allow coding to begin; at the merge gate, the PR is **automatically merged** after **all CI checks are green + reviewer PASS**. The entire issue→PR→merge chain is fully automatic, and people generally do not intervene midway.
 
-**问题：唯一真实检查点太靠后。** 在这套全自动链路里，人**唯一**的真实把关是审 PR——也就是代码全写完之后才暴露理解偏差，这是最贵的纠错点。CLAUDE.md 理念 5「人负责宏观把控、不管细节」缺两类闸门：
+**Problem: the only real checkpoint comes too late.** In this fully automated chain, a person’s **only** real review checkpoint is PR review—meaning misunderstandings are exposed only after all the code has been written, the most expensive point at which to correct them. Principle 5 in CLAUDE.md, “People oversee the big picture, not the details,” lacks two kinds of gates:
 
-- **意图层闸门**：想法落成正式 issue 之前，没有一道用人能读懂的话把范围对齐的关口，模糊需求会一路带到代码里。
-- **分级监督**：默认全自动很好，但人有时想在 spec 批准或 PR 合并这种**意图节点**上重新插回把关——当前没有这个开关，要么全自动、要么没有中间档。
+- **An intent-level gate**: before an idea becomes a formal issue, there is no checkpoint that aligns the scope in language a person can understand, so vague requirements carry through into the code.
+- **Tiered oversight**: full automation is a good default, but people sometimes want to reinsert oversight at **intent checkpoints** such as spec approval or PR merge—there is currently no switch for this; it is either fully automatic or has no intermediate setting.
 
-issue #59 要的正是这两道闸：前门**需求对齐** + vigil **可选分级 `--hold`**。关键约束是「分级」——默认行为一个字节都不能变，只有人显式选择时才在对应闸门停下。
+Issue #59 asks for precisely these two gates: front-door **requirements alignment** + **optional tiered `--hold`** for vigil. The key constraint is “tiered”—the default behavior must not change by a single byte, and a corresponding gate pauses only when a person explicitly selects it.
 
 ## Guide-level explanation
 
-对使用者，新增两个可见行为，默认体验不变：
+Two new behaviors are visible to users; the default experience remains unchanged:
 
-| 场景 | 命令 | 行为 |
+| Scenario | Command | Behavior |
 |------|------|------|
-| 提 issue | `openagents issue <title> [--body]` | 建 issue 前先打印 agent 的三段复述「要做 X / 边界 Y / 不做 Z」，请你 y/n 确认；确认才建，否定则干净中止不建 |
-| 自动化建 issue | `openagents issue <title> --yes` | 跳过复述与确认，直接建（供 vigil/CI 等脚本路径） |
-| 默认自治循环 | `openagents vigil` | 与以前逐字节一致，全自动 |
-| 停在 spec 闸 | `openagents vigil --hold spec` | 写完 spec、动代码前停住，只认人工打的 `rfc-approved` label 才放行 |
-| 停在 merge 闸 | `openagents vigil --hold merge` | 一路自动到 PR，CI 绿 + 评审过后**不自动合**，把最后 merge 留给人 |
-| 两道都停 | `openagents vigil --hold spec,merge` | 两道闸各自按规则停 |
+| Create an issue | `openagents issue <title> [--body]` | Before creating the issue, print the agent’s three-part restatement, “Do X / Boundaries Y / Do not do Z,” and ask you to confirm with y/n; create it only on confirmation, and abort cleanly without creating it if declined |
+| Create an issue through automation | `openagents issue <title> --yes` | Skip the restatement and confirmation and create it directly (for scripted paths such as vigil/CI) |
+| Default autonomous loop | `openagents vigil` | Byte-for-byte identical to before, fully automatic |
+| Pause at the spec gate | `openagents vigil --hold spec` | Pause after writing the spec and before changing code; proceed only when a human applies the `rfc-approved` label |
+| Pause at the merge gate | `openagents vigil --hold merge` | Automatically proceed all the way to a PR; after CI is green + review passes, **do not merge automatically**, leaving the final merge to a person |
+| Pause at both gates | `openagents vigil --hold spec,merge` | Pause at each gate according to its own rules |
 
-`--hold` 非法值（如拼错 `spc`）会得到一行干净错误 + 非零退出，而非静默被当成「全不停」悄悄丢掉监督。
+An invalid `--hold` value (such as the typo `spc`) produces a clean one-line error + a nonzero exit, rather than being silently treated as “pause nowhere” and quietly discarding oversight.
 
 ## Reference-level explanation
 
-落到改动，分解为 5 个 Task（DAG 见下；`files` 互斥，各 Task 单一 writer）：
+The changes are divided into 5 Tasks (see the DAG below; `files` are mutually exclusive, with a single writer per Task):
 
-1. **T1 前门对齐模块**（无依赖）— 新建纯模块 `openagents/align.py`：`restate(*, draft, backend) -> Alignment` 给定 issue 草稿，调**注入的 backend**（与 Orchestrator 同一 backend 抽象，依赖注入而非 import 具体实现）用大白话复述成 `want(X)/boundary(Y)/non_goals(Z)` 三段结构化对象，`Alignment` 带稳定的人类可读渲染。**复述生成**（要 backend）与**确认判定**（纯谓词，输入人的应答、输出是否放行）拆成两个函数：便于分别测试，也让 T4 的 `--yes` 路径跳过复述、无需构造 backend。模块不含任何 GitHub / argparse / stdin。
-2. **T2 hold 配置模型**（无依赖）— 新建纯模块 `openagents/hold.py`：`Hold` 是 frozen 值对象，只携带 `at_spec` / `at_merge` 两个布尔意图（对应 issue 列出的两道闸，刻意不做开放枚举以保持最小）。`parse_hold(*, raw) -> Hold` 切分逗号串、去空白、归一化大小写逐 token 映射；空/None → 默认全不停；未知 token → 抛 ValueError 类错误并列出合法取值。独立模块而非 argparse `type=` 内联，便于 CLI 与测试共用同一份解析、避免字符串散落多处漂移。
-3. **T3 流水线分级闸**（依赖 T2）— `vigil.run(*, ..., hold)` 新增 `hold` 关键字参数（默认全不停实例，向后兼容现有调用），逐轮透传给 `messages.poll(*, hold)`；vigil 自身不消费 Hold，仍是薄调度循环，只把意图带到真正分流的 messages 层。messages 两道闸按 Hold 分流：**spec 闸 `_process_rfc_review`**——`at_spec` 时跳过自动 reviewer，只保留「带人工 `rfc-approved` label 才 implement，否则本轮什么都不做、停在 spec 闸等人」；**merge 闸 `_process_coding`**——`at_merge` 时 CI/iterate/评审照跑，但 reviewer PASS 后不调 `merge_pr`、停在「待人 merge」（PR 保持 open），人手动 merge 后下一轮 `is_merged` 分支照常 reconcile 成 done（复用既有逻辑、无需新增 State）。分流是在既有路径上「加一个 `if hold.at_xxx` 提前 return」，默认分支走原代码不变。hold 走 poll **方法参数**而非 Messages 构造参数，避免改动 cli 的 `_messages_for` 工厂、保持 T3/T4 文件边界干净。
-4. **T4 CLI 接线**（依赖 T1、T2、T3）— cli.py 是人的唯一命令入口、仅做参数解析与分发。`_cmd_issue` 在调 `github.create_issue` 之前插一步：构造 backend、调 T1 `align.restate` 拿复述、打印给人、读 y/n，确认才建、否定干净中止；新增 `--yes` 开关跳过复述与确认直接建。`vigil` 子命令加 `--hold`（逗号分隔串，默认 None），handler 里用 T2 `parse_hold` 解析成 Hold（None → 全不停）传给 `vigil.run(hold=...)`；解析报错由既有 `_run` 的异常→一行提示通道兜。align / hold 延迟 import，保持 cli 顶层轻、测试可打桩。**注**：issue 对齐与 vigil `--hold` 都改 cli.py 这一个文件，按 spec 协同模式「Task 间文件不重叠」的约束，二者必须合在同一 Task（cli.py 是单一接线点）。
-5. **T5 e2e 脚本**（依赖 T3、T4）— 新增离线脚本 `scripts/e2e-spec-0020-hold-gate.sh`，沿用既有 `scripts/e2e-*.sh` 范式（打桩/本地 State 模拟 GitHub 远端，离线驱动 vigil/poll，断言可观测信号，不触达真实 gh、CI 可跑可重复）。演示时间线：① 准备一个处于 rfc-review 阶段、已开 draft PR、无 `rfc-approved` label 的 run；② 以 `--hold spec` 跑一轮 → 断言停在 spec 闸（未自动评审、未自动打 label、未 implement，状态仍 rfc-review）；③ 模拟人工给 PR 打上 `rfc-approved` label；④ 再跑一轮 → 断言继续推进（走 implement、进入 coding）；⑤ 打印人类可读的「停→批→继续」轨迹、退出码 0。
+1. **T1 Front-door alignment module** (no dependencies)—create the pure module `openagents/align.py`: `restate(*, draft, backend) -> Alignment` takes an issue draft and calls an **injected backend** (the same backend abstraction as Orchestrator, using dependency injection rather than importing a concrete implementation) to restate it in plain language as a three-part structured object, `want(X)/boundary(Y)/non_goals(Z)`. `Alignment` provides stable, human-readable rendering. Split **restatement generation** (which requires a backend) and **confirmation evaluation** (a pure predicate that takes a person’s response and returns whether to proceed) into two functions: this makes them independently testable and lets T4’s `--yes` path skip restatement without constructing a backend. The module contains no GitHub / argparse / stdin.
+2. **T2 hold configuration model** (no dependencies)—create the pure module `openagents/hold.py`: `Hold` is a frozen value object carrying only the two Boolean intents `at_spec` / `at_merge` (corresponding to the two gates listed in the issue; deliberately avoid an open-ended enumeration to keep it minimal). `parse_hold(*, raw) -> Hold` splits the comma-separated string, trims whitespace, normalizes case, and maps each token; empty/None → pause nowhere by default; unknown token → raise a ValueError-type error listing the valid values. Use a standalone module rather than an inline argparse `type=` so the CLI and tests can share the same parser and avoid drift from strings scattered across multiple locations.
+3. **T3 Tiered pipeline gates** (depends on T2)—add a `hold` keyword parameter to `vigil.run(*, ..., hold)` (defaulting to an instance that pauses nowhere, backward-compatible with existing calls), and pass it through to `messages.poll(*, hold)` on every iteration; vigil itself does not consume Hold and remains a thin scheduling loop, carrying the intent to the messages layer where the actual branching occurs. Branch at the two messages gates according to Hold: **spec gate `_process_rfc_review`**—when `at_spec` is set, skip the automatic reviewer and retain only “implement if a human-applied `rfc-approved` label is present; otherwise do nothing this iteration and wait for a person at the spec gate”; **merge gate `_process_coding`**—when `at_merge` is set, CI/iterate/review continue as usual, but after reviewer PASS, do not call `merge_pr`; pause at “awaiting human merge” (the PR remains open). After a person manually merges it, the next iteration’s `is_merged` branch reconciles it to done as usual (reuse existing logic, with no new State required). Branch by “adding an `if hold.at_xxx` early return” to the existing paths; the default branch runs the original code unchanged. Pass hold through a poll **method parameter**, rather than a Messages constructor parameter, to avoid changing the CLI’s `_messages_for` factory and keep the T3/T4 file boundaries clean.
+4. **T4 CLI wiring** (depends on T1, T2, T3)—cli.py is the sole command entry point for people and handles only argument parsing and dispatch. In `_cmd_issue`, insert a step before calling `github.create_issue`: construct a backend, call T1’s `align.restate` to obtain the restatement, print it for the person, and read y/n; create the issue only on confirmation, and abort cleanly if declined. Add a `--yes` switch to skip restatement and confirmation and create the issue directly. Add `--hold` to the `vigil` subcommand (a comma-separated string, default None); in the handler, use T2’s `parse_hold` to parse it into Hold (None → pause nowhere) and pass it to `vigil.run(hold=...)`; parsing errors are handled by the existing `_run` exception→one-line-message channel. Import align / hold lazily to keep the CLI’s top level lightweight and allow stubbing in tests. **Note**: issue alignment and vigil `--hold` both modify the same file, cli.py. Under the spec collaboration model’s constraint that “files must not overlap between Tasks,” they must be combined into one Task (cli.py is the single wiring point).
+5. **T5 e2e script** (depends on T3, T4)—add the offline script `scripts/e2e-spec-0020-hold-gate.sh`, following the existing `scripts/e2e-*.sh` pattern (use stubs/local State to simulate remote GitHub, drive vigil/poll offline, and assert observable signals, without accessing real gh; runnable and repeatable in CI). Demonstration timeline: ① prepare a run in the rfc-review stage with a draft PR already open and no `rfc-approved` label; ② run one iteration with `--hold spec` → assert that it pauses at the spec gate (no automatic review, no automatic label application, no implement, and the state remains rfc-review); ③ simulate a person applying the `rfc-approved` label to the PR; ④ run another iteration → assert that progress resumes (execute implement and enter coding); ⑤ print a human-readable “pause→approve→continue” trace and exit with code 0.
 
-**端到端验证**：`bash scripts/e2e-spec-0020-hold-gate.sh`（离线打桩，演示「停在 spec → 人批 → 继续」完整时间线）。
+**End-to-end validation**: `bash scripts/e2e-spec-0020-hold-gate.sh` (offline stubs, demonstrating the complete “pause at spec → human approval → continue” timeline).
 
-依赖 DAG：`T2 → T3`，`T1 → T4`，`T2 → T4`，`T3 → T4`，`T3 → T5`，`T4 → T5`。T1、T2 可并行起步。
+Dependency DAG: `T2 → T3`, `T1 → T4`, `T2 → T4`, `T3 → T4`, `T3 → T5`, `T4 → T5`. T1 and T2 can start in parallel.
 
 ## Drawbacks
 
-- 给 `openagents issue` 这条线引入 backend 依赖（复述用 LLM）——用注入而非硬编码缓解，测试以打桩 backend 保持 hermetic。
-- T4 因「同改 cli.py」被迫把两个特性（issue 对齐、vigil `--hold`）合进一个 Task，单 Task 跨了两个关注点；以「cli 纯接线、逻辑都在被依赖模块」缓解。
-- 两道 `--hold` 闸增加了流水线的可配置分支，需以默认 Hold 的回归用例守住「默认零回归」。
+- Introduces a backend dependency into the `openagents issue` path (the restatement uses an LLM)—mitigated through injection rather than hard-coding, with a stub backend keeping tests hermetic.
+- Because both features modify cli.py, T4 is forced to combine two features (issue alignment and vigil `--hold`) into one Task, spanning two concerns; mitigated by keeping the CLI purely responsible for wiring and placing all logic in the modules it depends on.
+- The two `--hold` gates add configurable branches to the pipeline, requiring regression cases with the default Hold to preserve “zero regression by default.”
 
 ## Rationale and alternatives
 
-- **LLM 复述 vs 确定性模板**（选 LLM）：模板零依赖、可离线，但只能机械回显 title/body，给不出「归纳出的边界与非目标」，违背 issue #59「用大白话复述、重新组织」的原意。选 LLM 复用既有 backend；用注入 + 打桩控制依赖与可测性。
-- **复述生成与确认判定合并 vs 拆分**（选拆分）：拆分多一个函数，但让 `--yes` 自动化路径无需 backend、让两条逻辑各自可测。
-- **Hold 用两个布尔字段 vs 开放枚举 set**（选两个布尔）：set 更「可扩展」，但当前只有两道闸、issue 未要求更多，开放集合是过度设计；两个具名谓词读起来更直白、消费方分支更清晰。将来闸门增多再重构。
-- **解析时严格报错 vs 静默忽略未知 token**（选严格）：静默忽略会让拼错的 `--hold spc` 被当成「全不停」悄悄丢掉监督，违背安全默认；严格报错让人立刻看到。
-- **hold 走 poll 方法参数 vs Messages 构造参数**（选方法参数）：构造参数要改 cli 的 `_messages_for` 工厂、把 cli.py 卷进 T3 边界；方法参数让 hold 顺着 vigil→poll 调用链走，文件归属干净，也更贴合「hold 是本次运行的意图、非实例固有属性」。
-- **spec 闸 hold 时停掉 reviewer vs 保留 reviewer 仅不自动批**（选停掉）：保留会持续消耗 backend、且与「等人批」语义混淆；停掉最简、最省、语义最干净——「hold spec 就是把这道闸完全交给人」。
-- **e2e 离线 mock vs 真实 GitHub 往返**（选离线）：真实往返需凭证、不可在 CI 重复、慢且脆；既有全部 e2e 脚本均为离线打桩，沿用同范式保证可发现、可复跑、可纳入 CI。
-- **issue 对齐默认开 vs 默认关**（选默认开、`--yes` 关）：issue #59 验收要求「创建前有一轮对齐确认（可被 `--yes` 跳过）」，把安全默认留给人、把跳过权交给脚本。
+- **LLM restatement vs. deterministic templates** (choose LLM): templates have zero dependencies and work offline, but can only mechanically echo the title/body; they cannot provide “inferred boundaries and non-goals,” contrary to issue #59’s original intent to “restate in plain language and reorganize.” Choose an LLM and reuse the existing backend; use injection + stubs to control dependencies and testability.
+- **Combine vs. split restatement generation and confirmation evaluation** (choose split): splitting adds one function, but lets the `--yes` automation path work without a backend and makes the two pieces of logic independently testable.
+- **Two Boolean fields vs. an open-ended enumeration set for Hold** (choose two Booleans): a set is more “extensible,” but there are currently only two gates and the issue asks for no more; an open-ended set is overengineering. Two named predicates read more directly and make consumer branches clearer. Refactor later if more gates are added.
+- **Strict parsing errors vs. silently ignoring unknown tokens** (choose strict): silently ignoring them would treat a mistyped `--hold spc` as “pause nowhere,” quietly discarding oversight and violating safe defaults; a strict error makes the problem immediately visible.
+- **Pass hold through a poll method parameter vs. a Messages constructor parameter** (choose method parameter): a constructor parameter would require changing the CLI’s `_messages_for` factory and pull cli.py into T3’s scope; a method parameter lets hold follow the vigil→poll call chain, keeps file ownership clean, and better reflects that “hold is the intent for this run, not an inherent instance property.”
+- **Stop the reviewer when holding at the spec gate vs. retain the reviewer but disable automatic approval** (choose stop): retaining it would keep consuming backend resources and blur the meaning of “waiting for human approval”; stopping it is the simplest, most economical option with the clearest semantics—“hold spec means handing this gate entirely to a person.”
+- **Offline e2e mocks vs. real GitHub round trips** (choose offline): real round trips require credentials, are not repeatable in CI, and are slow and brittle; all existing e2e scripts use offline stubs, so follow the same pattern to ensure discoverability, repeatability, and CI integration.
+- **Issue alignment enabled vs. disabled by default** (choose enabled by default, disabled with `--yes`): issue #59’s acceptance criteria require “a round of alignment and confirmation before creation (skippable with `--yes`)”; retain the safe default for people and give scripts the ability to skip it.
 
 ## Prior art
 
-- 「先把模糊需求复述对齐再动手」是需求工程里的常规做法（restate / reflect back），本 feature 取其轻量形态：一段三段式复述 + 人点头，不引入重型需求文档。
-- 「单点定义、多处引用」的解析模型与既有、与本组无编号关联的 RFC-0015「流程标签单一来源」属同构思路——仅借鉴其单点定义模式，避免同一字符串散落多处漂移，**不**与本组 Spec-0020 同号或同范围。
+- “Restate and align vague requirements before starting work” is a standard requirements-engineering practice (restate / reflect back). This feature adopts its lightweight form: one three-part restatement + human approval, without introducing heavyweight requirements documents.
+- The “define once, reference in multiple places” parsing model follows the same structural idea as the existing RFC-0015, “Single Source of Truth for Workflow Labels,” whose numbering is unrelated to this group—only its single-definition pattern is borrowed, to avoid drift from the same string being scattered across multiple locations; it does **not** share a number or scope with this group’s Spec-0020.
 
 ## Unresolved questions
 
-- 「看 spec 批准」依赖 #58 的人类可读 summary：人对着一坨技术 task YAML 没法点头。本组只做闸控机制，**不**实现 summary；spec 闸停下时人看到的批准依据（OVERVIEW summary）由 #58 / Spec-0014 体系提供。若 #58 未就绪，`--hold spec` 仍能停/放行，只是人的阅读体验降级——T5 e2e 与上线说明里点明这条软依赖。
+- “Approval after reading the spec” depends on the human-readable summary from #58: people cannot sign off on a mass of technical task YAML. This group implements only the gating mechanism and does **not** implement the summary; the basis for approval that people see when execution pauses at the spec gate (the OVERVIEW summary) is provided by the #58 / Spec-0014 system. If #58 is not ready, `--hold spec` can still pause execution and allow it to proceed, but the human reading experience is degraded—explicitly note this soft dependency in the T5 e2e and rollout notes.
 
 ## Future possibilities
 
-- `--hold` 可扩展更多闸门（如发版前确认），但需在「两个具名布尔」与「开放枚举集合」之间重新权衡，待真实需求出现再做。
-- spec 闸的 hold 之外，可由独立命令提供「reviewer 预审意见」能力，给人批前参考，不塞进本闸以保持其语义干净。
-
+- `--hold` can be extended to support more gates (such as confirmation before a release), but this requires reconsidering the trade-off between “two named booleans” and “an open-ended set of enum values”; defer this until a real need arises.
+- Beyond the hold at the spec gate, a separate command could provide “preliminary reviewer feedback” for people to consult before approval, keeping it out of this gate to preserve the clarity of its semantics.

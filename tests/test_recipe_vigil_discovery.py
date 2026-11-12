@@ -1,14 +1,14 @@
-"""Spec-0035/T4: 发现段慢检查进度日志——`_intake` 拉带标签 issue 前 + `_admit` 调 triager LLM 前各一行 stderr。
+"""Spec-0035/T4: Found a slow check progress log - `_intake` pull tag issue before + `_admit` turn tracker LLLM in the previous rows of stderr.
 
-发现段目前只在**结果**出来时才打日志，网络（拉 issue）/ LLM（triage 分诊）过程全哑。任一道检查被半开
-socket / 慢模型挂住时，最后一行日志停在上一步的**结果**行，看不出正卡在哪一步。这里只钉两件事：
+The discovery section is currently only log-checked when ** results** are available. The web/LLM is all mute.
+Socket / Slow Model hangs, last line log stops at the last ** result** line, does not see which one of the positive cards is. Here only two things are nailed:
 
-1. `_intake` 在 `github.list_issues` **之前**打「▶ 发现段：拉取带标签 issue…」；
-2. `_admit`（agent 态）在 `stages.triage` **之前**打「… issue #N 自检分诊方向(LLM)…」。
+1. `_intake` before `github.list_issues`** ** ”Performance Discovery: Pull Label Issue...”;
+2. `_admit` (agonal) before `stages.triage`****, ** ”...issue #N self-diagnosis orientation (LLLM)...”.
 
-进度行只落 stderr，**不改任何返回值 / 副作用 / 控制流**——本文件同时钉住「既有行为逐字节不变」。
-姊妹文件 `test_recipe_vigil_admit.py` 钉准入对话主干，与本文件不相交（只补进度日志这一条）。全程打桩
-github/stages，不触真实网络 / LLM。
+Progress line only stderr,** does not change any return values / side effects / control flow** - This document is also pinned to ”no change in existing behaviour by by bytes”.
+The sister file `test_recipe_vigil_admit.py` is the main entry dialogue, which is not linked to this document (only this article in the progress log).
+github/stages, untouched real network / LLM.
 """
 
 from __future__ import annotations
@@ -41,22 +41,22 @@ def _config(**overrides) -> agent_config.AgentConfig:
 
 
 def _issue(*, number: int) -> github.Issue:
-    return github.Issue(number=number, title="标题", body="正文", labels=())
+    return github.Issue(number=number, title="Title", body="Text", labels=())
 
 
 def _keep_discovered(monkeypatch) -> None:
-    """# Spec-0074/T1: 准入测试的最新现态仍带 discovery label。"""
+    """# Spec-0074/T1: The latest access test still has its full label."""
     monkeypatch.setattr(
         vigil_module.github,
         "get_issue",
         lambda *, number: github.Issue(
-            number=number, title="标题", body="正文", labels=("openagents",)
+            number=number, title="Title", body="Text", labels=("openagents",)
         ),
     )
 
 
 # --------------------------------------------------------------------------------------------------
-# T4-A：`_intake` 在拉带标签 issue **之前**打一行进度——卡在拉 issue 时输出停在这行。
+# T4-A: `_intake` before Zalong Label issue** **  →  — The output stopped in this line while the Laissue was stuck.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -71,14 +71,16 @@ def test_intake_logs_progress_before_listing_issues(monkeypatch, tmp_path, capsy
     monkeypatch.setattr(vigil_module.github, "list_issues", _list_issues)
 
     def _spy_log(*, message):
-        if "拉取带标签 issue" in message:
+        if "Discovering issues with the configured labels" in message:
             order.append("log")
 
     monkeypatch.setattr(vigil_module, "_log", _spy_log)
 
     _intake(backend=object(), work_dir=tmp_path, config=_config(), agent_id="vigil-1", now=_NOW)
 
-    assert order == ["log", "list_issues"], "进度行必须在拉 issue 之前打，否则卡住时看不出停在这步"
+    assert order == ["log", "list_issues"], (
+        "The progress line has to be played before the issue or it’s stuck without seeing it stop."
+    )
 
 
 def test_intake_progress_line_lands_on_stderr(monkeypatch, tmp_path, capsys):
@@ -88,12 +90,14 @@ def test_intake_progress_line_lands_on_stderr(monkeypatch, tmp_path, capsys):
     _intake(backend=object(), work_dir=tmp_path, config=_config(), agent_id="vigil-1", now=_NOW)
 
     captured = capsys.readouterr()
-    assert "▶ 发现段：拉取带标签 issue…" in captured.err
-    assert "拉取带标签 issue" not in captured.out, "进度日志只落 stderr，不污染 stdout"
+    assert "Discovering issues with the configured labels" in captured.err
+    assert "Discovering issues with the configured labels" not in captured.out, (
+        "Progress log only stderr, not contaminated stdout"
+    )
 
 
 def test_intake_behaviour_unchanged_admits_and_orders_edges(monkeypatch, tmp_path):
-    # 逐字节不变：进度行不改控制流——issue 照常过 triager 准入、打 ready、admitted>0 才排边。
+    # The byte is the same: progress does not change the flow - issue passes triager access, plays ready, ranks >0.
     monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
     monkeypatch.setattr(vigil_module.github, "list_issues", lambda *, labels: [_issue(number=5)])
     _keep_discovered(monkeypatch)
@@ -118,11 +122,13 @@ def test_intake_behaviour_unchanged_admits_and_orders_edges(monkeypatch, tmp_pat
     _intake(backend=object(), work_dir=tmp_path, config=_config(), agent_id="vigil-1", now=_NOW)
 
     assert (5, vigil_module._LABEL_READY) in labels
-    assert ordered == [True], "admitted>0 → 照常调 curator 排依赖边（控制流未被进度行改动）"
+    assert ordered == [True], (
+        "admitted>0 → As usual. curator Line dependence edge (control flow is not changed by progress line)"
+    )
 
 
 # --------------------------------------------------------------------------------------------------
-# T4-B：`_admit`（agent 态）在调 triager LLM **之前**打一行进度——卡在 LLM 分诊时输出停在这行。
+# T4-B: `_admit` (agent state) before the triager LLM** ** ** ** — output stopped in this line while stuck in the LLM ' s consultation.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -138,7 +144,7 @@ def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
     monkeypatch.setattr(vigil_module.stages, "triage", _triage)
 
     def _spy_log(*, message):
-        if "自检分诊方向(LLM)" in message:
+        if "triaging with the model" in message:
             order.append("log")
 
     monkeypatch.setattr(vigil_module, "_log", _spy_log)
@@ -153,8 +159,10 @@ def test_admit_logs_progress_before_triage_llm(monkeypatch, tmp_path):
         discovery_labels=("openagents",),
     )
 
-    assert admitted == 1, "既有返回值不变：actionable → 准入（返回 1）"
-    assert order == ["log", "triage"], "进度行必须在调 LLM 之前打，否则卡在分诊时看不出停在这步"
+    assert admitted == 1, "Existing return value remains unchanged: actionable poaching (return 1)"
+    assert order == ["log", "triage"], (
+        "The progress line must be called before the LLM is transferred, otherwise the card does not stop at this point in the session."
+    )
 
 
 def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_path, capsys):
@@ -177,13 +185,13 @@ def test_admit_progress_line_carries_issue_number_on_stderr(monkeypatch, tmp_pat
     )
 
     err = capsys.readouterr().err
-    assert "… issue #42 自检分诊方向(LLM)…" in err, (
-        "进度行须带 issue 号，卡住时一眼定位是哪个 issue"
+    assert "issue #42 triaging with the model" in err, (
+        "The progress line must be marked with the issue number, which one is the one when it’s stuck?"
     )
 
 
 def test_admit_skip_route_does_not_log_triage_progress(monkeypatch, tmp_path, capsys):
-    # 回归：skip 态直接放行、不调 triager，故不该打「调 LLM」的进度行（进度只属于真会慢的 agent 态）。
+    # Return: The kip state is released and does not match the triager, so it is not appropriate to hit the "lLM" progress line (the progress is only a real, slow agnant).
     _keep_discovered(monkeypatch)
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
 
@@ -198,13 +206,13 @@ def test_admit_skip_route_does_not_log_triage_progress(monkeypatch, tmp_path, ca
     )
 
     assert admitted == 1
-    assert "自检分诊方向(LLM)" not in capsys.readouterr().err, "skip 不叫 LLM → 不该打分诊进度行"
+    assert "triaging with the model" not in capsys.readouterr().err, "Skip, not LLM."
 
 
 def test_intake_does_not_grant_ready_after_discovery_label_is_removed(monkeypatch, tmp_path):
-    """# Spec-0074/T1: list 后到 grant 前摘标，旧快照不得继续派单，也不得触发 curator。"""
-    discovered = github.Issue(number=5, title="标题", body="正文", labels=("openagents",))
-    removed = github.Issue(number=5, title="标题", body="正文", labels=("bug",))
+    """# Spec-0074/T1: list before Grant, the old snapshot cannot continue to be sent, nor can it trigger the Curator."""
+    discovered = github.Issue(number=5, title="Title", body="Text", labels=("openagents",))
+    removed = github.Issue(number=5, title="Title", body="Text", labels=("bug",))
     monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
     monkeypatch.setattr(vigil_module.github, "list_issues", lambda *, labels: [discovered])
     monkeypatch.setattr(vigil_module.github, "get_issue", lambda *, number: removed)
@@ -227,5 +235,5 @@ def test_intake_does_not_grant_ready_after_discovery_label_is_removed(monkeypatc
         now=_NOW,
     )
 
-    assert granted == [], "discovery label 已摘除却仍打 ready = 用旧快照绕过 owner"
-    assert ordered == [], "零准入不应触发 curator"
+    assert granted == [], "  Discovery label removed and yet ready  "
+    assert ordered == [], "Zero access should not trigger a curator."

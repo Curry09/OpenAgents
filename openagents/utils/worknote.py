@@ -1,48 +1,42 @@
-"""Spec-0051/T3: agent「本轮做了什么」回执渲染（纯函数模块，解耦理念 10，与 blocknote/replynote 对称）。
+# Spec-0051/T3
+"""Render implementation and iteration receipts for pull request comments.
 
-把「派 agent 执行完后在 PR 回贴的『我干了什么』说明」长什么样收敛进两个可单测的纯函数：
-`render_implement`（实现代码）/ `render_iterate`（据反馈迭代）。
-三者只吃**基元参数**（str）、只拼字符串、**无副作用、不含签名、不做任何 IO**——签名由调用方
-（messages 经 identity.post_signed_comment）盖；也**不反向 import** orchestrator/handle 类型，
-避免展示模块与编排层耦合（与 blocknote/replynote 延续同一「纯拼字符串、被 messages 调用」范式）。
-
-每个回执以稳定抬头（`## 实现自述` 等）开头，作 messages 收口点防刷屏去重（Spec-0051/T5
-`_report_already_posted`）的锚点；`summary` 为空时回落占位「（无摘要）」（与 orchestrator._REFINE_COMMENT
-的空摘要处理一致），保证结构不缺、渲染不报错。
+These formatters perform no I/O. Signing and posting are the caller’s job.
 """
 
 from __future__ import annotations
 
-# 两类回执的稳定抬头（render_* 的首行锚点）。迭代自述把 reason 中文化嵌进标题，使 ci/review
-# 天然分桶（去重按标题行分组，不同 reason 的迭代互不抑制；Spec-0051/T5 _report_already_posted）。
-_IMPLEMENT_HEADER = "## 实现自述"
-_ITERATE_HEADER = "## 迭代自述"
+# Two types of backlash are on the rise (render_* 's first anchor). The traverse itself embeds culture in the headline of the reason, making ci/review
+# Natural sub-breaves (go grouping by heading line and insulated from the different reasson traverse; Spec-0051/T5_report_already_posted).
+_IMPLEMENT_HEADER = "## Implementation report"
+_ITERATE_HEADER = "## Iteration report"
 
-# 迭代 reason → 人类可读短语。覆盖 _process_coding 会传入的两种反馈来源；
-# 未知 reason 回落到原字面量（绝不抛错，与 blocknote._GATE_REASONS 的兜底同风格）。
+# Override two sources of feedback that _process_coding will import;
+# Unknown return to original text (never drop, same style as blocknote._GATE_REASONS).
 _REASON_LABELS = {
-    "ci": "CI 反馈",
-    "review": "代码评审反馈",
+    "ci": "CI feedback",
+    "review": "Code review feedback",
 }
 
-# summary 为空时的占位（与 orchestrator._REFINE_COMMENT 的空摘要回落一致）。
-_EMPTY_SUMMARY = "（无摘要）"
+# Summary is the place where time is empty (same as the empty orchestrator._REFINE_COMMENT summary is returned).
+_EMPTY_SUMMARY = "(No summary)"
 
 
 def render_implement(*, summary: str) -> str:
-    """Spec-0051/T3：渲「实现自述」回执——抬头 `## 实现自述` + agent 本轮实现摘要（空则占位）。"""
+    """Render an implementation report with a stable heading and summary.
+    Spec-0051/T3.
+    """
     return f"{_IMPLEMENT_HEADER}\n\n{_summary_body(summary=summary)}"
 
 
 def render_iterate(*, reason: str, summary: str) -> str:
-    """Spec-0051/T3：渲「迭代自述」回执——抬头 `## 迭代自述（<reason 中文化>）` + 本轮迭代摘要。
-
-    reason ∈ {ci, review}（中文化嵌进标题使其天然分桶）；未知 reason 回落原字面量。
+    """Render an iteration report with a heading that distinguishes the feedback source.
+    Spec-0051/T3.
     """
     label = _REASON_LABELS.get(reason, reason or _EMPTY_SUMMARY)
-    return f"{_ITERATE_HEADER}（{label}）\n\n{_summary_body(summary=summary)}"
+    return f"{_ITERATE_HEADER} ({label})\n\n{_summary_body(summary=summary)}"
 
 
 def _summary_body(*, summary: str) -> str:
-    """摘要正文：非空 strip 后原样，空则回落占位（私有纯函数，调用方显式传参）。"""
+    """Use a placeholder when no summary was supplied."""
     return summary.strip() if summary.strip() else _EMPTY_SUMMARY

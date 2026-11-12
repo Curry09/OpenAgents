@@ -1,8 +1,8 @@
-"""Spec-0042/T2：github.is_open / is_draft 只读薄封装的契约测试。
+"""Spec-0042/T2: github.is_open / is_draft only read the compact test for thin wrapping.
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。
-覆盖：is_open 对 OPEN/CLOSED/MERGED 的判定；is_draft 对 draft/转正 PR 的判定；
-非预期结构 → GithubError。
+All gh subprocesses are always mock (monkeypact subprocess.run), not called gh.
+Overwhelming: is_open decision on OPEN/CLOSED/MERGED; is_draft decision on draft/ conversion to PR;
+Unexpected structure  →  GithubError.
 """
 
 import json
@@ -16,7 +16,7 @@ from openagents.utils.github import GithubError, is_draft, is_open
 
 @dataclass
 class _FakeProc:
-    """伪 subprocess.CompletedProcess。"""
+    """Hypothetical subprocess.CompletedProcess."""
 
     returncode: int = 0
     stdout: str = ""
@@ -24,7 +24,7 @@ class _FakeProc:
 
 
 def _fake_run(*, returncode=0, stdout="", stderr=""):
-    """返回一个 subprocess.run 替身。"""
+    """returns a subprocess.run double."""
 
     def runner(args, **kwargs):
         return _FakeProc(returncode=returncode, stdout=stdout, stderr=stderr)
@@ -33,7 +33,7 @@ def _fake_run(*, returncode=0, stdout="", stderr=""):
 
 
 # --------------------------------------------------------------------------- #
-# is_open（Spec-0042：reopen 识别）
+# is_open (Spec-0042:reopen recognition)
 # --------------------------------------------------------------------------- #
 
 
@@ -65,7 +65,7 @@ def test_is_open_non_dict_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# is_draft（Spec-0042：区分 draft→rfc-review 与 转正→pr-open）
+# is_draft (Spec-0042: Distinguishing draft → rfc-review with Twir-open)
 # --------------------------------------------------------------------------- #
 
 
@@ -86,7 +86,7 @@ def test_is_draft_gh_error_raises(monkeypatch):
 
 
 def test_is_draft_missing_field_raises(monkeypatch):
-    # isDraft 缺失属结构异常（非布尔）→ GithubError。
+    # Is Draft's missing is structural abnormal (non-breble) GithubError.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "OPEN"})))
     with pytest.raises(GithubError):
         is_draft(pr_number=7)

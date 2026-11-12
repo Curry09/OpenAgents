@@ -1,8 +1,8 @@
-"""# Spec-0066/T1: runtime.timing 针对性单测（纯标准库、不触网络/仓库）。
+"""# Spec-0066/T1: runtime.timing Target Single Measure (Pretty Standard Bank, Network/Storage)
 
-覆盖：record append 合法 JSON 五键 + UTC ISO8601；record 写失败被容错吞掉（不 raise）；load_events 跳损坏
-行；timelines 跨轮重建各 phase duration（含 phase 复现分段累加、末条 terminal 时长 0）；phase_stats 出每
-phase p50/p90 + 最长尾 subject + interval 精度下限字段。
+Overwrite: recod append valid JSON 5 + UTC ISO8601; record writing failed (no raise); load_events jump corrupted
+Line; Timelines multi-wheel recreate each phase furisation (including phase recurrences, end time of triminal 0); phase_stats every
+Case p50/p90+ Maximum end subject + limit field.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def _events_path(tmp_path: Path) -> Path:
 
 
 # --------------------------------------------------------------------------------------------------
-# record：append 合法 JSON 五键 + UTC ISO8601；容错吞异常。
+# record:append is valid JSON five keys + UTC ISO8601; tolerance for misadventure abnormalities.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -56,8 +56,8 @@ def test_record_appends_and_bare_pr_issue_may_be_null(tmp_path):
 
 
 def test_record_at_is_utc_iso8601_with_z_suffix_from_aware_and_naive(tmp_path):
-    aware = datetime(2026, 7, 9, 4, 0, 0, tzinfo=UTC)  # 已是 UTC
-    naive = datetime(2026, 7, 9, 5, 0, 0)  # naive 视为 UTC
+    aware = datetime(2026, 7, 9, 4, 0, 0, tzinfo=UTC)  # UTC already
+    naive = datetime(2026, 7, 9, 5, 0, 0)  # Consider UTC as a naive
     timing.record(work_dir=tmp_path, subject="issue:1", issue=1, pr=None, phase="a", now=aware)
     timing.record(work_dir=tmp_path, subject="issue:1", issue=1, pr=None, phase="b", now=naive)
     lines = _events_path(tmp_path).read_text(encoding="utf-8").splitlines()
@@ -66,20 +66,20 @@ def test_record_at_is_utc_iso8601_with_z_suffix_from_aware_and_naive(tmp_path):
 
 
 def test_record_swallows_write_failure_and_does_not_raise(tmp_path, monkeypatch):
-    """容错核心断言：注入 open 抛异常 → record 静默吞掉、不 raise（写失败只丢一条计时）。"""
+    """The core claim of error: injection of open drops  →  record swallows silently, no raise (shows only one time for writing failure)."""
 
     def _boom(*args, **kwargs):
         raise OSError("disk full")
 
     monkeypatch.setattr(Path, "open", _boom)
-    # 不抛即通过（守夜主流程照常推进）。
+    # Pass or pass (the main Vigil process is moving on).
     timing.record(
         work_dir=tmp_path, subject="issue:1", issue=1, pr=None, phase="solving", now=_at(0)
     )
 
 
 # --------------------------------------------------------------------------------------------------
-# load_events：跳损坏行；缺文件 → 空。
+# load_events: Jumping corrupt line; missing file empty.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -90,9 +90,9 @@ def test_load_events_skips_corrupt_lines_keeps_legal(tmp_path):
         "\n".join(
             [
                 json.dumps({"subject": "issue:1", "issue": 1, "pr": None, "phase": "a", "at": "x"}),
-                "{ not json",  # 损坏行
-                "",  # 空行
-                json.dumps({"pr": 2}),  # 缺 subject/phase/at → 跳
+                "{ not json",  # Damage Line
+                "",  # Empty Line
+                json.dumps({"pr": 2}),  # subject/phase/at Jump
                 json.dumps({"subject": "issue:1", "issue": 1, "pr": None, "phase": "b", "at": "y"}),
             ]
         ),
@@ -107,7 +107,7 @@ def test_load_events_missing_file_is_empty(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# timelines：跨轮重建各 phase duration；phase 复现分两段累加；末条 terminal 时长 0。
+# Timelines: Multi-cycle reconstruction of each case situation; re-emergence of the case in two parts; end of the terminal 0.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -123,22 +123,22 @@ def test_timelines_reconstructs_durations_across_ticks(tmp_path):
         "issue:145",
         [
             ("solving", "2026-07-09T12:00:00Z"),
-            ("awaiting-ci", "2026-07-09T12:03:00Z"),  # solving 停留 3min
-            ("review-or-fix", "2026-07-09T12:10:00Z"),  # awaiting-ci 停留 7min
-            ("merged", "2026-07-09T12:12:00Z"),  # review-or-fix 停留 2min
+            ("awaiting-ci", "2026-07-09T12:03:00Z"),  # SOLVING STAY 3min
+            ("review-or-fix", "2026-07-09T12:10:00Z"),  # Waiting-ci Stay 7min
+            ("merged", "2026-07-09T12:12:00Z"),  # 2min
         ],
     )
     (line,) = timing.timelines(events=events)
     assert line.durations["solving"] == 180.0
     assert line.durations["awaiting-ci"] == 420.0
     assert line.durations["review-or-fix"] == 120.0
-    assert line.durations["merged"] == 0.0  # 末条 terminal 时长 0
+    assert line.durations["merged"] == 0.0  # Last Article Term0
     assert line.total == 720.0
     assert (line.issue, line.pr) == (145, 154)
 
 
 def test_timelines_phase_recurrence_accumulates_two_segments(tmp_path):
-    """phase 复现：review-or-fix → fix-ci → review-or-fix，review-or-fix 两段累加。"""
+    """PH Case Revert: review-or-fix  → fix-ci  → review-or-fix, review-or-fix"""
     events = _seq(
         "issue:7",
         [
@@ -149,9 +149,9 @@ def test_timelines_phase_recurrence_accumulates_two_segments(tmp_path):
         ],
     )
     (line,) = timing.timelines(events=events)
-    assert line.durations["review-or-fix"] == 300.0  # 120 + 180 两段累加
+    assert line.durations["review-or-fix"] == 300.0  # 120 + 180 2-part addition
     assert line.durations["fix-ci"] == 300.0
-    # 分成四段（不把两段 review-or-fix 误并成一段）。
+    # Split into four paragraphs (without the two paragraphs correctly review-or-fix).
     assert [seg.phase for seg in line.segments] == [
         "review-or-fix",
         "fix-ci",
@@ -161,7 +161,7 @@ def test_timelines_phase_recurrence_accumulates_two_segments(tmp_path):
 
 
 def test_timelines_merges_consecutive_same_phase(tmp_path):
-    """连续同 phase（跨多 tick 仍 awaiting-ci）合并成一段、区间累加。"""
+    """The following is a list of the links to the video that you can use to create a new video that is used in the video."""
     events = _seq(
         "issue:9",
         [
@@ -190,13 +190,13 @@ def test_timelines_sorts_events_by_at_regardless_of_input_order(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# phase_stats：跨 subject p50/p90 + 最长尾 subject + interval 精度下限字段。
+# phase_stats: limit field for crossing subsubject p50/p90+end subproject + intelval precision.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_phase_stats_p50_p90_and_longest_tail_subject():
     events = []
-    # 三个 subject 在 awaiting-ci 分别停留 100 / 200 / 900 秒。
+    # Three sub-projects stopped at 100/ 200/ 900 seconds at ailing-ci.
     for subject, dwell in [("issue:1", 100), ("issue:2", 200), ("issue:3", 900)]:
         events += [
             {"subject": subject, "issue": None, "pr": None, "phase": "awaiting-ci", "at": _iso(0)},
@@ -212,8 +212,8 @@ def test_phase_stats_p50_p90_and_longest_tail_subject():
     assert stats.interval == 60
     ci = next(ps for ps in stats.phases if ps.phase == "awaiting-ci")
     assert ci.count == 3
-    assert ci.p50 == 200.0  # 中位数
-    assert ci.p90 == pytest.approx(760.0)  # 线性插值 90 分位（100,200,900）
+    assert ci.p50 == 200.0  # Medium
+    assert ci.p90 == pytest.approx(760.0)  # Linear plug 90 fraction (100 200 900)
     assert ci.max_subject == "issue:3"
     assert ci.max_seconds == 900.0
 

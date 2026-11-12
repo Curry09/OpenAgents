@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# Spec-0017 端到端测试启动脚本：PR 生命周期（create/ready/merge）下放 agent —— draft 升为一等事实的
-# level-triggered 自愈转正 + 合并动作下放 merger agent + 不可逆合并硬闸兜底。
+# Spec-0017 End-to-end test start script: PR Life Cycle (create/ready/merge) decentralized agent - draft to first-class fact
+# Love-triggered auto-corrected + merge action decentralizedr agent + irreversibly merge hardlocks.
 #
-# 证明架构契约在离线确定性链路上成立（intent，见 spec §e2e）：
-#   - (1) deliver agent 的完成判据含「PR 非 draft」（转正归它）——契约单测 tests/test_agents_deliver.py；
-#   - (2) 稳态 reconcile 把 is_draft 当每 tick 复检的一等维度：一个 delivered 但仍 draft 的 green+approved
-#     PR，在**一次认领**里先经 _ACT_READY 转正（github.mark_ready）、再落 merge——draft 自愈分支**严格排在
-#     merge 分支之前**（任何 PR 都不在 draft 态被合；merge:human 时人拿到的是已转正、可直接合的 PR——直闭
-#     #168 死角）；
-#   - (3) 合并动作下放 merger agent，但「全绿 + review-approved:<head sha7>@head」这道不可逆红线由确定性
-#     gates.assert_merge_allowed 兜底：闸不放行 → 决不派 merger、决不合并未审代码。
+# Proof that the architecture contract was set up on the offline certainty chain (incent, see spec §e2e):
+#   - (1) The completion certificate for the deliver agent contains "PR non-draft" (reversion to it) - contract single test tests/test_agents_deliver.py;
+#   - (2) steady state recile treat is_draft as a 1 dimensional of each tick check: a deleved but still draft green+approved
+#     PR Yes.**One claim.**I'm going to go first. _ACT_READY Revert github.mark_ready）Again. merge——draft Self-healing branch**Strictly in the row.
+#     Before the merge branch** (no PR is draft; merge:human when people get a tacted, direct PR-Close)
+#     #168 Dead corner;
+#   - (3) Merger action decentralized, but the "Clean green + report-approved: <head Sha7>@head" is unreversible red line of certainty
+#     gates.assert_merge_allowed: Do not release the gate  →  Never send the merger, never merge unheard code.
 #
-# 形态说明（evidence 分层，理念 8）：本组是**纯后端编排 + agent 提示词**，无 product-facing 前端可导航；
-# 已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，沿用离线确定性测法（假 GitHub +
-# 假 agent 的 reconcile 断言 + 契约/硬闸单测 + grep 锚点）。真实自主环冒烟（oa vigil 在真仓上跑通
-# issue→PR，观测 deliver 后 PR 直接非 draft、残留 draft 能被下一轮转正）作为成果验收在 Phase-3 人验/runbook
-# 记录，不塞进本离线脚本。
+# Form description (evidence layer, philosophy 8): This group is** pure backend + agent hint**, no produd-facing frontend to navigate;
+# Self-checked tool list: Playwright / Crope DevTools MCP is not available, so no browser e2e is set, and offline certainty is used (fake GitHub+)
+# fake agent's reconcile asserted + contract/ hard-lock single test + grep anchor. Real auto-smoking smoke (oa vigil runs through the real warehouse)
+# As a result, the PR directly not draft, residual draft can be corrected in the next round) is accepted in the Phase-3 humans/runbook
+# Record, do not plug into this offline script.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0017-pr-lifecycle-delegated-to-agent.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/5] 离线确定性验证（lint + format）"
+echo "==> [1/5] Offline certainty verification (%2)lint + format）"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/5] 快照/提示词/硬闸/分支表 针对性契约单测"
+echo "==> [2/5] Quickshot/prompt/Hardlock./Branch Table Targeted contract single measure"
 uv run --extra dev pytest -q \
   tests/test_utils_github_vigil.py \
   tests/test_agents_deliver.py \
@@ -39,14 +39,14 @@ uv run --extra dev pytest -q \
   tests/test_recipe_vigil_act.py
 
 echo
-echo "==> [3/5] spec 校验 + 生成物无漂移"
+echo "==> [3/5] spec Verify + Generating without drift"
 uv run spec validate
 uv run spec graph --check
 
 echo
-echo "==> [4/5] grep 锚点：生命周期直调已下放（_do_solve 无 mark_ready、stages.merge 无裸 merge_pr）"
+echo "==> [4/5] grep Ocupies: Decentralization of life cycle straight (Presentation)_do_solve None mark_ready、stages.merge No Naked merge_pr）"
 uv run --extra dev python - <<'PY'
-"""源码级锚点：把「一次性确定性直调」是否已下放钉成可执行断言（与单测互为冗余）。"""
+"""Source-level anchor: Whether the ”one-time certainty straightness” has been delegated to an enforceable assertion (which is redundant with single measurements)"""
 
 import ast
 from pathlib import Path
@@ -57,11 +57,11 @@ def _func_node(path, name):
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == name:
             return node
-    raise AssertionError(f"{path} 找不到函数 {name}")
+    raise AssertionError(f"{path} No function found {name}")
 
 
 def _calls(node):
-    """函数体里所有形如 `mod.attr(...)` 的调用点名（AST，故不会被注释/文档串里的字面量误伤）。"""
+    """The function is all shapes like `mod.attr(...)` , and then click the name (or the name)AST, so it won’t be commented on/Document string with textual errors."""
     names = set()
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
@@ -74,28 +74,28 @@ def _calls(node):
 
 
 solve_calls = _calls(_func_node("openagents/recipes/vigil.py", "_do_solve"))
-assert "github.mark_ready" not in solve_calls, "_do_solve 仍确定性直调 github.mark_ready（转正应归 deliver agent）"
-print("  ✓ _do_solve 不再直调 github.mark_ready（转正下放 deliver agent）")
+assert "github.mark_ready" not in solve_calls, "_do_solve Still certain. github.mark_ready”Return to return deliver agent）"
+print("  ✓ _do_solve No more straight. github.mark_ready(Renewed decentralization) deliver agent）")
 
 merge_calls = _calls(_func_node("openagents/recipes/stages.py", "merge"))
-assert "github.merge_pr" not in merge_calls, "stages.merge 仍裸调 github.merge_pr（合并应下放 merger agent）"
-assert "gates.assert_merge_allowed" in merge_calls, "stages.merge 未先过 gates.assert_merge_allowed 硬闸"
-assert "engine.run_agent" in merge_calls, "stages.merge 未经 engine.run_agent 派 merger agent"
-print("  ✓ stages.merge 无裸 github.merge_pr，先过硬闸再派 merger agent")
+assert "github.merge_pr" not in merge_calls, "stages.merge Still nudity. github.merge_pr(Consolidation should be decentralized) merger agent）"
+assert "gates.assert_merge_allowed" in merge_calls, "stages.merge Not before. gates.assert_merge_allowed Hardlock."
+assert "engine.run_agent" in merge_calls, "stages.merge Not yet. engine.run_agent Pie. merger agent"
+print("  ✓ stages.merge No Naked github.merge_prLet’s go through the hard gate before we send them. merger agent")
 
 ready_calls = _calls(_func_node("openagents/recipes/vigil.py", "_do_ready"))
-assert "github.mark_ready" in ready_calls, "_do_ready 应确定性 github.mark_ready（level-triggered 安全网）"
-print("  ✓ _do_ready 确定性 github.mark_ready（level-triggered 自愈安全网）")
+assert "github.mark_ready" in ready_calls, "_do_ready Due certainty github.mark_ready（level-triggered Safety net)"
+print("  ✓ _do_ready Determination github.mark_ready（level-triggered   The safety net  ")
 PY
 
 echo
-echo "==> [5/5] reconcile 走查：draft green+approved PR 先转正再合；merge:human 先转正再 park（人拿非 draft PR）"
+echo "==> [5/5] reconcile Go check:draft green+approved PR - I’m not sure.merge:human Let’s get this straight. park(Manafe) draft PR）"
 uv run --extra dev python - <<'PY'
-"""Spec-0017 §e2e 的可执行版：假 GitHub（内存）+ 假 merger agent + 真 vigil（sense/classify/_act 一字不改）。
+"""Spec-0017 §e2e implementable version of the report: fake GitHub(RAM)+ False merger agent + True vigil（sense/classify/_act I’ll leave you to it.
 
-被替换的只有**外部世界**：GitHub 读写 + merger 那次 LLM 调用（换成按剧本行事的假 agent，它照样只能通过
-GitHub 说话）。`_sense` / `_classify` / `_fingerprint` / `_reconcile` / `_do_ready` / `_do_merge` /
-`stages.merge` / `gates.assert_merge_allowed` 全是**生产代码原件**。
+Only replacements**Outside world**：GitHub Read and write + merger That time. LLM Call (replaced as script-based fakes) agentIt’s still only going through.
+GitHub Talk.`_sense` / `_classify` / `_fingerprint` / `_reconcile` / `_do_ready` / `_do_merge` /
+`stages.merge` / `gates.assert_merge_allowed` It’s all over.**Original production code**。
 """
 
 import io
@@ -111,24 +111,24 @@ from openagents.runtime.state import RuntimeState
 from openagents.utils import agent_config, github, identity
 
 NOW = datetime(2026, 7, 15, 12, 0, 0, tzinfo=UTC)
-HEAD = "300" + "a" * 37  # 40 位 head；sha7 = "300aaaa"
+HEAD = "300" + "a" * 37  # 40 bits head；sha7 = "300aaaa"
 SHA7 = HEAD[:7]
 PR = 300
 
 
 class World:
-    """一个可变的内存 PR 世界。裸 PR（分支不带 openagents/issue- 前缀）→ subject `pr:300`。"""
+    """A variable memory PR World. Naked. PR(Stips are not with openagents/issue- Prefix)→ subject `pr:300`。"""
 
     def __init__(self):
-        self.is_draft = True  # 已交付但残留 draft（deliver 那一枪脱靶）
-        self.labels = {f"review-approved:{SHA7}"}  # reviewer 已审过、裁决绑当前 head
+        self.is_draft = True  # Delivery but residual draft（deliver The shot off)
+        self.labels = {f"review-approved:{SHA7}"}  # reviewer Triald, ruling binding current head
         self.merged = False
         self.open = True
         self.comments = []  # (body, at)
 
 
 W = World()
-ACTS = []  # `_act` 每被叫起记一笔 verdict.action —— 断言「ready 严格先于 merge」
+ACTS = []  # `_act` Every time they call me a note, verdict.action —— ”Assume.”ready Strictly Prior to merge」
 
 
 def spy_act(**kw):
@@ -155,7 +155,7 @@ def fake_pr_snapshot(*, pr_number):
 
 
 def fake_mark_ready(*, pr_number):
-    W.is_draft = False  # 转正：level-triggered 安全网把残留 draft 顶正
+    W.is_draft = False  # Retrospect:level-triggered Safety net, hold the residue. draft Top
 
 
 def fake_run_agent(agent_module, *, backend, **kw):
@@ -163,14 +163,14 @@ def fake_run_agent(agent_module, *, backend, **kw):
     if name == "merger":
         W.merged = True
         W.open = False
-        return {"merged": True, "summary": "已合并"}
-    raise AssertionError(f"走查不该派 {name} agent")
+        return {"merged": True, "summary": "Merged"}
+    raise AssertionError(f"I’m not supposed to be on the road. {name} agent")
 
 
 FAKES = {
     "list_issues": lambda *, labels, state="open": [],
     "list_open_prs": lambda: [github.PR(PR, f"u/{PR}")] if W.open else [],
-    "pr_head_branch": lambda *, pr_number: f"iter/{pr_number}",  # 裸 PR（不带 issue 前缀）
+    "pr_head_branch": lambda *, pr_number: f"iter/{pr_number}",  # Naked. PR(Not with issue Prefix)
     "pr_snapshot": fake_pr_snapshot,
     "check_snapshot": lambda *, pr_number: github.CheckSnapshot("pass", 3, "2026-07-15T11:00:00Z"),
     "list_comments": lambda *, pr_number: [
@@ -179,7 +179,7 @@ FAKES = {
     "post_comment": lambda *, pr_number, body: W.comments.append((body, "2026-07-15T11:30:00Z")),
     "mark_ready": fake_mark_ready,
     "merge_pr": lambda *, pr_number, method="merge": (_ for _ in ()).throw(
-        AssertionError("stages.merge 不该裸调 github.merge_pr——合并下放 merger agent")
+        AssertionError("stages.merge I shouldn’t have been naked. github.merge_pr——Consolidation of delegation of authority merger agent")
     ),
     "add_label": lambda *, pr_number, name: W.labels.add(name),
     "remove_label": lambda *, pr_number, name: W.labels.discard(name),
@@ -195,8 +195,8 @@ identity.post_signed_comment = lambda *, pr_number, body, agent_id: W.comments.a
 
 
 def build_config(*, merge_owner):
-    # e2e:skip 把证据戳归一成 head（走查不测 e2e 支）；review 留 agent、用真 review-approved label；
-    # merge owner 由场景切换（agent=下放 merger / human=停在闸等人）。
+    # e2e:skip pegs the evidence into a head (e2e) and review stays on ant, real reported-approved label;
+    # Merge owner is switched by scene (agent = decentralized merger / human = stop at gate and others).
     return agent_config.AgentConfig(
         version=1,
         agents=agent_config.AgentPolicy(backends={}),
@@ -232,37 +232,37 @@ def check(label, cond, detail=""):
     print(f"  ✓ {label}")
 
 
-# ---- 场景 A：merge:agent —— delivered 但 draft 的 green+approved PR 先转正、再下放 merger 合 ----------
+# ---- scene A：merge:agent —— delivered But... draft It's... green+approved PR First, first, first, first, then, then, then, again. merger CUT ----------
 W = World()
 ACTS.clear()
 work_a = Path(tempfile.mkdtemp(prefix="oa-0017-a-"))
 run_once(build_config(merge_owner="agent"), work_a)
-check("A draft 自愈支严格排在 merge 前：ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
-check("A 转正发生在合并之前：merge 落地时 PR 已非 draft（任何 PR 都不在 draft 态被合）", not W.is_draft)
-check("A 合并动作下放 merger agent（闸放行后）→ PR 已 merged", W.merged and not W.open)
+check("A draft Self-healing is strictly in line. merge Before:ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
+check("A The transition occurs before the merger:merge When you land, PR Cannot initialise Evolution’s mail component. draft(Any) PR It’s not here. draft I’m not sure.", not W.is_draft)
+check("A Merger action delegated merger agent(Locking off)→ PR Already merged", W.merged and not W.open)
 
-# ---- 场景 B：merge:human —— 先转正、再 park needs-human：人拿到的是**已转正、可直接合**的 PR --------------
+# ---- scene B:merge:human - Correct first, Park needs-human: People get ** ** *Reformed and directly ** PR --------------
 W = World()
 ACTS.clear()
 work_b = Path(tempfile.mkdtemp(prefix="oa-0017-b-"))
 run_once(build_config(merge_owner="human"), work_b)
-check("B 仍先转正再触 merge 支：ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
-check("B 人拿到的是**非 draft** PR（转正先于 human 合并动作，直闭 #168 人被 draft 墙挡住）", not W.is_draft)
-check("B merge:human → 停在闸打 needs-human、**绝不自动合**", "needs-human" in W.labels and not W.merged)
+check("B Turn it back and touch it. merge Support:ACTS == [ready, merge]", ACTS == ["ready", "merge"], str(ACTS))
+check("B People get what they want.**Not draft** PR(Reverse prefix) human Merge Actions, Close #168 People are being... draft   The wall  ", not W.is_draft)
+check("B merge:human → Stop at the gate. needs-human、**Never automatically.**", "needs-human" in W.labels and not W.merged)
 
-# ---- 场景 C：合并硬闸兜底 —— head 前移使 review-approved 裁决作废 → 闸抛、决不合并未审的新代码 ------------
+# ---- scene C: Merge the hard-barrel pending —— head Forward mover review-approved The award is set aside. → The gate is not going to merge the unheard code. ------------
 from openagents.runtime import gates  # noqa: E402
 
 W = World()
-W.is_draft = False  # 已转正，其余全绿
+W.is_draft = False  # It’s back up. The rest is green.
 try:
-    gates.assert_merge_allowed(pr_number=PR, head_sha="f" * 40)  # head 前移 → label sha 对不上
-    check("C 硬闸应对 head 前移的陈旧裁决抛 GateError", False)
+    gates.assert_merge_allowed(pr_number=PR, head_sha="f" * 40)  # head Move forward → label sha I don’t know.
+    check("C Hardlock response. head Old award thrown forward GateError", False)
 except gates.GateError:
-    check("C 合并硬闸绑 head sha：head 前移使裁决作废 → 抛 GateError，决不合并未审代码", True)
+    check("C Merge hard-lock ties head sha：head The award is annulled. → Throw! GateErrorNever merge unreviewed code", True)
 
-print("\n✅ Spec-0017 离线 e2e 全绿：PR 生命周期下放 agent + draft level-triggered 自愈 + 合并硬闸兜底")
+print("\n✅ Spec-0017 Offline e2e All green:PR Decentralization of the life cycle agent + draft level-triggered Self-healing. + Merge the hard-barded.")
 PY
 
 echo
-echo "✅ Spec-0017 端到端离线验证全部通过"
+echo "✅ Spec-0017 End-to-end offline verification pass."

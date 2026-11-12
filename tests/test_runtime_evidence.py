@@ -38,7 +38,7 @@ def test_observed_behavior_can_pass_when_prose_differs_from_expectation() -> Non
 
 
 def test_explicitly_failed_case_cannot_hide_under_pass_verdict() -> None:
-    with pytest.raises(EvidenceError, match="明确标记为未通过"):
+    with pytest.raises(EvidenceError, match="Mark explicitly as not passed"):
         validate_manifest(
             verdict="PASS",
             evidence=[

@@ -1,14 +1,14 @@
-"""RFC-0011 T2: identity 模块（身份解析 + 评论签名）的单元测试。
+"""RFC-0011 T2: module (IDM+VP)
 
-外部副作用全部 mock/注入：
+All external side effects amock/injection:
 - env：monkeypatch os.environ（OPENAGENTS_AGENT_ID）。
-- state：用真实 RuntimeState（tmp_path）或伪 state 控制 get/set_agent_id。
-- github.post_comment：monkeypatch，断言盖章后的正文下发。
+-state: Control get/set_agent_id with real Runtestate (tmp_path) or pseudostate.
+- github.post_comment:monkeypayt, which asserts that the text after the stamp is sent.
 
-覆盖：sign/parse 往返；无签名/真人正文解析为 None；resolve_agent_id 的
-env > RuntimeState > 自动生成三级优先级与落盘稳定性；post_signed_comment 盖章并下发。
+Overwrite: sign/parse round-trip; unsigned/real text resolution to None; resolve_agent_id
+env > Runtestate > automatically generate three-tier priority and drop-stability; post_signed_comment stamp and send.
 
-# Spec-0063/T2: identity 改接 runtime.RuntimeState，测试随之从旧 State 迁到 RuntimeState。
+# Spec-0063/T2: identity reconnect runtime.RuntimeState, and then the test moved from the old State to Runtestate.
 """
 
 import pytest
@@ -25,7 +25,7 @@ from openagents.utils.identity import (
 
 
 class _FakeState:
-    """伪 RuntimeState：内存维护 agent_id，记录 set 调用次数。"""
+    """Hypothetically Runtestate: Memory maintenance agent_id, record number of calls."""
 
     def __init__(self, *, agent_id=None):
         self._agent_id = agent_id
@@ -40,12 +40,12 @@ class _FakeState:
 
 
 # --------------------------------------------------------------------------- #
-# sign / parse_agent_id 往返
+# Sign / parse_agent_id round-trip
 # --------------------------------------------------------------------------- #
 
 
 def test_sign_then_parse_roundtrips():
-    signed = sign(body="正文内容", agent_id="alice")
+    signed = sign(body="Text", agent_id="alice")
     assert parse_agent_id(body=signed) == "alice"
 
 
@@ -53,12 +53,12 @@ def test_sign_appends_marker_at_end_and_keeps_body():
     signed = sign(body="hello", agent_id="bot-1")
     assert signed.startswith("hello")
     assert "<!-- openagents:agent=bot-1 -->" in signed
-    # 签名追加在末尾，原正文完整保留。
+    # The signature is added at the end and the original text is retained in its entirety.
     assert signed.index("hello") < signed.index("openagents:agent")
 
 
 def test_parse_agent_id_none_for_unsigned_body():
-    assert parse_agent_id(body="一条真人评论，没有签名") is None
+    assert parse_agent_id(body="A real comment. No signature.") is None
 
 
 def test_parse_agent_id_none_for_empty_body():
@@ -66,8 +66,8 @@ def test_parse_agent_id_none_for_empty_body():
 
 
 def test_parse_agent_id_ignores_lookalike_text():
-    # 字符集受限（[A-Za-z0-9_-]），正文里的非注释文本不会被误当签名。
-    assert parse_agent_id(body="openagents:agent=alice 只是普通文字") is None
+    # The character set is limited ([A-Za-z0-9_-]) and the non-annotated text in the body is not missigned.
+    assert parse_agent_id(body="Opengents: agent=alice") is None
 
 
 def test_sign_roundtrip_with_hex_id():
@@ -76,17 +76,17 @@ def test_sign_roundtrip_with_hex_id():
 
 
 # --------------------------------------------------------------------------- #
-# resolve_agent_id 三级优先级
+# resolve_agent_id Level 3 Priority
 # --------------------------------------------------------------------------- #
 
 
 def test_resolve_prefers_env(monkeypatch):
-    # env 最优先：即便 state 已有值，也用 env 的。
+    # env top priority: use env even if the state has already been given value.
     monkeypatch.setenv(AGENT_ID_ENV, "from-env")
     state = _FakeState(agent_id="from-state")
 
     assert resolve_agent_id(state=state) == "from-env"
-    # env 命中时不写 state（不污染落盘值）。
+    # env does not write state (no-contaminated drop value) when hit.
     assert state.set_calls == []
 
 
@@ -95,7 +95,7 @@ def test_resolve_falls_back_to_state(monkeypatch):
     state = _FakeState(agent_id="from-state")
 
     assert resolve_agent_id(state=state) == "from-state"
-    # state 已有值时不重复落盘。
+    # state does not drop a disk when a value already exists.
     assert state.set_calls == []
 
 
@@ -105,15 +105,15 @@ def test_resolve_generates_and_persists_when_missing(monkeypatch):
 
     agent_id = resolve_agent_id(state=state)
 
-    # 自动生成非空、字符集受限。
+    # Automatically generate non-empty, restricted character sets.
     assert agent_id
     assert all(c.isalnum() or c in "_-" for c in agent_id)
-    # 立即落盘，使后续进程拿到同一 id。
+    # Put the wheel down immediately so that the follow-up process can be brought to the same id.
     assert state.set_calls == [agent_id]
 
 
 def test_resolve_generated_id_is_stable_across_calls(monkeypatch, tmp_path):
-    # 用真实 RuntimeState：首次生成落盘，第二次（新 RuntimeState 实例，模拟新进程）复用同值。
+    # Use real Runtestate: First creation of a landing disc, second (new Runtestate instance, simulation of new process) to reuse the same value.
     monkeypatch.delenv(AGENT_ID_ENV, raising=False)
     path = tmp_path / ".openagents" / "runtime-state.json"
 
@@ -124,7 +124,7 @@ def test_resolve_generated_id_is_stable_across_calls(monkeypatch, tmp_path):
 
 
 def test_resolve_env_blank_falls_through(monkeypatch):
-    # env 设为空白串视同未设，回落到 state / 生成。
+    # Sets the env as a blank string view unset, which goes back to state/ generation.
     monkeypatch.setenv(AGENT_ID_ENV, "   ")
     state = _FakeState(agent_id="from-state")
 
@@ -137,8 +137,8 @@ def test_resolve_env_blank_falls_through(monkeypatch):
 
 
 def test_post_signed_comment_signs_then_posts(monkeypatch):
-    # Spec-0064/T5：post_signed_comment 现会「同步后回读校验漏签」——正常路径回读到自己带签名的评论、
-    # 不补签。故除 post_comment 外还需打桩 list_comments 返回刚发的签名评论，使本用例 hermetic。
+    # Spec-0064/T5: post_signed_comment now reads "Sync and read back to check the missing signature" - normal path reads back comments with its own signature.
+    # No signature. Therefore, in addition to post_comment, a stick of list_comments is required to return the newly sent signature comment, so that this example is used in hermetic.
     from openagents.utils.github import Comment
 
     posted = {}
@@ -154,18 +154,18 @@ def test_post_signed_comment_signs_then_posts(monkeypatch):
             Comment(
                 id="1",
                 author="alice",
-                body="🤖 已更新 RFC\n\n<!-- openagents:agent=alice -->",
+                body="🤖 Updated RFC\n\n<!-- openagents:agent=alice -->",
                 created_at="2026-01-01T00:00:00Z",
             )
         ],
     )
 
-    post_signed_comment(pr_number=5, body="🤖 已更新 RFC", agent_id="alice")
+    post_signed_comment(pr_number=5, body="Updated RFC", agent_id="alice")
 
     assert posted["pr_number"] == 5
-    # 回读到带本实例签名的评论 → 不补签，posted 仍是原始签名回复。
-    assert posted["body"].startswith("🤖 已更新 RFC")
-    # 下发的正文带签名，且可解析回 agent_id。
+    # Read back comments with this instance signature  →  without a signature, posted still the original signature reply.
+    assert posted["body"].startswith("Updated RFC")
+    # The text of the sent text is signed and can be parsed back to agent_id.
     assert parse_agent_id(body=posted["body"]) == "alice"
 
 

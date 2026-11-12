@@ -1,12 +1,12 @@
 ---
 number: "0003"
-title: issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
+title: "Issue-solving isolation — a separate worktree for each issue + branch baseline pinned to the latest main"
 issue: 0
 slug: issue-worktree-isolation
-summary: 每个 issue 在独立 git worktree 里求解、分支基线锁定最新 origin/main，避免多 issue 互相污染。同时加实时事件流反馈、可中断恢复的幂等求解，以及 CLI 统一错误处理（异常不吐 traceback）。
+summary: "Solve each issue in a separate git worktree, with the branch baseline pinned to the latest origin/main, to prevent cross-contamination between issues. Also add real-time event-stream feedback, interruptible and resumable idempotent solving, and unified CLI error handling (exceptions do not emit tracebacks)."
 tasks:
   - id: T1
-    title: solve/iterate 改用每 issue worktree + `origin/<base>` 基线 + `--base` 选项
+    title: "Switch solve/iterate to per-issue worktrees + an `origin/<base>` baseline + a `--base` option"
     status: done
     priority: P1
     tags:
@@ -21,10 +21,10 @@ tasks:
       - openagents/cli.py
       - tests/test_orchestrator.py
       - tests/test_cli.py
-    scope: 重写 Orchestrator 工作区逻辑——solve 先 fetch origin <base>，在 <repo_root>/.openagents/worktrees/issue-<n> 建从 origin/<base> 拉出的 worktree（建前幂等清理残留），在该 worktree 内调后端、add/commit/push、开 PR；iterate 复用/重建同一 worktree 后续写。cli.py 的 solve 子命令新增 --base（默认 main）并透传给 Orchestrator.solve；并在 cli 分发外层统一捕获运行期异常→打印 ✗ 干净退出、不吐 traceback（原 T4）。
-    acceptance: solve 调用序列含 git fetch origin main 与 git worktree add -b openagents/issue-<n> <path> origin/main，不再在主树 checkout -b；后端 work_dir 为 worktree 路径；commit/push 正常且不 force-push；solve --base <ref> 时 worktree 自 origin/<ref> 拉出；iterate 在 worktree 内追加 commit；CLI 将 --base 透传、默认 main；ruff check/ruff format --check/pytest 全通过；OrchestratorError/GithubError/RuntimeError 被捕获为非零退出码、无 traceback。
+    scope: "Rewrite the Orchestrator workspace logic: solve first runs fetch origin <base>, then creates a worktree from origin/<base> at <repo_root>/.openagents/worktrees/issue-<n> (idempotently cleaning up leftovers before creation), invokes the backend within that worktree, runs add/commit/push, and opens a PR; iterate reuses or recreates the same worktree to continue the work. Add --base (default: main) to the solve subcommand in cli.py and pass it through to Orchestrator.solve; also catch runtime exceptions uniformly around CLI dispatch → print ✗ and exit cleanly without emitting a traceback (formerly T4)."
+    acceptance: "The solve call sequence includes git fetch origin main and git worktree add -b openagents/issue-<n> <path> origin/main, and no longer runs checkout -b in the main working tree; the backend work_dir is the worktree path; commit/push work normally without force-push; with solve --base <ref>, the worktree is created from origin/<ref>; iterate appends commits within the worktree; the CLI passes --base through, with main as the default; ruff check/ruff format --check/pytest all pass; OrchestratorError/GithubError/RuntimeError are caught, resulting in a nonzero exit code without a traceback."
   - id: T2
-    title: 求解实时反馈：后端 stream-json 事件流 + 编排阶段进度行
+    title: "Real-time solving feedback: backend stream-json event stream + progress lines for orchestration stages"
     status: done
     priority: P1
     tags:
@@ -37,10 +37,10 @@ tasks:
     files:
       - openagents/backends/claude_code.py
       - tests/test_backend_claude_code.py
-    scope: 'ClaudeCodeBackend.run 改用 --output-format stream-json --verbose + Popen，逐行解析 NDJSON 事件，实时打印助手文本与工具动作（🔧 <tool>: <hint>）到 stdout，从 result 事件取摘要；非零退出抛 RuntimeError（带详情），非 JSON 行原样透传并作兜底详情。Orchestrator 在各阶段向 stderr 打 ▶ … 进度行。git status 判定改动逻辑不变。'
-    acceptance: 后端 Popen 命令含 --output-format stream-json --verbose；assistant 文本/工具事件经 capsys 实时可见；summary 取自 result 事件；非零退出抛 RuntimeError；solve 各阶段在 stderr 有 ▶ 进度行；子进程 mock 单测全通过。
+    scope: "Change ClaudeCodeBackend.run to use --output-format stream-json --verbose + Popen, parse NDJSON events line by line, print assistant text and tool actions (🔧 <tool>: <hint>) to stdout in real time, and obtain the summary from the result event; raise RuntimeError (with details) on a nonzero exit; pass non-JSON lines through unchanged and use them as fallback details. Orchestrator prints ▶ … progress lines to stderr at each stage. The git status logic for determining whether there are changes remains unchanged."
+    acceptance: "The backend Popen command includes --output-format stream-json --verbose; assistant text/tool events are visible in real time through capsys; summary is obtained from the result event; a nonzero exit raises RuntimeError; each solve stage has a ▶ progress line on stderr; all unit tests with mocked subprocesses pass."
   - id: T3
-    title: solve 幂等可恢复（按 State 分流 fresh/resume）+ issue↔PR 绑定 + gh 兜底
+    title: "Idempotent, resumable solve (route to fresh/resume based on State) + issue↔PR binding + gh fallback"
     status: done
     priority: P1
     tags:
@@ -56,72 +56,71 @@ tasks:
       - openagents/github.py
       - tests/test_state.py
       - tests/test_github.py
-    scope: solve 入口 state.find_by_issue 反查并按决策 7 分流——续写复用分支/worktree（不走决策 4 的清理）、追加 commit、find_pr_by_branch 复用或补开 PR；全新走决策 1/2/4 并 begin_run 先记 solving。_commit_and_push 容忍「无改动可提交」（跳过 commit 仍 push）。state.py 加 begin_run / find_by_issue；github.py 加 find_pr_by_branch。
-    acceptance: 该 issue 已有 open PR 时 solve 走续写、复用 PR（不调用 create_pr）、不重建分支、状态置 iterating；begin_run 后崩溃场景（无 PR）重跑能补开 PR；find_by_issue/begin_run/find_pr_by_branch 单测通过。
+    scope: "At the solve entry point, look up the existing record with state.find_by_issue and route according to decision 7: when resuming, reuse the branch/worktree (without the cleanup in decision 4), append commits, and use find_pr_by_branch to reuse the PR or open one if missing; for a fresh run, follow decisions 1/2/4 and first record solving with begin_run. _commit_and_push tolerates “no changes to commit” (skip commit but still push). Add begin_run / find_by_issue to state.py; add find_pr_by_branch to github.py."
+    acceptance: "When the issue already has an open PR, solve resumes the work and reuses the PR (without calling create_pr), does not recreate the branch, and sets the state to iterating; if a crash occurs after begin_run (with no PR), rerunning can open the missing PR; unit tests for find_by_issue/begin_run/find_pr_by_branch pass."
 ---
 
-# 0003 · issue 求解隔离 —— 每 issue 独立 worktree + 分支基线锁定最新 main
+# 0003 · Issue-solving isolation — a separate worktree per issue + branch baseline pinned to the latest main
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-让每个 issue 的求解在一条**独立的 git worktree** 里进行，worktree 从最新的 `origin/<base>`（默认 `main`）拉出，分支命名为 `openagents/issue-<n>`，彻底隔离多 issue 间的工作树污染与陈旧基线。在此隔离骨架上再叠三件事：求解过程的**实时事件流反馈**（后端 stream-json + 编排阶段进度行）、**幂等可恢复**的求解（按持久化 State 分流 fresh/resume，issue↔PR 绑定，gh 兜底复用 PR），以及 CLI 的**统一错误处理**（运行期异常打印干净的 `✗` 行并非零退出，不吐 traceback）。
+Run each issue-solving process in a **separate git worktree**, created from the latest `origin/<base>` (`main` by default), with the branch named `openagents/issue-<n>`, completely isolating issues from cross-issue working-tree contamination and stale baselines. Add three capabilities on top of this isolation framework: **real-time event-stream feedback** during solving (backend stream-json + orchestration-stage progress lines), **idempotent, resumable** solving (fresh/resume routing based on persisted State, issue↔PR binding, and fallback PR reuse through gh), and **consistent CLI error handling** (print a clean `✗` line and exit with a nonzero status on runtime exceptions, without emitting a traceback).
 
 ## Motivation
 
-旧实现把求解直接做在主工作树上（`git checkout -b`），带来两类问题：
+The old implementation solved issues directly in the main working tree (`git checkout -b`), causing two types of problems:
 
-- **多 issue 互相污染**：同一仓库同时求解多个 issue 时，共享一棵工作树会让未提交改动、分支切换互相干扰；并且基于「当前 HEAD」切分支，容易把陈旧的本地状态带进新求解。
-- **基线漂移**：分支不是从最新远端拉出，求解结果可能落后于 `main`，合并时冲突频发。
+- **Cross-issue contamination**: When solving multiple issues concurrently in the same repository, sharing a working tree lets uncommitted changes and branch switching interfere with one another; creating branches from the “current HEAD” also makes it easy to carry stale local state into a new solving run.
+- **Baseline drift**: Branches are not created from the latest remote state, so solving results may lag behind `main`, causing frequent merge conflicts.
 
-此外，求解过程对使用者是黑盒（后端跑完才出结果，中途无可见进度）；一旦中断（崩溃 / 手动停）就无法续写，只能重头再来或留下半成品 PR；CLI 在运行期异常时直接抛 Python traceback，对最终面向「成果」的使用者噪音很大。本 feature 用「每 issue 独立 worktree + 锁定最新远端基线」一次性解决隔离与漂移，并顺势补齐反馈、可恢复、干净报错三项体验缺口。
+In addition, the solving process is a black box to users (results appear only after the backend finishes, with no visible progress along the way); once interrupted (by a crash or a manual stop), it cannot resume, leaving users to start over or retain an unfinished PR; runtime exceptions in the CLI directly emit Python tracebacks, creating substantial noise for users ultimately focused on “results.” This feature addresses isolation and drift together through “a separate worktree per issue + pinning to the latest remote baseline,” while also closing three experience gaps: feedback, resumability, and clean error reporting.
 
 ## Guide-level explanation
 
-对使用者而言，工作方式不变——仍是 `openagents solve <issue>`，但底层与体验有四点变化：
+For users, the workflow remains the same—`openagents solve <issue>`—but there are four changes to the underlying behavior and experience:
 
-1. **隔离**：每个 issue 在 `<repo_root>/.openagents/worktrees/issue-<n>` 下有自己的 worktree，分支 `openagents/issue-<n>` 从 `origin/main` 最新提交拉出。想换基线时 `solve --base <ref>`（默认 `main`）。
-2. **可见**：求解时实时看到助手文本与工具动作（`🔧 <tool>: <hint>`），编排各阶段在 stderr 打 `▶ …` 进度行。
-3. **可续**：中断后重跑同一 issue，会自动识别已有分支/PR 续写（追加 commit、复用 PR），不重建、不重复开 PR。
-4. **干净**：运行期出错只看到一行 `✗ <原因>` 并非零退出，没有 traceback。
+1. **Isolation**: Each issue has its own worktree at `<repo_root>/.openagents/worktrees/issue-<n>`, with branch `openagents/issue-<n>` created from the latest commit on `origin/main`. To use a different baseline, run `solve --base <ref>` (`main` by default).
+2. **Visibility**: During solving, users see assistant text and tool actions (`🔧 <tool>: <hint>`) in real time, and each orchestration stage prints a `▶ …` progress line to stderr.
+3. **Resumability**: Rerunning the same issue after an interruption automatically detects the existing branch/PR and resumes work (appending commits and reusing the PR), without recreating them or opening duplicate PRs.
+4. **Clean errors**: Runtime errors produce only a single `✗ <reason>` line and a nonzero exit status, without a traceback.
 
 ## Reference-level explanation
 
-落到改动，分解为 3 个 Task（DAG 见末尾；各 Task `files` 互斥，单一 writer）。注:原先「CLI 统一错误处理」是一个独立小 Task,但它只改 `cli.py` + `tests/test_cli.py`——二者皆 T1 拥有、无独占文件,按单一 writer 原则并入 T1。
+The changes are divided into 3 Tasks (see the DAG at the end; each Task has a disjoint set of `files`, with a single writer). Note: “Consistent CLI error handling” was originally a separate small Task, but it only changes `cli.py` + `tests/test_cli.py`—both owned by T1, with no files exclusive to that Task—so it is merged into T1 under the single-writer principle.
 
-1. **T1 worktree 隔离 + 基线锁定 + CLI 统一错误处理**（无依赖，骨架）— 重写 `Orchestrator` 工作区逻辑：`solve` 先 `git fetch origin <base>`，在 `<repo_root>/.openagents/worktrees/issue-<n>` 用 `git worktree add -b openagents/issue-<n> <path> origin/<base>` 建 worktree（建前幂等清理残留），在该 worktree 内调后端、`add/commit/push`、开 PR；`iterate` 复用/重建同一 worktree 后续写。**不再**在主树 `checkout -b`，**不** force-push。`cli.py` 的 `solve` 子命令新增 `--base`（默认 `main`）并透传给 `Orchestrator.solve`；并在分发外层统一捕获 `OrchestratorError` / `GithubError` / `RuntimeError`，打印 `✗ <消息>` 到 stderr 并返回非零退出码，未知异常仍向上抛出（不吞）。
-2. **T2 实时反馈**（无依赖，可与 T1 并行）— `ClaudeCodeBackend.run` 改用 `--output-format stream-json --verbose` + `Popen`，逐行解析 NDJSON 事件，实时打印助手文本与工具动作到 stdout，从 `result` 事件取摘要；非零退出抛 `RuntimeError`（带详情），非 JSON 行原样透传并作兜底详情。`Orchestrator` 在各阶段向 stderr 打 `▶ …` 进度行。`git status` 判定改动逻辑不变。
-3. **T3 幂等可恢复**（依赖 T1）— `solve` 入口用 `state.find_by_issue` 反查持久化状态并分流：**续写**复用既有分支/worktree（不走全新路径的清理）、追加 commit、`find_pr_by_branch` 复用或补开 PR；**全新**则 `begin_run` 先记 `solving` 再走建 worktree/开 PR。`_commit_and_push` 容忍「无改动可提交」（跳过 commit 仍 push）。新增 `state.py` 的 `begin_run` / `find_by_issue` 与 `github.py` 的 `find_pr_by_branch`（gh 兜底反查 PR）。
+1. **T1 worktree isolation + baseline pinning + consistent CLI error handling** (no dependencies; the framework)—Rewrite `Orchestrator` workspace logic: `solve` first runs `git fetch origin <base>`, then creates a worktree at `<repo_root>/.openagents/worktrees/issue-<n>` using `git worktree add -b openagents/issue-<n> <path> origin/<base>` (idempotently cleaning up leftovers before creation), invokes the backend, performs `add/commit/push`, and opens a PR within that worktree; `iterate` reuses/recreates the same worktree and continues work. It **no longer** runs `checkout -b` in the main tree and does **not** force-push. The `solve` subcommand in `cli.py` gains `--base` (`main` by default), passed through to `Orchestrator.solve`; an outer handler around dispatch consistently catches `OrchestratorError` / `GithubError` / `RuntimeError`, prints `✗ <message>` to stderr, and returns a nonzero exit code, while unknown exceptions still propagate upward (they are not swallowed).
+2. **T2 real-time feedback** (no dependencies; can run in parallel with T1)—Change `ClaudeCodeBackend.run` to use `--output-format stream-json --verbose` + `Popen`, parse NDJSON events line by line, print assistant text and tool actions to stdout in real time, and extract the summary from the `result` event; raise `RuntimeError` (with details) on a nonzero exit status, pass non-JSON lines through unchanged, and use them as fallback details. `Orchestrator` prints `▶ …` progress lines to stderr at each stage. The logic for detecting changes using `git status` remains unchanged.
+3. **T3 idempotent, resumable solving** (depends on T1)—At the `solve` entry point, look up persisted state through `state.find_by_issue` and route accordingly: **resume** reuses the existing branch/worktree (without running the cleanup used by the fresh path), appends commits, and uses `find_pr_by_branch` to reuse a PR or open one if missing; **fresh** first records `solving` through `begin_run`, then proceeds to create the worktree/open a PR. `_commit_and_push` tolerates “nothing to commit” (skips the commit but still pushes). Add `begin_run` / `find_by_issue` to `state.py` and `find_pr_by_branch` to `github.py` (fallback PR lookup through gh).
 
-**端到端验证**：本组以 `ruff check` / `ruff format --check` / `pytest`（含上述各 Task 的子进程 mock 单测）作为离线 e2e 验收，无独立 `scripts/*.sh` 脚本；验收以「`solve` 调用序列含 `git worktree add ... origin/main`、续写复用 PR、CLI 干净退出」等单测断言覆盖。
+**End-to-end validation**: This group uses `ruff check` / `ruff format --check` / `pytest` (including subprocess-mock unit tests for the Tasks above) as its offline e2e acceptance criteria, with no separate `scripts/*.sh` scripts; acceptance is covered by unit-test assertions such as “the `solve` call sequence includes `git worktree add ... origin/main`,” “resuming reuses the PR,” and “the CLI exits cleanly.”
 
-依赖 DAG：`T1 → T3`，T2 独立可并行。
+Dependency DAG: `T1 → T3`; T2 is independent and can run in parallel.
 
 ## Drawbacks
 
-- 每 issue 一棵 worktree 会在 `.openagents/worktrees/` 下占用额外磁盘与 inode；需要建前幂等清理以免残留累积。
-- stream-json 逐行解析比一次性取结果多一层解析逻辑，非 JSON 行需兜底处理。
-- 幂等续写引入 fresh/resume 分流分支，状态机复杂度上升。
+- A worktree per issue consumes additional disk space and inodes under `.openagents/worktrees/`; idempotent cleanup before creation is needed to prevent leftovers from accumulating.
+- Line-by-line stream-json parsing adds a layer of parsing logic compared with retrieving the result all at once, and non-JSON lines require fallback handling.
+- Idempotent resumption introduces fresh/resume routing branches, increasing state-machine complexity.
 
 ## Rationale and alternatives
 
-- **为什么用 git worktree 而非多 clone**：worktree 共享同一 `.git` 对象库，建/删轻量、磁盘占用远小于多 clone，天然适合「每 issue 一棵临时工作树」。
-- **为什么从 `origin/<base>` 拉而非当前 HEAD**：先 `fetch` 再从远端引用建分支，保证基线是最新主干、避免把本地陈旧状态带入，从根上消除基线漂移。
-- **为什么靠 State + `find_pr_by_branch` 兜底而非纯本地记录**：崩溃可能发生在「已开 PR 但未落盘」之间，用 `gh` 按分支反查 PR 能在状态缺失时补全 issue↔PR 绑定，避免重复开 PR。
-- **备选：CLI 直接放任 traceback**。否决——面向「成果」的使用者只需知道失败原因，traceback 是噪音；统一捕获已知异常类型、未知异常仍上抛，兼顾可读与可调试。
+- **Why use git worktree instead of multiple clones**: worktrees share the same `.git` object database, are lightweight to create/delete, and consume far less disk space than multiple clones, making them a natural fit for “a temporary working tree per issue.”
+- **Why branch from `origin/<base>` instead of the current HEAD**: Running `fetch` first and then creating a branch from the remote ref ensures that the baseline is the latest trunk and avoids carrying stale local state into the run, eliminating baseline drift at its source.
+- **Why rely on State + `find_pr_by_branch` as a fallback instead of purely local records**: A crash can occur between “PR opened” and “state persisted.” Looking up the PR by branch through `gh` can restore the issue↔PR binding when state is missing, avoiding duplicate PRs.
+- **Alternative: let the CLI emit tracebacks directly**. Rejected—users focused on “results” only need to know the reason for failure; tracebacks are noise. Consistently catching known exception types while allowing unknown exceptions to propagate preserves both readability and debuggability.
 
 ## Prior art
 
-git worktree 是官方推荐的「同仓库多工作树并行」机制，被广泛用于隔离并行任务；trunk-based 开发主张分支从最新主干拉出、短生命周期合回，本 feature 的「锁定最新 `origin/main` 基线」与之一致。stream-json/NDJSON 事件流是 CLI agent 后端常见的实时输出协议。
+git worktree is the officially recommended mechanism for “multiple working trees in parallel within the same repository” and is widely used to isolate parallel tasks; trunk-based development advocates creating branches from the latest trunk and merging them back after a short lifetime, consistent with this feature’s “baseline pinned to the latest `origin/main`.” stream-json/NDJSON event streams are common real-time output protocols for CLI agent backends.
 
 ## Unresolved questions
 
-无。worktree 路径布局、基线引用、fresh/resume 分流决策、错误处理边界均已在本组确定。
+None. The worktree path layout, baseline ref, fresh/resume routing decisions, and error-handling boundaries have all been settled within this group.
 
 ## Future possibilities
 
-- worktree 生命周期管理可扩展为按完成/失败自动归档或清理。
-- 实时事件流可进一步结构化（如供前端「成果」视图消费阶段进度）。
-- `find_pr_by_branch` 的 gh 兜底可推广到更多 issue↔PR 状态自愈场景。
-
+- Worktree lifecycle management could be extended to automatic archiving or cleanup based on completion/failure.
+- Real-time event streams could be further structured (for example, to supply stage progress to a frontend “results” view).
+- The gh fallback in `find_pr_by_branch` could be extended to more scenarios for self-healing issue↔PR state.

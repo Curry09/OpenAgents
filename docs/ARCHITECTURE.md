@@ -1,6 +1,6 @@
 # Architecture
 
-English | [简体中文](ARCHITECTURE.zh-CN.md)
+English | [CREDIT Chinese](ARCHITECTURE.zh-CN.md)
 
 OpenAgents separates delivery decisions, model execution, and forge operations. The [configuration guide](CONFIGURATION.md) describes user-facing choices; the generated [module map](specs/ARCHITECTURE.md) records imports and implementation ownership.
 

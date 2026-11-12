@@ -1,19 +1,7 @@
-"""spec CLI（console_script: `spec`）：new / add-task / render / validate / abandon / graph。
+"""Create, validate, and render OpenAgents Specs.
 
-2026-06-24 spec-markdown-form：spec 组改为单 markdown 文件；`spec amend` 退役（直接编辑组
-markdown 即可，历史交给 git）；新增 `spec graph` 生成「对代码的唯一映射」ARCHITECTURE.md。
-
-薄路由层（理念 1 奥卡姆）：把子命令转发到 mutate / render / validate / graph / ownership，自己不含
-业务逻辑。
-- spec new       <slug> --issue --title    → mutate.create_group
-- spec add-task  <group> --id --title …    → mutate.add_task
-- spec render                              → 写 OVERVIEW.md
-- spec validate                            → 有 error 退出码非 0
-- spec abandon   <group> <task> --reason   → mutate.abandon（从快照移除，历史在 git）
-- spec graph     [--check]                 → 写 ARCHITECTURE.md / 校验 docstring + 漂移
-- spec ownership [--group --changed --check] → 打印单一 writer 表 / 校验 changeset 无越权写（Spec-0071）
-
-默认 specs 根为 docs/specs（可用 --specs-root 覆盖）；graph 默认扫 openagents 包。
+Commands manage numbered Markdown groups and tasks, regenerate the overview
+and architecture, and check file ownership. The default root is docs/specs.
 """
 
 from __future__ import annotations
@@ -32,12 +20,12 @@ _DEFAULT_PACKAGE_ROOT = Path("openagents")
 
 
 def _csv(value: str) -> list[str]:
-    """逗号分隔串 → 去空白的非空项列表（供 --files / --depends-on）。"""
+    """Comma separator  →  to remove empty list of non-empty items (for --files / --depends-on)."""
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def main(*, argv: list[str] | None = None) -> int:
-    """Entry point for the `spec` console_script. 返回进程退出码（0 成功 / 非 0 失败）。"""
+    """Entry point for the `spec` console_script. returns the exit code (0 failed/ non-0 failed)."""
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
@@ -88,81 +76,99 @@ def main(*, argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """构造 argparse 解析器。--specs-root 放共享父解析器，子命令前后皆可写。"""
+    """Construct anargparse solver. --specs-root sets shared parent solver, written before and after the sub-command."""
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--specs-root",
         type=Path,
         default=_DEFAULT_SPECS_ROOT,
-        help="specs 源数据根目录（默认 docs/specs）",
+        help="Spec source directory (default docs/specs)",
     )
 
     parser = argparse.ArgumentParser(prog="spec", description=__doc__, parents=[common])
     sub = parser.add_subparsers(dest="command")
 
-    new = sub.add_parser("new", help="新建 spec 组（markdown 单文件）", parents=[common])
-    new.add_argument("slug", help="组 slug（kebab-case 英文短名）")
-    new.add_argument("--issue", type=int, required=True, help="关联 issue 编号")
-    new.add_argument("--title", required=True, help="组标题")
-    # Spec-0015：人话 TL;DR 必填——把「写 summary」做成建组硬步骤。
-    new.add_argument("--summary", required=True, help="组级人话 TL;DR（必填）")
-    new.add_argument("--number", default=None, help="组编号 NNNN（共享仓库须先在远端预留）")
+    new = sub.add_parser("new", help="Create a Spec group as a Markdown file", parents=[common])
+    new.add_argument("slug", help="Group slug in kebab case")
+    new.add_argument("--issue", type=int, required=True, help="Linked issue number")
+    new.add_argument("--title", required=True, help="Group title")
+    # Spec-0015: human voice TL; DR will fill - make writing summary a hard step to build.
+    new.add_argument("--summary", required=True, help="Plain-language group summary (required)")
+    new.add_argument(
+        "--number",
+        default=None,
+        help="Group number NNNN; shared repositories require a remote reservation",
+    )
 
-    reserve = sub.add_parser("reserve-number", help="为已有 spec 改号预留新编号", parents=[common])
-    reserve.add_argument("--issue", type=int, required=True, help="关联 issue 编号")
-    reserve.add_argument("--slug", required=True, help="组 slug")
-    reserve.add_argument("--number", default=None, help="指定编号 NNNN（缺省取下一空号）")
+    reserve = sub.add_parser(
+        "reserve-number", help="Reserve a replacement number for an existing Spec", parents=[common]
+    )
+    reserve.add_argument("--issue", type=int, required=True, help="Linked issue number")
+    reserve.add_argument("--slug", required=True, help="Group slug")
+    reserve.add_argument(
+        "--number", default=None, help="Requested number NNNN (default: next available)"
+    )
 
-    add = sub.add_parser("add-task", help="往 spec 组加一个子任务", parents=[common])
-    add.add_argument("group", help="组编号 NNNN 或文件名")
-    add.add_argument("--id", required=True, dest="task_id", help="Task ID，如 T1")
-    add.add_argument("--title", required=True, help="Task 标题")
-    add.add_argument("--priority", choices=list(PRIORITY_VALUES), required=True, help="优先级")
+    add = sub.add_parser("add-task", help="Add a task to a Spec group", parents=[common])
+    add.add_argument("group", help="Group number NNNN or filename")
+    add.add_argument("--id", required=True, dest="task_id", help="Task ID, e.g. T1")
+    add.add_argument("--title", required=True, help="Task title")
+    add.add_argument("--priority", choices=list(PRIORITY_VALUES), required=True, help="Priority")
     add.add_argument(
-        "--status", choices=list(STATUS_VALUES), default="pending", help="状态（默认 pending）"
+        "--status", choices=list(STATUS_VALUES), default="pending", help="Status (default pending)"
     )
-    add.add_argument("--files", type=_csv, default=[], help="涉及文件（逗号分隔）")
+    add.add_argument("--files", type=_csv, default=[], help="Owned files (comma-separated)")
     add.add_argument(
-        "--depends-on", type=_csv, default=[], dest="depends_on", help="依赖（逗号分隔）"
+        "--depends-on",
+        type=_csv,
+        default=[],
+        dest="depends_on",
+        help="Dependencies (comma-separated)",
     )
-    add.add_argument("--scope", default="", help="子任务范围（Markdown）")
-    add.add_argument("--acceptance", default="", help="验收标准（Markdown）")
+    add.add_argument("--scope", default="", help="Task scope (Markdown)")
+    add.add_argument("--acceptance", default="", help="Acceptance criteria (Markdown)")
 
-    sub.add_parser("render", help="渲染 OVERVIEW.md", parents=[common])
-    sub.add_parser("validate", help="校验 specs（schema + 语义）", parents=[common])
+    sub.add_parser("render", help="Generate OVERVIEW.md", parents=[common])
+    sub.add_parser("validate", help="Validate Spec schema and semantics", parents=[common])
 
-    abandon = sub.add_parser("abandon", help="从快照移除一个 Task（历史在 git）", parents=[common])
-    abandon.add_argument("group", help="组编号 NNNN 或文件名")
-    abandon.add_argument("task", help="Task ID，如 T3")
-    abandon.add_argument("--reason", required=True, help="移除原因（记入提交信息）")
-
-    g = sub.add_parser(
-        "graph", help="生成/校验 ARCHITECTURE.md（对代码的唯一映射）", parents=[common]
+    abandon = sub.add_parser(
+        "abandon", help="Remove a task from the snapshot; history remains in Git", parents=[common]
     )
+    abandon.add_argument("group", help="Group number NNNN or filename")
+    abandon.add_argument("task", help="Task ID, e.g. T3")
+    abandon.add_argument(
+        "--reason", required=True, help="Reason for removal, recorded in the commit message"
+    )
+
+    g = sub.add_parser("graph", help="Generate or validate ARCHITECTURE.md", parents=[common])
     g.add_argument(
         "--package-root",
         type=Path,
         default=_DEFAULT_PACKAGE_ROOT,
-        help="要扫描的包（默认 openagents）",
+        help="Package to scan (default openagents)",
     )
-    g.add_argument("--check", action="store_true", help="CI 模式：校验 docstring 齐全 + 无漂移")
+    g.add_argument(
+        "--check",
+        action="store_true",
+        help="Check module docstrings and verify the generated view is current",
+    )
 
     own = sub.add_parser(
         "ownership",
-        help="打印单一 writer 所有权表 / 校验 changeset 无越权写（Spec-0071）",
+        help="Show file ownership or validate a changeset (Spec-0071)",
         parents=[common],
     )
-    own.add_argument("--group", default=None, help="组编号 NNNN（--check 时必填，指定校验哪个组）")
+    own.add_argument("--group", default=None, help="Group number NNNN (required with --check)")
     own.add_argument(
         "--changed",
         type=_csv,
         default=[],
-        help="改动文件（逗号分隔，仓库相对路径）——供 --check 校验越权写",
+        help="Changed repository-relative paths (comma-separated) for --check",
     )
     own.add_argument(
         "--check",
         action="store_true",
-        help="校验模式：--changed 里有本组无主写（越权写）则退出码 1",
+        help="Exit with status 1 if a changed file has no owner in the group",
     )
 
     return parser
@@ -171,16 +177,16 @@ def _build_parser() -> argparse.ArgumentParser:
 def _cmd_new(
     *, specs_root: Path, slug: str, title: str, issue: int, summary: str, number: str | None
 ) -> int:
-    """new 子命令：转发 mutate.create_group，打印新建文件。"""
+    """New sub-command: Forward mutate.create_group, print new files."""
     path = mutate.create_group(
         specs_root=specs_root, slug=slug, title=title, issue=issue, summary=summary, number=number
     )
-    print(f"✓ 已新建 spec 组 {path.name}（{path}）")
+    print(f"✓ Created Spec group {path.name} ({path})")
     return 0
 
 
 def _cmd_add_task(*, specs_root: Path, args: argparse.Namespace) -> int:
-    """add-task 子命令：转发 mutate.add_task。"""
+    """Add-task sub-command: forward mutate.add_task."""
     task = mutate.add_task(
         specs_root=specs_root,
         group=args.group,
@@ -193,64 +199,68 @@ def _cmd_add_task(*, specs_root: Path, args: argparse.Namespace) -> int:
         scope=args.scope,
         acceptance=args.acceptance,
     )
-    print(f"✓ 已加 Task {args.group}/{task.id}（{task.status}）")
+    print(f"✓ Added task {args.group}/{task.id} ({task.status})")
     return 0
 
 
 def _cmd_render(*, specs_root: Path) -> int:
-    """render 子命令：写 OVERVIEW.md 并打印路径。"""
+    """Render sub-command: Write OVERVIEW.md and print the path."""
     path = write_overview(specs_root=specs_root)
-    print(f"✓ 已生成 {path}")
+    print(f"✓ Wrote {path}")
     return 0
 
 
 def _cmd_validate(*, specs_root: Path) -> int:
-    """validate 子命令：打印 issues；有 error 返回 1，仅 warning 返回 0。"""
+    """Validate sub-command: Print issues; there is an error returning 1, only warning returns 0."""
     report = validate(specs_root=specs_root)
     for issue in report.issues:
         print(f"[{issue.level}] {issue.where}: {issue.message}")
     if not report.ok:
-        print("✗ spec 校验失败（存在 error）")
+        print("✗ Spec validation failed")
         return 1
-    print("✓ spec 校验通过")
+    print("✓ Spec validation passed")
     return 0
 
 
 def _cmd_abandon(*, specs_root: Path, group: str, task: str, reason: str) -> int:
-    """abandon 子命令：转发 mutate.abandon。"""
+    """abandon sub-command: forward mutate.abandon."""
     mutate.abandon(specs_root=specs_root, group=group, task_id=task, reason=reason)
-    print(f"✓ 已 abandon {group}/{task}")
+    print(f"✓ Removed task {group}/{task}")
     return 0
 
 
 def _cmd_ownership(*, specs_root: Path, group: str | None, changed: list[str], check: bool) -> int:
-    """ownership 子命令：--check 校验 changeset 无越权写（退出码 1）；否则打印单一 writer 所有权表。
+    """An downership sub-command: --check verify changeset unauthorised (exit code 1); otherwise print a single Writer title table.
 
-    Spec-0071/T2: 把「单一 writer」文件所有权做成可查询/可校验的运行期面。--check 需 --group 指定
-    校验哪个组，据 `spec.ownership.unowned_writes` 判无主写；无 --check 则逐组打印 owner→path 表。
+    Spec-0071/T2: Make the ownership of a ”single Writer” file a searchable/ verifiable run-time. --check requires --group designation
+    Verify which group, according to `spec.ownership.unowned_writes`, is unauthorised; none --check prints the owner → path table by group.
     """
     groups = model.load_all(specs_root=specs_root)
     if check:
         if group is None:
-            print("[error] --check 需配合 --group NNNN 指定校验哪个组")
+            print("[error] --check requires --group NNNN")
             return 2
         target = next((g for g in groups if g.number == group), None)
         if target is None:
-            print(f"[error] 找不到组 {group}（specs_root={specs_root}）")
+            print(f"[error] Group {group} not found under {specs_root}")
             return 2
         offenders = ownership.unowned_writes(
             group=target, changed_paths=changed, specs_root=specs_root
         )
         for path in offenders:
-            print(f"[error] {path}: 越权写（组 {target.number} 无 Task 声明该文件，且非生成物）")
+            print(
+                f"[error] {path}: unowned write (group {target.number} does not own this file and it is not generated)"
+            )
         if offenders:
-            print(f"✗ 越权写检测失败：{len(offenders)} 个无主写")
+            print(f"✗ Ownership check failed: {len(offenders)} unowned writes")
             return 1
-        print(f"✓ 越权写检测通过（组 {target.number}，{len(list(changed))} 个改动全部有主/生成物）")
+        print(
+            f"✓ Ownership check passed for group {target.number}: all {len(list(changed))} changed files are owned or generated"
+        )
         return 0
 
-    # 无 --check：打印单一 writer 所有权表（owner Task → 声明文件，按组、按 path 排序）。
-    print("# 单一 writer 所有权表（Spec-0071：owner Task → 声明文件）")
+    # No --check: Print a single writer ownership table (owner Task  →  declaration file, sorted by group, by path).
+    print("# File ownership (Spec-0071: owning task and declared file)")
     for grp in groups:
         index = ownership.build_index(group=grp)
         for path in sorted(index.by_path):
@@ -259,26 +269,26 @@ def _cmd_ownership(*, specs_root: Path, group: str | None, changed: list[str], c
 
 
 def _cmd_graph(*, specs_root: Path, package_root: Path, check: bool) -> int:
-    """graph 子命令：--check 校验 docstring + 漂移；否则生成 ARCHITECTURE.md。"""
+    """Sub-command for graph: --check verify docstring + drift; otherwise ARCHITECTURE.md is generated."""
     if not check:
         path = graph.write_architecture(specs_root=specs_root, package_root=package_root)
-        print(f"✓ 已生成 {path}")
+        print(f"✓ Wrote {path}")
         return 0
 
-    # --check：1) docstring 齐全；2) ARCHITECTURE.md 与代码无漂移。
+    # --check 1:) Docstrining All; 2) ARCHITECTURE.md does not drift with the code.
     missing = graph.missing_docstrings(package_root=package_root)
     current = specs_root / graph.ARCHITECTURE_FILENAME
     expected = graph.render_architecture(package_root=package_root)
     drift = (not current.is_file()) or current.read_text(encoding="utf-8") != expected
 
     for path_str in missing:
-        print(f"[error] {path_str}: 缺 docstring（文件级/模块级注释规范）")
+        print(f"[error] {path_str}: missing a module docstring")
     if drift:
-        print(f"[error] {current}: 与代码不一致，请运行 `spec graph` 重新生成")
+        print(f"[error] {current}: does not match the code; regenerate with `spec graph`")
     if missing or drift:
-        print("✗ graph 校验失败")
+        print("✗ Architecture graph validation failed")
         return 1
-    print("✓ graph 校验通过（docstring 齐全、无漂移）")
+    print("✓ Architecture graph is current and docstrings are present")
     return 0
 
 

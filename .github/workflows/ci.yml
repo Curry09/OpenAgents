@@ -1,9 +1,9 @@
-# CI 流水线（纯 Python 项目，由 north-coder CI 裁剪而来）
-# 仅 "CI Gate" 作为分支保护的必需状态检查。
+# Repository CI.
+# Only "CI Gate" is required by branch protection.
 name: CI
 
-# Spec-0023/T5：日常 PR 以 main 为 base；v2 compatibility PR 以 auto-designer/v0.2 为 base。
-# release/vX.Y.Z 分支由已绿的 main 物化而来、不接 PR，无需在此重复门控。
+# Spec-0023/T5: Check main and the v0.2 compatibility branch.
+# Release branches are created from green main commits and do not receive PRs.
 on:
   pull_request:
     branches: [main, auto-designer/v0.2]
@@ -60,7 +60,7 @@ jobs:
           if [ -d tests ]; then
             uv run --locked --extra dev pytest tests/ -v
           else
-            echo "尚无 tests/ 目录，跳过"
+            echo "No tests/ directory; skipping tests."
           fi
 
   desktop:
@@ -124,7 +124,7 @@ jobs:
           fetch-depth: 0
       - uses: wagoid/commitlint-github-action@v6
 
-  # Spec-0014/T5：RFC 编号校验改为 spec 组编号校验（决策 D11）。
+  # Spec-0014/T5: Check Spec group numbers (decision D11).
   spec-conflicts:
     name: Spec Number Conflicts
     runs-on: ubuntu-latest
@@ -144,7 +144,7 @@ jobs:
             --require-open-pr-scan \
             --current-pr "${{ github.event.pull_request.number }}"
 
-  # Spec-0014/T5：spec 校验 + OVERVIEW 幂等漂移检查（决策 D9）。
+  # Spec-0014/T5: Validate Specs and check overview drift (decision D9).
   spec-validate:
     name: Spec Validate & Drift
     runs-on: ubuntu-latest
@@ -165,14 +165,14 @@ jobs:
           uv run --locked --extra dev spec render --specs-root docs/specs
           git diff --exit-code docs/specs/OVERVIEW.md
 
-      # 2026-06-24 spec-markdown-form：需求① 现状映射。校验 docstring 规范齐全 + ARCHITECTURE 无漂移。
+      # Check module docstrings and the generated architecture view.
       - name: ARCHITECTURE drift + docstring check
         run: |
           uv run --locked --extra dev spec graph --specs-root docs/specs
           git diff --exit-code docs/specs/ARCHITECTURE.md
           uv run --locked --extra dev spec graph --specs-root docs/specs --check
 
-  # --- 唯一的必需状态检查：聚合所有任务结果 ---
+  # Aggregate the checks into the required status.
   ci-gate:
     name: CI Gate
     if: always()

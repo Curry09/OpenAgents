@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Spec-0030 端到端测试启动脚本：init 前端 e2e 环境体检（检测 browser MCP + 权限放行，非阻塞）
-# + 条件式 browser-e2e 方法论文案注入（issue #85）。
+# Spec-0030 End-to-end test start-up script: init front end e2e environmental medical examination (test browser MCP+ permissions released, unblocked)
+# + Conditional Browner-e2e method paper in (issue #85).
 #
-# hermetic——不调真实 claude / GitHub。三段：
-#   1) 离线确定性验证（ruff lint/format + pytest，全程 mock）。
-#   2) 体检两态：打桩 HOME 下的 ~/.claude.json + OPENAGENTS_PERMISSION_MODE，
-#      断言「缺失态」报告含安装命令 / 非全放行警告 / export 设置方式、非阻塞（render 不抛）；
-#      「满足态」含两条 ✓ 且不含安装命令。
-#   3) 方法论文案：grep orchestrator.py / reviewer.py 确认条件式「具备浏览器工具 → 优先浏览器
-#      前端 e2e」字样已注入两处模板。
+# Hermetic - no true claude / GitHub. Three paragraphs:
+#   1) Offline certainty validation (ruff lint/format + pytest, round).
+#   2) Medical examination of two states: ~/. claude.json + OPENAGENTS_PERMISSION_MODE under a HOME stake,
+#      The "miss" report is supposed to contain installation commands / not all release warnings / report settings, unblocked (render not drop);
+#      "Satisfaction" contains two gills and does not contain an installation order.
+#   3) Methodology paper: grep orchestrator.py/ reviewer.py confirmation condition "Absent Browser Tool  →  Priority Browser
+#      The words "e2e" have been inserted into two templates.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0030-init-env-check.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/3] 离线确定性验证（lint + format + 单元/集成测试）"
+echo "==> [1/3] Offline certainty verification (%2)lint + format + Units/Integrated Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 echo
-echo "==> [2/3] 体检两态：缺失态 / 满足态报告断言（打桩 HOME + 权限 env）"
+echo "==> [2/3] Medical examination of two states: missing / Satisfactory Report Claim (Playing HOME + Permissions env）"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# --- 缺失态：~/.claude.json 无 mcpServers + 默认权限（acceptEdits） ---
+# --- Missing state: ~. claude.json without mcpServers + Default permissions (acceptEdits) ---
 MISSING_HOME="$TMP/missing"
 mkdir -p "$MISSING_HOME"
 echo '{"mcpServers": {}}' > "$MISSING_HOME/.claude.json"
@@ -34,14 +34,14 @@ MISSING_OUT="$(HOME="$MISSING_HOME" OPENAGENTS_PERMISSION_MODE= \
   uv run python -c 'from openagents import envcheck; print(envcheck.check().text)')"
 echo "$MISSING_OUT"
 grep -qF "claude mcp add playwright" <<<"$MISSING_OUT" \
-  || { echo "✗ 缺失态报告缺 playwright 安装命令"; exit 1; }
+  || { echo "✗ Missing State Report Missing playwright Install command"; exit 1; }
 grep -qF "export OPENAGENTS_PERMISSION_MODE=bypassPermissions" <<<"$MISSING_OUT" \
-  || { echo "✗ 缺失态报告缺 export 设置方式"; exit 1; }
-grep -qF "非全放行" <<<"$MISSING_OUT" \
-  || { echo "✗ 缺失态报告缺非全放行警告"; exit 1; }
-echo "  ✓ 缺失态：含安装命令 + 非全放行警告 + export 设置方式"
+  || { echo "✗ Missing State Report Missing export Settings"; exit 1; }
+grep -qF "Not All Release" <<<"$MISSING_OUT" \
+  || { echo "✗ Missing state report missing full release warning"; exit 1; }
+echo "  ✓ Missing state: contains installation orders + Unfull Release Warning + export Settings"
 
-# --- 满足态：~/.claude.json 含 playwright + chrome-devtools + 全放行 ---
+# --- content: ~. claude.json with playwright + chrome-devtools + Release All ---
 OK_HOME="$TMP/ok"
 mkdir -p "$OK_HOME"
 echo '{"mcpServers": {"playwright": {}, "chrome-devtools": {}}}' > "$OK_HOME/.claude.json"
@@ -49,25 +49,25 @@ OK_OUT="$(HOME="$OK_HOME" OPENAGENTS_PERMISSION_MODE=bypassPermissions \
   uv run python -c 'from openagents import envcheck; print(envcheck.check().text)')"
 echo "$OK_OUT"
 [ "$(grep -cF "✓" <<<"$OK_OUT")" -eq 2 ] \
-  || { echo "✗ 满足态报告应含两条 ✓"; exit 1; }
+  || { echo "✗ Two articles should be included in the compliance report ✓"; exit 1; }
 grep -qF "claude mcp add" <<<"$OK_OUT" \
-  && { echo "✗ 满足态报告不应含安装命令"; exit 1; }
-echo "  ✓ 满足态：两条 ✓、不含安装命令"
+  && { echo "✗ The satisfaction report should not contain an installation order"; exit 1; }
+echo "  ✓ Satisfaction: two ✓, without installation orders"
 
-# --- 非阻塞：体检 all_ok 布尔可取、check() 不抛（缺失态退出码 0） ---
+# --- Non-blocking: medical examination all_ok Boolean,check() No drop (miss exit code) 0） ---
 HOME="$MISSING_HOME" OPENAGENTS_PERMISSION_MODE= \
   uv run python -c 'from openagents import envcheck; r = envcheck.check(); assert r.all_ok is False'
-echo "  ✓ 非阻塞：缺失态 check() 不抛、all_ok=False、退出码 0"
+echo "  ✓ Non-blocking: missing state check() No, no, no, no, no, no, no, no, no.all_ok=FalseQuit Code 0"
 
 echo
-echo "==> [3/3] 方法论文案注入：grep orchestrator.py / reviewer.py"
-grep -qF "浏览器工具" openagents/orchestrator.py \
-  || { echo "✗ orchestrator.py 缺 browser-e2e 条件式引导"; exit 1; }
-grep -qF "前端 e2e" openagents/orchestrator.py \
-  || { echo "✗ orchestrator.py 缺『前端 e2e』引导"; exit 1; }
-grep -qF "浏览器工具" openagents/reviewer.py \
-  || { echo "✗ reviewer.py rubric 缺 browser-e2e 条件式引导"; exit 1; }
-echo "  ✓ orchestrator.py（起草 + 反向补全）与 reviewer.py rubric 均含条件式 browser-e2e 引导"
+echo "==> [3/3] Injection of methodological papers:grep orchestrator.py / reviewer.py"
+grep -qF "Browser Tool" openagents/orchestrator.py \
+  || { echo "✗ orchestrator.py Missing browser-e2e Conditional Guidance"; exit 1; }
+grep -qF "Frontend e2e" openagents/orchestrator.py \
+  || { echo "✗ orchestrator.py Missing Frontend e2e』Guide"; exit 1; }
+grep -qF "Browser Tool" openagents/reviewer.py \
+  || { echo "✗ reviewer.py rubric Missing browser-e2e Conditional Guidance"; exit 1; }
+echo "  ✓ orchestrator.py(draft) + Reverse Completion) with reviewer.py rubric Both Conditional browser-e2e Guide"
 
 echo
-echo "✓ Spec-0030 端到端通过：init 环境体检两态 + 非阻塞 + 方法论文案注入闭环可用。"
+echo "✓ Spec-0030 End-to-end through:init Environmental checkup. + Unblocked + The methodology paper is available in the closed ring."

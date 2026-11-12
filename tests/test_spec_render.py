@@ -1,8 +1,8 @@
-"""spec render 单元测试 —— markdown 单文件形态（2026-06-24）。
+"""Spec render unit test - markdown single file form (2026-06-24).
 
-覆盖：四块标题齐全、看板行数 = 当前版 Task 数、跨组 relates-to 虚线边、当前版节点按 status
-着色、文件冲突报告、幂等（两次 render 字节级一致）、空仓库不报错。history 机制已退役，
-演化图退化为各 Task 单版本节点。
+Overwrite: 4-bit full, Board of view lines = current version of Task numbers, cross-group relates-to dot-line edges, current version node by status
+The color, file conflict reports, cylindrical, etc. (two render bytes consistent), empty warehouse is not misreported. The history mechanism is decommissioned, and the system is not in place.
+Evolution maps are degraded to single-version nodes of Task.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from openagents.spec.render import render, write_overview
 def _group(*, root: Path, number: str, slug: str, issue: int, tasks: list[Task]) -> Path:
     group = Group(
         number=number,
-        metadata=Metadata(title=f"{slug} feature", issue=issue, slug=slug, summary=f"{slug} 人话"),
+        metadata=Metadata(
+            title=f"{slug} feature", issue=issue, slug=slug, summary=f"{slug} summary."
+        ),
         tasks=tasks,
     )
     path = model.group_path(specs_root=root, number=number, slug=slug)
@@ -36,20 +38,20 @@ def test_four_blocks_present(tmp_path: Path) -> None:
         root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1", files=["a.py"])]
     )
     text = render(specs_root=tmp_path)
-    assert "## 全局看板" in text
-    assert "## 跨 feature 关系图" in text
-    assert "## 文件冲突报告" in text
-    assert "## 各 feature 详情" in text
+    assert "## Task board" in text
+    assert "## Cross-Spec relationships" in text
+    assert "## File ownership overlaps" in text
+    assert "## Spec details" in text
 
 
 def test_tldr_block_shows_group_summary(tmp_path: Path) -> None:
-    """Spec-0015/T4：OVERVIEW 顶部 TL;DR 逐 feature 展示 summary。"""
+    """Spec-0015/T4: OverVIEW Top TL; DR presents the Summary by feature."""
     _group(
         root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1", files=["a.py"])]
     )
     text = render(specs_root=tmp_path)
     assert "## TL;DR" in text
-    assert "alpha 人话" in text
+    assert "alpha summary" in text
 
 
 def test_board_row_count_equals_task_count(tmp_path: Path) -> None:
@@ -94,7 +96,7 @@ def test_cross_group_relates_to_dashed_edge(tmp_path: Path) -> None:
 
 
 def test_evolution_graph_colors_current_status(tmp_path: Path) -> None:
-    """history 退役后，演化图呈现各 Task 当前单版本节点并按 status 着色。"""
+    """After history is retired, the evolutionary diagram presents the current single version of Task and colours the status."""
     _group(
         root=tmp_path,
         number="0001",
@@ -115,27 +117,27 @@ def test_file_conflict_reported(tmp_path: Path) -> None:
         root=tmp_path, number="0002", slug="beta", issue=2, tasks=[_task(id="T1", files=["x.py"])]
     )
     text = render(specs_root=tmp_path)
-    assert "x.py" in text.split("## 文件冲突报告")[1].split("## 各 feature")[0]
+    assert "x.py" in text.split("## File ownership overlaps")[1].split("# Every feauty")[0]
 
 
 def test_empty_root_does_not_error(tmp_path: Path) -> None:
     text = render(specs_root=tmp_path)
-    assert "## 全局看板" in text
-    assert "无跨组文件冲突" in text
+    assert "## Task board" in text
+    assert "No files are shared across groups" in text
 
 
 def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
-    """Spec-0040/T1：声明 e2e 粗规划的组，OVERVIEW 的 TL;DR 显示意图 + 验收行为。"""
+    """Spec-0040/T1: Declares the e2e group, the OVERVIEW TL; DR shows the intent + acceptance behavior."""
     group = Group(
         number="0001",
         metadata=Metadata(
             title="alpha feature",
             issue=1,
             slug="alpha",
-            summary="alpha 人话",
+            summary="alpha summary",
             e2e=E2EPlan(
-                intent="init 无 origin 必须显式失败",
-                method="1. 无 origin 跑 init 断言非零退出 + 提示\n2. 补 origin 再跑成功",
+                intent="Initialization reports a missing origin",
+                method="1. Without origin, init exits nonzero and prints a hint\n2. Set origin and rerun successfully",
             ),
         ),
         tasks=[_task(id="T1", files=["a.py"])],
@@ -143,18 +145,18 @@ def test_e2e_plan_rendered_in_tldr(tmp_path: Path) -> None:
     path = model.group_path(specs_root=tmp_path, number="0001", slug="alpha")
     model.dump_group(group=group, path=path)
     text = render(specs_root=tmp_path)
-    assert "e2e 意图：init 无 origin 必须显式失败" in text
-    assert "测法：" in text
-    assert "非零退出 + 提示" in text
+    assert "End-to-end intent: Initialization reports a missing origin" in text
+    assert "Method: " in text
+    assert "exits nonzero and prints a hint" in text
 
 
 def test_no_e2e_plan_omits_block(tmp_path: Path) -> None:
-    """未声明 e2e 的组：OVERVIEW 不出现 e2e 粗规划行（零回归）。"""
+    """Undeclared group: OVERVIEW does not appear e2e rough plan line (no behavior change)."""
     _group(
         root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task(id="T1", files=["a.py"])]
     )
     text = render(specs_root=tmp_path)
-    assert "e2e 粗规划" not in text
+    assert "e2e Crude planning" not in text
 
 
 def test_write_overview_writes_file(tmp_path: Path) -> None:

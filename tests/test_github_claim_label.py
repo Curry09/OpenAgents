@@ -1,12 +1,12 @@
-"""Spec-0039/T1 + Spec-0049/T1：github 认领原语层单元测试。
+"""Spec-0039/T1 + Spec-0049/T1:github accepts the original language unit test.
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。覆盖：
-- DISPATCH_LABEL 并入 PROCESS_LABELS，被 ensure_prerequisites 幂等自举；
-- Issue.labels 由 list_issues / get_issue 正确解析；
-- issue_add_label / issue_remove_label（幂等吞「标签本不在」/ 其它错误照抛）；
-- Spec-0049/T1：认领打标改为**幂等 add**——不再有 remove-then-add stamp；对已带标签的 issue
-  再 add 只发一次 `gh issue edit --add-label`、不删（无 unlabeled 事件）。
-- Spec-0049/T1：list_issue_comments 取回 issue 全部评论（含 author/body/createdAt）。
+All gh subprocesses are always mock (monkeywatch subprocess.run), not actually called gh. Overwrite:
+- DISPATCH_LABEL incorporated into PROCESS_LABELS, and was self-indulgent by ensure_prerequisites;
+- Issue.labels is correctly analyzed by list_issues / get_issue;
+- issue_add_label / issue_remove_label (swallowing ’not ’attyptic’/ other error-discarding);
+- Spec-0049/T1: recognition of the bid label to ** add** — no longer remove-then-add stamp; noticed issue
+  `gh issue edit --add-label`, unexpunged (no unlabeled event).
+- Spec-0049/T1: list_issue_comments to retrieve all comments (including author/body/createdAt) on the issue.
 """
 
 import json
@@ -50,7 +50,7 @@ def _fake_run(*, returncode=0, stdout="", stderr=""):
 
 
 # --------------------------------------------------------------------------- #
-# DISPATCH_LABEL 并入 PROCESS_LABELS + ensure_prerequisites 自举
+# DISPATCH_LABEL Add PROCESS_LABELS + ensure_prerequisites Self-Assumption
 # --------------------------------------------------------------------------- #
 
 
@@ -65,13 +65,13 @@ def test_ensure_prerequisites_bootstraps_dispatch_label(monkeypatch):
 
     ensure_prerequisites()
 
-    # 四个流程标签都被幂等自举，含新增的认领标签。
+    # Four process labels were presented on an equal basis, with new identification labels.
     assert DISPATCH_LABEL in ensured
     assert set(PROCESS_LABELS) <= set(ensured)
 
 
 # --------------------------------------------------------------------------- #
-# Issue.labels 解析（list_issues / get_issue）
+# Issue.labels Parsing (list_issues/ get_issue)
 # --------------------------------------------------------------------------- #
 
 
@@ -90,7 +90,7 @@ def test_get_issue_parses_labels(monkeypatch):
     issue = get_issue(number=7)
 
     assert issue.labels == ("openagents", DISPATCH_LABEL)
-    # --json 请求里带上 labels 字段。
+    # --json requests to bring the labels field.
     cmd = runner.calls[-1]
     assert "labels" in cmd[cmd.index("--json") + 1]
 
@@ -122,7 +122,7 @@ def test_list_issues_parses_labels(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# issue_add_label（Spec-0049：认领打标的幂等 add 原语）/ issue_remove_label
+# issue_add_label (Spec-0049: recognition of the bid-winning idd / issue_remove_label)
 # --------------------------------------------------------------------------- #
 
 
@@ -137,8 +137,8 @@ def test_issue_add_label_invokes_gh_issue_edit(monkeypatch):
 
 
 def test_issue_add_label_is_single_idempotent_add_no_remove(monkeypatch):
-    # Spec-0049/T1 核心：认领打标只发一次 `--add-label`，**绝不** remove（无 unlabeled 事件、
-    # 不撕别人标签）——即便对「已带该标签」的 issue 再认领也一样（gh 侧 add 幂等 no-op）。
+    # Spec-0049/T1 Core: Only once a bid is claimed `--add-label`，**Never.** remove(none) unlabeled Events,
+    # Not to rip off other people's labels) - even if it is to be claimed by "issue with the label" (gh side add thi etc. no-op).
     runner = _fake_run()
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -150,7 +150,7 @@ def test_issue_add_label_is_single_idempotent_add_no_remove(monkeypatch):
 
 
 def test_no_stamp_label_primitive_remains(monkeypatch):
-    # Spec-0049/T1：退役的 remove-then-add stamp 原语不复存在（互撕的物理来源被移除）。
+    # Spec-0049/T1: retired remove-then-add stamp no longer exists (the physical source of the torns is removed).
     assert not hasattr(github, "issue_stamp_label")
     assert not hasattr(github, "issue_label_age_seconds")
 
@@ -173,7 +173,7 @@ def test_issue_remove_label_ignores_absent(monkeypatch):
             returncode=1, stderr="could not remove label: 'openagents-dispatching' not found"
         ),
     )
-    # 标签本不在 → 幂等 no-op，不抛。
+    # The label was not in the t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t
     assert issue_remove_label(number=9, name=DISPATCH_LABEL) is None
 
 
@@ -186,7 +186,7 @@ def test_issue_remove_label_reraises_other_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# list_issue_comments（Spec-0049/T1：issue 级读评论原语）
+# list_issue_comments (Spec-0049/T1:issue reading in original language)
 # --------------------------------------------------------------------------- #
 
 
@@ -197,13 +197,13 @@ def test_list_issue_comments_parses_all_fields(monkeypatch):
                 {
                     "id": "IC_1",
                     "author": {"login": "pcj-sudo"},
-                    "body": "🤖 认领 <!-- openagents:claim --> <!-- openagents:agent=a1 -->",
+                    "body": "🤖 claim <!-- openagents:claim --> <!-- openagents:agent=a1 -->",
                     "createdAt": "2026-07-03T06:25:44Z",
                 },
                 {
                     "id": "IC_2",
                     "author": {"login": "drifting"},
-                    "body": "另一条评论",
+                    "body": "Another comment",
                     "createdAt": "2026-07-03T06:25:49Z",
                 },
             ]
@@ -219,7 +219,7 @@ def test_list_issue_comments_parses_all_fields(monkeypatch):
     assert "openagents:claim" in comments[0].body
     assert comments[0].created_at == "2026-07-03T06:25:44Z"
     assert all(isinstance(c, Comment) for c in comments)
-    # 走 `gh issue view <n> --json comments`。
+    # Go `gh issue view <n> --json comments`.
     cmd = runner.calls[-1]
     assert cmd[:4] == ["gh", "issue", "view", "116"]
     assert "comments" in cmd

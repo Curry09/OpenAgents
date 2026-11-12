@@ -1,8 +1,8 @@
-"""Spec-0028/T1：overview_digest_for_group 单元测试。
+"""Spec-0028/T1: overview_digest_for_group unit test.
 
-只读 spec 组 markdown（model.dump_group 落盘的真实文件），不触达 git / GitHub。
-覆盖：三段齐全渲染、超行截断附续接提示、缺段跳过、三段全空 → None、
-非文件 / 不可读 → None（零回归）。
+Reads only spec group markdown (real model.dump_group drop-off file), without touch to git / GitHub.
+Overwrite: 3 full rendering, overline cut-off and relay tips, missing passages, 3 full empty  →  None,
+Non-file / Unread  → None (zero returns).
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ from openagents.spec.signpost import (
 def _dump(*, root, overview, number="0028", slug="pr-digest-and-conflict-agent"):
     group = Group(
         number=number,
-        metadata=Metadata(title="示例", issue=79, slug=slug, summary="TL;DR"),
+        metadata=Metadata(title="Example:", issue=79, slug=slug, summary="TL;DR"),
         tasks=[Task(id="T1", title="t", status="pending", priority="P1")],
         overview=overview,
     )
@@ -34,39 +34,39 @@ def test_digest_renders_three_sections(tmp_path):
     path = _dump(
         root=tmp_path,
         overview=Overview(
-            summary="一句话总结。",
-            motivation="为什么要做。",
-            reference_level="技术方案怎么做。",
-            # 下面这些段不进 digest。
-            drawbacks="缺点（不应出现在 digest）。",
+            summary="A summary of the sentence.",
+            motivation="Why do you do that?",
+            reference_level="How do technical programmes work?",
+            # The following sections do not go into the digest.
+            drawbacks="Shortcomings (not to be found in digest).",
         ),
     )
     digest = overview_digest_for_group(group_path=path)
     assert digest is not None
-    assert digest.startswith(f"## spec 总览（摘自 docs/specs/{path.name}）")
-    assert "### Summary\n一句话总结。" in digest
-    assert "### Motivation\n为什么要做。" in digest
-    assert "### Reference-level explanation\n技术方案怎么做。" in digest
-    # 只取三段，不含 Drawbacks。
+    assert digest.startswith(f"## Spec overview (docs/specs/{path.name})")
+    assert "### Summary\nA summary of the sentence." in digest
+    assert "### Motivation\nWhy do you do that?" in digest
+    assert "### Reference-level explanation\nHow do technical programmes work?" in digest
+    # Take only three paragraphs, excluding Drawbacks.
     assert "Drawbacks" not in digest
-    assert "缺点" not in digest
+    assert "Disadvantages" not in digest
 
 
 def test_digest_truncates_long_section(tmp_path):
-    long_body = "\n".join(f"行 {i}" for i in range(_DIGEST_MAX_LINES + 5))
+    long_body = "\n".join(f"Line {i}" for i in range(_DIGEST_MAX_LINES + 5))
     path = _dump(root=tmp_path, overview=Overview(summary=long_body))
     digest = overview_digest_for_group(group_path=path)
     assert digest is not None
-    # 保留前 N 行 + 续接提示，超出的行被截掉。
-    assert "行 0" in digest
-    assert f"行 {_DIGEST_MAX_LINES - 1}" in digest
-    assert f"行 {_DIGEST_MAX_LINES}" not in digest
+    # Keep the N-line + renewal hint, and the excess line is stopped.
+    assert "Line 0" in digest
+    assert f"Line {_DIGEST_MAX_LINES - 1}" in digest
+    assert f"Line {_DIGEST_MAX_LINES}" not in digest
     assert _DIGEST_TRUNCATED_HINT in digest
 
 
 def test_digest_skips_empty_sections(tmp_path):
-    # 只有 summary，motivation/reference-level 空 → 只渲染 Summary 块。
-    path = _dump(root=tmp_path, overview=Overview(summary="只有摘要。"))
+    # Only summary, motivation/reference-level emptys only relish the Summary block.
+    path = _dump(root=tmp_path, overview=Overview(summary="Only summary."))
     digest = overview_digest_for_group(group_path=path)
     assert digest is not None
     assert "### Summary" in digest
@@ -75,8 +75,8 @@ def test_digest_skips_empty_sections(tmp_path):
 
 
 def test_digest_none_when_all_three_empty(tmp_path):
-    # 三段全空（如总览未填）→ 不渲染空块，返回 None（回退到无 digest，零回归）。
-    path = _dump(root=tmp_path, overview=Overview(guide_level="只有 guide-level。"))
+    # Three complete empty (e.g., unfilled overview) unfilled empty blocks returns None (back to no digest, no behavior change).
+    path = _dump(root=tmp_path, overview=Overview(guide_level="Only figure-level."))
     assert overview_digest_for_group(group_path=path) is None
 
 
@@ -88,7 +88,7 @@ def test_digest_none_when_unreadable(tmp_path, monkeypatch):
     path = _dump(root=tmp_path, overview=Overview(summary="x"))
 
     def _boom(*, path):
-        raise ValueError("坏掉的 spec")
+        raise ValueError("Bad spec.")
 
     monkeypatch.setattr(spec_model, "load_group", _boom)
     assert overview_digest_for_group(group_path=path) is None

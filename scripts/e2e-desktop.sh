@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Spec-0073: 桌面 app 端到端验证（form=cli，离线可跑、作门控成果）。
-# 起 daemon 打向一份 seed 过的 fake work_queue → curl /board 断言 JSON → curl -N /stream/<subject>
-# 断言 SSE 逐条推 ring buffer 行 → 跑前端 vitest（Board/Detail/pending 单测）。
-# 桌面窗口的视觉交互（点击进大窗、Tab 循环观感）列为人工步骤（无 browser MCP 的 headless 跑不了真 GUI）。
+# Spec-0073: Desktop app end-to-end validation (form=cli, run offline, door-to-door results).
+# From daemon to a sighted fake work_queue  → curl /board assert that JSON  → curl-N/stream/<subject>
+# The SSE is supposed to push the line round butler round the front end vitest (Board/Detail/pending single-scale)
+# Visual interaction of desktop windows (clicking on a big window, Tab loop view) is classified as a manual step (heatherless without browser MCP cannot run true GUI).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "== 1) 后端：daemon /board + /stream SSE（Python 单测覆盖端到端契约）=="
+echo "== 1) Backend:daemon /board + /stream SSE（Python Single-covered end-to-end contract)=="
 uv run pytest tests/test_streams.py tests/test_desktop_daemon.py -q
 
-echo "== 2) 前端：Board/Detail/pending vitest（若装了 node 工具链）=="
+echo "== 2) Frontend:Board/Detail/pending vitest”If you’re loaded, node Tool Chain)=="
 if command -v npm >/dev/null 2>&1 && [ -d apps/desktop/node_modules ]; then
   (cd apps/desktop && npm run test)
 else
-  echo "  [skip] 未装 node_modules —— 前端 vitest 跳过（离线门控只需后端契约绿）"
+  echo "  [skip] Not installed node_modules —— Frontend vitest Skip (Left door only back-end contract green)"
 fi
 
-echo "== 3) 人工验证步骤（无离线门控）=="
-echo "  a. 另起 openagents vigil --parallel 3"
-echo "  b. openagents desktop 拉起窗口，确认 3 个小窗成果卡刷新"
-echo "  c. 点小窗进大窗看实时流，「下一个 ▶」快切，Tab 循环跳待看窗"
+echo "== 3) Manual validation steps (on-line door control)=="
+echo "  a. Another openagents vigil --parallel 3"
+echo "  b. openagents desktop Pull up the window, confirm. 3 A small window result card refreshed"
+echo "  c. ”Show a little window into the big window and see a real-time flow.” ▶」Cut it.Tab   Clock to the window  "
 
 echo "== e2e-desktop OK =="

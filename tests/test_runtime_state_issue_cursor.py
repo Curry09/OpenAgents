@@ -1,10 +1,10 @@
-"""# Spec-0016/T2：RuntimeState 的 issue 评论游标（get/set_issue_cursor，独立命名空间）单元测试。
+"""# Spec-0016/T2:issue comment for Runtestate (get/set_issue_cursor, independent naming space) unit test.
 
-覆盖：
-- set 后 get 读回同值；
-- 缺省 get 返回 None；
-- issue N 与 PR N 游标互不干扰（独立命名空间键 issue_cursors vs cursors）；
-- 写路径落 runtime-state.json（其余顶层键不被覆盖）。
+Coverage:
+- Set after get read back the same value;
+- Not get back
+- Assue N and PR N do not interfere (separate namespace key issue_cursors vs Cursors);
+- Write path down runtime-state.json (the remaining top key is not overwritten).
 """
 
 import json
@@ -29,12 +29,12 @@ def test_default_get_is_none(state):
 
 
 def test_issue_and_pr_cursors_are_independent(state):
-    # issue N 与 PR N 撞号也互不干扰：独立命名空间键。
+    # The issue N and PR N collisions are also non-interference: an independent namespace key.
     state.set_cursor(pr_number=149, comment_id="pr-cursor")
     state.set_issue_cursor(number=149, comment_id="issue-cursor")
     assert state.get_cursor(pr_number=149) == "pr-cursor"
     assert state.get_issue_cursor(number=149) == "issue-cursor"
-    # 反向：写 issue 游标不影响 PR 游标读回。
+    # Reverse: Write the issue cursor does not affect PR cursor reading back.
     state.set_issue_cursor(number=149, comment_id="issue-cursor-2")
     assert state.get_cursor(pr_number=149) == "pr-cursor"
 

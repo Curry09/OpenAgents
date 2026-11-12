@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Spec-0033 端到端测试启动脚本：openagents init 冷启动新建远端后自动 git remote add origin。
+# Spec-0033 end-to-end test start-up script: openagents init start-up of a new remote post-remote ed origin.
 #
-# hermetic——不调真实 gh / GitHub。两段：
-#   1) 离线确定性验证（ruff lint/format + pytest，全程 mock）。
-#   2) 冷启动走通：在临时非 git 目录里以 stub 掉的 create_repo 驱动
-#      ensure_project(interactive=True)，断言收尾时本地 git config 的
-#      remote.origin.url 与新建的 url 一致（证明 _bootstrap 已把远端写回本地）。
+# Hermetic - not true gh/ GitHub. Two paragraphs:
+#   1) Offline certainty validation (ruff lint/format + pytest, round).
+#   2) Cold Start Walking: Drived in temporary non-guit directory with create_repo dropped by stub
+#      ensure_project(interactive=True)  Say it's local at the end   git config It's...
+#      remote.origin.url corresponds to the new url (certifying _bootstream that a remote end has been written back to the local area).
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0033-init-remote-add.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + (Modular Test)"
 uv run --extra dev ruff check openagents/config.py tests/test_config.py
 uv run --extra dev ruff format --check openagents/config.py tests/test_config.py
 uv run --extra dev pytest tests/test_config.py -q
 
 echo
-echo "==> [2/2] 冷启动走通：stub create_repo 驱动 ensure_project(interactive=True)"
+echo "==> [2/2] Cold-started walk:stub create_repo Driver ensure_project(interactive=True)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -33,7 +33,7 @@ from unittest import mock
 from openagents.config import ensure_project
 
 url = os.environ["URL"]
-answers = iter(["y", "y", "acme/widget", "y"])  # git init / 新建远端 / 仓库名 / 私有
+answers = iter(["y", "y", "acme/widget", "y"])  # git init / New Far / Warehouse Name / Private
 with (
     mock.patch("builtins.input", lambda prompt="": next(answers)),
     mock.patch("openagents.github.create_repo", lambda *, name, private: url),
@@ -48,10 +48,10 @@ print(written)
 PY
 )"
 
-echo "  本地 remote.origin.url = $ACTUAL"
+echo "  Local remote.origin.url = $ACTUAL"
 [ "$ACTUAL" = "$URL" ] \
-  || { echo "✗ 冷启动后本地 remote.origin.url 未写入或不一致"; exit 1; }
-echo "  ✓ 冷启动新建远端后 git config remote.origin.url 与新建 url 一致"
+  || { echo "✗ Local after cold startup remote.origin.url Not written or inconsistent"; exit 1; }
+echo "  ✓ New Remote Back End for Cold Start git config remote.origin.url & With New url Unanimously."
 
 echo
-echo "✓ Spec-0033 端到端通过：init 冷启动新建远端后自动 git remote add origin 闭环可用。"
+echo "✓ Spec-0033 End-to-end through:init New Remote Auto after Cold Start git remote add origin Closed rings are available."

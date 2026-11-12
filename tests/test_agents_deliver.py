@@ -1,8 +1,8 @@
-"""Spec-0017/T1（Spec-0074 实证修复调整）: deliver agent 提示词契约单测（不触真实 gh/LLM）。
+"""Spec-0017/T1 (Spec-0074 Empirical Adjustment): Deliver agent Phranometric Contract Single (without touching the real gh/LLM).
 
-Spec-0074 后 deliver 回归纯 git 职责：提示词不再含任何平台命令（原 `gh pr ready` 在 Gitea forge
-下不可用，诱发 agent 临场拼 REST 空转）；draft 转正收回守夜判定表的机械兜底分支（mark_ready 经
-forge 各平台落地）。OUTPUT_SCHEMA 不变。
+Spec-0074 returns deliver to pure git function: hint no longer contains any platform command (formerly `gh pr ready` in Gitea forge)
+Unusable, induce agent to strung RET; draft is returning the machine underside branch (mark_ready passed) of the Vigil
+Forge Platforms Landing. OUTPUT_SCHEMA remains the same.
 """
 
 from __future__ import annotations
@@ -19,26 +19,26 @@ def test_prompt_is_template_and_substitutes():
 
 
 def test_prompt_has_no_platform_commands():
-    # Spec-0074 实证修复：转正归守夜机械兜底——提示词不再含 gh/平台 API 调用（纯 git 职责）。
+    # Spec-0074 empirical restoration: Transcript to the Vigil machine — the hint no longer contains gh/ platform API call (pure git duty).
     assert "gh pr ready" not in deliver.PROMPT.template
     assert "gh " not in deliver.PROMPT.template
 
 
 def test_prompt_tells_agent_ready_is_not_its_job():
-    # 显式告知「转正不归你」——否则 agent 会按旧习惯临场找平台命令补转正（生产实测的空转来源）。
+    # The "returning" message is "not yours" -- otherwise agent will follow the old custom of going to the site to find a platform order (the air-turning source of the production of the results).
     text = deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=42)
-    assert "不归你" in text
+    assert "Vigil handles draft promotion" in text
 
 
 def test_prompt_requires_generated_spec_integrity_before_push():
     text = deliver.PROMPT.substitute(branch="openagents/issue-1", rebase_onto="main", pr_number=42)
     assert text.index("spec validate") < text.index("spec render") < text.index("spec graph")
     assert text.index("spec graph") < text.index("git push")
-    assert "不得手工猜测或拼接生成文档" in text
+    assert "Do not handwrite generated files" in text
 
 
 def test_output_schema_unchanged():
-    # OUTPUT_SCHEMA 保持 {delivered, base_sha, head_sha, summary}（转正不改结构化输出）。
+    # OUTPUT_SCHEMA maintains {delivered, base_sha, head_sha, summary} (transformation or not).
     assert deliver.OUTPUT_SCHEMA == {
         "delivered": bool,
         "base_sha": str,

@@ -1,9 +1,9 @@
-"""Spec-0064/T2: recipes.stages 九原子阶段函数契约单测——假 backend 喂 canned 裁决 / 假 github 读。
+"""Spec-0064/T2: recipes.stages Test for the nine-atom phase contract - fake backend feed for canned decision/ fake gitthub reading.
 
-证明九阶段抽成 Vigil 类外自由函数后各 hermetic 可测：judgment 段按 agent 结构化裁决返回、机械段
-读客观事实经 gates 分类；交付类阶段的三道硬闸真兜底（head 未前移 / 证据戳不符 → raise）；rfc 阶段
-只依赖 drafter。全程不触真实 LLM/网络/仓库。
-Spec-0056 补充：2026-09-09-delivery-review-snapshot-tests-design.md 的 push-only 恢复回归。
+Proof that the nine phase is taken into the Vigil-type extra-freedom function, each of which is measurable: judgment is structured to decide back by agent, mechanical segment
+Read objective facts classified by Gates; three hard-bars at delivery level are so bottom (head not moving forward/ evidence stamping inconsistent raise); refc phase
+Only rely on drafter。It’s not real. LLM/Network/Warehouse.
+Spec-0056 supplements: 2026-09-09-delivery-review-snapshot-tests-design.md push-only returns.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from openagents.utils.workspace import WorkspaceError
 
 
 def _seq_head_sha(monkeypatch, *, values):
-    """把 gates.git.head_sha 打成「按调用序返回、耗尽后钉末值」的桩，区分交付前/后 head。"""
+    """gates.git.head_sha is used as a ”return in call order, and the end value of the nail is depleted” and distinguishes between before/after delivery."""
     seq = list(values)
     box = {"last": seq[-1] if seq else ""}
 
@@ -35,7 +35,7 @@ def _seq_head_sha(monkeypatch, *, values):
 
 
 class _Backend:
-    """按 task 里 agent 自称路由，回 canned 末行 JSON。"""
+    """Press the tab in agent to claim route back to the end of the line on the line JSON."""
 
     name = "scripted"
 
@@ -47,14 +47,14 @@ class _Backend:
 
     def run(self, *, work_dir, task, context):
         for marker, kind in (
-            ("分诊 agent", "triager"),
-            ("起草 agent", "drafter"),
+            ("You triage issues", "triager"),
+            ("You draft Specs", "drafter"),
             ("Spec Writer", "spec_writer"),
-            ("实现 agent", "implementer"),
+            ("You implement the approved Spec", "implementer"),
             ("coding executor", "executor"),
             ("Acceptance Reviewer", "acceptance"),
-            ("评审 agent", "reviewer"),
-            ("交付 agent", "deliver"),
+            ("You review PR", "reviewer"),
+            ("You deliver changes", "deliver"),
         ):
             if marker in task:
                 self.calls.append(kind)
@@ -64,7 +64,7 @@ class _Backend:
                 if isinstance(payload, list):
                     payload = payload.pop(0)
                 return AgentResult(changed=True, summary=json.dumps(payload))
-        raise AssertionError(f"未知 agent task: {task[:40]}")
+        raise AssertionError(f"unknown {task[:40]}")
 
 
 class _Issue:
@@ -73,7 +73,7 @@ class _Issue:
     body = "b"
 
 
-# ---- judgment 段 ----
+# ---- judgment Paragraph ----
 
 
 def test_triage_returns_actionable_verdict():
@@ -105,7 +105,7 @@ def test_implement_returns_summary():
 
 
 def test_rfc_only_depends_on_drafter(monkeypatch):
-    # 交付前后 head 不同 → head 前移闸放行；证据戳与交付后 head 一致。
+    # Before and after delivery, different head head before head release; evidence is consistent with head after delivery.
     _seq_head_sha(monkeypatch, values=["BEFORE", "AFTER"])
     backend = _Backend(
         payloads={
@@ -288,7 +288,7 @@ def test_minimal_spec_repairs_ready_with_partial_coverage_before_implementation(
     assert backend.calls == ["spec_writer", "spec_writer"]
     assert "`AUTHOR`" in backend.tasks[0]
     assert "`CONTRACT_REPAIR`" in backend.tasks[1]
-    assert "不是要求在实现前提供行为证据" in backend.contexts[1]
+    assert "Behavioral evidence is not required before implementation" in backend.contexts[1]
 
 
 def test_minimal_spec_rejects_ready_still_partial_after_contract_repair(monkeypatch):
@@ -319,7 +319,7 @@ def test_minimal_spec_rejects_ready_still_partial_after_contract_repair(monkeypa
     }
     backend = _Backend(payloads={"spec_writer": [inconsistent, inconsistent]})
 
-    with pytest.raises(GateError, match="CONTRACT_REPAIR 后仍自相矛盾"):
+    with pytest.raises(GateError, match="still inconsistent after CONTRACT_REPAIR"):
         stages.minimal_spec(
             backend=backend,
             worktree="/wt",
@@ -386,7 +386,7 @@ def test_minimal_spec_repairs_written_but_uncommitted_artifact_once(monkeypatch,
     assert backend.calls == ["spec_writer", "spec_writer"]
     assert "`AUTHOR`" in backend.tasks[0]
     assert "`DELIVERY_REPAIR`" in backend.tasks[1]
-    assert "上次结构化结论" in backend.tasks[1]
+    assert "prior structured result" in backend.tasks[1]
     assert delivered == [(tmp_path, "openagents/issue-7")]
 
 
@@ -419,7 +419,7 @@ def test_minimal_spec_does_not_repair_when_no_artifact_exists(monkeypatch, tmp_p
         }
     )
 
-    with pytest.raises(GateError, match="head 未前移"):
+    with pytest.raises(GateError, match="HEAD did not advance"):
         stages.minimal_spec(
             backend=backend,
             worktree=tmp_path,
@@ -501,7 +501,7 @@ def test_minimal_spec_rejects_non_uniform_candidate_evidence(monkeypatch):
             }
         }
     )
-    with pytest.raises(GateError, match="候选未使用统一证据字段"):
+    with pytest.raises(GateError, match="must use the same evidence fields"):
         stages.minimal_spec(
             backend=backend,
             worktree="/wt",
@@ -531,14 +531,14 @@ def test_minimal_design_snapshot_requires_fixed_compact_contract(tmp_path):
         work_dir=tmp_path, issue_number=7, approved_digest=first["design_digest"]
     )
     path.write_text(path.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
-    with pytest.raises(GateError, match="发生变化"):
+    with pytest.raises(GateError, match="changed after implementation"):
         stages.assert_minimal_design_approved(
             work_dir=tmp_path, issue_number=7, approved_digest=first["design_digest"]
         )
 
 
 def test_minimal_design_snapshot_warns_on_noncanonical_format(tmp_path):
-    """格式差异只告警；非空 Objective Contract 仍可冻结 digest 并进入开发。"""
+    """Format differences are only alarms; non-empty Object still freezes digest and enters development."""
     path = tmp_path / "docs" / "objectives" / "issue-7.md"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -552,11 +552,11 @@ def test_minimal_design_snapshot_warns_on_noncanonical_format(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.warns(UserWarning, match="格式警告"):
+    with pytest.warns(UserWarning, match="format warning"):
         snapshot = stages.minimal_design_snapshot(work_dir=tmp_path, issue_number=7)
 
     assert snapshot["design_digest"]
-    assert snapshot["format_warning"].startswith("minimal objective spec 格式警告")
+    assert snapshot["format_warning"].startswith("Minimal objective Spec format warning")
 
 
 def test_minimal_design_snapshot_rejects_empty_contract(tmp_path):
@@ -564,7 +564,7 @@ def test_minimal_design_snapshot_rejects_empty_contract(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text("  \n", encoding="utf-8")
 
-    with pytest.raises(GateError, match="为空"):
+    with pytest.raises(GateError, match="is empty"):
         stages.minimal_design_snapshot(work_dir=tmp_path, issue_number=7)
 
 
@@ -707,7 +707,7 @@ def test_acceptance_host_rejects_pass_with_explicit_failed_case():
         }
     )
 
-    with pytest.raises(GateError, match="明确标记为未通过"):
+    with pytest.raises(GateError, match="Mark explicitly as not passed"):
         stages.acceptance(
             backend=backend,
             work_dir=".",
@@ -753,8 +753,10 @@ def test_acceptance_host_rejects_pass_without_independent_variant():
 
 
 def test_rfc_backfill_require_delivered_shortcircuits(monkeypatch):
-    # backfill 未过 validate（delivered=false）→ 原样返回、不进硬闸（caller 据此不开 PR）。
-    _seq_head_sha(monkeypatch, values=["SAME", "SAME"])  # head 没动，但 require_delivered 先短路
+    # The post is part of our special coverage Global Voices Online, which is a series of photos of the event, and the post of the blog, "The blog, "The Queen of the World's Life" (Presentation: The New York Times, The New York Times, Instagram, The New York Times, Instagram, The New York Times, The New York Times, The New York Times, and the World's New York Times, which is part of the Global Voices World Cup.
+    _seq_head_sha(
+        monkeypatch, values=["SAME", "SAME"]
+    )  # Head, but require_delivered, short-circuit.
     backend = _Backend(
         payloads={
             "drafter": {
@@ -950,7 +952,7 @@ def test_implement_receives_normalized_evidence_pack(monkeypatch) -> None:
     assert "judgment" not in captured["context"]
 
 
-# ---- 交付类硬闸 ----
+# ---- Delivery Hard Gate ----
 
 
 def _stub_delivery_git(monkeypatch, *, head, remote):
@@ -986,7 +988,7 @@ def test_deliver_unpublished_commit_raises(monkeypatch):
 
 
 def test_delivery_snapshot_push_only_delivery_does_not_require_an_empty_commit(monkeypatch):
-    """Spec-0056 补充：已 commit 的实现补 push 即交付，不应再要求 HEAD 前移。"""
+    """Spec-0056 Supplement: The commissioning push of the commission is delivered and no further HEAD forwards should be requested."""
     head = "b" * 40
     remote = {"head": "a" * 40}
     _seq_head_sha(monkeypatch, values=[head])
@@ -1027,7 +1029,9 @@ def test_delivery_snapshot_push_only_delivery_does_not_require_an_empty_commit(m
     except GateError as exc:
         error = exc
     assert backend.calls == ["deliver"] and remote["head"] == head
-    assert error is None, f"补 push 已完成，不能因没造新 commit 而报无进展：{error}"
+    assert error is None, (
+        f"Filling push is complete and cannot be lost because no new committee was created:{error}"
+    )
 
 
 def test_deliver_evidence_stamp_mismatch_raises(monkeypatch):
@@ -1038,7 +1042,7 @@ def test_deliver_evidence_stamp_mismatch_raises(monkeypatch):
             "deliver": {
                 "delivered": True,
                 "base_sha": "x",
-                "head_sha": "WRONG",  # 自报 ≠ 实际 AFTER。
+                "head_sha": "WRONG",  # Self-reported actual AFTER.
                 "summary": "s",
             }
         }
@@ -1103,7 +1107,7 @@ def test_conflict_preserves_undelivered_agent_diagnostics(monkeypatch):
     assert out["gate"] == "conflict"
 
 
-# ---- 机械段 ci / e2e / merge ----
+# ---- mechanical segment c/ e2e/ merge ----
 
 
 def test_ci_reads_check_status(monkeypatch):
@@ -1126,7 +1130,7 @@ def test_e2e_no_stamp_ok(monkeypatch):
 
 
 def test_e2e_stale_stamp(monkeypatch):
-    # 实际 head != 自报 → stale。
+    # Actual head! = Self-reported status.
     monkeypatch.setattr(stages, "_pr_evidence_stamp", lambda *, pr_number: ("REAL", "CLAIMED"))
     assert stages.e2e(pr_number=1) == stages.E2E_STALE
 
@@ -1137,7 +1141,7 @@ def test_e2e_matching_stamp_ok(monkeypatch):
 
 
 def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
-    # Spec-0017/T3: 硬闸放行 → 经 engine.run_agent 派 merger agent 落合并（返回 {merged, summary}）。
+    # Spec-0017/T3: The hard gate is released  → merger agent by engine.run_agent (returning {merged, summary}).
     gate_calls = {}
     agent_calls = []
     monkeypatch.setattr(
@@ -1150,7 +1154,7 @@ def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
 
     def _fake_run_agent(agent_module, *, backend, **kw):
         agent_calls.append((agent_module.__name__, kw))
-        return {"merged": True, "summary": "已合并"}
+        return {"merged": True, "summary": "Merged"}
 
     monkeypatch.setattr(stages.engine, "run_agent", _fake_run_agent)
 
@@ -1161,17 +1165,21 @@ def test_merge_gate_passes_then_dispatches_merger(monkeypatch):
         work_dir="/tmp/wt",
         context_text="ctx",
     )
-    assert gate_calls == {"pr": 42, "head": "abc123", "require_ci": True}  # 闸先被调、绑 head sha
-    assert len(agent_calls) == 1 and agent_calls[0][0].endswith("merger")  # 放行后才派 merger
-    assert out == {"merged": True, "summary": "已合并"}
+    assert gate_calls == {
+        "pr": 42,
+        "head": "abc123",
+        "require_ci": True,
+    }  # The gate is being set up, head sa.
+    assert len(agent_calls) == 1 and agent_calls[0][0].endswith("merger")  # Sender after release
+    assert out == {"merged": True, "summary": "Merged"}
 
 
 def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
-    # Spec-0017/T3: 闸抛 GateError → **决不派 agent**（agent 只能在闸放行后落合并动作，防合未审代码）。
+    # Spec-0017/T3: GateError  →  Never send** (agent can only merge actions behind the gate, protection from unreviewed code).
     agent_calls = []
 
     def _boom(*, pr_number, head_sha, require_ci=True):
-        raise GateError("CI 非全绿")
+        raise GateError("CI Non-full green")
 
     monkeypatch.setattr(stages.gates, "assert_merge_allowed", _boom)
     monkeypatch.setattr(
@@ -1187,7 +1195,7 @@ def test_merge_gate_blocks_and_agent_not_dispatched(monkeypatch):
             work_dir="/tmp/wt",
             context_text="ctx",
         )
-    assert agent_calls == []  # merger 未被调用
+    assert agent_calls == []  # merger not called
 
 
 def test_merge_mechanical_uses_gate_then_forge_without_agent(monkeypatch):

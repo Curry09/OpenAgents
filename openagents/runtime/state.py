@@ -1,23 +1,5 @@
-"""# Spec-0060/T5: runtime.state —— 新栈 run 状态 + comment 游标持久化（独立命名空间）。
-
-为**不碰**旧 `state.py`（439 行、被 11 个测试桩打），新栈自成一套状态：持久化到独立文件
-`.openagents/runtime-state.json`，与旧 `.openagents/state.json` **文件级零冲突**。两套状态最终
-如何统一（迁移还是弃旧）留承接 vigil 迁移的批次决定（见 spec Unresolved）。
-
-极简键值形态（奥卡姆，理念 1）：
-    {
-      "runs": { "<issue_number>": {"status": ..., "branch": ..., "pr_number": ...,
-                                   "closed_at": ...(可选)}, ... },
-      "cursors": { "<pr_number>": "<last_comment_id>" }
-    }
-读写一律容错：文件缺失/损坏视为空状态。不含任何业务判断（判断在 agent），只做持久化机制。
-
-# Spec-0062/T3: 为合并/RFC 流水线（recipes.merge_pr / rfc_lifecycle）补 by-PR 查询与富字段——
-#   `find_run(pr_number=)` 让 rfc_lifecycle 的 refine/implement/iterate 落到真实 state（此前只有
-#   测试 fake seam）；`list_runs()` 让 vigil 守候段把在飞 run 投影成 merge_pr 的 Run（携 issue 归属）；
-#   读侧 hydrate `issue_number`（来自 runs 的键）与 `closed_at`（缺省 ""）——**只富化读返回值**，
-#   `get_run`/`set_run` 的落盘 3 键形态与既有序列化不变（旧 runtime-state.json 无这些键仍可加载）。
-"""
+# Spec-0060/T5
+"""Persist delivery run state and comment cursors in a project-local namespace."""
 
 from __future__ import annotations
 
@@ -28,11 +10,11 @@ from pathlib import Path
 
 from openagents.runtime import research
 
-# Spec-0060/T5: 新栈状态文件名——与旧 state.json 独立命名空间，避免文件级冲突。
+# Spec-0060/T5: New Barn Status File Name - Independent Namespace with old state.json to avoid conflict with file level.
 RUNTIME_STATE_FILENAME = "runtime-state.json"
 
-# Spec-0063/T1: 权威状态词表——从旧 state.py 迁入，作为 release 及后续消费方的唯一状态词表来源
-# （字面量与旧 state.py 完全一致；旧 STATUS_* 副本随 state.py 删除而退役）。
+# Spec-0063/T1: Authoritative Status Glossary - Moved from Old state.py as the sole source of statuslist for release and subsequent consumer
+# (The volume of the text corresponds to the old state.py; the old STATUS_* copy was removed from service with state.py.)
 STATUS_SOLVING = "solving"
 STATUS_RFC_REVIEW = "rfc-review"
 STATUS_PR_OPEN = "pr-open"
@@ -43,18 +25,18 @@ STATUS_FAILED = "failed"
 
 
 class RuntimeState:
-    """# Spec-0060/T5: 新栈状态读写器（按状态文件路径构造，独立命名空间）。
+    """# Spec-0060/T5: New stack status reader (formulated by status file path, independent namespace).
 
-    # Spec-0065/T2: **并发写要串行 + 落盘要原子。** 守夜起 K 个 worker 线程，它们共用同一个 RuntimeState
-    # 实例并发写（`set_run` / `set_cursor`）。写是「读整个 JSON → 改一个键 → 整个写回」：
-    #   - 无锁 → **丢更新**：两个 worker 各自读到同一份旧 data，各改各的键，后写的把前者的记录抹掉
-    #     （丢一条 `set_run(status=done)` 或一条评论游标 = 重复回帖 / run 状态倒退）。
-    #   - 非原子 → **整文件被截断**：`write_text` 先截断再写，另一个线程恰好此时 `_load` 会读到半截 JSON，
-    #     `JSONDecodeError` 被容错成「空状态」{}，它接着一写就把**整个状态文件**覆盖成只剩自己那一条。
-    # 故：`_LOCK` 串行化「读-改-写」的全程（类级，同实例/同文件的所有写共用），`_save` 走 tmp + `os.replace`
-    # （同目录内的 rename 是原子的，读者要么看到旧文件、要么看到新文件，永远看不到半截）。
-    # 这只解决**进程内**的并发（守夜的 K 个 worker 是线程）；跨进程并发写同一个 state 文件不在本 spec 范围内
-    # （fleet 是每仓一进程、各写各的 state 文件）。
+    # Spec-0065/T2: ** Also write to serial + the atom for the drop drive.** K workser threads from Vigil, which share the same Runtestate
+    # Example and write (`set_run`/ `set_cursor`). Write ”Read the whole JSON # Change a key # # All back:
+    # - Unlocked ** unupdated**: two workingrs read the same old data, changed each key, then erased the former’s records
+    # (Down with a `set_run(status=done)` or a comment cursor = repeat return / run backwards)
+    # - Non-atom ** whole file is cut**: `write_text` cut and write, and the other thread is right at this point `_load` will read half of JSON,
+    #`JSONDecodeError` is mistaken for ”empty” # and then it covers ** the whole status file ** with only one of its own.
+    # So: `_LOCK` swath the ”Reread-reform-write” (class, with example/all writings of the document), `_save` go tmp + `os.replace`
+    # (Rename in directory is atom, reader sees old or new files, never sees half of them)
+    # This solves only the simultaneous hairs within** process** (the K watcher is a thread); cross-process and send the same state file outside this spec
+    # (fleet is a case-by-story status file)
     """
 
     _LOCK = threading.RLock()
@@ -63,7 +45,7 @@ class RuntimeState:
         self._path = Path(path)
 
     def get_run(self, *, issue_number: int) -> dict | None:
-        """取某 issue 的 run 记录（落盘原样：status/branch/pr_number[/closed_at]）；无则 None。"""
+        """Take a run-off record of a particular issue (as it is: status/branch/pr_number [/ closed_at]]; None."""
         return self._load().get("runs", {}).get(str(issue_number))
 
     def set_run(
@@ -78,12 +60,12 @@ class RuntimeState:
         design_raw_digest: str = "",
         evidence_pack: list | None = None,
     ) -> None:
-        """写/覆盖某 issue 的 run 记录（status/branch/pr_number）。
+        """Write/ overwrite the run-off record of a particular issue (status/branch/pr_number).
 
-        # Spec-0062/T3: `closed_at` 可选（复活窗口用），默认 "" 且**仅非空时落盘**——保持既有 3 键
-        # 形态与序列化不变（既有调用方不传 closed_at 时落盘仍是 3 键，旧断言/旧文件零回归）。
+        # Spec-0062/T3: `closed_at` Optional (for the Easter Window), Default ”” and ** only when empty** — Maintain 3 keys
+        # The pattern and sequence remain unchanged (the drop-off of the closed_at when the caller is not passed is still 3 keys, the old assertion/old file is zero back).
         """
-        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行（K 个 worker 并发写会丢更新）
+        with RuntimeState._LOCK:  # Spec-0065/T2: Read-reform-write full-processed lines (K-worker and copying will drop updates)
             data = self._load()
             previous = data.get("runs", {}).get(str(issue_number), {})
             record: dict = {"status": status, "branch": branch, "pr_number": pr_number}
@@ -133,10 +115,10 @@ class RuntimeState:
             return effective
 
     def find_run(self, *, pr_number: int) -> dict | None:
-        """# Spec-0062/T3: 按 PR 号查 run（rfc_lifecycle refine/implement/iterate 复用）；无则 None。
+        """# Spec-0062/T3: Press PR Check. run（rfc_lifecycle refine/implement/iterate reuse;no rule None。
 
-        返回值经 `_with_issue` hydrate——带 `issue_number`（取自 runs 键）与 `closed_at`（缺省 ""），
-        供上层读 issue 归属 / 复活窗口。落盘形态不变，只富化本次读返回。
+        Return value by `_with_issue` hydrate——- Yeah. `issue_number`(from runs Keys) with `closed_at`(in default) ””），
+        You can read the issue to the upper level. You can return this reading only if you have the same type of drop-down.
         """
         for issue_key, record in self._load().get("runs", {}).items():
             if record.get("pr_number") == pr_number:
@@ -144,9 +126,9 @@ class RuntimeState:
         return None
 
     def list_runs(self) -> list[dict]:
-        """# Spec-0062/T3: 列全部 run 记录（均经 hydrate 带 issue_number/closed_at）。
+        """# Spec-0062/T3: All run-records of rows (all hydrate with issue_number/closed_at).
 
-        vigil 守候段据此把在飞 run 投影成 merge_pr 的 Run（携 issue 归属回写合并/关 issue）。
+        The vigil watch thus projectes Run in flight as merge_pr Run (with issue to write back to merge/ close issue).
         """
         return [
             self._with_issue(issue_key=issue_key, record=record)
@@ -154,35 +136,35 @@ class RuntimeState:
         ]
 
     def _with_issue(self, *, issue_key: str, record: dict) -> dict:
-        """把落盘 run 记录 hydrate 成带 issue_number（来自键）与 closed_at（缺省 ""）的读返回值。"""
+        """Put the wheel down. run Records hydrate Belt issue_number(from key) with closed_at(in default) ””）. The value of the readback value."""
         hydrated = dict(record)
         hydrated["issue_number"] = int(issue_key)
         hydrated.setdefault("closed_at", "")
         return hydrated
 
     def get_cursor(self, *, pr_number: int) -> str | None:
-        """取某 PR 的 comment 游标（最后处理到的评论 id）；无则 None。"""
+        """Take a PR comment cursor (finally processed comment id); None."""
         return self._load().get("cursors", {}).get(str(pr_number))
 
     def set_cursor(self, *, pr_number: int, comment_id: str) -> None:
-        """写某 PR 的 comment 游标。"""
-        with RuntimeState._LOCK:  # Spec-0065/T2: 同 set_run——丢一条游标 = 对同一条人类评论重复回帖
+        """Write some PR decision cursor."""
+        with RuntimeState._LOCK:  # Spec-0065/T2: Same as set_run - Drop a cursor = Repeat response to the same human comment
             data = self._load()
             data.setdefault("cursors", {})[str(pr_number)] = comment_id
             self._save(data=data)
 
     def get_issue_cursor(self, *, number: int) -> str | None:
-        """# Spec-0016/T2：取某 issue 的 comment 游标（最后处理到的 issue 页评论 id）；无则 None。
+        """# Spec-0016/T2: Take a comment from a comment post (finally processed issue id); None.
 
-        与 `get_cursor`（PR 版，`cursors` 键按 pr_number）平级但落**独立命名空间键** `issue_cursors`
-        （按 issue number）——issue N 与 PR N 是两个不同的对象，同键会撞（回复 issue N 的游标覆盖
-        PR N 的游标 → 对同一条评论重复回帖 / 漏回）。缺省返回 None（=从头算，任意人类评论即算新）。
+        with `get_cursor`（PR The first edition of the book is the one I have written about.`cursors` Press pr_number）Horizontal but low**Independent Namespace Key** `issue_cursors`
+        (Push issue number) -issue N and PR N are two different objects, and the same key will crash (respond to the issue N cursor overlay)
+        PR N repeats/ slips back to the same comment. The default returns None (= from the beginning, any human comment is new).
         """
         return self._load().get("issue_cursors", {}).get(str(number))
 
     def set_issue_cursor(self, *, number: int, comment_id: str) -> None:
-        """# Spec-0016/T2：写某 issue 的 comment 游标（落 `issue_cursors` 键）。"""
-        # Spec-0016/T2: 同 set_cursor——读-改-写全程串行（丢一条游标 = 对同一条人类评论重复回帖）
+        """# Spec-0016/T2: Write a comment cursor (down `issue_cursors`) for a particular issue."""
+        # Spec-0016/T2: Serial with set_cursor - Read-reform - Write the whole process (discard a cursor = repeat comments on the same human comment)
         with RuntimeState._LOCK:
             data = self._load()
             data.setdefault("issue_cursors", {})[str(number)] = comment_id
@@ -207,47 +189,47 @@ class RuntimeState:
             self._save(data=data)
 
     def get_agent_id(self) -> str | None:
-        """# Spec-0063/T1: 读已落盘的本实例 agent_id（承接 RFC-0011 语义）；未设过返回 None。
+        """# Spec-0063/T1: Read this instance of the dropped disk agent_id (input RFC-0011 syntax); no return of Noone set.
 
-        agent_id 是 runtime-state.json 顶层可选键（与 runs/cursors 平级）。供
-        identity.resolve_agent_id 在 env 未指定时复用既有值、保证跨进程/重启稳定。
-        _load 缺失/损坏返回 {} 时，data.get 得 None，非空 str 校验回落 None。
+        agent_id is the runtime-state.json top-level optional key (a level with runs/cursors).
+        identity.resolve_agent_id returns the existing value when env is not specified, ensuring cross-process/relaunch stabilization.
+        _load Missing/ Damage Return () data.get None, Non-empty st Verify Return Noone.
         """
         data = self._load()
         agent_id = data.get("agent_id")
         return agent_id if isinstance(agent_id, str) and agent_id else None
 
     def set_agent_id(self, *, agent_id: str) -> None:
-        """# Spec-0063/T1: 落盘本实例 agent_id（承接 RFC-0011 语义）。
+        """# Spec-0063/T1: Crashed-book instance agent_id (Consume RFC-0011 syntax)
 
-        _load 保留顶层的全部既有键，故写 agent_id 不影响 runs/cursors/ui_capable（反之亦然）。
+        _load saves all existing keys on top floor so agent_id does not affect runs/cursors/ui_capable (and vice versa).
         """
-        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行
+        with RuntimeState._LOCK:  # Spec-0065/T2: Read-reform-write full-cycle serials
             data = self._load()
             data["agent_id"] = agent_id
             self._save(data=data)
 
     def get_ui_capable(self) -> bool:
-        """# Spec-0063/T1: 读固化的「前端 e2e 能力」状态量（承接 Spec-0055 语义）；缺键回落 False。
+        """# Spec-0063/T1: Read solid ” front-end e2e capacity” state (insume Spec-0055 syntax); missing keyback False.
 
-        缺该键回落 False = 保守假设「不具备浏览器」——即无法真跑 UI 截图，RFC 阶段不硬要求截图测法
-        （宁可不误挡）。_load 缺失/损坏返回 {} 时同样回落 False。
+        False = Conservative assumption that ”no browser” is available - i.e. no real run UI transcrib, RFC stage does not require a stopgap method
+        (Better not to miss). _load missing/damage returning to () also falling False.
         """
         data = self._load()
         return bool(data.get("ui_capable", False))
 
     def set_ui_capable(self, *, value: bool) -> None:
-        """# Spec-0063/T1: 落盘本机「前端 e2e 能力」状态量（承接 Spec-0055 语义），顶层键与 agent_id 平级。
+        """# Spec-0063/T1: CrashBackend e2e Capacity ”state ” Quantity (Conduct) Spec-0055 Semantic) ,top key with agent_id Level.
 
-        _load 保留全部既有顶层键，故写 ui_capable 不影响 runs/cursors/agent_id（反之亦然）。
+        _load saves all with top keys, so ui_capable does not affect runs/cursors/agent_id (and vice versa).
         """
-        with RuntimeState._LOCK:  # Spec-0065/T2: 读-改-写全程串行
+        with RuntimeState._LOCK:  # Spec-0065/T2: Read-reform-write full-cycle serials
             data = self._load()
             data["ui_capable"] = bool(value)
             self._save(data=data)
 
     def _load(self) -> dict:
-        """读状态文件；缺失/损坏一律视为空状态（容错）。"""
+        """Read status files; all missing/damages are considered empty (intolerant)."""
         try:
             raw = self._path.read_text(encoding="utf-8")
         except (FileNotFoundError, OSError):
@@ -259,11 +241,11 @@ class RuntimeState:
         return parsed if isinstance(parsed, dict) else {}
 
     def _save(self, *, data: dict) -> None:
-        """**原子**落盘：写同目录下的 tmp 文件 → `os.replace` 顶替（rename 在同一文件系统上是原子的）。
+        """**Atom**Crash: Write under directory tmp Documentation → `os.replace` Substitute (Present)rename It’s atoms on the same file system).
 
-        # Spec-0065/T2: 直接 `write_text` 是「先截断、后写入」——并发的读者会读到半截 JSON，而 `_load` 的
-        # 容错会把它当成「空状态」{}，接着那个读者一写就把整个状态文件覆盖成只剩它自己那一条记录。原子顶替
-        # 之后，读者要么看到完整的旧文件、要么看到完整的新文件，不存在中间态。
+        # Spec-0065/T2: Direct `write_text` is ”cut first, write later” - the co-author will read half of JSON, while `_load`
+        # Mistakes will be considered as ”empty” and then the reader will cover the whole status file with its own record. Atom replacement
+        # Then the reader sees either the complete old document or the complete new document, without the middle.
         """
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.tmp")

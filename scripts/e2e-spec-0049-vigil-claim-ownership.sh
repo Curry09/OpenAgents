@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# Spec-0049 端到端测试启动脚本：vigil 多后端派单认领去互撕（resume 免认领 + 认领带归属 + 二次确认退让）。
+# Spec-0049 end-to-end test start script: vigil multi-backend single-claim to tear each other (resume waiver + tie attribution + secondary confirmation of subordination).
 #
-# 本组分两层根治「两后端对同一 issue 反复加/去认领标签互撕数分钟」：
-#   ① 止血——resume 路径不再认领（认领只在 fresh 首次派单打一次）；
-#   ② 治本——认领 = 幂等 add 固定标签 + 追加一条**署名认领便签**（归属凭证）+ read-after-write 二次
-#      确认：贴完自己便签后重读，若被别的 agent 更晚认领即抛 ClaimLost、本后端主动退让（清本地 solving）。
-# 结果：同一 issue 任一时刻只被一个后端有效认领，他方识别并退让；只贴自己的便签、幂等 add 标签，
-# 绝不无差别撕别人的标签——互撕的物理来源被移除。
+# The group is divided into two layers to treat "two backends to the same issue and repeatedly/recognize the tags for minutes":
+#   1 Stop the bleeding - resume path no longer recognized (claims are only given once in a single fight in fresh);
+#   2 Thermolog - Claim = add et al. fixed tag + Add a **-Pertificate ** (attribution certificate) + read-after-write 2 times
+#      Confirm: Read it again after posting and be accepted later by another agent, ClaimLost, and the back end of this offer (cleaning local solving).
+# Result: The same issue is validly claimed at any given time by one backend, and identified and given back; only the tags are used to label the tags, the add, etc.
+# There is no difference in tearing up the labels of others — the physical sources of torn-up are removed.
 #
-# **浏览器 e2e 不适用**：本 feature 是后端 GitHub 标签/评论并发时序问题，无任何产品前端界面可驱动
-# （无导航/交互/截图可断言的视觉成果）。故成果测试形态为**确定性并发复现**（pytest 集成测试 +
-# 本 shell 跑它并打印证据），而非浏览器 e2e。全程**不触网、不调真实 gh/LLM/git 远端**。
+# ** Browser e2e Not applicable**: This feature is a backend GitHub tag/ comment and time-series problem, no product front-end interface is driven
+# (no navigation)/Interactive/The results are in the form of a test result.**Certainness and Recurrence**（pytest Integrated Test +
+# Ben Shell runs it and prints evidence) instead of browser e2e. The whole ** is netless and does not match the real gh/LLM/git ** remote.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0049-vigil-claim-ownership.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/4] 静态检查（ruff lint + format）"
+echo "==> [1/4] Static Check (Standard)ruff lint + format）"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] 定向单元/集成测试（Spec-0049 T1–T5）"
+echo "==> [2/4] Orientation module/Integrated Test (Integrator Test)Spec-0049 T1–T5）"
 uv run --extra dev pytest -q \
   tests/test_github_claim_label.py \
   tests/test_identity_claim.py \
@@ -32,12 +32,12 @@ uv run --extra dev pytest -q \
   tests/test_claim_dedup_integration.py
 
 echo
-echo "==> [3/4] 成果证据：用**真实** Orchestrator + State 驱动两后端对同一 issue 竞态，打印三条断言证据"
+echo "==> [3/4] Evidence of results: use**Real** Orchestrator + State Drive two backends to the same issue Competition, three pieces of evidence."
 uv run python - <<'PY'
-# Spec-0049 成果演练：用**真实**产品代码——Orchestrator.start_rfc（含 _claim_issue 的幂等 add +
-# 署名认领便签 + read-after-write 退让）+ State——把两个 agent 对同一 issue 的竞态跑出来，打印证据。
-# 脚本只提供内存版 GitHub 世界（标签集合 + 评论账本 + 事件记录）与无 git 的 Workspace 替身（测试侧
-# 夹具），认领时序 / 归属判定 / 退让全部来自产品代码。
+# Spec-0049 Result Exercise: add + with Orchestrator.start_rfc (soft _claim_issue) + real** product code
+# Sign by signature + read-after-write surrender) + State — Run out two angents against the same issue and print out evidence.
+# Scripts only provide memory versions of GitHub World (label collection + review book + event record) and a Gbit-free Workspace double (test side)
+# Plugin) , time series / attribution determination / subordination is all from product code.
 from pathlib import Path
 
 from openagents import github, identity
@@ -65,7 +65,7 @@ class World:
         return f"2026-07-03T00:00:{self._clock:02d}Z"
 
     def get_issue(self, *, number):
-        return Issue(number=number, title="并发去重", body="b", labels=tuple(self.labels[number]))
+        return Issue(number=number, title="And it’s heavy.", body="b", labels=tuple(self.labels[number]))
 
     def issue_add_label(self, *, number, name):
         if name not in self.labels.setdefault(number, set()):
@@ -142,7 +142,7 @@ def make(agent_id, state):
 orch_a, orch_b = make("agent-A", state_a), make("agent-B", state_b)
 
 b_pr = {}
-# A 贴完便签、尚未 read-after-write 时，B 更晚跑完整条认领 → 抢先。
+# A after the pass sign, before read-after-write, B runs the full claim later.
 world.on_after_note = lambda: b_pr.__setitem__("pr", orch_b.start_rfc(issue_number=42, base="main"))
 
 retreated = False
@@ -154,8 +154,8 @@ except ClaimLost as exc:
 
 unlabeled = [e for e in world.events if e[0] == "unlabeled"]
 resume_events_before = len(world.events)
-# resume 免认领：B 已在 rfc-review，再扫不产生新认领事件——这里直接演示 B 若 resume（solving/pr=0）
-# 也零认领：新建一个孤儿 solving 状态，跑 start_rfc(resume=True)，断言零 labeled/comment。
+# Resume waiver: B is already in refc-review and does not create a new claim event - here is a direct demonstration of B if resume(solving/pr=0)
+# Also zero claim: New orphan Solving state, running start_rfc (resume=True), claiming zero labeled/comment.
 world.events.clear()
 state_c = State(path=tmp / "c.json")
 store_c = {"runs": [], "cursors": {}}
@@ -169,28 +169,28 @@ resume_claim_events = [e for e in world.events if e[0] in ("labeled", "comment")
 winner = b_pr["pr"].number == 42 and retreated and state_a.all_runs() == []
 notes = [identity.parse_agent_id(body=c.body) for c in world.comments[42]]
 
-print("  证据①【唯一赢家】：B 开出 draft PR #%d，A 检出他方更晚认领 → ClaimLost 退让并清本地 solving："
+print("  evidence①[Until winning]:B Open draft PR #%d，A Check out the other party’s claim later. → ClaimLost Deport and clear the area. solving："
       % b_pr["pr"].number, winner)
-print("     └ A 退让原因：%s" % claim_lost_msg)
-print("  证据②【零 unlabeled 互撕】：认领竞争期无人 remove 标签，便签只增不删（%d 条便签：%s）；"
-      "唯一 unlabeled 是 B 开 PR 后的 _release_claim（%d 次，发生在 PR 之后）："
+print("     └ A Reasons for subordination:%s" % claim_lost_msg)
+print("  evidence②[Zeroes] unlabeled   Tore each other up     No one ever claimed competition   remove label, sign only without adding or deleting (%d Notes:%s）；"
+      "Unique unlabeled yes B Open PR After _release_claim（%d - It happens a few times. PR After:"
       % (len(notes), notes, len(unlabeled)),
       len(unlabeled) == 1)
-print("  证据③【resume 零新认领事件】：solving/pr=0 孤儿 run 走 start_rfc(resume=True) 续跑，"
-      "零 labeled、零 comment 认领事件（实测 %d 条）：" % len(resume_claim_events),
+print("  evidence③【resume Zero new recognition event:solving/pr=0 Orphans run Let’s go. start_rfc(resume=True) Keep going."
+      "nil labeledZero. comment Recognition event (actual) %d Article:" % len(resume_claim_events),
       resume_claim_events == [])
 
-assert winner, "应恰一个赢家、输家退让清本地"
-assert unlabeled == [("unlabeled", 42)], "认领竞争期不得有 unlabeled 互撕事件"
-assert resume_claim_events == [], "resume 路径不得产生新认领事件"
-print("  ✓ 三条断言全部通过")
+assert winner, "It’s a winner, a loser, and a local loser."
+assert unlabeled == [("unlabeled", 42)], "No competition period. unlabeled Tore each other up."
+assert resume_claim_events == [], "resume Paths should not create new identification events"
+print("  ✓ All three claims passed.")
 PY
 
 echo
-echo "==> [4/4] spec 校验（Spec-0049 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
+echo "==> [4/4] spec VerifySpec-0049 Group Structure + OVERVIEW/ARCHITECTURE No drift)"
 uv run spec validate --specs-root docs/specs
-# 幂等（无漂移）自检：render/graph 前先存副本，重渲后 diff 应逐字节一致——不依赖 git 提交状态，
-# 使脚本可在任意工作树上独立跑出退出码 0（CI 另有 git diff --exit-code 版本的等价漂移闸）。
+# render/graph: First saves a copy, then replays the diff and then corresponds by bytes - without git-submitting,
+# Make scripts run independently of exit codes on any work tree 0（CI And then there's something else. git diff --exit-code The price of the price is not the same as the price of the car.
 cp docs/specs/OVERVIEW.md /tmp/oa-0049-overview.bak
 cp docs/specs/ARCHITECTURE.md /tmp/oa-0049-arch.bak
 uv run spec render --specs-root docs/specs
@@ -200,4 +200,4 @@ diff /tmp/oa-0049-arch.bak docs/specs/ARCHITECTURE.md
 uv run spec graph --specs-root docs/specs --check
 
 echo
-echo "✅ Spec-0049 端到端验证通过：唯一赢家 + 零 unlabeled 互撕 + resume 零新认领事件（可复现证据见上）。"
+echo "✅ Spec-0049 End-to-end authentication pass: only winner + nil unlabeled Tore each other up. + resume Zero new claims (repeated evidence available above)."

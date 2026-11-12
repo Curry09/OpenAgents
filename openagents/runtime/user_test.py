@@ -98,20 +98,22 @@ def load_user_test_plan(env: Mapping[str, str] | None = None) -> UserTestPlan | 
     try:
         command = tuple(shlex.split(raw_command))
     except ValueError as exc:
-        raise ValueError(f"OPENAGENTS_USER_TEST_COMMAND 无法解析：{exc}") from exc
+        raise ValueError(f"OPENAGENTS_USER_TEST_COMMAND could not resolve:{exc}") from exc
     if not command:
-        raise ValueError("OPENAGENTS_USER_TEST_COMMAND 不能为空")
+        raise ValueError("OPENAGENTS_USER_TEST_COMMAND cannot be empty")
 
     transcript_name = str(values.get("OPENAGENTS_USER_TEST_TRANSCRIPT", "")).strip()
     if not transcript_name:
-        raise ValueError("配置用户测试命令时必须同时提供 OPENAGENTS_USER_TEST_TRANSCRIPT")
+        raise ValueError(
+            "Configure user test commands must be provided with OPENAGENTS_USER_TEST_TRANSCRIPT"
+        )
     transcript_path = Path(transcript_name)
     try:
         raw_events = json.loads(transcript_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"无法读取用户测试 transcript {transcript_path}: {exc}") from exc
+        raise ValueError(f"Could not read user test {transcript_path}: {exc}") from exc
     if not isinstance(raw_events, list) or not raw_events:
-        raise ValueError("用户测试 transcript 必须是非空 JSON 数组")
+        raise ValueError("User Test Transcript must be non-empty JSON array")
     events: list[UserTestEvent] = []
     for index, item in enumerate(raw_events):
         wait_seconds = 0.0
@@ -122,20 +124,20 @@ def load_user_test_plan(env: Mapping[str, str] | None = None) -> UserTestPlan | 
             item_copy = dict(item)
             raw_wait = item_copy.pop("wait_seconds", 0.0)
             if not isinstance(raw_wait, (int, float)) or raw_wait < 0:
-                raise ValueError(f"transcript 第 {index + 1} 项 wait_seconds 无效")
+                raise ValueError(f"Transcript. {index + 1} Entries wait_seconds invalid")
             wait_seconds = float(raw_wait)
             payload = item_copy
         else:
-            raise ValueError(f"transcript 第 {index + 1} 项必须是字符串或对象")
+            raise ValueError(f"Transcript. {index + 1} Item must be a string or object")
         events.append(UserTestEvent(payload=payload, wait_seconds=wait_seconds))
 
     raw_timeout = str(values.get("OPENAGENTS_USER_TEST_TIMEOUT", "900")).strip()
     try:
         timeout_seconds = float(raw_timeout)
     except ValueError as exc:
-        raise ValueError(f"OPENAGENTS_USER_TEST_TIMEOUT 无效：{raw_timeout!r}") from exc
+        raise ValueError(f"Invalid OPENAGENTS_USER_TEST_TIMEOUT:{raw_timeout!r}") from exc
     if timeout_seconds <= 0:
-        raise ValueError("OPENAGENTS_USER_TEST_TIMEOUT 必须大于 0")
+        raise ValueError("OPENAGENTS_USER_TEST_TIMEOUT must be greater than 0")
     close_stdin = str(values.get("OPENAGENTS_USER_TEST_CLOSE_STDIN", "1")).strip().lower()
     return UserTestPlan(
         command=command,
@@ -170,7 +172,7 @@ def run_user_test(
             except ValueError:
                 pass
             else:
-                raise ValueError("artifact_dir 不得位于 candidate worktree 内")
+                raise ValueError("artifact_dir shall not be located inside the code worktree")
             root = requested_root
             root.mkdir(parents=True, exist_ok=True)
             # Each invocation gets a unique child, avoiding accidental overwrite of a

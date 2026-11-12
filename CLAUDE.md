@@ -13,7 +13,7 @@ OpenAgents is a spec-driven software delivery CLI. Read [README.md](README.md) f
 
 ## Conventions
 
-Use Python 3.12+ and Ruff with a 100-character line length. Keep comments clear in either English or Chinese. Do not use positional-only function parameters; private functions, except dunder methods, require explicit arguments without defaults.
+Use Python 3.12+ and Ruff with a 100-character line length. Use English for source comments, model instructions, runtime diagnostics, and active Specs. Do not use positional-only function parameters; private functions, except dunder methods, require explicit arguments without defaults.
 
 Use Conventional Commits. Allowed scopes are `backend`, `cli`, `ci`, `deps`, and `docs`. Lefthook runs the configured lint and commit-message hooks. When a first push is requested, set the branch's upstream with `git push -u origin <branch>`.
 

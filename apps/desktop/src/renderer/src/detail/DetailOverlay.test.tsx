@@ -1,11 +1,11 @@
-// Spec-0073/T5: 大窗流式 + 快切单测。用一个 fake client 逐条喂 SSE 事件，断言渲染与订阅清理。
+// Spec-0073/T5: Check streaming, subject changes, and subscription cleanup.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopContext, type DesktopContextValue } from '../App'
 import type { BoardEntry } from '../types'
 import DetailOverlay from './DetailOverlay'
 
-// fake client：记录订阅，暴露一个 push 逐条投递 SSE 行；close 时置 closed 便于断言清理。
+// Record subscriptions so tests can deliver lines and verify cleanup.
 function makeFakeClient() {
   const subs: { subject: string; onLine: (line: string) => void; closed: boolean }[] = []
   const client = {
@@ -42,21 +42,21 @@ beforeEach(() => {
 })
 
 describe('DetailOverlay', () => {
-  it('mock SSE 事件逐条渲染进 StreamView', () => {
+  it('renders streamed lines in order', () => {
     render(
       <DesktopContext.Provider value={provide({ selected: 'issue:1' }, fake.client as never)}>
         <DetailOverlay />
       </DesktopContext.Provider>
     )
     act(() => {
-      fake.subs[0].onLine('第一行')
-      fake.subs[0].onLine('第二行')
+      fake.subs[0].onLine('First line')
+      fake.subs[0].onLine('Café output')
     })
-    expect(screen.getByTestId('stream')).toHaveTextContent('第一行')
-    expect(screen.getByTestId('stream')).toHaveTextContent('第二行')
+    expect(screen.getByTestId('stream')).toHaveTextContent('First line')
+    expect(screen.getByTestId('stream')).toHaveTextContent('Café output')
   })
 
-  it('「下一个」按钮切 subject 并重订流（旧订阅被清理）', () => {
+  it('switches subjects and closes the old subscription on Next', () => {
     const open = vi.fn()
     const board: BoardEntry[] = [
       { subject: 'issue:1', status: 'claimed', pending: 'automation-failed' },
@@ -70,22 +70,22 @@ describe('DetailOverlay', () => {
         <DetailOverlay />
       </DesktopContext.Provider>
     )
-    fireEvent.click(screen.getByText('下一个 ▶'))
+    fireEvent.click(screen.getByText('Next ▶'))
     expect(open).toHaveBeenCalledWith('issue:2')
   })
 
-  it('关闭按钮触发 open(null)', () => {
+  it('closes the detail overlay', () => {
     const open = vi.fn()
     render(
       <DesktopContext.Provider value={provide({ selected: 'issue:1', open }, fake.client as never)}>
         <DetailOverlay />
       </DesktopContext.Provider>
     )
-    fireEvent.click(screen.getByText('关闭 ✕'))
+    fireEvent.click(screen.getByText('Close ✕'))
     expect(open).toHaveBeenCalledWith(null)
   })
 
-  it('卸载时断开 SSE 订阅', () => {
+  it('closes the SSE subscription on unmount', () => {
     const { unmount } = render(
       <DesktopContext.Provider value={provide({ selected: 'issue:1' }, fake.client as never)}>
         <DetailOverlay />

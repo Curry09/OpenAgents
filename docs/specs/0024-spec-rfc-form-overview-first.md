@@ -1,12 +1,12 @@
 ---
 number: "0024"
-title: spec 转 rust-RFC 形态:总览先行 + 单 spec 自包含
+title: "Convert specs to rust-RFC format: overview first + each spec self-contained"
 issue: 69
 slug: spec-rfc-form-overview-first
-summary: 把 spec 改成 rust-RFC 9 段总览为主体(总览先行、单 spec 自包含),DAG + 文件分配收进 Reference-level;数据模型/校验/skill/README/orchestrator 一并对齐,回填 19 个存量 spec。
+summary: "Restructure specs around a nine-section rust-RFC overview (overview first, each spec self-contained), moving the DAG + file assignments into Reference-level; align the data model/validation/skill/README/orchestrator, and backfill 19 existing specs."
 tasks:
   - id: T1
-    title: spec 数据模型:组级 Overview 9 段 + Task 瘦身
+    title: "Spec data model: nine-section group-level Overview + streamlined Task"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/spec/model.py
       - tests/test_spec_model.py
-    scope: 新增 Overview 9 段 dataclass + Group.overview;Task 删重 prose,scope/acceptance 进 frontmatter;正文 parse/render 改为 rust 段名。
-    acceptance: round-trip 保真组级 9 段 + task scope/acceptance;正文无 `## T` 小节、scope 进 frontmatter。
+    scope: "Add a nine-section Overview dataclass + Group.overview; remove duplicated prose from Task and move scope/acceptance into frontmatter; change body parsing/rendering to use rust section names."
+    acceptance: "Round-trip fidelity for the nine group-level sections + task scope/acceptance; no `## T` subsections in the body, and scope goes into frontmatter."
   - id: T2
-    title: 校验质量门槛:必填段 + 自包含 warning + schema 瘦身
+    title: "Validation quality bar: required sections + self-containment warnings + streamlined schema"
     status: done
     priority: P1
     tags: []
@@ -31,10 +31,10 @@ tasks:
       - openagents/spec/schema.py
       - openagents/spec/validate.py
       - tests/test_spec_validate.py
-    scope: TASK_SCHEMA required 加 files/acceptance、瘦 _PROSE_KEYS;validate 加必填四段非空(error) + 跨 spec 裸引用(warning)。
-    acceptance: 必填段空 → error;「见 Spec-NNNN」→ warning 不破 ok;缺 acceptance → schema error。
+    scope: "Add files/acceptance to TASK_SCHEMA required and streamline _PROSE_KEYS; add checks to validate for four required sections being nonempty (error) + bare cross-spec references (warning)."
+    acceptance: "Empty required section → error; “see Spec-NNNN” → warning without breaking ok; missing acceptance → schema error."
   - id: T3
-    title: spec new 9 段脚手架 + signpost/cli/mutate 适配
+    title: "Nine-section scaffolding for spec new + signpost/cli/mutate adaptations"
     status: done
     priority: P1
     tags: []
@@ -47,10 +47,10 @@ tasks:
       - tests/test_spec_signpost.py
       - tests/test_spec_cli.py
       - tests/test_spec_mutate.py
-    scope: spec new 正文含 9 段标题;signpost 的 e2e 脚本线索从已删的 Task.tests 改为从组级 Overview 抽;修适配测试。
-    acceptance: spec new 产出 9 段;signpost 从 Overview(Reference-level)抽 scripts/*.sh;pytest 全绿。
+    scope: "Include nine section headings in the spec new body; change signpost to extract e2e script clues from the group-level Overview instead of the deleted Task.tests; fix the adaptation tests."
+    acceptance: "spec new produces nine sections; signpost extracts scripts/*.sh from Overview (Reference-level); pytest passes all tests."
   - id: T4
-    title: skill + references + README + orchestrator 对齐 rust-RFC
+    title: "Align skill + references + README + orchestrator with rust-RFC"
     status: done
     priority: P1
     tags: []
@@ -64,10 +64,10 @@ tasks:
       - docs/specs/README.md
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
-    scope: SKILL Phase 2 改为「先写 9 段总览 → 再 add-task」+ quality bar(自包含、软约定硬化);README 对齐 rust RFCs README;orchestrator 派活 prompt 同步。
-    acceptance: skill/README 明确总览先行 + 单 spec 自包含两条规范;orchestrator 测试通过。
+    scope: "Change SKILL Phase 2 to “write the nine-section overview first → then add-task” + a quality bar (self-containment, turning soft conventions into hard requirements); align README with the rust RFCs README; update the orchestrator's task assignment prompt accordingly."
+    acceptance: "The skill/README explicitly state the two rules: overview first + each spec self-contained; orchestrator tests pass."
   - id: T5
-    title: 回填 19 个存量 spec + e2e 脚本
+    title: "Backfill 19 existing specs + e2e scripts"
     status: done
     priority: P1
     tags: []
@@ -78,55 +78,54 @@ tasks:
     files:
       - scripts/e2e-spec-0024-rfc-form.sh
       - docs/specs/0023-retire-test-branch-main-advancing-release.md
-    scope: 每个存量 spec 重写为 9 段总览 + frontmatter tasks(scope/acceptance),跨 spec 必要信息就地复述;补 e2e 脚本演示新流程。
-    acceptance: spec validate 0 error;e2e 脚本 ruff+pytest+spec CLI 流程全绿。
+    scope: "Rewrite each existing spec as a nine-section overview + frontmatter tasks (scope/acceptance), restating necessary information from other specs locally; add e2e scripts demonstrating the new workflow."
+    acceptance: "spec validate reports 0 errors; the e2e scripts' ruff+pytest+spec CLI workflow passes all checks."
 ---
 
-# 0024 · spec 转 rust-RFC 形态:总览先行 + 单 spec 自包含
+# 0024 · Convert specs to rust-RFC form: overview first + self-contained individual specs
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview with the 9 rust-RFC sections. -->
 
 ## Summary
 
-把 OpenAgents 的 spec 从「Task DAG 骨架 + 每个 Task 各写 prose」改成「feature 级 rust-RFC 9 段总览为主体，DAG + 文件分配收进 Reference-level」，使任取一个 spec 单独可读、总览先行（issue #69）。
+Change OpenAgents specs from “a Task DAG skeleton + prose for each Task” to “a feature-level overview with the 9 rust-RFC sections as the main body, with the DAG + file assignments placed in Reference-level,” so that any individual spec can be read on its own, with the overview first (issue #69).
 
 ## Motivation
 
-旧形态有两个可读性病根:① 单个 spec 不自包含——正文大量「见 Spec-00XX 决策 N」式跨 spec 引用,把关键设计依据甩到别处,读者必须翻好几个 spec 才能拼出完整语义;② 没有 feature 总览就直接拆 Task——`spec new` 后马上 `add-task`,组级只有一句 summary,读者上来面对一张 Task 表而没有整体认知。还有一个隐藏缺陷:旧数据模型根本不解析组级总览段(解析器只认 `## T<n>`),手写的总览会在下次 `spec render` 时被丢弃。
+The old form has two fundamental readability problems: ① Individual specs are not self-contained—the body contains many cross-spec references such as “see Spec-00XX decision N,” pushing key design rationale elsewhere and forcing readers to consult several specs to piece together the complete meaning; ② Tasks are broken down before there is a feature overview—`spec new` is immediately followed by `add-task`, with only a one-sentence summary at the group level, so readers initially face a Task table without an overall understanding. There is also a hidden flaw: the old data model does not parse group-level overview sections at all (the parser only recognizes `## T<n>`), so a manually written overview will be discarded on the next `spec render`.
 
 ## Guide-level explanation
 
-作者用 `spec new` 建组(自动铺 9 段脚手架)→ **先写满组级 rust-RFC 9 段总览**(Summary/Motivation/Guide-level/Reference-level/Drawbacks/Rationale and alternatives/Prior art/Unresolved questions/Future possibilities)→ **再** `spec add-task` 补工作分解行。读者拿到一个 spec,读完 9 段即懂这个 feature 全貌,无需打开别的 spec。
+The author creates a group with `spec new` (which automatically lays out scaffolding for 9 sections) → **first fills out the group-level overview with all 9 rust-RFC sections** (Summary/Motivation/Guide-level/Reference-level/Drawbacks/Rationale and alternatives/Prior art/Unresolved questions/Future possibilities) → **then** uses `spec add-task` to add work breakdown rows. A reader who receives a spec can understand the entire feature after reading the 9 sections, without opening other specs.
 
 ## Reference-level explanation
 
-数据模型(`openagents/spec/model.py`):新增组级 `Overview` 9 段 dataclass + `Group.overview`;Task 删重 prose 字段,`scope`/`acceptance` 移入 frontmatter;正文 parse/render 从「`## T<n>` Task 小节」改为「`## <rust 段名>` 组级段」。校验(`schema.py`/`validate.py`):TASK_SCHEMA required 加 `files`/`acceptance`;新增「必填四段(Summary/Motivation/Reference-level/Rationale)非空 = error」「总览里跨 spec 裸引用 = warning」。`spec new` 产出 9 段脚手架;signpost 改从组级 Overview 抽 e2e 脚本。skill/README/orchestrator 文案对齐;19 个存量 spec 回填。
+Data model (`openagents/spec/model.py`): add a group-level `Overview` dataclass with 9 sections + `Group.overview`; remove redundant prose fields from Task, and move `scope`/`acceptance` into frontmatter; change body parsing/rendering from “`## T<n>` Task subsections” to “`## <rust section name>` group-level sections.” Validation (`schema.py`/`validate.py`): add `files`/`acceptance` to TASK_SCHEMA required; add “the four required sections (Summary/Motivation/Reference-level/Rationale) must be nonempty = error” and “bare cross-spec references in the overview = warning.” `spec new` produces scaffolding for 9 sections; change signpost to extract e2e scripts from the group-level Overview. Align skill/README/orchestrator wording; backfill 19 existing specs.
 
-frontmatter 的 `tasks[].files` 保留为结构化机器源——这是单一 writer 所有权声明(理念 6),也是 issue #71 运行期 owner 检查的源。
+The frontmatter `tasks[].files` remains the structured machine-readable source—this is a single-writer ownership declaration (principle 6), and also the source for the runtime owner checks in issue #71.
 
-Task 分解(files 互斥,各 Task 单一 writer):T1 数据模型;T2 校验质量门槛;T3 脚手架 + signpost/cli 适配;T4 skill+README+orchestrator;T5 回填 + e2e。
+Task breakdown (files are mutually exclusive, with a single writer per Task): T1 data model; T2 validation quality gates; T3 scaffolding + signpost/cli adaptation; T4 skill+README+orchestrator; T5 backfill + e2e.
 
-**端到端验证**:`bash scripts/e2e-spec-0024-rfc-form.sh`(ruff + pytest + spec CLI 流程演练)。
+**End-to-end verification**: `bash scripts/e2e-spec-0024-rfc-form.sh` (ruff + pytest + spec CLI workflow exercise).
 
-依赖 DAG:`T1 → T2 → T3`,T4/T5 依赖 T3。设计依据详见 dated 设计文档 docs/specs/2026-06-25-spec-rfc-form-design.md。
+Dependency DAG: `T1 → T2 → T3`, with T4/T5 depending on T3. For detailed design rationale, see the dated design document docs/specs/2026-06-25-spec-rfc-form-design.md.
 
 ## Drawbacks
 
-9 段对很小的 feature 可能偏重(多数段会很短或填「无」);一次性回填 19 个存量 spec 是个大 PR,review 面广。
+9 sections may be somewhat heavy for very small features (most sections will be very short or contain “None”); backfilling 19 existing specs in one pass makes for a large PR with a broad review scope.
 
 ## Rationale and alternatives
 
-参考 rust-lang/rfcs 的 0000-template.md(9 段)与 README。**备选 A:单 freeform overview 字段**(不强制 9 段)——更省但难形成稳定可校验门槛,否决。**备选 B:去掉 Task、纯设计文档**——会废掉理念 6 的组内文件分配并行,否决;改为 RFC 9 段为主体 + frontmatter 保留 tasks DAG,机器可读性与人可读性兼得。**跨 spec 裸引用先 warning 而非 error**:避免一上来卡死存量回填,待全绿后可升 error。
+Based on rust-lang/rfcs 0000-template.md (9 sections) and README. **Alternative A: a single freeform overview field** (without requiring 9 sections)—more economical, but makes it difficult to establish stable, verifiable quality gates; rejected. **Alternative B: remove Tasks and use a pure design document**—would eliminate the within-group parallelism enabled by file assignments under principle 6; rejected. Instead, use the 9 RFC sections as the main body + retain the tasks DAG in frontmatter, providing both machine readability and human readability. **Bare cross-spec references initially produce a warning rather than an error**: this avoids blocking the backfill of existing specs at the outset; once all checks pass, this can be upgraded to an error.
 
 ## Prior art
 
-rust-lang/rfcs:RFC 先于实现 + 一篇 RFC 自包含讲清一个 feature(Summary/Motivation/Guide-level/Reference-level/Drawbacks/Rationale/Prior art/Unresolved/Future 9 段)。本组取其模板与「自包含」理念,适配到 OpenAgents 的 frontmatter+tasks DAG。
+rust-lang/rfcs: RFCs precede implementation + one RFC explains a feature in a self-contained way (9 sections: Summary/Motivation/Guide-level/Reference-level/Drawbacks/Rationale/Prior art/Unresolved/Future). This group adopts its template and “self-contained” principle, adapting them to OpenAgents frontmatter+tasks DAG.
 
 ## Unresolved questions
 
-跨 spec 裸引用何时从 warning 升 error(待存量全绿后);`tasks[].acceptance` 是否对极轻的收尾 Task 也强制(当前:是,保持可验证)。
+When to upgrade bare cross-spec references from warning to error (after all existing specs pass); whether `tasks[].acceptance` should be required even for very lightweight wrap-up Tasks (currently: yes, to maintain verifiability).
 
 ## Future possibilities
 
-issue #71:把 Reference-level 的 files 分配从设计期声明推进到运行期 owner 强制(lease/CAS/capability),共享状态单一 writer + 版本化快照读。
-
+issue #71: advance the files assignments in Reference-level from design-time declarations to runtime owner enforcement (lease/CAS/capability), with a single writer for shared state + reads from versioned snapshots.

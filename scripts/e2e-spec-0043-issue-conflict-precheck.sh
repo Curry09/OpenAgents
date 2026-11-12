@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
-# Spec-0043/T4 端到端测试启动脚本：issue 进 RFC 前自检修法方向是否自洽——命中冲突先打
-# needs-human 对齐、不直接生成 spec。
+# Spec-0043/T4 End-to-end test start-up script: whether the self-resorting course before the issue enters the RFC is pacified - hit first
+# Need-human alignment does not directly generate spec.
 #
-# 本组在 vigil 发现段派单 start_rfc 起草 spec 之前，插一道轻量自检 issuecheck：用注入 backend
-# 判读 issue 标题/正文是否存在「会直接影响修法方向」的内在冲突（issue #106 事故：标题=按 sha 缓存、
-# 正文=hold-merge 冻结，若按标题起草会做出与正文/最终实现南辕北辙的 spec）。命中则不起草，改为打
-# needs-human + 贴一条列出冲突点与候选修法的署名对齐评论，等人对齐；needs-human 作为持久冻结信号
-# 使同一 issue 只判一次、不复审震荡。未命中照常派单（零回归）。
+# This group inserts a light self-check before vigil finds a part-size start_rfc drafts a spec
+# Interpret whether there is an inherent conflict "that will directly affect the direction of the law" (issue #106 accident: title = ssha cache,
+# If you draw up a text by title, you will not write it.
+# Needs-human+Pend a signed comment with a list of points of conflict and candidate for revision, and wait for alignment; Neds-human as a persistent freezing signal
+# The same person will be sentenced to one sentence and no review of the shock.
 #
-# 两段，全程**不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端**（阶段 2 除外，需显式开启）：
-#   1) 离线确定性验证（默认执行）—— ruff lint/format + pytest 全套，覆盖 T1（issue_comment 出口）、
-#      T2（issuecheck 判读 + 对齐评论渲染 + fail-open）、T3（precheck 接线 + _dispatch_kind 防震荡）、
-#      T4 集成（test_issue_precheck_integration：#106 冲突识别+冻结 / 反震荡 / 放行 / 解冻）。
-#   2) 离线成果演练（默认执行）—— 用真实 issuecheck.build_alignment_comment 产出的**真实对齐评论
-#      正文**渲染成一份静态 HTML，浏览器（Playwright/chrome-devtools MCP，由 agent 在脚本外驱动）
-#      导航 + snapshot + 截图断言两个修法方向 / 候选修法 / needs-human 建议可见、console/network 无
-#      报错；无浏览器 MCP 时本脚本降级为对该 HTML 做文本断言（grep 两个修法方向 + 候选修法段），
-#      不跳过成果验证（理念 8：成果可视化）。
-#   3) 真实冒烟（可选，OPENAGENTS_E2E_REAL=1）—— 提示如何在 scratch 仓库真实建一个「标题主张 X、
-#      正文主张互斥的 Y」的 issue，带约定标签跑一轮 vigil --once，验证被打 needs-human + 收到一条
-#      对齐评论 + 未开 draft PR；再对一个自洽 issue 验证正常起草。
+# Two segments, full** netless, untouched LLM, untouched gh, unreal git remote** (except stage 2, to be visible):
+#   1) Offline certainty (default execution) - ruff lint/format + pytest complete, covering T1 (issue_comment export),
+#      T2 (issuecheck interpretation + alignment comment rendering + fail-open), T3 (precheck connection + _dispatch_kind anti-shock),
+#      T4 Integration (test_issue_precheck_integration: #106 Conflict Identification + Freeze / Anti-Smock / Release / Unfreeze).
+#   2) Offline Results Exercise (Default) - Real ** Alignment Comment with Real issuecheck.build_alignment_comment Output
+#      Text** Rendered into a static HTML browser (Playwright/chrome-devtools MCP, driven by agent on the outside of script)
+#      Navigation + snapshot + transcribation asserts two directions of the lawn / candidacy/ needs-human recommended visible, console/network none
+#      Error reporting; no browser MCP script downgraded to a texting assertion for this HTML (grep two directions plus candidate section)
+#      Do not skip the validation of results (idemical 8: results visualize).
+#   3) True smoke (optional, OPENAGENTS_E2E_REAL = 1) - A reminder of how to build a real "title claim X, X" in a scratch warehouse
+#      The text is a clutter. Y」It's... issue Run round with a contract label vigil --once Checked. needs-human + One.
+#      Alignment comment + no draft PR; then check a self-conforming issue for normal drafting.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0043-issue-conflict-precheck.sh
-#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0043-issue-conflict-precheck.sh   # 追加真实冒烟提示
+#   OPENAGENTS_E2E_REAL = 1 bash scripts/e2e-spec-0043-issue-conflict-precheck.sh # Add a real smoker
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元/集成测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + Units/Integrated Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 echo
-echo "==> [2/2] 离线成果演练：渲染真实对齐评论 → 浏览器/文本断言两个修法方向 + 候选修法 + needs-human"
+echo "==> [2/2] Offline result exercise: render true alignment comments → Browser/The text affirms two directions of the law. + Candidates + needs-human"
 
 OUT_HTML="$(mktemp -d)/alignment-comment.html"
 uv run python - "$OUT_HTML" <<'PY'
-# Spec-0043/T4：用真实 issuecheck 产出 #106 场景的对齐评论正文，包成最小静态 HTML（测试侧包裹，
-# 非产品代码）供浏览器导航断言。评论正文本身是产品输出（build_alignment_comment 的返回值）。
+# Spec-0043/T4: Wrapped into the minimum static HTML (test side package) with the true issuecheck output #106 rectangular review body of the scene.
+# The comment body is the product output (return value of build_alignment_comment).
 import html
 import sys
 
@@ -49,57 +49,57 @@ from openagents.issuecheck import ConflictVerdict
 verdict = ConflictVerdict(
     has_conflict=True,
     conflicts=(
-        "标题主张按 commit sha 缓存评审结论；正文主张 hold-merge 后把已 PASS 的 PR 冻结成 needs-human。",
-        "两者语义不同——一个保留 PR 在活跃轮询里复用缓存，一个把 PR 移出活跃轮询等人合并。",
+        "Title by commit sha Cache evaluation findings; body propositions hold-merge The last one. PASS It’s... PR Freezing needs-human。",
+        "The semantics are different.——A reservation PR Reuse Cache in Active Round of Inquiry, One Cache PR Move out of active round of inquiries and others.",
     ),
-    candidate_fixes=("按 commit sha 缓存评审结论", "hold-merge 冻结 PR"),
+    candidate_fixes=("Press commit sha Cache evaluation findings", "hold-merge Freeze PR"),
 )
 body = issuecheck.build_alignment_comment(verdict=verdict)
 
-# 成果自检（离线铁证）：两个修法方向 + 候选修法段 + needs-human 建议齐全，不含 PR 失败文案。
-assert "按 commit sha 缓存评审结论" in body and "hold-merge 冻结 PR" in body, "缺修法方向"
-assert "候选修法" in body, "缺候选修法段"
-assert "needs-human" in body and "对齐" in body, "缺 needs-human 对齐指引"
-assert "卡住了" not in body and "🤖" not in body, "误混入 PR 级失败文案"
+# Self-censorship of results (default evidence): Two directions of the law reform + candidate section + needs-human recommendations all, without PR failure cases.
+assert "Press commit sha Cache evaluation findings" in body and "hold-merge Freeze PR" in body, "Direction of the default law"
+assert "Candidates" in body, "Candidature Paragraph"
+assert "needs-human" in body and "Alignment" in body, "Missing needs-human Alignment Guidance"
+assert "It’s stuck." not in body and "🤖" not in body, "Misinform PR Class failure"
 
 out = sys.argv[1]
 page = (
     "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
-    "<title>Spec-0043 对齐评论成果</title></head><body>"
+    "<title>Spec-0043 Alignment of comments</title></head><body>"
     f"<article id='alignment-comment'><pre>{html.escape(body)}</pre></article>"
     "</body></html>"
 )
 with open(out, "w", encoding="utf-8") as f:
     f.write(page)
 
-print("  [渲染] 真实对齐评论正文已渲染成静态 HTML：", out)
-print("  [文本断言] 两个修法方向 + 候选修法段 + needs-human 对齐指引齐全、无 PR 失败文案 ✓")
+print("  [Render] True Alignment Review Body is rendered static HTML：", out)
+print("  [Textual assertion] Two directions for the reform of the law + Candidates + needs-human All the lines are in place, nothing. PR Failed Files ✓")
 PY
 
 echo
-echo "  [浏览器成果] 请用浏览器 MCP（Playwright / chrome-devtools）导航并断言（agent 在脚本外驱动）："
+echo "  [Browser Result] Use the browser, please. MCP（Playwright / chrome-devtools）Navigator and assertion (in the case of theagent Driven outside script:"
 echo "    navigate  → file://$OUT_HTML"
-echo "    snapshot/截图 → 断言页面同时出现『按 commit sha 缓存评审结论』与『hold-merge 冻结 PR』、"
-echo "                    出现『候选修法』取舍段、出现『needs-human / 先对齐再进 RFC』建议"
-echo "    console/network → 断言无报错、无失败请求（纯本地静态页）"
-echo "  无浏览器 MCP 时：上面的离线文本断言即为降级成果验证（不跳过）。"
+echo "    snapshot/Screenshot → The assertion that the page appears simultaneously commit sha Cache assessment findings andhold-merge Freeze PR』、"
+echo "                    ”Approval” is a trade-off, and a ”supplement” is a ”supplement.”needs-human / We’ll get in there first. RFC』Recommendations"
+echo "    console/network → Claim no error, no request for failure (none local static page)"
+echo "  No Browser MCP Time: The offline version assertion above is certified as a downgrade result (not skipping)."
 
 if [[ "${OPENAGENTS_E2E_REAL:-}" == "1" ]]; then
   echo
-  echo "==> [可选] 真实冒烟（OPENAGENTS_E2E_REAL=1）"
+  echo "==> [Optional] Real smoke.OPENAGENTS_E2E_REAL=1）"
   cat <<'REAL'
-  真实冒烟步骤（需要真实 GitHub 仓库 + gh 登录，会真实建 issue/评论）：
-    1) 在 scratch 仓库建一个「标题主张 X、正文主张互斥的 Y」的 issue，带 openagents 发现标签。
-       例：标题「按 sha 缓存评审结论」/ 正文「应改为 hold-merge 冻结 PR」。
-    2) 跑一轮 vigil：`oa vigil --once`
-       预期：该 issue 被打上 needs-human 标签、收到一条对齐评论（列出两个修法方向 + 候选修法），
-             且**未**开出 draft PR（precheck 在建 worktree/起草之前拦下）。
-    3) 再连跑一轮：`oa vigil --once`
-       预期：无新增评论、无起草——needs-human 在场 → _dispatch_kind 跳过、判读不重跑（反震荡）。
-    4) 另建一个标题/正文一致的自洽 issue，跑 vigil --once → 正常起草、开 draft PR（零回归）。
-  （此段仅打印指引，不自动执行，避免在 CI/离线环境误触真实 gh。）
+  Real smoke step (needs real) GitHub Warehouse + gh Login, it’ll be real. issue/Comment:
+    1) Yes. scratch The warehouse built a title proposition. XThe text is one-sided. Y」It’s... issue- Yeah. openagents Found the label.
+       Example: Title ”Pressed by sha Cache evaluation findings/ The text should read hold-merge Freeze PR」。
+    2) Round one. vigil：`oa vigil --once`
+       Expected: issue Hit. needs-human Label, one alignment comment (shows two directions for the amendment) + The blog is a blog of the blog :
+             and**Not available**Open draft PR（precheck Building worktree/Stop before drafting.
+    3) One more round:`oa vigil --once`
+       Expected: no additional comments, no drafting——needs-human - Yes, sir. → _dispatch_kind Skip, interpret, and not run again (anti-shock).
+    4) Create another title/The text is consistent. issueRun! vigil --once → Normal drafting, open draft PR(Zero returns)
+  (This paragraph only prints guidelines, does not automatically execute and avoids being CI/Offline error is real. gh。）
 REAL
 fi
 
 echo
-echo "✓ Spec-0043/T4 端到端演示完成（默认离线、可重复、不触网、不调真实 LLM/gh）。"
+echo "✓ Spec-0043/T4 End-to-end demonstration completed (default offline, repeatable, net-free, unmovable) LLM/gh）。"

@@ -1,12 +1,12 @@
 ---
 number: "0062"
-title: 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
+title: "Architectural refactoring (consolidation batch): fully migrate the RFC lifecycle + PR merge pipeline to the new stack, delete the old stack, and unify the two stacks"
 issue: 145
 slug: agents-recipes-converge
-summary: 承接 Spec-0060/0061 立起的 agents/recipes/runtime/utils 新栈，一次性把仍 100% 留在旧栈的两大块——orchestrator 的 RFC 生命周期(rfc/backfill/refine/implement/iterate)与 messages 的 PR 合并流水线(mergeability/CI/e2e/review/merge 阶段机)——按既定分界线(判断走 agent、机械留确定性 recipe/gates/utils)重立为新栈 recipe，CLI 全量改接新栈，再把 15 个原语(含 fleet/align)物理搬迁进 utils 并删掉 10 个纯编排/判断旧模块(orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag)、收敛其测试桩，flat 层收敛为 cli/__init__/state 三文件，实现两栈合一。
+summary: "Building on the agents/recipes/runtime/utils stack established by Spec-0060/0061, reimplement in one pass the two major areas still 100% on the old stack—orchestrator's RFC lifecycle (rfc/backfill/refine/implement/iterate) and messages' PR merge pipeline (the mergeability/CI/e2e/review/merge stage machine)—as new-stack recipes along the established boundary (judgment goes to agents; mechanical operations stay in deterministic recipes/gates/utils). Switch the entire CLI to the new stack, then physically move the 15 primitives (including fleet/align) into utils and delete the 10 old modules devoted solely to orchestration/judgment (orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag), consolidate their test stubs, and reduce the flat layer to the three files cli/__init__/state, unifying the two stacks."
 tasks:
   - id: T1
-    title: RFC 生命周期 recipes + drafter agent（additive）
+    title: "RFC lifecycle recipes + drafter agent (additive)"
     status: done
     priority: P1
     tags: []
@@ -18,10 +18,10 @@ tasks:
       - openagents/agents/drafter.py
       - tests/test_recipe_rfc_lifecycle.py
       - tests/test_agents_drafter.py
-    scope: 把 orchestrator 的 start_rfc/backfill_rfc/refine_rfc/implement/iterate 五条 RFC 生命周期按分界线重立为 recipes.rfc_lifecycle：判断（起草 RFC / 反推 spec / 按评论精炼）下放 drafter agent（零逻辑 Template），机械（认领标签/开 draft PR/转正/写文件）留 recipe 经 utils/engine。additive，旧 orchestrator 零改动。
-    acceptance: 五个 recipe 入口 hermetic 可测（假 backend 喂 canned 裁决，不触真实 LLM/网络/仓库）；drafter 零 def/subprocess；ruff 绿。
+    scope: "Reimplement orchestrator's five RFC lifecycle flows—start_rfc/backfill_rfc/refine_rfc/implement/iterate—as recipes.rfc_lifecycle along the established boundary: delegate judgment (drafting RFCs / inferring specs / refining based on comments) to the drafter agent (a zero-logic Template), while keeping mechanical operations (claim labels / open draft PRs / mark PRs ready / write files) in the recipe via utils/engine. Additive; no changes to the old orchestrator."
+    acceptance: "The five recipe entry points can be tested hermetically (a fake backend supplies canned decisions, without touching real LLMs/networks/repositories); drafter has zero def/subprocess; ruff passes."
   - id: T2
-    title: merge_pr recipe + 合并流水线 gates（additive）
+    title: "merge_pr recipe + merge pipeline gates (additive)"
     status: done
     priority: P1
     tags: []
@@ -32,10 +32,10 @@ tasks:
       - openagents/recipes/merge_pr.py
       - openagents/runtime/gates.py
       - tests/test_recipe_merge_pr.py
-    scope: 把 messages.poll 的阶段状态机（mergeability 预检 / CI 闸 / e2e 证据闸 / review / merge + hold/skip 对称短路 + closed-run 复活 + 冲突自愈）按分界线重立为 recipes.merge_pr：deterministic 闸留 recipe/runtime.gates，评审判断走既有 reviewer agent、冲突自愈走既有 git delivery agent。additive，旧 messages 零改动。
-    acceptance: merge_pr hermetic 可测，覆盖 merged/blocked/ci/review/e2e/reopened/error 全路由；hold/skip 对称短路；ruff 绿。
+    scope: "Reimplement the stage state machine in messages.poll (mergeability precheck / CI gate / e2e evidence gate / review / merge + symmetric hold/skip short-circuiting + closed-run revival + conflict self-healing) as recipes.merge_pr along the established boundary: deterministic gates stay in the recipe/runtime.gates, review judgment goes through the existing reviewer agent, and conflict self-healing goes through the existing git delivery agent. Additive; no changes to the old messages."
+    acceptance: "merge_pr can be tested hermetically, covering all merged/blocked/ci/review/e2e/reopened/error routes; symmetric hold/skip short-circuiting; ruff passes."
   - id: T3
-    title: vigil 认领归属+过期回收 + 守候段接 merge_pr
+    title: "vigil claim ownership + expired-claim reclamation + connect the watch phase to merge_pr"
     status: done
     priority: P1
     tags: []
@@ -49,10 +49,10 @@ tasks:
       - openagents/runtime/state.py
       - tests/test_recipe_vigil.py
       - tests/test_recipe_poll_comments.py
-    scope: vigil 去重闸加署名认领便签 + 过期回收（identity.latest_claim + 阈值，多后端跨进程认领）；vigil 每轮守候段从 poll_comments 扩为「poll_comments 回应评论 + merge_pr 推进合并」，闭合发现→求解→回应→合并全环。并给 runtime.RuntimeState 补 merge/rfc 流水线接线所需字段：按 PR 号查 run（find_run(pr_number=)）、run 记录带 issue_number 与 closed_at——让 T1/T2 的 fake-state seam 落到真实 state。跨轮 rounds 预算 blocked（旧 MAX_ROUNDS）本批不搬，作已知简化留 Unresolved。
-    acceptance: vigil 守候段驱动合并推进；认领便签/过期回收 hermetic 可测；RuntimeState 提供 find_run(pr_number=)/issue_number/closed_at；ruff 绿。
+    scope: "Add signed claim notes + expired-claim reclamation to vigil's deduplication gate (identity.latest_claim + a threshold, for claims across processes and multiple backends); expand vigil's watch phase in each round from poll_comments to “poll_comments responds to comments + merge_pr advances merging,” completing the discovery → solution → response → merge cycle. Also add the fields needed to wire the merge/rfc pipelines into runtime.RuntimeState: find runs by PR number (find_run(pr_number=)), and include issue_number and closed_at in run records—connecting T1/T2's fake-state seam to the real state. Blocking based on the rounds budget across rounds (the old MAX_ROUNDS) is not migrated in this batch; leave it in Unresolved as a known simplification."
+    acceptance: "vigil's watch phase drives merge progress; claim notes/expired-claim reclamation can be tested hermetically; RuntimeState provides find_run(pr_number=)/issue_number/closed_at; ruff passes."
   - id: T4
-    title: CLI 全量改接新栈 + 删旧路由
+    title: "Switch the entire CLI to the new stack + delete old routing"
     status: done
     priority: P1
     tags: []
@@ -63,10 +63,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli_new_stack.py
-    scope: rfc/backfill-rfc/refine-rfc/implement/iterate/poll/watch/vigil/vigil-all 九条命令全部改接 recipes.*；删 _orchestrator_for 工厂、messages.Messages import、旧阶段机路由；合并新旧命令名（vigil-new 收编为 vigil、poll-comments 收编为 poll 的评论段）。
-    acceptance: 所有 CLI 命令走新栈 recipe；oa 全命令解析并分发；无 import openagents.orchestrator/messages；ruff 绿。
+    scope: "Switch all nine commands—rfc/backfill-rfc/refine-rfc/implement/iterate/poll/watch/vigil/vigil-all—to recipes.*; delete the _orchestrator_for factory, the messages.Messages import, and old stage-machine routing; consolidate new and old command names (absorb vigil-new into vigil, and poll-comments into poll's comment phase)."
+    acceptance: "All CLI commands use new-stack recipes; all oa commands parse and dispatch; no import of openagents.orchestrator/messages; ruff passes."
   - id: T5
-    title: 物理搬迁 utils 原语 + 清空整个 flat 旧模块层
+    title: "Physically move utils primitives + clear out the entire old flat module layer"
     status: done
     priority: P1
     tags: []
@@ -91,10 +91,10 @@ tasks:
       - openagents/utils/workspace.py
       - openagents/utils/github.py
       - openagents/utils/align.py
-    scope: 把 15 个原语的实现从旧顶层模块物理搬迁进 openagents/utils/*（不再是薄再导出）：config/envcheck/fleet_config/github/hold/identity/release/results/skip/workspace/blocknote/replynote/worknote/fleet/align，另 templates/ 随 results 迁入 utils/templates/。其中 fleet(进程监管器)、align(建 issue 前门对齐，仍被 cli 用) 是**搬迁不是删除**——被 recipes.fleet / cli 引用，故落 utils 而非消失。随后清空整个 flat 旧模块层——删 10 个纯编排/判断类（已被 recipe/agent 取代、0 引用）：orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag。survivor 里 cli.py(T4 属) 与 state.py(T3 属) 的直连 flat import 一并 repoint 到 utils（物理搬迁的收尾，跨 Task 属主但删除无法半途完成）。**保留 cli.py + __init__.py；state.py 因新旧 state 未归一暂留**（其删除随 state 归一另开 Spec-0063，本组已满 6 Task）。
-    acceptance: flat 层仅剩 openagents/{cli.py,__init__.py,state.py}；全库 grep 对已删/已迁模块的裸 import 零命中；oa 全命令解析；ruff 绿。
+    scope: "Physically move the implementations of the 15 primitives from the old top-level modules into openagents/utils/* (no longer thin re-exports): config/envcheck/fleet_config/github/hold/identity/release/results/skip/workspace/blocknote/replynote/worknote/fleet/align; also move templates/ with results into utils/templates/. Of these, fleet (the process supervisor) and align (the alignment entry point before issue creation, still used by cli) are **moved, not deleted**—they are referenced by recipes.fleet / cli, so they belong in utils rather than disappearing. Then clear out the entire old flat module layer—delete the 10 classes of modules devoted solely to orchestration/judgment (already replaced by recipes/agents, with 0 references): orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag. Also repoint direct flat imports in the surviving cli.py (owned by T4) and state.py (owned by T3) to utils (finishing the physical move; this crosses Task ownership boundaries, but deletion cannot be left half-finished). **Keep cli.py + __init__.py; retain state.py temporarily because the new and old state implementations have not yet been unified** (its deletion will be handled alongside state unification in a separate Spec-0063; this group already has its full allocation of 6 Tasks)."
+    acceptance: "Only openagents/{cli.py,__init__.py,state.py} remain in the flat layer; repository-wide grep finds zero direct imports of deleted/moved modules; all oa commands parse; ruff passes."
   - id: T6
-    title: 测试收敛 + docs 再生成
+    title: "Test consolidation + docs regeneration"
     status: done
     priority: P1
     tags: []
@@ -108,89 +108,88 @@ tasks:
       - tests/test_vigil.py
       - tests/test_issuecheck.py
       - tests/test_ensure_prerequisites.py
-    scope: 收敛测试到两栈合一后的现实——删 38 个直测已删编排模块的桩（orchestrator*/messages*/vigil*(旧)/reviewer*/conflict*/executor/backfill/agentcontext/issuecheck 及其集成桩，行为已被 test_recipe_* 覆盖）；把 40 个测已迁原语的桩 import 从旧顶层路径 repoint 到 openagents.utils.*（含 test_cli/test_fleet/test_align/test_workspace/test_recipe_* 等——原语搬迁不删测试）；test_ensure_prerequisites 退役已删 messages 的标签别名断言，保留 cli/state 别名校验。spec render/graph 再生成 OVERVIEW/ARCHITECTURE 无漂移。旧 spec(0001–0057) 的作废另议：其正文是旧栈设计史，成批 abandon 会重塑整个快照，属独立决策，非本迁移/CI 门控范畴，留后续专门处理。
-    acceptance: 全量 pytest 绿（669 passed）；无对已删模块的裸 import；spec validate 无 error；OVERVIEW/ARCHITECTURE drift-free。
+    scope: "Consolidate tests to reflect the unified stack—delete the 38 test stubs that directly test deleted orchestration modules (orchestrator*/messages*/vigil*(old)/reviewer*/conflict*/executor/backfill/agentcontext/issuecheck and their integration stubs; their behavior is already covered by test_recipe_*); repoint imports in the 40 test stubs for moved primitives from the old top-level paths to openagents.utils.* (including test_cli/test_fleet/test_align/test_workspace/test_recipe_* and others—moving primitives does not mean deleting their tests); retire test_ensure_prerequisites assertions for label aliases in the deleted messages module, retaining cli/state alias checks. Regenerate OVERVIEW/ARCHITECTURE with spec render/graph, with no drift. Abandoning old specs (0001–0057) is a separate discussion: their bodies document the design history of the old stack, and abandoning them in bulk would reshape the entire snapshot. This is an independent decision outside the scope of this migration/CI gating; leave it for dedicated follow-up."
+    acceptance: "The full pytest suite passes (669 passed); no direct imports of deleted modules; spec validate reports no errors; OVERVIEW/ARCHITECTURE are drift-free."
 ---
 
-# 0062 · 架构重构（收敛批）：全量迁移 RFC 生命周期 + PR 合并流水线到新栈，删旧两栈合一
+# 0062 · Architecture Refactoring (Convergence Batch): Fully Migrate the RFC Lifecycle + PR Merge Pipeline to the New Stack, Remove the Old Stack, and Unify the Two Stacks
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level, nine-section rust-RFC overview. -->
 
 ## Summary
 
-前两批（Spec-0060 骨架 + Spec-0061 自主环）在 `agents/recipes/runtime/utils` 四层里立起了新栈，并让它能自足编排「一个 issue 从发现→分诊→求解→交付、及 PR 上人机对话」的自主环。但产品的另一半——**RFC 驱动开发生命周期**（`rfc/backfill-rfc/refine-rfc/implement/iterate`，共 914 行在 `orchestrator.py`）与 **PR 合并流水线**（mergeability/CI/e2e/review/merge 阶段状态机，963 行在 `messages.py`）——仍 100% 留在旧栈，新栈无任何等价物。本收敛批**一次做完**剩余全部迁移：把这两大块按既定分界线（**需判断的走 agent、客观机械留确定性 recipe/gates/utils**）重立为新栈 recipe，CLI 九条命令全量改接新栈，再把 utils 从「薄再导出」升级为**物理搬迁**（15 个原语落 utils，含仍被引用的 fleet/align）并**删掉** 10 个纯编排/判断旧模块（`orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag`）、收敛其测试桩——实现**两栈合一**，flat 层收敛为 `cli.py/__init__.py/state.py` 三文件，`openagents/` 顶层里不再有并列的新旧同名模块。
+The previous two batches (the Spec-0060 skeleton + the Spec-0061 autonomous loop) established the new stack across the four layers of `agents/recipes/runtime/utils`, enabling it to independently orchestrate the autonomous loop of “an issue from discovery → triage → solution → delivery, plus human–agent conversations on PRs.” But the other half of the product—the **RFC-driven development lifecycle** (`rfc/backfill-rfc/refine-rfc/implement/iterate`, totaling 914 lines in `orchestrator.py`) and the **PR merge pipeline** (the mergeability/CI/e2e/review/merge stage state machine, 963 lines in `messages.py`)—still resides 100% in the old stack, with no equivalents in the new stack. This convergence batch completes **all remaining migration in one pass**: reestablish these two major components as new-stack recipes along the established boundary (**judgment goes to agents; objective, mechanical operations remain in deterministic recipes/gates/utils**), rewire all nine CLI commands to the new stack, then upgrade utils from “thin re-exports” to **physical relocation** (15 primitives move into utils, including the still-referenced fleet/align), and **delete** 10 old modules devoted solely to orchestration/judgment (`orchestrator/messages/vigil/reviewer/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag`), consolidating their test scaffolding—thus **unifying the two stacks**, reducing the flat layer to three files, `cli.py/__init__.py/state.py`, and eliminating parallel old and new modules with the same name at the top level of `openagents/`.
 
 ## Motivation
 
-现状：Spec-0060/0061 交付后仓库处于**两栈并存**的中间态。新栈能跑自主发现→求解→回应，但一切 **RFC 驱动**的动作（为 issue 起草 RFC 并开 draft PR、扫存量代码反推 spec、按评审精炼 RFC、RFC 获批后实现并转正、就反馈迭代）仍只有旧 `orchestrator.py` 一条实现；一切 **PR 推进合并**的动作（判可合并性、跑 CI/e2e 证据闸、评审、合并、hold/skip 短路、closed-run 复活、冲突自愈）仍只有旧 `messages.py` 的 964 行阶段状态机一条实现。CLI 里九条命令（`rfc/backfill-rfc/refine-rfc/implement/iterate/poll/watch/vigil/vigil-all`）直连这两个旧模块。
+Current state: after Spec-0060/0061, the repository is in an intermediate state with **two coexisting stacks**. The new stack can run autonomous discovery → solution → response, but all **RFC-driven** actions (drafting an RFC for an issue and opening a draft PR, scanning existing code to infer a spec, refining an RFC based on review, implementing an approved RFC and marking the PR ready for review, and iterating on feedback) still have only one implementation, in the old `orchestrator.py`; all **PR progression toward merge** actions (checking mergeability, running CI/e2e evidence gates, reviewing, merging, hold/skip short-circuiting, reviving closed runs, and conflict self-healing) still have only one implementation, the old 964-line stage state machine in `messages.py`. Nine CLI commands (`rfc/backfill-rfc/refine-rfc/implement/iterate/poll/watch/vigil/vigil-all`) connect directly to these two old modules.
 
-两栈并存不是稳态：读者要分辨「谁是新栈」，同名模块（新 `recipes.vigil`/`recipes.fleet` vs 旧 `vigil.py`/`fleet.py`）并列，utils 薄再导出让 import 面比实现面多一跳，~29 个测试桩仍钉在旧模块上。前两批把「删旧与收敛」显式推迟到「最终收敛批」（见两批的 Unresolved/Future 段），**本批就是那个收敛批**。用户明确要求不再分批、一波做完，故本批范围是「补齐剩余两大块 recipe + CLI 全量改接 + 物理搬迁删旧」的全集。
+Two coexisting stacks are not a steady state: readers must distinguish “which is the new stack,” modules with the same name coexist (new `recipes.vigil`/`recipes.fleet` versus old `vigil.py`/`fleet.py`), thin utils re-exports add an extra hop between imports and implementations, and ~29 test scaffolds remain tied to old modules. The previous two batches explicitly deferred “removal of the old stack and convergence” to the “final convergence batch” (see their Unresolved/Future sections). **This is that convergence batch.** The user explicitly requested completing everything in one pass without further batching, so this batch covers the full scope of “complete the remaining two major recipe components + fully rewire the CLI + physically relocate implementations and remove the old stack.”
 
-动机的分界线与前两批**逐字一致**：判断→agent（RFC 起草判断走 `drafter`、评审判断走既有 `reviewer`、评论回应走既有 `replier`、冲突自愈走既有 git delivery agent），客观机械留确定性代码（recipe 控制流 + `runtime.gates` 硬闸 + `utils` 原语）。
+The boundary underlying this motivation is **identical, word for word**, to that of the previous two batches: judgment → agent (RFC drafting decisions go to `drafter`, review decisions to the existing `reviewer`, comment responses to the existing `replier`, and conflict self-healing to the existing git delivery agent); objective, mechanical operations remain in deterministic code (recipe control flow + `runtime.gates` hard gates + `utils` primitives).
 
 ## Guide-level explanation
 
-本批把旧栈剩余的两条主干按分界线重立成 recipe，再做一次性收敛删旧，落成六个 Task：
+This batch reestablishes the two remaining main branches of the old stack as recipes along that boundary, then performs a single convergence and removal pass, organized into six Tasks:
 
-- **`recipes.rfc_lifecycle`（T1）**：把 orchestrator 的 `start_rfc/backfill_rfc/refine_rfc/implement/iterate` 五个入口重立为五条**纯控制流** recipe。每条只做「调 engine 派 agent 出结构化裁决 + 按裁决走确定性 utils 兜底动作」：需要判断的部分（RFC 正文怎么写、存量代码反推成什么 spec、按评论怎么精炼、获批后怎么实现）下放新 `drafter` agent（零逻辑 `string.Template` PROMPT + `OUTPUT_SCHEMA`）；机械部分（给 issue 打认领标签、开/转正 draft PR、写 spec 文件、贴公告评论）留 recipe 经 `utils.github`/`utils.identity`。
-- **`recipes.merge_pr`（T2）**：把 messages.poll 的阶段状态机重立为一条 recipe。deterministic 闸（可合并性预检、CI 结论读取、e2e 证据溯源戳校验、hold/skip 对称短路、closed-run 复活水位线）留 recipe/`runtime.gates`——它们都是**读客观事实**非判断；评审「这版能不能合」的判断走既有 `reviewer` agent，冲突「怎么 rebase 解」走既有 git delivery agent。返回与旧 poll 同构的事件列表（`merged/blocked/ci/review/e2e/reopened/error` 等 reason）以便日志与断言。
-- **vigil 收口（T3）**：给 `recipes.vigil` 去重闸补上旧栈的**署名认领便签 + 过期回收**（多后端跨进程认领归属），并把每轮守候段从「只回应评论」扩为「回应评论（poll_comments）+ 推进合并（merge_pr）」，闭合**发现→求解→回应→合并**全环。
-- **CLI 全量改接（T4）**：九条命令改接 `recipes.*`，删 `_orchestrator_for` 工厂与 `messages.Messages` import，合并新旧命令名（`vigil-new`→`vigil`、`poll-comments` 收编进 `poll` 的评论段）。
-- **清空 flat 层（T5）**：utils 从薄再导出升级为真实实现搬迁（含 workspace 与 note 家族），`Fleet` 监管器搬进 `utils.fleet`，然后**删掉整个 flat 旧模块层**——编排/判断类（orchestrator/messages/vigil/reviewer/align/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag）+ 被 utils 吸收的原语文件（github/config/envcheck/hold/skip/release/results/identity/fleet/fleet_config/blocknote/replynote/worknote/workspace）。flat 层收敛到仅剩 `cli.py`+`__init__.py`+`state.py`（`state.py` 因 state 未归一暂留，其删除随 state 归一另开 Spec-0063）。
-- **测试与文档收敛（T6）**：删/迁 ~29 个直测旧模块的测试桩，作废旧 spec，再生成 OVERVIEW/ARCHITECTURE。
+- **`recipes.rfc_lifecycle` (T1)**: Reestablish the orchestrator’s five entry points, `start_rfc/backfill_rfc/refine_rfc/implement/iterate`, as five **pure-control-flow** recipes. Each only “calls the engine to dispatch an agent for a structured decision + follows that decision with deterministic utils fallback actions”: parts requiring judgment (how to write the RFC body, what spec to infer from existing code, how to refine based on comments, and how to implement after approval) are delegated to the new `drafter` agent (a zero-logic `string.Template` PROMPT + `OUTPUT_SCHEMA`); mechanical parts (adding a claim label to an issue, opening a draft PR or marking it ready for review, writing spec files, and posting announcement comments) remain in recipes through `utils.github`/`utils.identity`.
+- **`recipes.merge_pr` (T2)**: Reestablish the messages.poll stage state machine as a recipe. Deterministic gates (mergeability prechecks, reading CI conclusions, validating e2e evidence provenance stamps, symmetric hold/skip short-circuiting, and the watermark for reviving closed runs) remain in the recipe/`runtime.gates`—all of these **read objective facts**, rather than exercise judgment; the judgment of “can this version be merged” goes to the existing `reviewer` agent, and “how to resolve conflicts through rebase” goes to the existing git delivery agent. Return an event list with the same structure as the old poll (reasons such as `merged/blocked/ci/review/e2e/reopened/error`) for logging and assertions.
+- **Vigil consolidation (T3)**: Add the old stack’s **signed claim notes + expiration reclamation** to the deduplication gates in `recipes.vigil` (cross-process claim ownership across multiple backends), and expand each round’s waiting phase from “respond to comments only” to “respond to comments (poll_comments) + advance merging (merge_pr),” completing the full **discovery → solution → response → merge** loop.
+- **Full CLI rewiring (T4)**: Rewire nine commands to `recipes.*`, delete the `_orchestrator_for` factory and the `messages.Messages` import, and consolidate old and new command names (`vigil-new` → `vigil`, with `poll-comments` incorporated into the comment phase of `poll`).
+- **Clear out the flat layer (T5)**: Upgrade utils from thin re-exports to physically relocated implementations (including workspace and the note family), move the `Fleet` supervisor into `utils.fleet`, then **delete the entire old flat module layer**—orchestration/judgment modules (orchestrator/messages/vigil/reviewer/align/issuecheck/backfill/agentcontext/executor/conflict/conflictdiag) + primitive files absorbed by utils (github/config/envcheck/hold/skip/release/results/identity/fleet/fleet_config/blocknote/replynote/worknote/workspace). Reduce the flat layer to just `cli.py` + `__init__.py` + `state.py` (`state.py` remains temporarily because state has not yet been unified; its deletion will be covered by a separate Spec-0063 for state unification).
+- **Test and documentation consolidation (T6)**: Delete/migrate ~29 test scaffolds that directly test old modules, invalidate old specs, and regenerate OVERVIEW/ARCHITECTURE.
 
 ## Reference-level explanation
 
-**分界线判定（与前两批一致）**：留 recipe/gates 的都是「读客观事实」——可合并性（GitHub 给的 mergeable 位）、CI 结论（check 的 conclusion）、e2e 证据戳（head_sha 匹配否）、hold/skip 命中（配置里有没有）、复活窗口（closed_at 比不比阈值新）、认领便签存在性与过期（时间戳比阈值）。下放 agent 的都是「主观判断」——RFC 正文写什么、这版代码/RFC 能不能过评审、评论想要什么、冲突怎么 rebase。
+**Boundary classification (consistent with the previous two batches)**: Everything retained in recipes/gates “reads objective facts”—mergeability (the mergeable flag provided by GitHub), CI conclusions (a check’s conclusion), e2e evidence stamps (whether head_sha matches), hold/skip matches (whether present in configuration), the revival window (whether closed_at is newer than the threshold), and claim-note existence and expiration (timestamps compared against a threshold). Everything delegated to agents involves “subjective judgment”—what to write in the RFC body, whether this version of the code/RFC can pass review, what a comment is asking for, and how to resolve conflicts through rebase.
 
-**Task DAG + 文件分配**（`files` 全组两两不相交——协同模式无冲突的根，理念 6）：
+**Task DAG + file allocation** (`files` are pairwise disjoint across the entire group—the foundation of conflict-free collaboration, principle 6):
 
-| Task | depends-on | 拥有的 files | 交付 |
+| Task | depends-on | Owned files | Deliverable |
 |------|-----------|-------------|------|
-| **T1** | — | `recipes/rfc_lifecycle.py`, `agents/drafter.py`, `tests/test_recipe_rfc_lifecycle.py`, `tests/test_agents_drafter.py` | RFC 生命周期五 recipe + drafter（additive） |
-| **T2** | — | `recipes/merge_pr.py`, `runtime/gates.py`, `tests/test_recipe_merge_pr.py` | 合并流水线 recipe + gates（additive） |
-| **T3** | T1, T2 | `recipes/vigil.py`, `recipes/poll_comments.py`, `tests/test_recipe_vigil.py`, `tests/test_recipe_poll_comments.py` | vigil 认领回收 + 守候段接 merge_pr |
-| **T4** | T1, T2, T3 | `cli.py`, `tests/test_cli_new_stack.py` | 九命令全量改接新栈、删旧路由 |
-| **T5** | T4 | `utils/{identity,release,notes,hold,skip,results,config,envcheck,fleet_config,fleet,workspace}.py` | 物理搬迁 + 清空整个 flat 层（仅剩 cli/__init__/state） |
-| **T6** | T5 | `tests/test_{orchestrator,messages,vigil,fleet,align,issuecheck}.py` | 测试收敛 + 作废旧 spec + docs 再生成 |
+| **T1** | — | `recipes/rfc_lifecycle.py`, `agents/drafter.py`, `tests/test_recipe_rfc_lifecycle.py`, `tests/test_agents_drafter.py` | Five RFC lifecycle recipes + drafter (additive) |
+| **T2** | — | `recipes/merge_pr.py`, `runtime/gates.py`, `tests/test_recipe_merge_pr.py` | Merge pipeline recipe + gates (additive) |
+| **T3** | T1, T2 | `recipes/vigil.py`, `recipes/poll_comments.py`, `tests/test_recipe_vigil.py`, `tests/test_recipe_poll_comments.py` | Vigil claim reclamation + merge_pr wired into the waiting phase |
+| **T4** | T1, T2, T3 | `cli.py`, `tests/test_cli_new_stack.py` | All nine commands rewired to the new stack; old routing removed |
+| **T5** | T4 | `utils/{identity,release,notes,hold,skip,results,config,envcheck,fleet_config,fleet,workspace}.py` | Physical relocation + clearing out the entire flat layer (only cli/__init__/state remain) |
+| **T6** | T5 | `tests/test_{orchestrator,messages,vigil,fleet,align,issuecheck}.py` | Test consolidation + invalidation of old specs + docs regeneration |
 
-DAG 形状：T1 ∥ T2 无依赖可并行 → T3 汇合 → T4 改接 → T5 删旧 → T6 收敛。additive 的 T1/T2 先行且 hermetic 可测（假 backend 喂 canned 裁决，不触真实 LLM/网络/仓库），destructive 的 T4→T5→T6 严格串行，且每步跑全量 pytest + ruff 作硬闸，任一红即停不推进。
+DAG shape: T1 ∥ T2 have no dependencies and can run in parallel → T3 joins them → T4 rewires → T5 removes the old stack → T6 consolidates. Additive T1/T2 go first and can be tested hermetically (a fake backend supplies canned decisions, without touching real LLMs/networks/repositories); destructive T4 → T5 → T6 run strictly in sequence, with the full pytest suite + ruff as hard gates at every step. Any failure stops progression.
 
-**e2e 脚本**：`scripts/e2e-spec-0062-converge.sh`——ruff check + ruff format --check + 针对性 pytest（五 RFC recipe 路由 / merge_pr 全 reason 路由 / vigil 认领回收 / CLI 九命令转发）+ grep 锚点（drafter 零 def/subprocess；`grep -r 'openagents.orchestrator|messages|align|issuecheck'` 全库零命中，证明删旧彻底）。形态为纯后端编排、无 product-facing 前端，故不设浏览器 e2e，沿用前两批的离线确定性测法。
+**e2e script**: `scripts/e2e-spec-0062-converge.sh`—ruff check + ruff format --check + targeted pytest (routing for the five RFC recipes / routing for every merge_pr reason / Vigil claim reclamation / forwarding for the nine CLI commands) + grep anchors (drafter has zero def/subprocess; `grep -r 'openagents.orchestrator|messages|align|issuecheck'` yields zero matches across the repository, proving complete removal of the old stack). This is pure backend orchestration with no product-facing frontend, so no browser e2e is specified; it follows the offline deterministic testing approach of the previous two batches.
 
-**接线单一点**：沿用 Spec-0061 的 `cli._new_vigil_for(ctx)` 一次构造 backend/RuntimeState/agent_id 的模式，T4 把 RFC 生命周期与 merge_pr 的工厂也收进单一接线点，保证同进程 backend/state/身份一致。
+**Single wiring point**: Retain Spec-0061’s `cli._new_vigil_for(ctx)` pattern of constructing backend/RuntimeState/agent_id once. T4 also brings the RFC lifecycle and merge_pr factories into this single wiring point, ensuring consistent backend/state/identity within a process.
 
 ## Drawbacks
 
-- **单批体量大、review 面宽**：一次改动跨 recipe 新增 + CLI 重接 + 删六模块 + 重写 ~29 测试，是本项目迄今最大的单批。缓解：DAG 把 additive（T1/T2）与 destructive（T4-T6）严格分层，每层全量 pytest+ruff 硬闸，且删旧只在 CLI 已全量改接（无人再 import 旧模块）后发生。
-- **失去两栈并存的回退安全**：前两批 additive 保留旧栈作后备，本批删掉后无同进程回退，只能靠 git revert。缓解：删旧是最后一步且前置了「grep 零 import 旧模块」硬证据。
-- **`messages.poll` 的部分历史语义可能在重立中漏迁**：964 行状态机含多个 Spec（0020 hold/0021 review-invalid/0031 merge-retry/0040 e2e/0042 reopened/0054 skip）叠加的分支。缓解：T2 以旧 poll 的 reason 集合为验收清单，逐 reason 建 hermetic 测试。
-- **`drafter` 单 agent 承载五种起草判断**：RFC 起草/反推/精炼/实现/迭代的提示词差异大。缓解：drafter 用同一 Template 骨架 + 按 recipe 传入的 `mode` 占位符分化，仍零控制流。
+- **Large single batch and broad review surface**: One change spans new recipes + CLI rewiring + deletion of six modules + rewriting ~29 tests, making this the project’s largest single batch to date. Mitigation: the DAG strictly separates additive work (T1/T2) from destructive work (T4–T6), with the full pytest suite + ruff as hard gates at each layer; deletion of the old stack occurs only after the CLI has been fully rewired (nothing imports the old modules anymore).
+- **Loss of the fallback safety provided by two coexisting stacks**: The previous two additive batches retained the old stack as a fallback. Once this batch deletes it, no in-process fallback remains; recovery requires git revert. Mitigation: deletion of the old stack is the final step and requires prior hard evidence of “zero imports of old modules in grep.”
+- **Some historical semantics of `messages.poll` may be missed during reestablishment**: The 964-line state machine contains branches accumulated across multiple Specs (0020 hold/0021 review-invalid/0031 merge-retry/0040 e2e/0042 reopened/0054 skip). Mitigation: T2 uses the old poll’s set of reasons as the acceptance criteria checklist, building hermetic tests for each reason.
+- **A single `drafter` agent handles five kinds of drafting judgment**: The prompts for RFC drafting/reverse inference/refinement/implementation/iteration differ substantially. Mitigation: drafter uses the same Template skeleton + differentiation through a `mode` placeholder supplied by each recipe, still with zero control flow.
 
 ## Rationale and alternatives
 
-- **备选 A：继续分批（本批只做 merge_pr，RFC 生命周期留下批）**。是前两批的既定节奏，风险最低。**否决**：用户明确要求不再分批、一波做完；且两栈并存每多存在一批就多一批认知负担与 import 间接层。
-- **备选 B：merge_pr 逐字移植 messages.poll 的 964 行状态机**。省重立成本。**否决**：违背重构目的（判断与机械仍糅在一起），把旧栈历史包袱整体搬进新栈。选择按分界线重立，deterministic 闸留 recipe、评审判断走 reviewer。
-- **备选 C：utils 保持薄再导出、不物理搬迁，只删 orchestrator/messages**。删得更少、更安全。**否决**：薄再导出让 import 面比实现面多一跳，且 identity/fleet_config 等实现仍在「已宣告作废」的旧文件里，收敛不彻底。选择物理搬迁到 utils 作为实现唯一归属。
-- **备选 D：drafter 判断写死在 recipe（不派 agent）**。省一个 agent。**否决**：则 RFC 起草单测必触真 LLM，且违分界线。选择下放 agent + recipe 注入 mode。
+- **Alternative A: Continue in batches (implement only merge_pr in this batch and leave the RFC lifecycle for the next batch)**. This follows the established cadence of the first two batches and carries the lowest risk. **Rejected**: The user explicitly requested completing everything in one pass, with no further batching; each additional batch in which the two stacks coexist adds another batch’s worth of cognitive overhead and import indirection.
+- **Alternative B: Port the 964-line state machine from messages.poll to merge_pr verbatim**. This saves the cost of rebuilding it. **Rejected**: It defeats the purpose of the refactor (judgment and mechanics remain intertwined) and transfers the old stack’s historical baggage wholesale into the new stack. The chosen approach is to rebuild along the layer boundaries, keeping deterministic gates in the recipe and routing review judgments through the reviewer.
+- **Alternative C: Keep utils as thin re-exports without physically moving implementations, and delete only orchestrator/messages**. This deletes less code and is safer. **Rejected**: Thin re-exports add an extra hop between the import surface and the implementation surface, while implementations such as identity/fleet_config remain in old files that have already been declared obsolete, leaving the consolidation incomplete. The chosen approach is to physically move the implementations into utils as their sole home.
+- **Alternative D: Hard-code drafter judgments in the recipe (without dispatching an agent)**. This saves one agent. **Rejected**: RFC drafting unit tests would then necessarily invoke a real LLM, and this would violate the layer boundaries. The chosen approach is to delegate to an agent and have the recipe inject the mode.
 
 ## Prior art
 
-- **Spec-0060（批次一）**：确立四层分界线与 `solve_issue`/`engine`/`gates`/`Context`/`RuntimeState`；本批的 recipe/agent/gates 骨架直接承接。
-- **Spec-0061（批次二）**：立起 `vigil`/`poll_comments`/`fleet` recipe 与 `triager`/`replier` agent、utils 稳定面、`cli._new_vigil_for` 单一接线点；本批 T3 在其 vigil 上补认领回收、T4 沿用其接线模式、T5 把其薄再导出升级为物理搬迁。
-- **旧 `orchestrator.py`（RFC-0001/0005/0011/0019/Spec-0020/0025）**：RFC 生命周期五入口 + `precheck_issue`/`review_rfc`/`review_code`/`run_e2e` 的既有实现，是 T1 重立的行为基准。
-- **旧 `messages.py`（RFC-0001/0012、Spec-0020/0021/0031/0040/0042/0054）**：poll 阶段状态机的 reason 集合与 hold/skip/revive 语义，是 T2 重立的验收清单。
-- **旧 `vigil.py`（RFC-0004/0007、Spec-0039/0049）**：署名认领便签 + 过期回收，是 T3 补给 `recipes.vigil` 的行为基准。
+- **Spec-0060 (batch one)**: Established the four-layer boundaries and `solve_issue`/`engine`/`gates`/`Context`/`RuntimeState`; this batch directly builds on its recipe/agent/gates skeleton.
+- **Spec-0061 (batch two)**: Established the `vigil`/`poll_comments`/`fleet` recipes and `triager`/`replier` agents, the stable utils surface, and `cli._new_vigil_for` as the single wiring point; T3 in this batch adds claim reclamation to its Vigil, T4 follows its wiring pattern, and T5 upgrades its thin re-exports to physical relocation.
+- **Old `orchestrator.py` (RFC-0001/0005/0011/0019/Spec-0020/0025)**: Its existing implementations of the five RFC lifecycle entry points plus `precheck_issue`/`review_rfc`/`review_code`/`run_e2e` are the behavioral baseline for the T1 rebuild.
+- **Old `messages.py` (RFC-0001/0012, Spec-0020/0021/0031/0040/0042/0054)**: The set of reasons and the hold/skip/revive semantics in its poll-stage state machine form the acceptance checklist for the T2 rebuild.
+- **Old `vigil.py` (RFC-0004/0007, Spec-0039/0049)**: Signed claim notes and expiration-based reclamation are the behavioral baseline for the additions to `recipes.vigil` in T3.
 
 ## Unresolved questions
 
-- **`drafter` 五 mode 是否需拆成多 agent**：本批先用单 agent + mode 占位符；若某 mode 的提示词膨胀到互相干扰，后续可拆。是否拆、按什么信号拆，实现 T1 时据提示词实际复杂度定。
-- **新旧两套 state（`runtime-state.json` vs `state.json`）最终归一形态**：本批 T5 物理搬迁 utils，但 state 归一（择一还是合并 schema）牵涉数据迁移，是否纳入本批 T5 还是紧随其后单开一批，需用户确认（见下方澄清）。
-- **`replier` 深度改代码仍未闭合**：本批 merge_pr 闭合「合并推进」，但 replier「据评论真改代码并 push」仍需 PR worktree（承 Spec-0061 同一 Unresolved），本批不含。
+- **Whether the five `drafter` modes need to be split into multiple agents**: This batch initially uses a single agent + mode placeholder; if the prompts for any mode grow to the point that they interfere with one another, they can be split later. Whether to split them, and what signals should trigger a split, will be determined during T1 implementation based on the actual prompt complexity.
+- **The eventual unified form of the two state systems (`runtime-state.json` vs `state.json`)**: T5 in this batch physically relocates utils, but state unification (choosing one or merging the schemas) involves data migration. Whether to include it in this batch’s T5 or create a separate batch immediately afterward requires user confirmation (see the clarification below).
+- **Deeper code changes by `replier` remain unresolved**: This batch’s merge_pr completes the “advance the merge” workflow, but having replier “actually change code based on comments and push” still requires a PR worktree (carrying forward the same Unresolved item from Spec-0061) and is outside this batch’s scope.
 
 ## Future possibilities
 
-- **state 归一**：把 `runtime-state.json` 与 `state.json` 合并为单一 runtime 状态源，彻底消除双 state。
-- **replier 升级为「据评论迭代交付」**：接 PR worktree 后复用 `solve_issue` 的 deliver + head 前移硬闸。
-- **recipe 层沉淀通用编排原语**：五 RFC recipe + merge_pr + vigil 若出现重复的「派 agent→按裁决路由→utils 兜底」骨架，可抽成 runtime 层的 recipe 组合子。
-
+- **State unification**: Merge `runtime-state.json` and `state.json` into a single runtime state source, completely eliminating dual state.
+- **Upgrade replier to “deliver iteratively based on comments”**: After connecting a PR worktree, reuse deliver from `solve_issue` + the hard gate requiring head to advance.
+- **Develop common orchestration primitives in the recipe layer**: If the five RFC recipes + merge_pr + Vigil exhibit a repeated “dispatch agent → route according to the verdict → fall back to utils” skeleton, it can be extracted into recipe combinators at the runtime layer.

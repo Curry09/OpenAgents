@@ -1,12 +1,12 @@
 ---
 number: "0043"
-title: issue 进入 RFC 前自检标题/正文是否影响修法：命中冲突先打 needs-human 对齐、不直接生成 spec
+title: "Before an issue enters RFC, self-check its title/body for conflicts that affect the fix approach: if a conflict is detected, first apply needs-human for alignment; do not generate a spec directly"
 issue: 111
 slug: issue-conflict-precheck
-summary: 在 vigil 发现段派单 start_rfc 之前插一道 issuecheck 轻量自检：用注入 backend 判读 issue 标题/正文是否存在「会直接影响修法」的内在冲突（标题修法≠正文修法、根因≠修法、互斥修法未取舍、修 A 报 B、已知取舍未声明）；命中则不起草 spec，改为打 needs-human + 贴一条列出冲突点与候选修法的对齐评论，等人对齐；未命中照常派单。以 needs-human 标签为持久冻结信号（_dispatch_kind 跳过），使同一 issue 的非确定判读只跑一次、不复审震荡。
+summary: "Insert a lightweight issuecheck self-check before dispatching start_rfc in the Vigil discovery phase: use an injected backend to assess whether the issue title/body contains internal conflicts that would directly affect the fix approach (the title's fix approach ≠ the body's fix approach, root cause ≠ fix approach, mutually exclusive fix approaches with no choice made, fixing A while reporting B, known tradeoffs left unstated). If a conflict is detected, do not draft a spec; instead, apply needs-human and post an alignment comment listing the conflicts and candidate fixes, then wait for human alignment. If no conflict is detected, dispatch as usual. Use the needs-human label as a persistent freeze signal (_dispatch_kind skips it), so that the nondeterministic assessment runs only once for the same issue, without oscillation from repeated reviews."
 tasks:
   - id: T1
-    title: issue 级评论出口 github.issue_comment
+    title: "Issue-level comment interface github.issue_comment"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github_issue_comment.py
-    scope: 在 github.py 加对称的 issue 级评论出口 issue_comment(*, number, body)——走 `gh issue comment <number> --body <body>`，与既有 issue_add_label/issue_remove_label/issue_stamp_label 的 issue 级操作族并列（现有 post_comment 走 gh pr comment，PR 专用，无 PR 的 issue 用不了）。不改 post_comment、不改任何既有函数。
-    acceptance: issue_comment(number=N, body=B) 调 `gh issue comment N --body B`（monkeypatch _run_gh 断言参数）；gh 失败照抛 GithubError；既有 post_comment 及其它 github 函数逐字节不变（零回归）；ruff+pytest 全绿。
+    scope: "Add a symmetric issue-level comment interface issue_comment(*, number, body) in github.py—using `gh issue comment <number> --body <body>`—alongside the existing issue-level operation family issue_add_label/issue_remove_label/issue_stamp_label (the existing post_comment uses gh pr comment, is PR-only, and cannot be used for an issue without a PR). Do not change post_comment or any existing functions."
+    acceptance: "issue_comment(number=N, body=B) calls `gh issue comment N --body B` (monkeypatch _run_gh to assert the arguments); gh failures propagate as GithubError; the existing post_comment and other github functions remain byte-for-byte unchanged (zero regressions); ruff+pytest all pass."
   - id: T2
-    title: issuecheck 判读模块（裁决 + 对齐评论渲染）
+    title: "issuecheck assessment module (verdict + alignment comment rendering)"
     status: done
     priority: P0
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/issuecheck.py
       - tests/test_issuecheck.py
-    scope: '新建纯逻辑模块 issuecheck.py（镜像 align.py 形态、无 IO、backend 注入）：IssueDraft(title,body) 冻结 dataclass；check(*, draft, backend)->ConflictVerdict 用内嵌 issue #111 五类冲突+『不吹毛求疵』边界的 _CHECK_TASK 调 backend.run、按稳定标记回解析；ConflictVerdict(has_conflict, conflicts, candidate_fixes) 冻结 dataclass；build_alignment_comment(*, verdict)->str 渲染结构化对齐评论正文（无签名）；解析容错 fail-open（无法解析出明确冲突→has_conflict=False 放行）。'
-    acceptance: '喂 #106 标题/正文样本 + 返回『冲突：是』+两条冲突点/候选修法的 backend 桩 → check 返回 has_conflict=True 且 conflicts/candidate_fixes 含两个修法方向；返回『冲突：否』或空/格式跑偏的桩 → has_conflict=False（fail-open 放行）；build_alignment_comment 产出含冲突点列表+候选修法取舍+『已打 needs-human 请对齐后摘标签』指引、不含 PR 失败文案；模块不做任何 IO（不 import github/argparse）；ruff+pytest 全绿。'
+    scope: "Create a pure-logic module issuecheck.py (mirroring the structure of align.py, with no IO and an injected backend): IssueDraft(title,body) is a frozen dataclass; check(*, draft, backend)->ConflictVerdict calls backend.run using _CHECK_TASK, which embeds the five conflict categories from issue #111 and the boundary against nitpicking, and parses the response using stable markers; ConflictVerdict(has_conflict, conflicts, candidate_fixes) is a frozen dataclass; build_alignment_comment(*, verdict)->str renders the structured alignment comment body (without a signature); parsing is tolerant and fail-open (if an explicit conflict cannot be parsed → has_conflict=False, allowing it through)."
+    acceptance: "Feed in the #106 title/body sample and a backend stub returning 'Conflict: yes' plus two conflict points/candidate fixes → check returns has_conflict=True, and conflicts/candidate_fixes contain both fix directions; a stub returning 'Conflict: no', an empty response, or a response with an unexpected format → has_conflict=False (fail-open, allowing it through); build_alignment_comment produces a conflict list, candidate-fix tradeoffs, and guidance saying 'needs-human has been applied; please align and then remove the label', with no PR failure wording; the module performs no IO (does not import github/argparse); ruff+pytest all pass."
   - id: T3
-    title: precheck 接线（orchestrator 前置 + vigil 发现段闸）
+    title: "precheck wiring (orchestrator precheck + Vigil discovery-phase gate)"
     status: done
     priority: P0
     tags: []
@@ -46,10 +46,10 @@ tasks:
       - openagents/vigil.py
       - tests/test_orchestrator_precheck.py
       - tests/test_vigil_precheck_gate.py
-    scope: orchestrator 加 precheck_issue(*, issue_number)->bool：拉 issue→issuecheck.check(backend=self._backend)；命中冲突则 github.issue_comment(署名 via identity.sign)+github.issue_add_label(BLOCKED_LABEL) 并返回 True，否则 False（判读在建 worktree/begin_run/认领之前）。vigil.discover_and_dispatch 在 fresh 分支 start_rfc 之前调 precheck_issue，返回 True 则 continue 不派单（纳入既有 per-issue except 隔离）；_dispatch_kind 在 record is None 分支加一闸：BLOCKED_LABEL in issue.labels → 返回 None（不重跑判读）。不改 _DRAFT_RFC_TASK、不加 state 字段。
-    acceptance: precheck_issue 对冲突 issue：调 issue_comment 恰一次(署名)+issue_add_label(needs-human)、返回 True、全程未建 worktree/begin_run；对自洽 issue：返回 False、无评论无标签。vigil：冲突 issue 一轮后 start_rfc 未被调、带 needs-human；带 needs-human 的 issue 经 _dispatch_kind 返回 None 且 precheck 不被调（判读只跑一次）；自洽 issue 正常 start_rfc(零回归)；摘掉 needs-human 后重判为 fresh。ruff+pytest 全绿。
+    scope: "Add precheck_issue(*, issue_number)->bool to orchestrator: fetch the issue → issuecheck.check(backend=self._backend); if a conflict is detected, call github.issue_comment (signed via identity.sign) + github.issue_add_label(BLOCKED_LABEL) and return True; otherwise return False (assessment occurs before creating a worktree/begin_run/claim). In vigil.discover_and_dispatch, call precheck_issue before start_rfc in the fresh branch; if it returns True, continue without dispatching (covered by the existing per-issue except isolation). Add a gate to the record is None branch in _dispatch_kind: BLOCKED_LABEL in issue.labels → return None (do not rerun the assessment). Do not change _DRAFT_RFC_TASK or add state fields."
+    acceptance: "For an issue with conflicts, precheck_issue calls issue_comment exactly once (signed) + issue_add_label(needs-human), returns True, and never creates a worktree or calls begin_run; for a self-consistent issue, it returns False, with no comment or label. Vigil: after one round for an issue with conflicts, start_rfc has not been called and the issue has needs-human; an issue with needs-human gets None from _dispatch_kind, and precheck is not called (assessment runs only once); a self-consistent issue proceeds to start_rfc normally (zero regressions); after needs-human is removed, the issue is classified as fresh again. ruff+pytest all pass."
   - id: T4
-    title: 端到端成果测试（#106 回归 + 浏览器对齐评论断言）
+    title: "End-to-end outcome tests (#106 regression + browser assertions for the alignment comment)"
     status: done
     priority: P1
     tags: []
@@ -60,106 +60,107 @@ tasks:
     files:
       - scripts/e2e-spec-0043-issue-conflict-precheck.sh
       - tests/test_issue_precheck_integration.py
-    scope: 'e2e 脚本沿用两段式（默认离线确定性；OPENAGENTS_E2E_REAL=1 追加真实冒烟）。集成用例以 #106 真实标题/正文为回归样例：构造 Vigil+backend 桩，一轮 discover_and_dispatch 断言冲突识别+冻结（start_rfc 未调/needs-human/恰一条对齐评论含两个修法方向）；二轮断言 needs-human 在场→_dispatch_kind None、判读未再调、无新评论（反震荡）；自洽 issue 放行断言；摘标签解冻断言。浏览器(Playwright/chrome-devtools MCP)把 build_alignment_comment 真实正文渲染成静态 HTML、navigate+snapshot+截图断言两个修法方向/候选修法/needs-human 建议可见、console/network 无报错；无浏览器降级为 HTML 文本断言(不跳过)。'
-    acceptance: 脚本离线段跑通并断言：#106 样本→冲突识别+冻结(start_rfc 未调、needs-human、恰一条含两方向的对齐评论)；二轮 reviewer/判读桩调用次数不变、无新评论(反震荡铁证)；自洽 issue 正常派单(零回归)；摘标签重判为 fresh；浏览器导航对齐评论 HTML 断言两个修法方向+候选修法+needs-human 建议可见、console/network 无报错(无浏览器降级 HTML 文本断言、不跳过)；脚本被 PR 指路牌拾取；ruff+pytest 全绿。
+    scope: "The e2e script retains the two-phase structure (deterministic offline execution by default; OPENAGENTS_E2E_REAL=1 adds a real smoke test). The integration case uses the actual #106 title/body as a regression sample: construct Vigil+backend stubs, and after one discover_and_dispatch round assert conflict detection + freezing (start_rfc not called/needs-human/exactly one alignment comment containing both fix directions); in the second round, assert that needs-human is present → _dispatch_kind None, assessment is not called again, and no new comment is posted (preventing oscillation); assert that a self-consistent issue is allowed through; assert unfreezing after label removal. In a browser (Playwright/chrome-devtools MCP), render the actual body from build_alignment_comment as static HTML, then use navigate+snapshot+screenshots to assert that both fix directions/candidate fixes/needs-human guidance are visible and that console/network have no errors; if no browser is available, fall back to HTML text assertions (do not skip)."
+    acceptance: "The script's offline phase runs successfully and asserts: #106 sample → conflict detection + freezing (start_rfc not called, needs-human, exactly one alignment comment containing both directions); in the second round, reviewer/assessment stub call counts remain unchanged, with no new comment (conclusive evidence against oscillation); a self-consistent issue is dispatched normally (zero regressions); removing the label causes reclassification as fresh; browser navigation to the alignment comment HTML asserts that both fix directions + candidate fixes + needs-human guidance are visible, with no console/network errors (if no browser is available, fall back to HTML text assertions; do not skip); the script is picked up by the PR signpost; ruff+pytest all pass."
 ---
 
-# 0043 · issue 进入 RFC 前自检标题/正文是否影响修法：命中冲突先打 needs-human 对齐、不直接生成 spec
+# 0043 · Check whether an issue's title/body affects the fix approach before it enters RFC: flag conflicts with needs-human for alignment first; do not generate a spec directly
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in nine rust-RFC sections. -->
 
 ## Summary
 
-在 vigil 守夜人的**发现段**（`openagents/vigil.py` 的 `discover_and_dispatch`）里，当一个 issue 被判为 `fresh`（无 run 记录、远端无分支、无人认领）、即将派单 `orchestrator.start_rfc` 起草 spec 之前，插入一道**轻量自检 `issuecheck`**：用注入的 `backend` 判读 issue 的**标题与正文**是否存在「**会直接影响修法方向**」的内在逻辑冲突——典型五类：①标题主张的修法 ≠ 正文主张的修法；②根因分析 ≠ 建议修法；③两个互斥修法但 issue 未取舍；④「问题是 A、修的是 B」；⑤存在已知取舍但 issue 未声明是否接受。
+In the **discovery phase** of vigil, the Vigil agent (`discover_and_dispatch` in `openagents/vigil.py`), when an issue is classified as `fresh` (no run record, no remote branch, and no claim), insert a **lightweight self-check, `issuecheck`**, before dispatching `orchestrator.start_rfc` to draft a spec: use the injected `backend` to judge whether the issue's **title and body** contain internal logical conflicts that **would directly affect the direction of the fix**—five typical categories: ① the fix advocated by the title ≠ the fix advocated by the body; ② root-cause analysis ≠ proposed fix; ③ two mutually exclusive fixes with no choice made in the issue; ④ “the problem is A, but the fix addresses B”; ⑤ a known tradeoff exists, but the issue does not state whether it is accepted.
 
-- **命中冲突** → **不起草 spec**：改为给 issue 打 `needs-human` 标签、贴一条署名的「对齐评论」（列出冲突点 + 候选修法，请人取舍），本轮跳过派单。`needs-human` 标签成为该 issue 的**持久冻结信号**：`_dispatch_kind` 见到它即返回 `None`，后续轮次**不再重跑这道非确定判读**（同一 issue 只判一次，不复审震荡），直到人对齐后摘掉标签。
-- **未命中冲突** → 照常 `start_rfc` 派单，行为逐字节不变。
+- **Conflict detected** → **do not draft a spec**: instead, add the `needs-human` label to the issue and post a signed “alignment comment” (listing the conflicts + candidate fixes and asking a human to choose); skip dispatch for this round. The `needs-human` label becomes a **persistent freeze signal** for this issue: `_dispatch_kind` returns `None` upon seeing it, and subsequent rounds **do not rerun this nondeterministic judgment** (judge the same issue only once, avoiding oscillation from repeated review), until a human resolves the ambiguity and removes the label.
+- **No conflict detected** → dispatch `start_rfc` as usual, with behavior unchanged byte for byte.
 
-新增一个纯逻辑模块 `openagents/issuecheck.py`（判读 + 结构化裁决 + 渲染对齐评论，无 IO，backend 注入、打桩可测），一个 issue 级评论出口 `github.issue_comment`（无 PR 的 issue 也能被贴评论），以及 orchestrator 的一个前置方法 `precheck_issue` 与 vigil 发现段的两处接线（派单前调 precheck、`_dispatch_kind` 跳过 `needs-human` issue）。
+Add a pure-logic module, `openagents/issuecheck.py` (judgment + structured verdict + alignment-comment rendering, no IO, backend injection, testable with stubs), an issue-level comment interface, `github.issue_comment` (allowing comments on issues without PRs as well), an orchestrator preflight method, `precheck_issue`, and two integration points in vigil's discovery phase (call precheck before dispatch; have `_dispatch_kind` skip issues labeled `needs-human`).
 
 ## Motivation
 
-**现状（就地复述，无需外读）。** OpenAgents 是 RFC/spec 驱动的多 Agent 框架。`vigil`（守夜人，`openagents/vigil.py`）是薄调度循环：每轮 `_run_one_round` 先跑**发现段** `discover_and_dispatch`，再 `messages.poll` 推进已开 PR。发现段（`vigil.py:105-130`）对每个带约定标签的 open issue 调 `_dispatch_kind` 归类：
+**Current state (restated here; no external reading required).** OpenAgents is an RFC/spec-driven multi-Agent framework. `vigil` (the Vigil agent, `openagents/vigil.py`) is a thin scheduling loop: each round, `_run_one_round` first runs the **discovery phase**, `discover_and_dispatch`, then calls `messages.poll` to advance already-open PRs. The discovery phase (`vigil.py:105-130`) calls `_dispatch_kind` to classify each open issue carrying the agreed label:
 
-- `"fresh"` → `orchestrator.start_rfc(resume=False)`：无 run 记录、远端无分支、无人认领 → 建全新隔离 worktree、`begin_run`、认领打标，然后**直接调 `backend.run` 起草 spec**、提交推送、开 draft PR。
-- `"resume"` → `start_rfc(resume=True)`：solving/pr=0 的孤儿 run，复用残留 worktree 续跑。
-- `None` → 跳过（已在途 / 已完成 / 已被别的后端认领未过期），交 poll 推进。
+- `"fresh"` → `orchestrator.start_rfc(resume=False)`: no run record, no remote branch, and no claim → create a new isolated worktree, call `begin_run`, claim and label the issue, then **directly call `backend.run` to draft a spec**, commit and push, and open a draft PR.
+- `"resume"` → `start_rfc(resume=True)`: an orphaned run with solving/pr=0; reuse the remaining worktree to resume.
+- `None` → skip (already in progress / completed / claimed by another backend with an unexpired claim), leaving poll to advance it.
 
-起草 spec 的 prompt（`orchestrator.py` 的 `_DRAFT_RFC_TASK`）是：「为 issue #{number}「{title}」起草一份 spec……」——**它把 issue 的标题当作 spec 标题的种子、把正文当作需求全文喂给后端**。也就是说，一旦落到 `fresh` 分支，issue 就被当成**已澄清的明确需求**，直接进入 spec 草稿生成与实现，中间没有任何「这个 issue 本身是否自洽」的检查。
+The spec-drafting prompt (`_DRAFT_RFC_TASK` in `orchestrator.py`) says: “Draft a spec for issue #{number}, ‘{title}’…”—**it uses the issue title as the seed for the spec title and feeds the body to the backend as the complete requirements**. In other words, once an issue reaches the `fresh` branch, it is treated as **a clear requirement that has already been clarified**, proceeding directly to spec drafting and implementation without any check of “whether this issue is internally consistent.”
 
-**为什么要改——issue 本身可能内在冲突，直接起草会把错误方向固化。** issue #111 的动机来自一个真实事故（issue #106 → PR #107，见下「铁证」）：**issue 的标题与正文主张了两个语义不同的修法**，agent 若按标题起草，会做出与正文（和最终实现）南辕北辙的 spec。这不是文案洁癖——它会**直接**污染下游一整条链：spec 标题 → 任务拆解 → 实现文件 → 验收标准 → 后续 reviewer 对 PR 的理解。人在整个自动流水线里唯一的真实检查点是**审 PR**（代码全写完才暴露方向错，是最贵的纠错点）；若 issue 一进门方向就错，纠错成本被推到最远。
+**Why this must change—an issue can contain internal conflicts, and drafting directly can lock in the wrong direction.** Issue #111 was motivated by a real incident (issue #106 → PR #107; see “Hard evidence” below): **the issue's title and body advocated two semantically different fixes**. If the agent drafted according to the title, it would produce a spec that diverged completely from the body (and the eventual implementation). This is not editorial fastidiousness—it would **directly** contaminate the entire downstream chain: spec title → task breakdown → implementation files → acceptance criteria → subsequent reviewers' understanding of the PR. The only real human checkpoint in the entire automated pipeline is **PR review** (discovering that the direction is wrong only after all the code has been written is the most expensive correction point); if an issue starts out in the wrong direction, the cost of correction is pushed to the farthest end.
 
-**铁证（issue #106，本仓库已落地的 Spec-0041 复盘，理念 7 证据驱动）。** #106 的：
+**Hard evidence (issue #106, a retrospective on Spec-0041 already implemented in this repository; principle 7: evidence-driven).** For #106:
 
-- **标题**：`已 PASS 的 PR 被反复重审：评审结论应按 commit sha 缓存，避免同码 PASS/REWORK 震荡`
-- **正文主修**：`hold-merge 后已 PASS 的 PR 仍被反复重审，应冻结成 needs-human，避免继续重跑 reviewer`
+- **Title**: `PRs that have already PASSed are repeatedly reviewed: review conclusions should be cached by commit sha to avoid PASS/REWORK oscillation for the same code`
+- **Primary fix in the body**: `PRs that have already PASSed are still repeatedly reviewed after hold-merge; freeze them as needs-human to avoid continuing to rerun the reviewer`
 
-这是两个能缓解同一现象、但实现语义**不同**的修法：
+These are two fixes that can alleviate the same symptom but have **different** implementation semantics:
 
-1. **按 commit sha 缓存评审结论**（标题）：PR 留在活跃 poll 循环里，但同一 commit 已 PASS 后复用 PASS，避免重复调 reviewer。要新增持久化字段 `reviewed_sha`、定义缓存失效（新 commit / rebase / force-push / base 前进）。
-2. **hold-merge 冻结 PR**（正文）：reviewer PASS 且 `--hold merge` 时，把 PR 从活跃 poll 循环里拿出来（置 `blocked` + `needs-human`），等人合并，poll 自动跳过、不再重审。
+1. **Cache review conclusions by commit sha** (title): keep the PR in the active poll loop, but reuse PASS once the same commit has already PASSed, avoiding repeated reviewer calls. This requires a new persistent field, `reviewed_sha`, and a definition of cache invalidation (new commit / rebase / force-push / base advancement).
+2. **Freeze the PR on hold-merge** (body): when the reviewer returns PASS and `--hold merge` is set, remove the PR from the active poll loop (set `blocked` + `needs-human`) and wait for a human to merge it; poll automatically skips it and does not review it again.
 
-最终 PR #107 走的是**第 2 个方向**（`hold-merge PASS 后夯住待合并`，即已合入的 Spec-0041）——**不是**标题写的 sha 缓存。如果当时 agent 老实按标题「按 commit sha 缓存评审结论」起草了 spec，就会产出一份标题、任务、文件、验收全指向缓存表的 RFC，与正文意图和最终实现完全错位。#106 侥幸靠人（正文作者）在正文里写清了真实意图才没翻车——但这依赖运气，不是机制。
+Ultimately, PR #107 took **the second direction** (`keep the PR frozen pending merge after hold-merge PASS`, namely the merged Spec-0041)—**not** the sha caching described in the title. If the agent had faithfully drafted a spec according to the title, “cache review conclusions by commit sha,” it would have produced an RFC whose title, tasks, files, and acceptance criteria all pointed toward a cache table, completely misaligned with the body's intent and the eventual implementation. #106 narrowly avoided failure because a human (the body author) clearly stated the actual intent in the body—but that depends on luck, not a mechanism.
 
-**根因一句话**：接到 issue 后 agent 默认把它当明确需求直接进 spec 生成；若 issue 自身存在「标题 vs 正文冲突 / 根因 vs 修法不一致 / 互斥修法未取舍」这类**会直接影响修法方向**的内在冲突，就会把错误方向固化进 spec 与实现。缺的是一道「进 RFC 前先看 issue 自不自洽、不自洽就先跟人对齐」的轻量闸。
+**Root cause in one sentence**: upon receiving an issue, the agent treats it as a clear requirement by default and proceeds directly to spec generation; if the issue itself contains internal conflicts that **directly affect the direction of the fix**, such as “title vs. body conflict / root cause vs. fix mismatch / mutually exclusive fixes without a choice,” it locks the wrong direction into the spec and implementation. What is missing is a lightweight gate: “before entering RFC, check whether the issue is internally consistent; if it is not, align with a human first.”
 
-**边界（issue #111 明确划定，本 spec 严格遵守）。** 这道闸**只抓会直接影响实现方向**的冲突（不先对齐 agent 就可能生成错误 spec / 错误实现的那种）。**不吹毛求疵**：个别措辞不统一、非关键背景略啰嗦、不影响修法的轻微歧义——一律放行，不打扰人。过度触发（false-positive）会把健康 issue 拦下、逼人白确认，比漏判更违背设计意图（理念 5：人负责宏观把控，不该被噪声淹没）。
+**Scope (explicitly defined by issue #111 and strictly followed by this spec).** This gate **only catches conflicts that directly affect implementation direction** (the kind that could cause the agent to generate the wrong spec / wrong implementation without prior alignment). **Do not nitpick**: occasional inconsistent wording, slightly verbose nonessential background, minor ambiguities that do not affect the fix—all pass without disturbing a human. Excessive triggering (false positives) would block healthy issues and force humans to provide pointless confirmations, violating the design intent more than missed conflicts would (principle 5: humans handle high-level oversight and should not be drowned in noise).
 
-**为什么必须「只判一次」——本 issue 的自指教训。** 判读用的是**非确定性 LLM**（同一段文字两轮可能给不同结论），这正是 #106/Spec-0041 里「非确定 reviewer 对同码反复翻案 → PASS/REWORK 震荡」的同款风险。若每轮 poll 都对同一个未变的 issue 重跑判读，就会自造一个 issue 级的复审震荡（这轮判冲突、下轮判无冲突、评论越贴越多）。因此本 spec 从设计上就要求：**一旦判定并冻结，就用 `needs-human` 标签把结论钉死，后续轮次不再重判**——把 Spec-0041 学到的「同码只判一次」直接内建进这道闸。
+**Why it must “judge only once”—this issue's self-referential lesson.** Judgment uses a **nondeterministic LLM** (the same text may receive different conclusions in two rounds), precisely the same risk seen in #106/Spec-0041: “a nondeterministic reviewer repeatedly reverses its judgment on the same code → PASS/REWORK oscillation.” Rerunning judgment on the same unchanged issue in every poll round would create issue-level review oscillation (conflict in one round, no conflict in the next, with comments accumulating). Therefore, this spec requires by design: **once judged and frozen, pin the conclusion with the `needs-human` label and do not judge again in subsequent rounds**—building the lesson from Spec-0041, “judge the same code only once,” directly into this gate.
 
 ## Guide-level explanation
 
-改动后，守夜人接到一个新 issue 的体验变成：
+After the change, the experience when Vigil receives a new issue becomes:
 
-- **issue 标题/正文在修法方向上自洽** → 和现在完全一样：`start_rfc` 派单起草 spec、开 draft PR。零感知、零回归。
-- **issue 标题/正文存在会直接影响修法的冲突**（如 #106 那种标题=sha 缓存、正文=hold-merge 冻结）→ 守夜人**不起草 spec**，而是：
-  1. 给该 issue 打 `needs-human` 标签；
-  2. 贴一条署名评论，形如：
+- **The issue title/body is consistent about the direction of the fix** → exactly the same as today: dispatch `start_rfc` to draft a spec and open a draft PR. No perceptible change, no regressions.
+- **The issue title/body contains a conflict that directly affects the fix** (such as #106, where title=sha caching and body=hold-merge freezing) → Vigil **does not draft a spec**, and instead:
+  1. Adds the `needs-human` label to the issue;
+  2. Posts a signed comment along these lines:
 
-     > 🔀 **这个 issue 在修法方向上可能存在内在冲突，建议先对齐再进 RFC**
+     > 🔀 **This issue may contain an internal conflict about the direction of the fix; please align before entering RFC**
      >
-     > 检测到的冲突点：
-     > - 标题主张的修法：按 commit sha 缓存评审结论；正文主张的修法：hold-merge 后把已 PASS 的 PR 冻结成 needs-human。两者语义不同（一个保留 PR 在活跃轮询里复用缓存，一个把 PR 移出活跃轮询等人合并）。
+     > Conflicts detected:
+     > - Fix advocated by the title: cache review conclusions by commit sha; fix advocated by the body: freeze PRs that have already PASSed as needs-human after hold-merge. These have different semantics (one keeps the PR in active polling and reuses the cache; the other removes the PR from active polling to wait for a human to merge it).
      >
-     > 候选修法（请取舍其一或说明合并方案）：
-     > - A. 按 commit sha 缓存评审结论；
-     > - B. hold-merge 冻结 PR。
+     > Candidate fixes (please choose one or explain how to combine them):
+     > - A. Cache review conclusions by commit sha;
+     > - B. Freeze the PR on hold-merge.
      >
-     > 我已打上 `needs-human` 暂缓自动起草。请在 issue 里确认取舍（或补充说明后摘掉 `needs-human`），我再进 RFC/spec。
+     > I have added `needs-human` to pause automatic drafting. Please confirm the choice in the issue (or provide clarification and then remove `needs-human`), and I will proceed to RFC/spec.
 
-  3. 本轮跳过派单。**下一轮起**，`_dispatch_kind` 看到该 issue 带 `needs-human` 就直接跳过——**不再重跑判读**，直到人处理。
-- **人对齐后**（在 issue 正文里澄清取舍、然后摘掉 `needs-human` 标签）→ 下一轮该 issue 又成 `fresh` → 重跑一次判读：若已自洽则正常起草，若仍冲突则再次冻结（这是人**主动触发**的一次重判，有界、可接受）。
+  3. Skips dispatch for this round. **Starting with the next round**, `_dispatch_kind` directly skips the issue when it sees `needs-human`—**without rerunning judgment**, until a human handles it.
+- **After a human resolves the ambiguity** (clarifies the choice in the issue body, then removes the `needs-human` label) → the issue becomes `fresh` again in the next round → judgment runs once more: if it is now consistent, drafting proceeds normally; if the conflict remains, it is frozen again (this is a reassessment **actively triggered** by a human, bounded and acceptable).
 
-关键：这道闸是 vigil 发现段的一层**前置薄谓词**——命中才拦，不命中完全透明。它复用既有的「issue 级打标签 / 贴评论」原语，冻结靠既有的 `needs-human` 标签语义（原本用于 PR 卡住待人），无需新状态机、无需新持久化字段。
+The key: this gate is a **thin preflight predicate** in vigil's discovery phase—it blocks only on a match and is completely transparent otherwise. It reuses the existing “issue-level labeling / commenting” primitives, and freezing relies on the existing semantics of the `needs-human` label (originally used for PRs stuck waiting for human intervention), requiring no new state machine or persistent fields.
 
-**它与「前门对齐」`align.py`（Spec-0020）的分工。** `align.py` 是**提 issue 之前**把人脑子里模糊的草稿复述成「要做 X / 边界 Y / 不做 Z」三段，让人确认后才建 issue（防的是「需求还没想清就落成 issue」）。本 spec 是**issue 已存在、进 RFC 之前**查 issue 自身是否自洽（防的是「issue 内部标题/正文互相打架」）。两者是意图层的两道相邻闸：align 管入口质量，issuecheck 管进 RFC 前的自洽性。
+**Division of responsibility with “front-door alignment,” `align.py` (Spec-0020).** `align.py` takes a vague draft from a person's mind **before an issue is filed** and restates it in three parts—“do X / boundary Y / do not do Z”—creating the issue only after human confirmation (preventing “requirements becoming an issue before they have been thought through”). This spec checks whether an issue is internally consistent **after it exists but before it enters RFC** (preventing “the title and body within an issue contradicting each other”). They are two adjacent gates at the intent level: align handles entry quality; issuecheck handles consistency before RFC.
 
-**成果可视化（理念 8）。** 这道闸的人类可见成果是**贴到 issue 上的对齐评论 + `needs-human` 标签**（GitHub 上），以及「该 issue **没有**被生成 spec / 没有开出 draft PR」这一负向事实。e2e 用浏览器把这条对齐评论（产品输出的真实文本）渲染成静态页并导航、截图、断言其列出了 #106 的两个冲突方向、建议先对齐（详见 Reference-level 的 e2e 段）。
+**Making outcomes visible (principle 8).** The human-visible outcomes of this gate are **the alignment comment posted on the issue + the `needs-human` label** (on GitHub), along with the negative fact that “this issue **has not** had a spec generated / has not had a draft PR opened.” The e2e test uses a browser to render this alignment comment (the actual text output by the product) as a static page, navigate to it, take a screenshot, and assert that it lists the two conflicting directions from #106 and recommends alignment first (see the e2e subsection in Reference-level for details).
 
 ## Reference-level explanation
 
-### 决策 A：新增纯逻辑判读模块 `openagents/issuecheck.py`
+### Decision A: Add a pure-logic judgment module, `openagents/issuecheck.py`
 
-镜像 `align.py`（Spec-0020）「草稿进、结构化出 + 纯谓词」的形态与 `reviewer.py`（RFC-0012）「backend judge → 结构化裁决」的形态，新建 `issuecheck.py`。**纯逻辑、不持任何 IO**（不碰 GitHub / argparse / stdin），backend 依赖注入、打桩可测（理念 1/10 解耦）：
+Create `issuecheck.py`, mirroring the “draft in, structured output + pure predicate” pattern of `align.py` (Spec-0020) and the “backend judge → structured verdict” pattern of `reviewer.py` (RFC-0012). **Pure logic, with no IO** (no interaction with GitHub / argparse / stdin), backend dependency injection, testable with stubs (principles 1/10: decoupling):
 
-- 输入：`IssueDraft(title, body)`（与 `align.Draft` 同构的冻结 dataclass）。
-- 判读：`check(*, draft, backend) -> ConflictVerdict`——用一段稳定格式的判读指令 `_CHECK_TASK` 调 `backend.run`，指令要求后端**严格按标记格式**输出（对齐 `align.py` 的 `_MARK_*` 回解析套路），并在指令里**内嵌 issue #111 划定的五类冲突 + 「不吹毛求疵」边界**，让判读聚焦「会直接影响修法方向」的冲突。
-- 裁决 `ConflictVerdict`（冻结 dataclass）：`has_conflict: bool`、`conflicts: tuple[str, ...]`（每条 = 一个冲突点的人话描述）、`candidate_fixes: tuple[str, ...]`（互斥的候选修法，供人取舍）。
-- 渲染：`build_alignment_comment(*, verdict) -> str`——把裁决渲染成结构化 markdown 对齐评论正文（镜像 `blocknote.build` 的「给人看的结构化挂起评论」形态：标题句 + 冲突点列表 + 候选修法列表 + 「已打 needs-human，请对齐后摘标签」指引），**无签名、无 IO**，签名交给调用方。
-- **解析容错与安全默认（fail-open）**：后端输出无法解析出明确「有冲突」信号时（缺标记 / 空串 / 格式跑偏），`_parse_verdict` 回落为 `has_conflict=False`（**放行**，照常起草）。取「疑无从宽」而非 reviewer 的「疑罪从严」，是因为 issue #111 明确警告过度触发的代价（拦下健康 issue、逼人白确认）比漏判更违背意图；且这道闸是**建议性**的——即便漏判，人仍会在审 PR 时兜底（见 Rationale 备选 3 与 Unresolved）。判读只在**明确输出「冲突：是」+ 至少一条冲突点**时才拦。
+- Input: `IssueDraft(title, body)` (a frozen dataclass with the same structure as `align.Draft`).
+- Judgment: `check(*, draft, backend) -> ConflictVerdict`—call `backend.run` with a judgment instruction, `_CHECK_TASK`, in a stable format. The instruction requires the backend to output **strictly in the marker format** (following the `_MARK_*` parsing pattern in `align.py`) and **embeds the five conflict categories defined by issue #111 + the “do not nitpick” boundary**, focusing judgment on conflicts that “directly affect the direction of the fix.”
+- Verdict, `ConflictVerdict` (a frozen dataclass): `has_conflict: bool`, `conflicts: tuple[str, ...]` (each entry = a plain-language description of one conflict), `candidate_fixes: tuple[str, ...]` (mutually exclusive candidate fixes for a human to choose between).
+- Rendering: `build_alignment_comment(*, verdict) -> str`—render the verdict as a structured Markdown alignment-comment body (mirroring the “structured suspension comment for humans” pattern of `blocknote.build`: heading sentence + conflict list + candidate-fix list + instructions saying “needs-human has been added; please resolve the ambiguity and then remove the label”), **without a signature or IO**; the caller supplies the signature.
+- **Parsing tolerance and safe default (fail-open)**: when a clear “conflict present” signal cannot be parsed from the backend output (missing markers / empty string / format deviation), `_parse_verdict` falls back to `has_conflict=False` (**allow through**, draft as usual). Choosing “give the benefit of the doubt” rather than the reviewer's “err on the side of rejection” is justified because issue #111 explicitly warns that the cost of excessive triggering (blocking healthy issues and forcing pointless human confirmation) violates the intent more than missed conflicts do; moreover, this gate is **advisory**—even if a conflict is missed, human PR review remains a backstop (see alternative 3 in Rationale and Unresolved). Judgment blocks only when it **explicitly outputs “Conflict: yes” + at least one conflict point**.
 
-### 决策 B：新增 issue 级评论出口 `github.issue_comment`
+### Decision B: Add an issue-level comment interface `github.issue_comment`
 
-`github.post_comment` 走的是 `gh pr comment <n>`（PR 专用，`github.py:379-384`），而被拦的 issue **此刻还没有 PR**。补一个对称的 issue 级出口 `issue_comment(*, number, body)`，走 `gh issue comment <number> --body <body>`（与既有 `issue_add_label` / `issue_remove_label` / `issue_stamp_label` 走 `gh issue edit/view` 的 issue 级操作族并列，`github.py:444-492`）。签名复用既有 `identity.sign`（`post_signed_comment` 已用它，`identity.py:104-109`）——调用方 orchestrator 用 `github.issue_comment(number=..., body=identity.sign(body=..., agent_id=self._agent_id))` 贴署名评论（署名服务于溯源/审计，RFC-0011/0019）。
+`github.post_comment` uses `gh pr comment <n>` (PR-only, `github.py:379-384`), whereas the blocked issue **does not yet have a PR**. Add a symmetrical issue-level interface, `issue_comment(*, number, body)`, using `gh issue comment <number> --body <body>` (alongside the existing family of issue-level operations `issue_add_label` / `issue_remove_label` / `issue_stamp_label`, which use `gh issue edit/view`, `github.py:444-492`). Reuse the existing `identity.sign` for signing (`post_signed_comment` already uses it, `identity.py:104-109`)—the calling orchestrator posts a signed comment using `github.issue_comment(number=..., body=identity.sign(body=..., agent_id=self._agent_id))` (the signature supports traceability/auditing, RFC-0011/0019).
 
-### 决策 C：orchestrator 前置方法 `precheck_issue`
+### Decision C: Orchestrator preflight method `precheck_issue`
 
-orchestrator 持有 `backend` / `agent_id`，是唯一能同时「调判读 + 打标签 + 贴署名评论」的位置。新增：
+The orchestrator holds `backend` / `agent_id` and is the only place that can simultaneously “invoke assessment + apply a label + post a signed comment.” Add:
 
 ```python
 def precheck_issue(self, *, issue_number: int) -> bool:
-    """判读 issue 是否有会直接影响修法的内在冲突；命中则冻结（打 needs-human + 贴对齐评论）
-    并返回 True（表示已拦下、调用方勿再派单），否则返回 False（放行派单）。"""
+    """Assess whether the issue has internal conflicts that directly affect the fix approach; if so, freeze it
+    (apply needs-human + post an alignment comment) and return True (blocked; the caller must not dispatch it),
+    otherwise return False (allow dispatch)."""
     issue = github.get_issue(number=issue_number)
     verdict = issuecheck.check(
         draft=issuecheck.IssueDraft(title=issue.title, body=issue.body), backend=self._backend
@@ -172,117 +173,116 @@ def precheck_issue(self, *, issue_number: int) -> bool:
     return True
 ```
 
-- 判读**在建 worktree / begin_run / 认领之前**——被拦的 issue 全程不落任何本地/远端起草痕迹（无 worktree、无 run 记录、无 spec、无 draft PR），干净可回溯。
-- 打标签用既有 `github.BLOCKED_LABEL`（值即 `"needs-human"`，`github.py:67`），不新增标签常量（见 Drawbacks 关于「一词多义」的取舍与 Rationale 备选 4）。
+- Assessment happens **before creating a worktree / begin_run / claiming the issue**—a blocked issue leaves no local or remote drafting artifacts at any point (no worktree, no run record, no spec, no draft PR), keeping the process clean and traceable.
+- Apply the label using the existing `github.BLOCKED_LABEL` (whose value is `"needs-human"`, `github.py:67`); do not add a new label constant (see the tradeoff concerning “multiple meanings for one term” in Drawbacks and alternative 4 in Rationale).
 
-### 决策 D：vigil 发现段接线（两处）
+### Decision D: Wire into the Vigil discovery stage (two places)
 
-在 `openagents/vigil.py` 的发现段做两处最小接线：
+Make two minimal wiring changes in the discovery stage of `openagents/vigil.py`:
 
-1. **派单前调 precheck**（`discover_and_dispatch` 里、`kind == "fresh"` 且将调 `start_rfc` 之前）：
+1. **Call precheck before dispatch** (in `discover_and_dispatch`, when `kind == "fresh"` and just before calling `start_rfc`):
 
    ```python
    if not resume and self._orchestrator.precheck_issue(issue_number=issue.number):
-       self._log(message=f"⏸ issue #{issue.number}：检出修法方向冲突，已打 needs-human 待对齐，跳过起草")
-       continue  # 冻结，不派单
+       self._log(message=f"⏸ issue #{issue.number}: conflicting fix directions detected; labeled needs-human pending alignment; skipping drafting")
+       continue  # Freeze; do not dispatch
    self._orchestrator.start_rfc(issue_number=issue.number, base=base, resume=resume)
    ```
 
-   只对 `fresh` 判读（`resume` 是已派单过、precheck 过的孤儿 run，续跑即可，不重判）。precheck 的异常纳入既有 per-issue `except (OrchestratorError, GithubError)` 隔离——判读/贴评论失败只跳过该 issue、下轮重试，绝不拖垮整轮发现（决策 8）。
+   Assess only `fresh` issues (`resume` refers to an orphaned run that has already been dispatched and prechecked; simply resume it without reassessment). Include precheck exceptions in the existing per-issue `except (OrchestratorError, GithubError)` isolation—an assessment/comment-posting failure skips only that issue, to be retried in the next round, and must never bring down the entire discovery round (Decision 8).
 
-2. **`_dispatch_kind` 跳过已冻结 issue**（`vigil.py:132-159`，`record is None` 分支内、返回 `"fresh"` 之前加一闸）：
+2. **Have `_dispatch_kind` skip frozen issues** (`vigil.py:132-159`, add a gate inside the `record is None` branch, before returning `"fresh"`):
 
    ```python
    if github.BLOCKED_LABEL in issue.labels:
-       return None  # 已因修法冲突冻结、待人对齐——不再重跑非确定判读（防 issue 级复审震荡）
+       return None  # Frozen due to conflicting fix approaches, awaiting human alignment—do not rerun nondeterministic assessment (prevents issue-level reassessment oscillation)
    ```
 
-   这是「同一 issue 只判一次」的结构性保证：`needs-human` 在场即跳过，判读**不重跑**；人摘掉标签才重新成 `fresh` 触发重判。放在 `record is None` 分支内是安全的——有 run 记录（已有 PR）的 issue 的 `needs-human` 由 `messages.poll` 处理，`_dispatch_kind` 对它们本就返回 `None`。
+   This structurally guarantees that “each issue is assessed only once”: skip whenever `needs-human` is present; assessment **does not run again**. Only after a human removes the label does the issue become `fresh` again and trigger reassessment. Placing this inside the `record is None` branch is safe—`needs-human` on issues with run records (which already have PRs) is handled by `messages.poll`, and `_dispatch_kind` already returns `None` for them.
 
-### 决策 E：不引入新状态字段、不改起草 prompt
+### Decision E: Introduce no new state fields and leave the drafting prompt unchanged
 
-冻结全程复用既有原语：判读（backend）、贴评论（`github.issue_comment` + `identity.sign`）、打标签（`github.issue_add_label`）、跳过（`_dispatch_kind` 读 `issue.labels`）。`needs-human` 标签本身即持久信号，GitHub 是真源（vigil 每轮从 GitHub + State 重新推导，无内存状态）——**无需新增 state 字段、无需迁移**。`_DRAFT_RFC_TASK` 起草 prompt 不改（本 spec 只在派单**前**加闸，不动派单本身）。
+Freezing reuses existing primitives throughout: assessment (backend), posting comments (`github.issue_comment` + `identity.sign`), applying labels (`github.issue_add_label`), and skipping (`_dispatch_kind` reads `issue.labels`). The `needs-human` label itself is the persistent signal, and GitHub is the source of truth (Vigil derives the outcome anew from GitHub + State each round, with no in-memory state)—**no new state fields and no migration are needed**. Leave the `_DRAFT_RFC_TASK` drafting prompt unchanged (this spec only adds a gate **before** dispatch; it does not change dispatch itself).
 
-### DAG 与文件分配
+### DAG and file allocation
 
-| Task | 标题 | files（单一 writer 所有权，组内互斥） | depends-on |
+| Task | Title | files (single-writer ownership, mutually exclusive within the group) | depends-on |
 |---|---|---|---|
-| T1 | issue 级评论出口 `github.issue_comment` | `openagents/github.py`, `tests/test_github_issue_comment.py` | — |
-| T2 | issuecheck 判读模块（裁决 + 对齐评论渲染） | `openagents/issuecheck.py`, `tests/test_issuecheck.py` | — |
-| T3 | precheck 接线（orchestrator 前置 + vigil 发现段闸） | `openagents/orchestrator.py`, `openagents/vigil.py`, `tests/test_orchestrator_precheck.py`, `tests/test_vigil_precheck_gate.py` | T1, T2 |
-| T4 | 端到端成果测试（#106 回归 + 浏览器对齐评论断言） | `scripts/e2e-spec-0043-issue-conflict-precheck.sh`, `tests/test_issue_precheck_integration.py` | T3 |
+| T1 | Issue-level comment interface `github.issue_comment` | `openagents/github.py`, `tests/test_github_issue_comment.py` | — |
+| T2 | issuecheck assessment module (verdict + alignment comment rendering) | `openagents/issuecheck.py`, `tests/test_issuecheck.py` | — |
+| T3 | precheck wiring (orchestrator preflight + Vigil discovery-stage gate) | `openagents/orchestrator.py`, `openagents/vigil.py`, `tests/test_orchestrator_precheck.py`, `tests/test_vigil_precheck_gate.py` | T1, T2 |
+| T4 | End-to-end outcome tests (#106 regression + browser assertions for the alignment comment) | `scripts/e2e-spec-0043-issue-conflict-precheck.sh`, `tests/test_issue_precheck_integration.py` | T3 |
 
 ```mermaid
 graph TD
-  T1[T1 github.issue_comment] --> T3[T3 precheck 接线]
-  T2[T2 issuecheck 判读模块] --> T3
-  T3 --> T4[T4 e2e 成果]
+  T1[T1 github.issue_comment] --> T3[T3 precheck wiring]
+  T2[T2 issuecheck assessment module] --> T3
+  T3 --> T4[T4 e2e outcomes]
 ```
 
-T1、T2 无相互依赖，可并行（协同模式，各持不相交 `files`）；T3 汇合二者做接线；T4 端到端验证。
+T1 and T2 have no dependencies on each other and can run in parallel (collaborative mode, each owning disjoint `files`); T3 brings the two together through wiring; T4 verifies the result end to end.
 
-### e2e 成果脚本（PR 指路牌拾取）
+### e2e outcome script (picked up via the PR signpost)
 
-**路径：`scripts/e2e-spec-0043-issue-conflict-precheck.sh`**，沿用本仓库 e2e 两段式约定（默认离线确定性验证；`OPENAGENTS_E2E_REAL=1` 时追加真实冒烟）。
+**Path: `scripts/e2e-spec-0043-issue-conflict-precheck.sh`**, following this repository’s two-phase e2e convention (offline deterministic verification by default; add a real smoke test when `OPENAGENTS_E2E_REAL=1`).
 
-**阶段 1——离线确定性（默认，全程 mock）**：ruff lint/format + pytest；核心集成用例 `tests/test_issue_precheck_integration.py`，以 **issue #106 的真实标题/正文为回归样例**（issue #111 验收建议直接指定）：
+**Phase 1—offline deterministic verification (default, mocked throughout)**: ruff lint/format + pytest; the core integration cases are in `tests/test_issue_precheck_integration.py`, using **the actual title/body of issue #106 as the regression fixture** (explicitly specified in the acceptance criteria recommendations for issue #111):
 
-1. **冲突识别 + 冻结（核心回归）**：构造一个 `Vigil`，`github.list_issues` 桩返回一个 issue，其 title/body **逐字为 #106 的标题与正文**；`orchestrator._backend` 桩对判读指令返回「冲突：是」+ 两条冲突点（标题=sha 缓存 / 正文=hold-merge 冻结）+ 两条候选修法。跑一轮 `discover_and_dispatch` → 断言：（a）`start_rfc` **未被调用**（无 worktree、无 `begin_run`、docs/specs 下无该 issue 的新组）；（b）issue 被打上 `needs-human`；（c）恰贴**一条**署名对齐评论，正文含两个修法方向、含「候选修法」取舍、**不含**「🤖 卡住了」等 PR 失败文案。
-2. **反震荡断言（本 issue 的自指铁证）**：把上一步后的 issue 标签集加上 `needs-human`，**第二次** `discover_and_dispatch` → 断言 `_dispatch_kind` 返回 `None`、判读 backend **未再被调用**（调用计数不变）、无新评论、`start_rfc` 仍未被调。即「同一 issue 只判一次，不复审震荡」。
-3. **放行断言（不吹毛求疵）**：另一个 issue 的 backend 判读桩返回「冲突：否」→ `discover_and_dispatch` → 断言 `precheck_issue` 返回 False、`start_rfc` **被正常调用**、无 `needs-human`、无对齐评论（健康 issue 零打扰、零回归）。
-4. **解冻断言**：把 issue 的 `needs-human` 摘掉 → 下一轮 `_dispatch_kind` 重判为 `fresh`、判读被重新调用（人触发的一次重判，有界）。
+1. **Conflict detection + freezing (core regression)**: Construct a `Vigil`; stub `github.list_issues` to return an issue whose title/body **match the title and body of #106 word for word**; stub `orchestrator._backend` to respond to the assessment instructions with “Conflict: yes” + two points of conflict (title=sha caching / body=hold-merge freezing) + two candidate fix approaches. Run one round of `discover_and_dispatch` → assert: (a) `start_rfc` **was not called** (no worktree, no `begin_run`, no new group for this issue under docs/specs); (b) the issue is labeled `needs-human`; (c) exactly **one** signed alignment comment is posted, with a body containing both fix directions and the tradeoff between “candidate fix approaches,” and **without** PR failure wording such as “🤖 Stuck.”
+2. **Anti-oscillation assertion (self-referential, conclusive evidence for this issue)**: Add `needs-human` to the issue’s label set after the preceding step, then run `discover_and_dispatch` a **second time** → assert that `_dispatch_kind` returns `None`, the assessment backend **was not called again** (the call count is unchanged), there are no new comments, and `start_rfc` still has not been called. This establishes that “each issue is assessed only once, with no reassessment oscillation.”
+3. **Pass-through assertion (no nitpicking)**: For another issue, have the assessment backend stub return “Conflict: no” → `discover_and_dispatch` → assert that `precheck_issue` returns False, `start_rfc` **is called normally**, and there is no `needs-human` label or alignment comment (zero disruption and zero regressions for healthy issues).
+4. **Unfreezing assertion**: Remove `needs-human` from the issue → in the next round, `_dispatch_kind` classifies it as `fresh` again, and assessment is called again (one human-triggered reassessment, bounded).
 
-**阶段 1 浏览器成果断言（理念 8，用 Playwright / chrome-devtools MCP）**：本 feature 的人类可见产品输出是**贴到 issue 的对齐评论**（无 PR、故不进本地 `board.html`）。e2e 用步骤 1 里 `issuecheck.build_alignment_comment` 产出的**真实评论正文**（产品输出）渲染成一份最小静态 HTML（测试侧包裹，非产品代码），浏览器 `navigate` 到 `file://.../alignment-comment.html`：
+**Phase 1 browser outcome assertions (Principle 8, using Playwright / chrome-devtools MCP)**: The human-visible product output of this feature is **the alignment comment posted to the issue** (there is no PR, so it does not appear in the local `board.html`). The e2e test renders the **actual comment body** (product output) produced by `issuecheck.build_alignment_comment` in step 1 into a minimal static HTML document (a test-side wrapper, not product code), then uses browser `navigate` to open `file://.../alignment-comment.html`:
 
-- `take_snapshot` + `take_screenshot`，**断言页面文本同时出现两个修法方向**（「按 commit sha 缓存评审结论」与「hold-merge …冻结」）、出现「候选修法」取舍段、出现「needs-human / 先对齐再进 RFC」的建议——即「检出冲突、拦下起草、请人取舍」这一成果被人类可读地呈现。截图留档。
-- `list_console_messages` / `list_network_requests` 断言无报错、无失败请求（纯本地静态页，不应有网络失败）。
-- **降级**：若运行环境无浏览器 MCP，此步降级为对渲染出的 HTML 做文本断言（grep 两个修法方向 + 候选修法段），**不跳过**成果验证。
+- Use `take_snapshot` + `take_screenshot`, and **assert that the page text contains both fix directions** (“cache review conclusions by commit sha” and “hold-merge … freeze”), the “candidate fix approaches” tradeoff section, and the recommendation “needs-human / align first, then proceed to RFC”—that is, the outcome “conflict detected, drafting blocked, human choice requested” is presented in a human-readable form. Retain the screenshot.
+- Use `list_console_messages` / `list_network_requests` to assert that there are no errors and no failed requests (a purely local static page should have no network failures).
+- **Fallback**: If the runtime environment has no browser MCP, fall back to text assertions on the rendered HTML (grep for both fix directions + the candidate fix approaches section); **do not skip** outcome verification.
 
-**阶段 2——真实冒烟（`OPENAGENTS_E2E_REAL=1`，会真实操作 issue）**：在 scratch 仓库真实建一个「标题主张 X、正文主张互斥的 Y」的 issue，带约定标签跑一轮 `vigil --once`，验证该 issue 被打上 `needs-human`、收到一条对齐评论、且**未**开出 draft PR；再对一个自洽 issue 验证正常起草。
+**Phase 2—real smoke test (`OPENAGENTS_E2E_REAL=1`, performs real issue operations)**: Create an actual issue in a scratch repository whose “title advocates X and body advocates a mutually exclusive Y,” apply the agreed labels, and run one round of `vigil --once`. Verify that the issue is labeled `needs-human`, receives one alignment comment, and **does not** get a draft PR; then verify normal drafting for a self-consistent issue.
 
 ## Drawbacks
 
-- **判读是非确定性 LLM，可能误判**。false-positive（把健康 issue 判成冲突）会拦下正常起草、逼人白确认一次；false-negative（漏判真冲突）会让错误方向进 spec（回退到现状，人仍在审 PR 时兜底）。用「疑无从宽 fail-open」+「只在明确输出冲突时才拦」把 false-positive 压到最低（对齐 issue #111 的「不吹毛求疵」边界），代价是漏判风险偏高——这是刻意选择的偏向（见 Rationale）。
-- **每个 fresh issue 多一次 backend 判读调用**（起草之前）。成本是一次额外 `backend.run`，但远低于「起草一份错误方向的 spec + 实现 + 被 reviewer 打回 / 被人推翻」的代价；且只在 fresh 分支跑一次（冻结后不重跑）。
-- **`needs-human` 一词多义再被加重**。它此前已同时表示「PR 卡住待人」与「hold-merge PASS 待合并」（Spec-0041），本 spec 再叠一层「issue 修法冲突待对齐」。为保持简洁**接受**（不新增 `needs-alignment` 专用标签）——三者天然处于不同对象/阶段（无 PR 的 issue vs 已开 PR），运维按「有没有 PR」即可粗分；精细区分留作 Future。
-- **解冻依赖人手摘标签**。MVP 不自动读 issue 新评论来解冻（不像 PR 侧 Spec-0032 的回评论解挂环）：人对齐后需在 issue 正文澄清并**摘掉 `needs-human`** 才重新触发判读。若人只在 issue 下评论而不摘标签，issue 会一直冻着。这是有意的极简取舍（issue 级解挂环留作 Future），在对齐评论里明确告知「摘标签以继续」。
-- **判读读的是 issue 的当前标题/正文快照**。若人**编辑** issue 正文对齐但忘了摘标签，不会自动重判；反之摘了标签但没改内容，会重判出同样的冲突再次冻结。对齐动作 = 「改内容 + 摘标签」两步，需在评论里讲清。
+- **Assessment uses a nondeterministic LLM and may be wrong**. A false positive (classifying a healthy issue as conflicting) blocks normal drafting and forces someone to confirm unnecessarily; a false negative (missing a real conflict) lets the wrong direction enter the spec (falling back to the status quo, where a human still provides a backstop during PR review). “Give the benefit of the doubt, fail-open” + “block only when the output explicitly reports a conflict” minimizes false positives (consistent with issue #111's “do not nitpick” boundary), at the cost of a higher risk of missed conflicts—this bias is deliberate (see Rationale).
+- **Each fresh issue requires one additional backend assessment call** (before drafting). The cost is one extra `backend.run`, but that is far lower than the cost of “drafting a spec in the wrong direction + implementing it + having it rejected by a reviewer / overturned by a human”; it also runs only once on the fresh branch (it does not rerun after freezing).
+- **The multiple meanings of `needs-human` become even more overloaded**. It already means both “PR blocked, awaiting human intervention” and “hold-merge PASS, awaiting merge” (Spec-0041); this spec adds another meaning: “conflicting approaches to fixing an issue, awaiting alignment.” This is **accepted** for simplicity (no dedicated `needs-alignment` label is added)—the three cases naturally occur on different objects / at different stages (an issue without a PR vs an open PR), so operations can roughly distinguish them by “whether a PR exists”; finer distinctions are left to Future.
+- **Unfreezing depends on a human removing the label**. The MVP does not automatically read new issue comments to unfreeze an issue (unlike the PR-side reply-based unblocking loop in Spec-0032): after reaching alignment, a human must clarify the issue body and **remove `needs-human`** to trigger assessment again. If the human only comments on the issue without removing the label, the issue remains frozen indefinitely. This is a deliberate tradeoff for minimalism (an issue-level unblocking loop is left to Future), and the alignment comment explicitly says “remove the label to continue.”
+- **Assessment reads a snapshot of the issue's current title/body**. If a human **edits** the issue body to establish alignment but forgets to remove the label, reassessment does not happen automatically; conversely, if they remove the label without changing the content, assessment will detect the same conflict and freeze the issue again. Alignment requires two steps—“change the content + remove the label”—which the comment must explain clearly.
 
 ## Rationale and alternatives
 
-**为什么是「vigil 发现段前置薄闸 + needs-human 冻结」。** 冲突要在**进 spec 之前**拦下才有意义（进了 spec 就已固化进标题/任务/文件/验收）。vigil 发现段的 `fresh` 分支正是「issue → 起草」的唯一入口，在它之前加一层谓词是改动面最小的落点。冻结复用既有 `needs-human` 标签（本就是「待人介入」信号）+ `_dispatch_kind` 读标签跳过（本就是发现段的去重机制），三条既有原语拼出「判一次 → 冻结 → 待人 → 摘标签解冻」，**不建新状态机、不加 state 字段、不改起草 prompt**（奥卡姆，理念 1）。判读模块独立成 `issuecheck.py` 纯逻辑（backend 注入、打桩可测），与 GitHub/编排解耦（理念 10），复用 `align.py`/`reviewer.py` 已验证的「backend judge → 标记回解析 → 结构化裁决」形态。
+**Why “a lightweight gate at the front of Vigil's discovery phase + freezing with needs-human.”** Blocking a conflict is meaningful only **before it enters the spec** (once it enters the spec, it is already embedded in the title/tasks/files/acceptance criteria). The `fresh` branch in Vigil's discovery phase is the sole entry point from “issue → drafting,” so adding a predicate before it is the placement with the smallest scope of change. Freezing reuses the existing `needs-human` label (already a signal for “awaiting human intervention”) + label-based skipping in `_dispatch_kind` (already the discovery phase's deduplication mechanism). Three existing primitives combine to produce “assess once → freeze → wait for a human → remove the label to unfreeze,” **without building a new state machine, adding state fields, or changing the drafting prompt** (Occam's razor, Principle 1). The assessment module is isolated as pure logic in `issuecheck.py` (with backend injection and testable using stubs), decoupled from GitHub/orchestration (Principle 10), and reuses the proven “backend judge → marker-based parsing → structured verdict” pattern from `align.py`/`reviewer.py`.
 
-**备选 1——把自检塞进起草 prompt（让起草 agent 自己先自检）。** 即在 `_DRAFT_RFC_TASK` 开头加一句「先检查 issue 是否有修法冲突，有就别起草、打 needs-human」。**不取**：（a）它把「拦截决策」埋进一个已经建好 worktree、begin_run、认领打标的重流程里——被拦时这些痕迹已产生，要额外回滚，比「起草前先判、判完再决定要不要建 worktree」脏得多；（b）拦截是**结构化控制流**（要么冻结要么派单），交给自由文本 prompt 里的 agent 自觉执行不可靠、不可单测；（c）判读逻辑散进 prompt 无法被 `pytest` 覆盖，违背「软约定硬化」。本 spec 把它做成发现段的**硬谓词** `precheck_issue`（返回 bool 决定控制流），可确定性测试。
+**Alternative 1—Put self-checking into the drafting prompt (have the drafting agent check for itself first).** Add a sentence at the beginning of `_DRAFT_RFC_TASK`: “First check whether the issue contains conflicting approaches to the fix; if so, do not draft, and apply needs-human.” **Rejected**: (a) this buries the “blocking decision” inside a heavyweight process that has already created a worktree, performed begin_run, and applied a claim label—by the time it blocks, these traces already exist and require additional rollback, making it much messier than “assess before drafting, then decide whether to create a worktree”; (b) blocking is **structured control flow** (either freeze or dispatch), and relying on an agent to follow a free-text prompt is unreliable and cannot be unit-tested; (c) assessment logic scattered into a prompt cannot be covered by `pytest`, violating “turn soft conventions into hard enforcement.” This spec implements it as a **hard predicate**, `precheck_issue`, in the discovery phase (returning a bool to determine control flow), which can be tested deterministically.
 
-**备选 2——复用「前门对齐」`align.py`（Spec-0020）而不新建模块。** `align.py` 已有「Draft 进、backend 复述出」的形态。**不取为直接复用**：align 的产物是「要做 X / 边界 Y / 不做 Z」的**复述**（帮人确认范围），语义是「重组模糊想法」；本 spec 要的是「判定标题 vs 正文是否**冲突**」的**裁决**（bool + 冲突点），语义是「一致性检查」。硬塞进 align 会让一个模块背两种不相干职责（理念 10 解耦）。但**形态刻意对齐** align（`Draft` 结构、`_MARK_*` 回解析、backend 注入、纯谓词与生成分离），降低认知与维护成本；二者并列为意图层相邻两闸（align 管建 issue 前、issuecheck 管进 RFC 前）。
+**Alternative 2—Reuse “front-door alignment,” `align.py` (Spec-0020), instead of creating a new module.** `align.py` already follows a “Draft in, backend restatement out” pattern. **Rejected for direct reuse**: align produces a **restatement** of “do X / boundary Y / do not do Z” (helping a human confirm scope), whose semantics are “reorganize vague ideas”; this spec requires a **verdict** on “whether the title and body **conflict**” (bool + points of conflict), whose semantics are “consistency checking.” Forcing this into align would make one module carry two unrelated responsibilities (Principle 10, decoupling). However, **the pattern deliberately follows** align (`Draft` structure, `_MARK_*` marker-based parsing, backend injection, separation of pure predicates from generation), reducing cognitive and maintenance costs; the two sit alongside each other as adjacent gates at the intent layer (align before issue creation, issuecheck before entry into an RFC).
 
-**备选 3——判读容错取「疑罪从严 fail-closed」（无法解析即当有冲突、拦下）。** 对齐 `reviewer.py` 的「裁决无法解析 → 视为未通过」。**不取**：issue #111 的「注意边界」把过度触发的代价讲得很重（拦下健康 issue、逼人白确认、噪声淹没人的宏观把控）；且本闸是**建议性**的（漏判有审 PR 兜底），而 reviewer 是**合并前最后一道**质量闸（漏判直接放行坏代码），二者风险画像不同。故本 spec 取 fail-open（疑无从宽），把「宁可漏判、不可滥拦」写进解析容错。是否该给某些高风险信号（如明显的标题/正文关键词矛盾）单独 fail-closed，留作 Unresolved。
+**Alternative 3—Use “when in doubt, fail-closed” for assessment fault tolerance (treat unparseable output as a conflict and block).** This follows `reviewer.py`'s “unparseable verdict → treat as not passed.” **Rejected**: the “mind the boundaries” guidance in issue #111 strongly emphasizes the cost of excessive triggering (blocking healthy issues, forcing unnecessary human confirmation, and overwhelming human oversight with noise); moreover, this gate is **advisory** (PR review provides a backstop for missed conflicts), whereas the reviewer is the **last** quality gate before merging (a missed problem directly lets bad code through), so their risk profiles differ. This spec therefore chooses fail-open (give the benefit of the doubt), encoding “prefer a missed conflict to excessive blocking” into parsing fault tolerance. Whether certain high-risk signals (such as obvious contradictions between title/body keywords) should individually fail-closed is left to Unresolved.
 
-**备选 4——新增 `needs-alignment` 专用标签而非复用 `needs-human`。** 语义最干净（issue 级冲突冻结与 PR 级卡住分开）。**不取**：要新增标签常量、确保仓库存在该标签（`ensure_label`）、在 `_dispatch_kind` 与未来的解冻路径都认它——一整套新实体，换来的区分度在「issue 无 PR / PR 已开」这个天然维度上本就可粗分。为简洁复用 `needs-human`（理念 1），把专用标签留作 Future。
+**Alternative 4—Add a dedicated `needs-alignment` label instead of reusing `needs-human`.** This has the cleanest semantics (separating issue-level freezing due to conflicts from PR-level blocking). **Rejected**: it requires adding a label constant, ensuring the label exists in the repository (`ensure_label`), and recognizing it in both `_dispatch_kind` and future unfreezing paths—a whole new entity, in exchange for a distinction that can already be roughly made along the natural dimension of “issue without a PR / PR already open.” Reuse `needs-human` for simplicity (Principle 1), leaving a dedicated label to Future.
 
-**备选 5——判读放在 orchestrator.start_rfc 内部最前面（而非 vigil 发现段）。** 让 `start_rfc` 一进来先判、冲突就早返回。**部分采纳**：判读**逻辑**确实落在 orchestrator（`precheck_issue`，它持 backend/agent_id）。但**控制流决策**（拦下 → `continue` 不派单）留在 vigil 发现段——因为「跳过这个 issue、继续下一个」是发现段的循环语义，且 vigil 的 `_dispatch_kind` 才是「用 needs-human 标签跳过重判」的自然落点。故拆成「orchestrator 出判读 + 冻结动作、vigil 出控制流 + 去重跳过」两半，各归其位。
+**Alternative 5—Place assessment at the very beginning of orchestrator.start_rfc (rather than in Vigil's discovery phase).** Have `start_rfc` assess immediately on entry and return early if there is a conflict. **Partially adopted**: the assessment **logic** does live in the orchestrator (`precheck_issue`, which holds backend/agent_id). However, the **control-flow decision** (block → `continue` without dispatching) remains in Vigil's discovery phase—because “skip this issue and continue to the next” is the loop semantics of discovery, and Vigil's `_dispatch_kind` is the natural place to “use the needs-human label to skip reassessment.” This is therefore split into two halves: “orchestrator supplies assessment + the freezing action; Vigil supplies control flow + deduplication-based skipping,” each in its appropriate place.
 
 ## Prior art
 
-- **本仓库「前门对齐」`align.py`（Spec-0020，issue #59）**：提 issue 前把模糊草稿复述成三段供人确认——意图层的**入口**闸。本 spec 是它的相邻兄弟：issue 已存在、进 RFC 前查自洽性。形态（Draft dataclass、`_MARK_*` 标记回解析、backend 注入、生成与谓词分离）直接借鉴 align。
-- **本仓库 reviewer `reviewer.py`（RFC-0012/0018）**：「backend judge → 解析裁决 token → 结构化 `ReviewDecision`」的无状态判读范式。本 spec 的 `issuecheck.check → ConflictVerdict` 是同款范式移植到「issue 自洽性」这一新判读对象上（区别：reviewer fail-closed、issuecheck fail-open，见 Rationale 备选 3）。
-- **本仓库结构化人类评论 `blocknote.py`（Spec-0041/T2 等）**：把机器裁决渲染成「给人看的结构化 markdown」（标题句 + 分段），署名后贴出。本 spec 的 `build_alignment_comment` 沿用同一形态（冲突点列表 + 候选修法列表 + 摘标签指引）。
-- **issue #106 → Spec-0041（本 spec 的动机事故）**：标题「按 commit sha 缓存」vs 正文「hold-merge 冻结」的修法方向冲突，最终实现走正文方向。#106 是本 spec 的一等回归样例。
-- **需求澄清先于设计的工程共识**：spec-driven-development / rfc-driven-development skill 的 Phase 1（Requirements Clarification）本就要求「先澄清再设计」；rust-lang/rfcs 的 `Unresolved questions` 段要求把未决取舍显式化。本 spec 是把「先澄清」从**人肉流程规范**下沉为**自动流水线里的一道硬闸**——用 issue #111 的话说：不该直接按 issue 标题生成 RFC，而应先标出冲突跟人对齐。
+- **This repository's “front-door alignment,” `align.py` (Spec-0020, issue #59)**: before an issue is submitted, it restates a vague draft in three sections for human confirmation—an **entry** gate at the intent layer. This spec is its adjacent sibling: the issue already exists, and self-consistency is checked before entry into an RFC. The pattern (Draft dataclass, `_MARK_*` marker-based parsing, backend injection, separation of generation from predicates) is borrowed directly from align.
+- **This repository's reviewer, `reviewer.py` (RFC-0012/0018)**: the stateless assessment paradigm of “backend judge → parse verdict token → structured `ReviewDecision`.” This spec's `issuecheck.check → ConflictVerdict` applies the same paradigm to a new assessment subject, “issue self-consistency” (the difference: reviewer is fail-closed, issuecheck is fail-open; see Rationale, Alternative 3).
+- **This repository's structured human-facing comments, `blocknote.py` (Spec-0041/T2, etc.)**: renders machine verdicts as “structured markdown for humans” (a heading sentence + sections), adds a signature, and posts them. This spec's `build_alignment_comment` follows the same pattern (list of conflicts + list of candidate fixes + instructions to remove the label).
+- **issue #106 → Spec-0041 (the incident motivating this spec)**: the title, “cache by commit sha,” conflicted with the body, “hold-merge freezing,” over the direction of the fix, and the eventual implementation followed the body. #106 is a first-class regression example for this spec.
+- **The engineering consensus that requirements clarification precedes design**: Phase 1 (Requirements Clarification) of the spec-driven-development / rfc-driven-development skill already requires “clarify first, then design”; rust-lang/rfcs' `Unresolved questions` section requires unresolved tradeoffs to be made explicit. This spec moves “clarify first” from a **manual process convention** into a **hard gate in the automated pipeline**—in the words of issue #111: an RFC should not be generated directly from the issue title; conflicts should first be flagged and aligned with a human.
 
 ## Unresolved questions
 
-- **判读指令的启发式边界**：用什么措辞让后端稳定地只报「会直接影响修法」的冲突、而不吹毛求疵？初版用 issue #111 的五类冲突 + 「不吹毛求疵」负面清单直接内嵌进 `_CHECK_TASK`，实测 #106 等样本后再调；是否值得让判读输出**结构化打分**（冲突强度）而非布尔，留作观察。
-- **fail-open 是否对某些强信号例外**：某些冲突（如标题/正文出现明显互斥关键词）是否值得单独 fail-closed（宁可拦）？初版全局 fail-open，观察真实误判率后再定。
-- **是否需要 issue 级回评论解冻环**：MVP 靠人摘 `needs-human` 解冻。是否要像 PR 侧 Spec-0032 那样读 issue 的新人类评论自动解冻（人回一条「就按方向 B」即解冻并把取舍喂进起草）？留作 Future，初版不做。
-- **判读要不要也看 issue 的既有评论/关联 PR**：#106 的真实取舍其实在正文里就有；但有些 issue 的澄清在评论区。初版只读 title/body（与 `align.Draft` 同）；是否纳入评论上下文留待观察。
-- **与 `align.py` 是否最终合并成一个「意图层」模块**：两者形态高度相似但职责不同（复述 vs 一致性判读）。初版并列两模块（理念 10 解耦），若后续证明公共部分够多再考虑抽公共基座。
+- **Heuristic boundaries of the assessment instructions**: what wording will make the backend consistently report only conflicts that “directly affect the approach to the fix,” without nitpicking? The initial version directly embeds issue #111's five conflict categories + a “do not nitpick” exclusion list into `_CHECK_TASK`, then adjusts after testing on examples such as #106; whether it is worthwhile to have assessment output a **structured score** (conflict strength) rather than a boolean remains to be observed.
+- **Whether fail-open should have exceptions for certain strong signals**: do some conflicts (such as obviously mutually exclusive keywords in the title/body) warrant failing closed individually (preferring to block)? The initial version is globally fail-open; decide after observing real misclassification rates.
+- **Whether an issue-level reply-based unfreezing loop is needed**: the MVP relies on a human removing `needs-human` to unfreeze. Should it read new human comments on the issue and unfreeze automatically, as on the PR side in Spec-0032 (a human replies “go with direction B,” and it unfreezes and feeds that choice into drafting)? Left to Future; not implemented in the initial version.
+- **Whether assessment should also examine existing issue comments / linked PRs**: the actual tradeoff in #106 was already in the body, but clarification for some issues is in the comments. The initial version reads only title/body (the same as `align.Draft`); whether to incorporate comment context remains to be observed.
+- **Whether to eventually merge this with `align.py` into an “intent layer” module**: the two have highly similar patterns but different responsibilities (restatement vs consistency assessment). The initial version keeps two parallel modules (Principle 10, decoupling); consider extracting a common foundation if later evidence shows enough shared functionality.
 
 ## Future possibilities
 
-- **issue 级解冻环**：读 issue 新人类评论自动摘 `needs-human` + 把人的取舍作为「已澄清方向」喂进 `start_rfc` 的起草 prompt（镜像 PR 侧 Spec-0032/0036 的回评论解挂 + 引用回应）。
-- **`needs-alignment` 专用信号**：若「一词多义」的 `needs-human` 在真实看板使用中造成困扰，引入 issue 级专用标签/看板展示，把「修法冲突待对齐」提升为一等公民。
-- **判读结构化输出**：让判读任务模板强制输出「冲突强度 + 冲突点 + 候选修法」结构化段，`issuecheck` 退化为直接取结构化字段，减少启发式解析。
-- **把对齐结论回写进 spec 的 Unresolved questions**：人对齐取舍后，起草 agent 可把「曾存在 X/Y 冲突、已定为 Y」自动落进新 spec 的 `Unresolved questions`/`Rationale` 段，留下决策轨迹。
-- **成果看板纳入「待对齐 issue」**：给 `results.board` 加一类「因修法冲突冻结、待人对齐」的 issue 行（当前 board 只显示有 run 的记录），让这类被拦下的 issue 也在成果页可见。
-
+- **Issue-level unfreezing loop**: read new human comments on an issue to automatically remove `needs-human` + feed the human's choice into `start_rfc`'s drafting prompt as the “clarified direction” (mirroring the PR-side reply-based unblocking + quoted responses in Spec-0032/0036).
+- **Dedicated `needs-alignment` signal**: if the overloaded `needs-human` causes confusion in actual board use, introduce a dedicated issue-level label/board presentation, making “conflicting approaches to the fix, awaiting alignment” a first-class concept.
+- **Structured assessment output**: require the assessment task template to output structured sections for “conflict strength + points of conflict + candidate fixes,” reducing `issuecheck` to directly extracting structured fields and reducing heuristic parsing.
+- **Write alignment conclusions back into the spec's Unresolved questions**: after a human aligns on the tradeoff, the drafting agent can automatically record “there was an X/Y conflict; Y was chosen” in the new spec's `Unresolved questions`/`Rationale` sections, preserving a decision trail.
+- **Include “issues awaiting alignment” on the results board**: add a category of issue rows to `results.board` for “frozen due to conflicting approaches to the fix, awaiting human alignment” (the board currently shows only records with runs), making these blocked issues visible on the results page as well.

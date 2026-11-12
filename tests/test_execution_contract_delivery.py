@@ -46,7 +46,7 @@ def test_large_source_set_has_explicit_complete_pages_not_silent_truncation():
     text = execution_contracts.project(payload=payload, page_refs=refs)
     assert "presentation=paginated" in text
     assert "40 contracts" in text
-    assert "未覆盖全部来源" in text
+    assert "does not cover every source" in text
     assert all(ref["path"] in text for ref in refs)
 
 

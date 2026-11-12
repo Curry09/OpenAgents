@@ -1,8 +1,8 @@
-"""# Spec-0073/T2: 本地 daemon 接口（HTTP+SSE）单测。
+"""# Spec-0073/T2: Local daemon interface (HTTP+SSE) single-measure.
 
-覆盖：`pending_category` 四级优先级；`read_work_queue` 读队列快照（DB 缺失→空）；`build_board` 合成 + 待看
-类别；起真实 server GET /board 返 JSON、GET /stream/<subject>?follow=0 SSE 逐条推 ring buffer 行；未知
-subject → 404 JSON；端口占用 → DaemonError。
+Overwrite: `pending_category` priority four; `read_work_queue` reading queueshot (DB missing empty); `build_board` synthesis + to watch
+Category; real service GET/board back to JSON, GET/stream/ <subject>? follow=0 SSE round buffer line; unknown
+Subject ~ 404 JSON; port occupation ~ Daemon Error.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pytest
 from openagents.desktop import daemon
 from openagents.utils import streams
 
-# 直连本机 server，绕开环境里的 HTTP 代理（否则 localhost 请求被代理拦成 502）。
+# Direct servicer bypassing the environment HTTP agent (or request of localhost is blocked by the agent to 502).
 _NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -133,8 +133,8 @@ def _run_server(server) -> threading.Thread:
 
 def test_board_and_stream_over_http(tmp_path):
     streams.bind(subject="issue:1")
-    streams.emit(line="第一行")
-    streams.emit(line="第二行")
+    streams.emit(line="First line")
+    streams.emit(line="Second line")
     streams.unbind()
 
     def _board_fn() -> list[dict]:
@@ -151,8 +151,8 @@ def test_board_and_stream_over_http(tmp_path):
         url = f"http://127.0.0.1:{port}/stream/issue:1?follow=0"
         with _NO_PROXY.open(url, timeout=5) as resp:
             body = resp.read().decode("utf-8")
-        assert "data: 第一行\n" in body
-        assert "data: 第二行\n" in body
+        assert "data: First line\n" in body
+        assert "data: Second line\n" in body
     finally:
         server.shutdown()
         server.server_close()

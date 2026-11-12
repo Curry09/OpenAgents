@@ -1,31 +1,31 @@
-"""Spec-0065/T2: recipes.vigil 的**队列层 + reconcile 收口**并发契约（`test_recipe_vigil.py` 的补集）。
+"""Spec-0065/T2: ** Queue layer of recipes.vigil + reconcile ** Concluded (accumulation of `test_recipe_vigil.py`).
 
-姊妹文件钉的是「感知三纯函数 + 分支表 + flock 判死」的主干；这里钉的是那一版并发评审后加固出来的、
-每一条都**只在并发下才会咬人、且咬人时静默**的边：
+The sister file is the main cause of the ”Sension Pure Function + Sub-Sec + Flock Sentences”; it is the version that was reinforced by the evaluation.
+Each one of them ** is silent only when it’s taken together and bites:**
 
-- **`_claim_next` 队头阻塞**：队首行的锁被瞬时持着（回队/回收与 `close(fd)` 之间的亚毫秒窗口）→ 必须
-  **跳过它接着看下一行**，不能返回 None——返回 None 会被 worker 读成「队列空了」去睡一秒，一行的瞬时冲突
-  就把**所有** worker 挡在门外。且跳过的那一行必须原样留在 `queued`（ROLLBACK ⇒ `attempts` 不被 +1）。
-- **fd 不泄漏**：`_claim_next` 每条路径（空队列 / 跳过 / 领到）都只应留下**它返回的那一个** fd。泄漏一个
-  fd = 那把 flock 永远不还给内核 = 该行永远判不了死（见 `_claim_next` 的 `except BaseException`）。
-- **收工先删行、后释锁**：反过来开的窗口会让 `_reclaim_dead` 抢到锁、判「死了」、把行打回 queued → 双跑。
-- **`_enqueue` 刷优先级但不刷 `enqueued_at`**：刷了 = 久候行永远排在后面（饿死）。
-- **worker 隔离（`_run_claimed`）**：普通异常 → 回队且 worker 线程活着；`_ActTimeout` → **park，绝不回队**
-  （被杀的 agent 是否已推东西无法证明，重发 = 双跑）；成功 → 删行。三条路径都必须 `close(fd)`。
-- **`_run_claimed` 的上限短路**：`attempts` 已超顶的行只有一种来路——上一轮已判 park 但 `gh` 抛了 → 行被
-  `_reclaim_dead` 正常回收。要重试的是**那次 park**，不是那次 agent 调用：`_reconcile` 一次都不许调。
-- **`_sweep_stalled`（存活证明泄漏）**：`hold_fd` 把 flock 的 fd 传给 agent 子进程继承，它会**继续传给孙子**；
-  一个泄漏的长命孙子（MCP server / 后台 dev server）会永久持着那把锁 → 该 subject 的 `queued` 行**永远领不走**，
-  而三道护栏一个都看不见它（回收只扫 claimed、IN_FLIGHT 告警看 claimed_at、QUIET 看门狗只对 QUIET 生效，
-  而它是 ACTIONABLE）。判据是结构性的：queued 行的锁**本就该自由**（合法持有者只有 claimed 行的 worker）。
-- **`_reconcile` 振荡**：fp 每轮都变、却在两个状态间来回跳（review 打回 ↔ implement 推新 head）——
-  `fp == last_fp` 只记得上一轮，识别不了周期 2 的环 → 靠 `_MAX_RECONCILE_ROUNDS` 收口 park，不能无限烧 LLM。
-- **`_proposed_edges` 的爆炸半径**：一条坏边只冻结当事者，不冻结整个 ready 集；幻觉编号**绝不合成 issue #0**
-  （会往一个无关/不存在的对象上写 label + 评论）。
-- **`_reclaim_dead` 不谎报**：只数**真的**被它打回 queued 的行。
+- ** `_claim_next` head block**: The lock in the first row is held in seconds (submarinate window between the back/recovery and `close(fd)`)
+  ** Skip it and watch the next line**, cannot return None -- Return None will be read by the ’line’ to sleep for a second, a line of instant clashes
+  Block all** ** worker. The jump line must remain as it is at `queued` (ROLBACK  →  `attempts` is not +1).
+- **fd not leak**: `_claim_next` Every path (empty queue / skip/ lead) should be left only ** the one it returns** fd.
+  fd = That one. flock Never return to kernel. = The bank will never rule on death. `_claim_next` It’s... `except BaseException`）。
+- ** Deleting the locks after closing the work**: The window that turns the other way will get `_reclaim_dead` to grab the lock, sentence ”dead” and hit back queued and run.
+- ** `_enqueue` brush priority but not `enqueued_at`**: brushed = long waiting line is always behind (frozen death).
+- **worker isolation (`_run_claimed`)**: normal abnormality return and worker line alive; `_ActTimeout` ** Park, never return**
+  (Whether the item was pushed by the killed agent could not be proved, re-offending = double running); successful  →  delete line. All three paths must be `close(fd)`.
+- **`_run_claimed` , and then the upper limit is short.**：`attempts` There’s only one way to go.——Last round is already in progress. park But... `gh` Throw it. → Lines
+  `_reclaim_dead` is recovered. The retrace is ** that park**, not that agent call: `_reconcile` is not allowed to be called at any time.
+- ** `_sweep_stalled` (survival certificate leak)**: `hold_fd` will pass fd of the block to agent son process, which will ** continue to pass on to grandsons**;
+  A long-lived grandson.MCP server / Backstage. dev server）It’ll hold that lock forever. → The subject It’s... `queued` Okay.**I’ll never get away with it.**，
+  The three columns were not seen (recycling only clamed, IN_FLIGHT alerts to claimed_at, QUIEET watchdogs only work with QUIET, but the QUIET dog is only active.
+  The verdict is structural: the lock of the queued line** should be free (the only legal holder is the claired liner).
+- ** `_reconcile` convulsion**:fp per wheel, but review back and forth between two states ( →  implement push head)
+  `fp == last_fp` remembers only the last round, which does not recognize the cycle 2 ring, `_MAX_RECONCILE_ROUNDS` closing park, cannot burn LLM indefinitely.
+-** `_proposed_edges` radius**: a bad side freezes only the person concerned, not the whole ready collection; hallucinogenic number** never synthesizes issue #0**
+  (Asserts on a non-observed/ non-existent object will be written for a label + comment).
+- ** `_reclaim_dead` does not lie**: only ** really ** Quueed’s line.
 
-全程 tmp_path 上的真 SQLite + 真 flock + 真线程（并发断言只有真并发才证得了），但无 sleep、无网络、无 LLM：
-全靠 event / deadline 同步，整个文件 < 5s。
+The real SQLite + true block + true thread (and the assertion that only true can be confirmed) on full tmp_path, but no sleep, no network, no LLM:
+& & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & @ @ & & & & & & & & & & & & & & & & & & & @(((((((((((((((((((((((((((((((((((((((((((((((((((((( & & @ & & & & @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ @ file @ file @ @ @ @ file
 """
 
 from __future__ import annotations
@@ -77,18 +77,18 @@ _NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
 _HEAD = "abc1234def5678901234567890123456789abcde"
 _SHA7 = _HEAD[:7]
 
-# Spec-0065/T2: 所有「等一个并发事实发生」的等待都收在这个墙钟上限里——超时即失败（不 sleep、不自旋等固定时长）。
+# Spec-0065/T2: All "waiting for a simultaneous occurrence" is placed in the ceiling of this wall clock - time out or failure (no sleep, no swing, etc.).
 _DEADLINE_SECONDS = 5.0
 _TICK_SECONDS = 0.005
 
 
 # --------------------------------------------------------------------------------------------------
-# 夹具：facts 造型 / config / 库 / fd 普查（fd 泄漏是本文件的一等断言）。
+# Plugin: acts model / config / library / fd census (fd leak is a first-class assertion of this document).
 # --------------------------------------------------------------------------------------------------
 
 
 def _facts(**overrides) -> _Facts:
-    """一个「万事俱备、只欠合并」的 facts（与 test_recipe_vigil.py 同型），按需改单字段往回退。"""
+    """A ”works ready, only to merge” fact (same as test_recipe_vigil.py) is returned by changing the field as needed."""
     base = _Facts(
         subject="issue:5",
         pr_number=12,
@@ -132,10 +132,10 @@ def _db(tmp_path: Path) -> tuple[Path, sqlite3.Connection]:
 
 
 def _open_fds() -> set[int]:
-    """本进程当前打开的 fd 集合（`F_GETFD` 普查）。用来钉「`_claim_next` 只留下它返回的那一个 fd」。
+    """The current fd collection of this process is open (`F_GETFD` census). This is used to nail ”`_claim_next` only the fd which it returns”.
 
-    fd 泄漏在这里不是「占资源」的小事：泄漏的 fd 持着 flock ⇒ 内核认为持有者永远活着 ⇒ 那一行**永远**
-    回收不了、也永远重入不了队（`INSERT OR IGNORE` 撞 UNIQUE）⇒ 该 subject 就此死掉。
+    Fd, it’s not a little ”resource-bearing thing” here: the fd, with the kernel holding the kernel, thinks the owner is alive forever, givin’ the line**
+    I can’t recover it, I can’t ever get back on the team.`INSERT OR IGNORE` Hit it! UNIQUE）⇒ The subject And that’s it.
     """
     live: set[int] = set()
     for fd in range(3, 256):
@@ -148,26 +148,26 @@ def _open_fds() -> set[int]:
 
 
 def _leaked(*, before: set[int], allowed: set[int]) -> set[int]:
-    """两次普查之间**多出来**的 fd（扣掉允许留下的那些）。断言只看这个方向。
+    """Between censuses**,** more fd (releases allowed). The assertion is only in this direction.
 
-    不能断言 `after == before`（或 `after - before == {fd}` 这种全等式）：本进程里跑着**别的**东西
-    （pytest 的 cache 插件在写文件、上一批测试的垃圾在被 GC、sqlite 的 finalizer 在关句柄），任何一个都可能
-    在两次普查之间**关掉**一个不相干的 fd —— 那个号随即被内核回收，`_try_lock` 下一次 open 正好复用它，于是
-    「新 fd」在 `before` 里赫然在列，全等式当场假红（本仓真发生过：单跑绿、全量红）。
-    我们要证的是**没有泄漏**（fd 只多不少才是病），故只看 `after - before`：外部关掉 fd 只会让集合变小，
-    不影响这个方向；而任何真的泄漏都必然多出一个号。
+    `after == before` (or `after - before == {fd}`, which is a full equation): There’s something else going on in this process.
+    (Pytest cache plugin in file writing, previous tested garbage in a key by GC, sqlite Finalizer)
+    Turn off ** a separate fd -- the number was recovered from the kernel, `_try_lock` next time open just to reuse it, so...
+    New fd is in the column `before`, full-size, on-site red (sun-coloured, full-size red).
+    We’re going to testify that there’s no leak** (fd is only a few more cases of disease) so we’re just going to look at `after - before`: Turn off fd from the outside and just make the collection smaller.
+    It does not affect this direction; any real leak must have an additional number.
     """
     return _open_fds() - before - allowed
 
 
 def _await(predicate) -> None:
-    """轮询到 `predicate()` 成立；超 `_DEADLINE_SECONDS` 即失败（无固定 sleep ⇒ 快且不 flaky）。"""
+    """Query to `predicate()` set up; super`_DEADLINE_SECONDS` failed (no fixed sleep  →  fast and non-flaky)."""
     deadline = time.monotonic() + _DEADLINE_SECONDS
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(_TICK_SECONDS)
-    raise AssertionError("等待并发事实超时")
+    raise AssertionError("Waiting for facts to be transmitted over time")
 
 
 def _count(conn: sqlite3.Connection) -> int:
@@ -179,46 +179,48 @@ def _row(conn: sqlite3.Connection, *, subject: str):
 
 
 # --------------------------------------------------------------------------------------------------
-# `_claim_next` 的争用：锁冲突必须**跳过**、不能当成「队列空了」（队头阻塞 = 所有 worker 一起罚睡）。
+# The competition for `_claim_next`: Lock conflict must ** skip** and not be considered "queuing empty" (team block = all worker sleeping together).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_claim_next_skips_a_flock_held_row_and_takes_the_next(tmp_path):
-    """队首的锁被别人瞬时持着 → **跳过它领下一行**，绝不返回 None。
+    """The lock on the head is held by someone else at once. ** Skip it to take the next line.** Never return to None.
 
-    这个窗口是真实存在的：`_requeue_or_park` 先 UPDATE 回 `queued`、再 `close(fd)`——两步之间那一行就是
-    「queued 但锁还被持着」。若 `_claim_next` 此时返回 None，worker 会读成「队列空了」而去睡
-    `_WORKER_POLL_SECONDS`，**整池 worker 被队首一行的亚毫秒冲突全挡在门外**（队头阻塞）。
+    This window is real: `_requeue_or_park`, UPDATE goes back to `queued`, and `close(fd)` -- the line between two steps is this.
+    ”queued but the lock is still holding.” If `_claim_next` returns to None, the workingr will read ”queuing empty” and go to sleep.
+    `_WORKER_POLL_SECONDS`,** the whole pool woker was blocked from the first line of the team’s submariseconds ** (teamhead blocking).
     """
     _, conn = _db(tmp_path)
-    _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)  # 队首（优先级高）
+    _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)  # Team Leader (Priority High)
     _enqueue(conn=conn, subject="issue:6", priority=1, now=_NOW)
     held = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))
     assert held is not None
 
     before = _open_fds()
     claimed = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w2", now=_NOW)
-    assert claimed is not None, "队首锁冲突不得被读成「队列空了」"
+    assert claimed is not None, "The first-locked conflict must not be read as ”out of line.”"
     row, fd = claimed
-    assert row["subject"] == "issue:6", "必须跳过锁着的队首、领下一行"
+    assert row["subject"] == "issue:6", "We must skip the locked head and lead the next line."
 
-    # 被跳过的行原样留在 queued：跳过走的是 ROLLBACK，`attempts` 那一下 +1 也必须一起回滚。
+    # Skipped lines left in queued: Skipping ROLBACK, `attempts` that +1 must also roll back together.
     skipped = _row(conn, subject="issue:5")
     assert (skipped["status"], skipped["attempts"], skipped["worker"]) == ("queued", 0, None)
-    # 除了「领到的那一个」，不许多出任何 fd：跳过失败的锁 fd 由 `_try_lock` 自己关掉，不泄漏。
+    # Except for the "the one that got it" , there's not many fds: skip the failed lock fds by `_try_lock` itself, without leaking.
     assert _leaked(before=before, allowed={fd}) == set()
-    assert fd in _open_fds(), "领到的 fd 必须还开着——它就是这一行的存活证明"
+    assert fd in _open_fds(), (
+        "The fd that you get, it has to be on -- it’s proof of survival in this business."
+    )
 
     os.close(fd)
     os.close(held)
-    # 锁一还，被跳过的那行立刻可领（跳过是「这一轮不领它」，不是把它废掉）。
+    # The line that was jumped was immediately accessible (the jump was "this round is not going to take it" and not to waste it).
     again = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w3", now=_NOW)
     assert again is not None and again[0]["subject"] == "issue:5"
     os.close(again[1])
 
 
 def test_claim_next_on_empty_queue_returns_none_without_leaking_fd_or_txn(tmp_path):
-    """空队列 → None；不留 fd、不留开着的事务（悬着的写事务会把生产者和其它 worker 全堵死）。"""
+    """Noone; no fd, no business (suspension of writing will block producers and other workers)."""
     _, conn = _db(tmp_path)
     before = _open_fds()
     assert _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW) is None
@@ -227,7 +229,7 @@ def test_claim_next_on_empty_queue_returns_none_without_leaking_fd_or_txn(tmp_pa
 
 
 def test_claim_next_all_rows_locked_returns_none_after_skipping_every_one(tmp_path):
-    """全部行的锁都被持着 → 跳完所有行才返回 None（"没得领" 与 "队列空" 同一个出口，但不许泄漏 fd）。"""
+    """All line locks are held and jump back to the net."""
     _, conn = _db(tmp_path)
     held = []
     for subject in ("issue:5", "issue:6"):
@@ -246,9 +248,9 @@ def test_claim_next_all_rows_locked_returns_none_after_skipping_every_one(tmp_pa
 
 
 def test_concurrent_claimers_never_double_claim_a_subject(tmp_path):
-    """真线程争用：K 个 claimer 同抢一张表 → 每行**恰好**被领走一次（`BEGIN IMMEDIATE` 序列化）。
+    """The real-line process is contested: K a claimmer and a table is robbed.  →  Every line ** happens to be taken once (`BEGIN IMMEDIATE` sequenced).
 
-    双跑是本 spec 唯一不可接受的失败——它必须由真并发来证，不能靠顺序调用两次「模拟」。
+    Double running is the only unacceptable failure of Ben spec - it must be proven by the truth and cannot be called twice in sequence.
     """
     db_path, conn = _db(tmp_path)
     subjects = [f"issue:{index}" for index in range(1, 7)]
@@ -286,17 +288,17 @@ def test_concurrent_claimers_never_double_claim_a_subject(tmp_path):
         thread.join(timeout=_DEADLINE_SECONDS)
         assert not thread.is_alive()
 
-    assert sorted(claimed) == sorted(subjects), "每个 subject 恰好被领走一次（无双跑、无漏领）"
+    assert sorted(claimed) == sorted(subjects), "Each subproject happens to be taken away once."
     assert _count(conn) == 0
 
 
 # --------------------------------------------------------------------------------------------------
-# 收工：先删行、后释锁（顺序即正确性——反过来就是一个双跑窗口）。
+# Completion: Delete the line and release the lock (the sequence is correct — and in turn a double-run window).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_mark_done_deletes_the_row_before_releasing_the_lock(tmp_path, monkeypatch):
-    """`close(fd)` 那一刻，行**必须已经不在表里**——否则 `_reclaim_dead` 会抢到锁、判死、把行打回 queued。"""
+    """`close(fd)` that moment, line** must have been out of the table** -- otherwise `_reclaim_dead` would have caught locks, sentenced to death, hit the line back."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
@@ -312,33 +314,39 @@ def test_mark_done_deletes_the_row_before_releasing_the_lock(tmp_path, monkeypat
     _mark_done(conn=conn, task_id=row["id"], fd=fd)
     monkeypatch.undo()
 
-    assert at_close == [None], "释锁时行必须已删（先删行、后 close(fd)）"
+    assert at_close == [None], (
+        "The line must be deleted when unlocking (line deleted, followed by close(fd))"
+    )
     assert _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW) is None
     freed = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))
-    assert freed is not None, "收工必须把 flock 还给内核"
+    assert freed is not None, "The job must be finished by returning theflock to the kernel."
     os.close(freed)
 
 
 # --------------------------------------------------------------------------------------------------
-# `_enqueue`：刷优先级（领取时定序不失真），但**不刷 `enqueued_at`**（刷了就是饿死久候行）。
+# `_enqueue`: Draw priority (the order is not incorrect when received), but `enqueued_at`** (the brush is a hungry death waiting).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_enqueue_refreshes_priority_but_never_resets_enqueued_at(tmp_path):
-    """排队期间 solve(1) → merge(5)：优先级要跟着变，`enqueued_at` 不能动（它是 FIFO tie-break）。"""
+    """During queue, Solve(1)  →  merge(5): Priority changes, and `enqueued_at` is not moving (it is FFO tie-break)."""
     _, conn = _db(tmp_path)
     assert _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True
 
     later = _NOW + timedelta(minutes=30)
     assert _enqueue(conn=conn, subject="issue:5", priority=5, now=later) is False
     row = _row(conn, subject="issue:5")
-    assert row["priority"] == 5, "排队期间优先级变了要刷（否则按过时的权重排序）"
-    assert row["enqueued_at"] == _NOW.isoformat(), "刷 enqueued_at = 久候行永远排在后面（饿死）"
+    assert row["priority"] == 5, (
+        "Priority changed during queue (or else, in order of weight, obsolete)"
+    )
+    assert row["enqueued_at"] == _NOW.isoformat(), (
+        "Scrap enqueued_at = long waiting line is always behind"
+    )
     assert _count(conn) == 1
 
 
 def test_enqueue_inserts_a_brand_new_subject(tmp_path):
-    """新 subject → 插入并返回 True（生产者据此计本 tick 的入队数 / 决定要不要打 `_hang`）。"""
+    """New subject  →  Insert and return True (the number of queues for the producer’s tick based on this / decide whether to play `_hang`)."""
     _, conn = _db(tmp_path)
     assert _enqueue(conn=conn, subject="pr:12", priority=6, now=_NOW) is True
     row = _row(conn, subject="pr:12")
@@ -346,7 +354,7 @@ def test_enqueue_inserts_a_brand_new_subject(tmp_path):
 
 
 def test_enqueue_does_not_touch_a_claimed_row(tmp_path):
-    """已被领走的行不动它：它正在跑，改优先级毫无意义，改 `status` 更是直接制造双跑。"""
+    """The line that has been taken is not moving: it’s running, it’s moving in the first place, it’s not making sense. `status` And it’s a direct double-drive."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
@@ -359,7 +367,7 @@ def test_enqueue_does_not_touch_a_claimed_row(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# worker 隔离（`_run_claimed`）：异常回队 / `_ActTimeout` park / 成功删行——三条路径都必须 close(fd)。
+# worker Segregation (`_run_claimed`）: Unusual Back Team / `_ActTimeout` park / Successfully deleted lines——All three paths must be made. close(fd)。
 # --------------------------------------------------------------------------------------------------
 
 
@@ -385,33 +393,35 @@ def _run_it(tmp_path, conn, row, fd) -> None:
 
 
 def _assert_lock_released(tmp_path, *, subject: str) -> None:
-    """行的锁必须已还给内核——留着锁 = 那行永远判不了死（`_reclaim_dead` 认为持有者还活着）。"""
+    """The lock of the line must have been returned to the core - the lock is left = the line will never be judged dead (`_reclaim_dead` thinks the holder is still alive)."""
     freed = _try_lock(path=_lock_path(work_dir=tmp_path, subject=subject))
-    assert freed is not None, f"{subject}：收尾必须释放 flock"
+    assert freed is not None, f"{subject}: End of the line must releaseflock"
     os.close(freed)
 
 
 def test_run_claimed_requeues_the_row_when_the_action_raises(tmp_path, monkeypatch):
-    """普通异常（gh 抖动 / agent 崩）→ **回队重试**，且异常绝不越过 `_run_claimed`（worker 线程是地基）。"""
+    """Normal anomalies (gh shaking / agent crash)** return to the team retry** and will never cross `_run_claimed` (worker thread is the foundation)."""
     _, conn = _db(tmp_path)
     row, fd = _claim_one(tmp_path, conn, subject="issue:5")
     monkeypatch.setattr(
         vigil_module,
         "_reconcile",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 抽风")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh, wind.")),
     )
-    _run_it(tmp_path, conn, row, fd)  # 不上抛
+    _run_it(tmp_path, conn, row, fd)  # No, I'm not.
 
     after = _row(conn, subject="issue:5")
-    assert (after["status"], after["attempts"]) == ("queued", 1), "回队重排（attempts 领取时已 +1）"
+    assert (after["status"], after["attempts"]) == ("queued", 1), (
+        "Back in line (attempts already +1)"
+    )
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
 def test_run_claimed_clean_release_on_merge_not_ready(tmp_path, monkeypatch):
-    """Spec-0074 实证：合并前 CI 仍在跑（`gates.MergeNotReady`）→ **删行干净收工、不烧 attempts、不 park**。
+    """Spec-0074: CI was still running (`gates.MergeNotReady`)  →  Delete clean-up, attempts, no Park**.
 
-    与普通异常（回队 attempts+1）严格不同：pending 是暂态、不是失败，累计重试会在 CI 的
-    pending→success 窗口内烧光 `_MAX_ATTEMPTS` → 误挂 needs-human。删行后生产者下轮 CI 绿了重判即合。
+    It’s not like normal anomalies: pending is temporary, not a failure, and a cumulative re-test will be at the CI.
+    Burning `_MAX_ATTEMPTS`  →  mis-shipped needs-human. The producer’s next round of heavy sentences is greened after the deletion.
     """
     from openagents.runtime import gates
 
@@ -426,12 +436,12 @@ def test_run_claimed_clean_release_on_merge_not_ready(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
-    _run_it(tmp_path, conn, row, fd)  # 不上抛
+    _run_it(tmp_path, conn, row, fd)  # No, I'm not.
 
     assert _count(conn) == 0, (
-        "CI 暂态 pending 当干净收工删行，绝不回队累计（否则窗口内烧光重试误交人）"
+        "CI interim pending and never return to team when clean-up is done (otherwise, burn-out re-dealing)"
     )
-    assert parked == [], "pending 不是失败——不 park"
+    assert parked == [], "Sending is not a failure -- no Park"
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
@@ -442,7 +452,7 @@ def test_run_claimed_requeues_act_timeout_within_bounded_budget(tmp_path, monkey
     monkeypatch.setattr(
         vigil_module,
         "_reconcile",
-        lambda **kwargs: (_ for _ in ()).throw(_ActTimeout("超 1800s 未返回")),
+        lambda **kwargs: (_ for _ in ()).throw(_ActTimeout("Over 1800s Not Returned")),
     )
     monkeypatch.setattr(
         vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
@@ -461,14 +471,14 @@ def test_act_timeout_below_budget_does_not_write_terminal_projection(tmp_path, m
     monkeypatch.setattr(
         vigil_module,
         "_reconcile",
-        lambda **kwargs: (_ for _ in ()).throw(_ActTimeout("超 1800s 未返回")),
+        lambda **kwargs: (_ for _ in ()).throw(_ActTimeout("Over 1800s Not Returned")),
     )
     monkeypatch.setattr(
         vigil_module,
         "_fail_automation",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh restricted flow")),
     )
-    _run_it(tmp_path, conn, row, fd)  # 收尾失败不上抛
+    _run_it(tmp_path, conn, row, fd)  # We're not gonna get through this.
 
     after = _row(conn, subject="issue:5")
     assert after is not None and after["status"] == "queued"
@@ -476,7 +486,7 @@ def test_act_timeout_below_budget_does_not_write_terminal_projection(tmp_path, m
 
 
 def test_run_claimed_deletes_the_row_on_success(tmp_path, monkeypatch):
-    """正常收工 → 行删掉（**不是** `status='done'`：UNIQUE 会把该 subject 永久锁死）+ 释锁。"""
+    """Normal close-out line deleted (** is not ** `status='done'`: UNIQUE will lock the subject permanently)+ unlock."""
     _, conn = _db(tmp_path)
     row, fd = _claim_one(tmp_path, conn, subject="issue:5")
     monkeypatch.setattr(vigil_module, "_reconcile", lambda **kwargs: None)
@@ -484,17 +494,19 @@ def test_run_claimed_deletes_the_row_on_success(tmp_path, monkeypatch):
 
     assert _count(conn) == 0
     _assert_lock_released(tmp_path, subject="issue:5")
-    assert _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True  # 能再入队
+    assert (
+        _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True
+    )  # I can get in the line again.
 
 
 def test_run_claimed_over_the_cap_parks_without_calling_reconcile_at_all(tmp_path, monkeypatch):
-    """# Spec-0065/T2: `attempts` 已超顶的行 → **零 agent 调用**，直接 park（要重试的是那次 park，不是那次活）。
+    """# Spec-0065/T2: `attempts` is super-maximum line  →  ** zero agent call**, straight ahead Park (to try again is the park, not the job).
 
-    这样的行只有一种来路：上一轮已经判了「到顶交人」，但 park 的 `gh` 抛了（429 / 掉网）→ 行留在 `claimed`
-    → 被 `_reclaim_dead` 正常回收 → 又被领走。若不在进门处拦住它，`_reconcile` 会**再叫起一次完整的 agent**：
-    一个持续失败的 `gh` 于是变成一个无界的 LLM 烧钱环——`_MAX_ATTEMPTS` 存在的全部意义就是不让毒丸活无限重试。
-    在超时 park 那条路上更糟：被强杀的 agent 是否已经推了东西无法证明，重发一次正是 label 里写着「未自动
-    重试」要避免的双跑。
+    There’s only one way to go: the last round has already been given ”to the top” but Park’s `gh` dropped it and left the line at `claimed`.
+     →  Recycled by `_reclaim_dead` normal and taken away. If it is not stopped at the door, `_reconcile` will** call for a full anggen**:
+    A failed `gh` has become an unbounded LLM burn money ring -- the whole point of `_MAX_ATTEMPTS` is not to allow the poison pills to live indefinitely.
+    It’s worse on the way over time Park: did the killed agent push something that couldn’t prove, and it was the label that wrote, ”Not automatic.”
+    ”The two-runs that you have to avoid are retried.”
     """
     _, conn = _db(tmp_path)
     parked: list[str] = []
@@ -506,25 +518,25 @@ def test_run_claimed_over_the_cap_parks_without_calling_reconcile_at_all(tmp_pat
         vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
-    # 领取时 `attempts` +1 → 进 `_run_claimed` 时已是 `_MAX_ATTEMPTS + 1`（上一轮判了 park 但没落地）。
+    # When received `attempts` +1 → In `_run_claimed` It's the time. `_MAX_ATTEMPTS + 1`(Previously sentenced.) park But it landed.
     conn.execute("UPDATE work_queue SET attempts=? WHERE subject='issue:5'", (_MAX_ATTEMPTS,))
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
     assert row["attempts"] == _MAX_ATTEMPTS + 1
 
     _run_it(tmp_path, conn, row, fd)
 
-    assert reconciled == [], "超顶的行绝不许再叫 agent（一次完整的 LLM 调用都不许有）"
-    assert parked == ["issue:5"], "上一轮没落地的「交人」必须在这一轮重试"
-    assert _count(conn) == 0, "park 落地了 → 行删掉"
+    assert reconciled == [], "No more agents."
+    assert parked == ["issue:5"], "The last set of ”kids” must be retried at this round."
+    assert _count(conn) == 0, "Park, land."
     _assert_lock_released(tmp_path, subject="issue:5")
 
 
 def test_run_claimed_over_the_cap_states_only_what_it_can_prove(tmp_path, monkeypatch):
-    """# Spec-0065/T2: 超顶 park 的理由只许陈述**能证的事实**（领了 N 次、一次没收工），不许把成因当结论。
+    """# Spec-0065/T2: The super-park argument is only a statement** of facts that are evidenced ** (taken N, confiscated a job) and cannot be concluded by cause.
 
-    「上一轮的交人未能落地」并不是唯一来路：agent 反复崩、守夜进程被无关的重启打死（`_reclaim_dead` 每次
-    把行打回队、每次领取 `attempts` 又 +1）都会把一个**从没失败过**的健康 subject 推过上限。写死一句会骗人
-    的诊断，会把接手的人直接引到错的方向（去查 `gh` 限流，而现场根本没有 429）。
+    ”The last round of sex-related failure” is not the only way: agent repeatedly crashed and the vigil was shot by a non-related restart (`_reclaim_dead` every time)
+    You can hit back on the line, and every time you get `attempts`, and +1), you push a healthy subject that’s never failed. Write a death sentence is a lie.
+    The diagnosis leads the handler directly to the wrong direction (to check `gh` restricted flow, while there is no physical presence of 429).
     """
     _, conn = _db(tmp_path)
     bodies: list[str] = []
@@ -539,19 +551,21 @@ def test_run_claimed_over_the_cap_states_only_what_it_can_prove(tmp_path, monkey
     _run_it(tmp_path, conn, row, fd)
 
     assert len(bodies) == 1
-    # 只看 `_run_claimed` 填进去的那一段「原因」，不看 `_finish` 的 body 模板里的公共话术。
+    # Read only the "cause" that `_run_claimed` has filled in, and not the body verse from the `_finish` template.
     reason = bodies[0]
-    assert str(_MAX_ATTEMPTS + 1) in reason, "能证的事实：这一行被领取了几次（给人一个可查的锚点）"
-    assert "可能" in reason, (
-        "成因只能是**推测**（agent 反复崩 / 守夜被无关的重启打死 / 上一轮 park 的 `gh` 没发出去），"
-        "把其中一种写死成断言 = 把接手的人引到错的方向（去查 429，而现场根本没有）"
+    assert str(_MAX_ATTEMPTS + 1) in reason, (
+        "Proven fact: Several times the business was taken (a searchable anchor was given)"
+    )
+    assert "may have crashed" in reason, (
+        "The cause is...**Conjecture.**（agent Repeatedly. / The vigil was shot by a non-related reboot. / Previous round park It’s... `gh` I’m not sending it out."
+        "= Lead the handler to the wrong direction."
     )
 
 
 def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_path, monkeypatch):
-    """毒丸 subject 反复抛 → worker **线程不死**：它继续服务别的 subject，毒丸自己到 `_MAX_ATTEMPTS` 被 park。
+    """Poison pills. subject Repeatedly. → worker **The thread is not dead.**: It continues to serve others subject The pills are on their own. `_MAX_ATTEMPTS` Pour park。
 
-    一个 subject 崩掉就少一条 worker 线程 = 并发池静默缩水（日志里跟「一切正常」长得一模一样）。
+    A subproject collapses with a workingr = and a pool of silent water shrinks (the log looks exactly like ”everything is normal”).
     """
     db_path, conn = _db(tmp_path)
     parked: list[str] = []
@@ -559,14 +573,14 @@ def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_
 
     def _fake_reconcile(*, backend, state, work_dir, config, subject, agent_id, now_fn, lock_fd):
         if subject == "issue:5":
-            raise RuntimeError("毒丸")
+            raise RuntimeError("Poison pills.")
         healthy.set()
 
     monkeypatch.setattr(vigil_module, "_reconcile", _fake_reconcile)
     monkeypatch.setattr(
         vigil_module, "_fail_automation", lambda **kwargs: parked.append(kwargs["subject"])
     )
-    _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)  # 毒丸排队首
+    _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)  # The poison pills are in line.
     _enqueue(conn=conn, subject="issue:6", priority=1, now=_NOW)
 
     stop_event = threading.Event()
@@ -589,9 +603,9 @@ def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_
     worker.start()
     try:
         _await(lambda: _count(conn) == 0)
-        assert healthy.is_set(), "毒丸不得挡住健康 subject（worker 线程必须活着继续领）"
-        assert parked == ["issue:5"], f"毒丸到 {_MAX_ATTEMPTS} 次未收工 → 交人"
-        assert worker.is_alive(), "单 subject 反复崩绝不许杀掉 worker 线程"
+        assert healthy.is_set(), "The pill must not block the health subproject."
+        assert parked == ["issue:5"], f"The poison is here. {_MAX_ATTEMPTS} - No work done."
+        assert worker.is_alive(), "The line is closed to the object."
     finally:
         stop_event.set()
         worker.join(timeout=_DEADLINE_SECONDS)
@@ -601,7 +615,7 @@ def test_worker_thread_survives_a_poisoned_subject_and_keeps_serving_others(tmp_
 
 
 def test_requeue_or_park_releases_the_lock_at_max_attempts(tmp_path, monkeypatch):
-    """到顶 park 也必须释锁：park 只是「删行 + 打 label」，锁留在手里的话下一次入队的行永远判不了死。"""
+    """At the top of the park you must also release the lock: Park is simply ”deption + hit label” and the next line to join the team is never dead if the lock is left in hand."""
     _, conn = _db(tmp_path)
     monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kwargs: None)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
@@ -613,67 +627,67 @@ def test_requeue_or_park_releases_the_lock_at_max_attempts(tmp_path, monkeypatch
 
 
 def test_finish_closes_the_fd_exactly_once_when_park_raises(tmp_path, monkeypatch):
-    """# Spec-0065/T2: park 的**网络调用抛出**时：fd 只许 close 一次，且那一行**必须留在 claimed**。
+    """# Spec-0065/T2: park** Web call ** when thrown**: fd only closes once and that line ** must remain claimed**.
 
-    两条不变式合在一处，因为它们是同一次失败的两面：
+    The two articles are in one place, because they are two sides of the same failure:
 
-    1. **fd 恰好 close 一次**（双跑的最后一个入口）。到顶 park 委托给 `_requeue_or_park`，它的 `finally`
-       已经关过一次。若 `_finish` 此时以为「helper 没关成」再兜底关一次，关掉的很可能已经不是这个 fd 号
-       了——fd 号会被别的线程复用（另一个 worker 的 claims 锁、一个 sqlite 句柄），于是**放掉别人的
-       flock** → 那个还在跑的 worker 被 `_reclaim_dead` 判死、行被回收重领 → 双跑。flock 挡得住一切，
-       唯独挡不住「锁被别人替我放了」。
-    2. **先打 label、再删行**（park ≠ 悄悄重新派发）。`gh` 抛出（429 / 网络抖动）时 label 根本没落地：若
-       此时行已经被删掉，下一 tick 生产者从 GitHub 重新感知 → 还是 ACTIONABLE → 重新入队，且 `attempts`
-       **从 0 起算** → 毒丸活永远到不了 `_MAX_ATTEMPTS`，白烧模型、无人知晓。故这一轮必须**什么都没变**：
-       行仍是 `claimed`、`attempts` 停在上限——锁已还给内核，`_reclaim_dead` 下一轮把它捡回去重试 park
-       （幂等），最坏多绕一圈，但「交人」这个决定丢不了。
+    1. **fd Just right. close Once.**( last entrance to double running) To the top. park Delegation `_requeue_or_park`It’s... `finally`
+       Already closed once. If `_finish` thinks ”helper’s not closed” at this time, it’s probably not the fd that turned off.
+       The fd will be reused by another thread (an additional lock of claires for workker, a sqlite handle), and ** let go of others.
+         The workingr who’s still running is sentenced to `_reclaim_dead`, recycled, retraced     Double run.     Lock can block everything,
+       The only thing that can stop is ”the locks being set free for me.”
+    2. Reporting the failure can fail even after deleting the queue row.
+       The line has been deleted, and the next tick producer rediscovers from GitHub, `attempts`, CTIONABLE, re-entering the team.
+       ** From 0 **  →  The pills never reach `_MAX_ATTEMPTS`, the white burning model, nobody knows. So this round must ** Nothing has changed:**
+       Lines still `claimed`、`attempts` Stop at the limit——The lock was returned to the kernel.`_reclaim_dead` Next round, pick it up and try again. park
+       (Quest) The worst part is to go around, but the decision to ”fuck” is not lost.
     """
     _, conn = _db(tmp_path)
     monkeypatch.setattr(
         vigil_module,
         "_fail_automation",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh restricted flow")),
     )
     monkeypatch.setattr(
         vigil_module,
         "_reconcile",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("agent 崩")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("- Yeah, yeah, yeah.")),
     )
     closed: list[int] = []
     real_close = os.close
     monkeypatch.setattr(os, "close", lambda fd: (closed.append(fd), real_close(fd))[1])
 
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
-    for _ in range(_MAX_ATTEMPTS):  # 最后一轮撞上限 → park → _park_needs_human 抛
+    for _ in range(_MAX_ATTEMPTS):  # Last round of impact caps, park _park_needs_human throw
         row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
-        closed.clear()  # 逐轮看：跨轮的 fd 号被内核重用是正常的，一轮内关两次才是 bug
-        _run_it(tmp_path, conn, row, fd)  # 收尾失败也不上抛（worker 线程是地基）
-        assert closed == [fd], f"本轮 close 了 {closed}，应恰好是这一个 fd 一次"
+        closed.clear()  # Round by round: It's normal for the cross-wheel fd to be reused with kernel, and it's a bug twice in the round.
+        _run_it(tmp_path, conn, row, fd)  # And then you can't go up and finish.
+        assert closed == [fd], f"This round closes. {closed}It’s exactly this fd one time."
 
     after = _row(conn, subject="issue:5")
     assert (after["status"], after["attempts"]) == ("claimed", _MAX_ATTEMPTS), (
-        "label 没落地 → 这一轮什么都不许变：行留 claimed 等回收重试，绝不能删（删=悄悄重新派发，attempts 归零）"
+        "  This round is not gonna change: stay clameed and retrace, never delete (deleted = quietly re-dispatch, attemmpts zero)"
     )
     _assert_lock_released(
         tmp_path, subject="issue:5"
-    )  # 锁必须还，否则 _reclaim_dead 判不了死、行永远卡住
+    )  # The lock must be returned, otherwise _reclaim_dead will not be able to kill and the line will be stuck forever.
 
 
 # --------------------------------------------------------------------------------------------------
-# `_sweep_stalled`：queued 行的锁本就该是自由的——被占且超龄 = 存活证明泄漏给了一个孙子进程 → 交人。
+# `_sweep_stalled`:queued lines should have been free - occupied and overage = survival certificates leaked to a grandchild process.
 # --------------------------------------------------------------------------------------------------
 
 
-# 「上一 tick 就见过它锁着」之后的**这一** tick：跨 tick 记忆里的首见时刻已超 `_STALE_LOCK_SECONDS`。
+# This ** tick: The first moment in the memory of the Tick is beyond `_STALE_LOCK_SECONDS`.
 _LATER = _NOW + timedelta(seconds=_STALE_LOCK_SECONDS + 60)
 
 
 def _stale_at(now: datetime) -> datetime:
-    """把「入队时刻」推到 `now` 之前 `_STALE_LOCK_SECONDS` 以上（即：这行的 `enqueued_at` 已经很老了）。
+    """`_STALE_LOCK_SECONDS` before `now` (i.e. `enqueued_at` in this line is very old).
 
-    **注意它不再是判据**（见 `test_sweep_does_not_park_the_requeue_handoff_window`）：`enqueued_at` 在回队时
-    **故意不刷新**（防饿死），故一个跑了很久才回队的健康行天生就是「老」的。留着这个夹具正是为了把「老」和
-    「泄漏」造在同一行上，证明前者不蕴含后者。
+    ** Note that it is no longer a sentence** (see `test_sweep_does_not_park_the_requeue_handoff_window`): `enqueued_at` was returning to the team
+    ** Intentionally not to refresh** (to starve), so a healthy life that has been on the team for a long time is born ”old.”
+    The “spill” is made in the same line of work, which proves that the former does not imply the latter.
     """
     return now - timedelta(seconds=_STALE_LOCK_SECONDS + 60)
 
@@ -685,11 +699,11 @@ def _sweep(conn, tmp_path, *, seen_locked: dict[str, datetime], now: datetime) -
 
 
 def test_sweep_leaves_a_young_row_alone_even_when_its_lock_is_held(tmp_path, monkeypatch):
-    """**首次**看见「queued + 锁被持着」→ 只记一笔、**不许 park**：这正是正常的交接窗口
-    （`_requeue_or_park` / `_reclaim_dead` 都是先 UPDATE 回 queued、再 `close(fd)`），亚毫秒即散。
+    """** First time I saw ”queued + lock held” ** and only one, ** no park**: this is the normal interface window
+    (`_requeue_or_park` / `_reclaim_dead` is first UPDATE back queued, and `close(fd)`) and is milliseconds are scattered.
 
-    跨 tick 记忆存在的唯一理由就是不把这个窗口误判成泄漏——没有它，一次正常的回队就会给 subject 挂上
-    needs-human。第二次看见时若还没超阈值，同样不许动。
+    The only reason for the cross-tick memory is not to misjudge this window as a leak -- without it, a normal return would hang on to the subject.
+    Need-human. If you see it again, you stay still.
     """
     _, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
@@ -699,65 +713,75 @@ def test_sweep_leaves_a_young_row_alone_even_when_its_lock_is_held(tmp_path, mon
     assert held is not None
 
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0
-    assert seen_locked == {"issue:5": _NOW}, "首见只记一笔（计时从此刻起算）"
+    assert seen_locked == {"issue:5": _NOW}, "First sight only one."
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW + timedelta(seconds=1)) == 0
 
-    assert parked == [], "交接窗口内的锁冲突是常态，不是泄漏"
+    assert parked == [], "The lock conflict in the interlocking window is normal, not leak."
     assert _row(conn, subject="issue:5") is not None
     os.close(held)
 
 
 def test_sweep_does_not_park_the_requeue_handoff_window(tmp_path, monkeypatch):
-    """# Spec-0065/T2: 交接窗口里的行（queued + 锁持着）**哪怕 `enqueued_at` 老掉牙**也不是泄漏。
+    """# Spec-0065/T2: queued + locked in the switch window ** Even `enqueued_at` is not leaking.**
 
-    这正是旧的「按 `enqueued_at` 判龄」判据错杀的那一类：`_requeue_or_park` 的
-    `UPDATE … status='queued'`（已提交、别的连接立刻看得见）与 `os.close(fd)` 之间，这一行**就是**
-    「queued + 锁还持着」；而 `enqueued_at` 在回队时**故意不刷新**（防饿死）——于是一个跑了 5 分钟的健康活
-    一回队就天生「超龄」，一眼被判成泄漏、当场挨 needs-human + 删行。
+    This is the type of `_requeue_or_park` that was wrongly convicted of killing by `enqueued_at`.
+    Between `UPDATE … status='queued'` (filed, other connections are immediately visible) and `os.close(fd)`, the line** is**
+    ”queued + locks still holding”; and `enqueued_at` returned to the team with no intention of updating** - a 5-minute health operation.
+    The team was born ”overage” and was convicted of leaking and on the spot of a need-human+ strike.
 
-    正确的判据只能是**跨 tick**：那个窗口活不过一次 tick 间隔，泄漏则永远活着。
+    The correct verdict can only be ** across tick**: the window will not live a tick interval and the leak will live forever.
     """
     _, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
-    _enqueue(conn=conn, subject="issue:5", priority=1, now=_stale_at(_NOW))  # 回队时不刷新 → 天生老
-    held = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))  # 尚未 close 的那一瞬
+    _enqueue(
+        conn=conn, subject="issue:5", priority=1, now=_stale_at(_NOW)
+    )  # Back in line, you don't have to refresh.
+    held = _try_lock(
+        path=_lock_path(work_dir=tmp_path, subject="issue:5")
+    )  # Not yet close that moment
     assert held is not None
 
     assert _sweep(conn, tmp_path, seen_locked={}, now=_NOW) == 0, (
-        "首次看见即 park = 把每一次正常回队都当成泄漏"
+        "First time I saw it, I thought I’d take every normal return as a leak."
     )
     assert parked == []
-    assert _row(conn, subject="issue:5") is not None, "健康的、正要被重领的行，一个字节都不许动"
+    assert _row(conn, subject="issue:5") is not None, (
+        "A healthy, re-enacted line, and no one moves a byte."
+    )
     os.close(held)
 
 
 def test_sweep_leaves_an_old_row_alone_when_its_lock_is_free(tmp_path, monkeypatch):
-    """**最要紧的一条**：久候但锁自由 → 一个字节都不许动（K 个 worker 全忙 + 长队列 = 完全正常）。
+    """** The most important item**: long waiting but locking free and not moving a byte (K. working + long queue = fully normal).
 
-    「排了很久」本身**不是**故障信号——K=1 而队里排着 20 个 subject 时，队尾那行等上一小时是设计如此。
-    真正的判据是**锁的归属**：queued 行的锁本该自由（合法持有者只有 claimed 行的 worker）。若这里改成按
-    age 一刀切，一个正常的积压就会被整批打上 needs-human——比不扫更糟（护栏反过来杀掉了系统）。
+    ”Long queue” ** is not a ** malfunction signal -- K = 1 and the line is designed for an hour in the line of 20 sub-subjects.
+    The true verdict is that the lock belongs to the lock**: queued lines should be free (lawful owners only have clameed lines) . If this is changed to press
+    A normal backlog is hit in a single line, and it’s a whole lot of needs-human — worse than not to sweep (the fence in turn kills the system).
     """
     _, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
     seen_locked: dict[str, datetime] = {}
-    _enqueue(conn=conn, subject="issue:5", priority=1, now=_stale_at(_NOW))  # 排了很久，但没人持锁
+    _enqueue(
+        conn=conn, subject="issue:5", priority=1, now=_stale_at(_NOW)
+    )  # It's been a long time, but nobody holds a lock.
 
     before = _open_fds()
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0
-    assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 0, "两轮都不许动它"
+    assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 0, "Don’t move it either."
 
-    assert parked == [], "锁自由 = 只是在等槽位，一切正常"
-    assert seen_locked == {}, "锁自由的行不进跨 tick 记忆"
-    assert _row(conn, subject="issue:5") is not None, "等槽位的行必须原样留在队里"
+    assert parked == [], "= Just waiting for the slot. Everything’s fine."
+    assert seen_locked == {}, "Lock free lines to tick memory"
+    assert _row(conn, subject="issue:5") is not None, (
+        "The line of waiting for the slot must remain in line as it is."
+    )
     assert _leaked(before=before, allowed=set()) == set(), (
-        "试锁开的 fd 必须关掉（泄漏它 = 亲手制造下一轮的假泄漏）"
+        "The fd that’s locked must be turned off."
     )
 
 
 def test_sweep_forgets_a_subject_once_its_lock_comes_free_again(tmp_path, monkeypatch):
-    """锁一放，跨 tick 记忆里的那一笔必须**当场抹掉**（计时归零）——否则时钟只会单调向前，
-    一次正常回队留下的旧时刻会在很久以后（下一次交接窗口撞上时）把一个健康的行送去交人。
+    """The lock, the one in the memory of the Tick, must be erased on the spot** -- otherwise the clock will only be in one-way motion, and the clock will be closed.
+    The old moment of a normal return is sent to the hand-over in a long time (the next time the switch window hits).
     """
     _, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
@@ -768,14 +792,16 @@ def test_sweep_forgets_a_subject_once_its_lock_comes_free_again(tmp_path, monkey
 
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0
     assert seen_locked == {"issue:5": _NOW}
-    os.close(held)  # 交接窗口关闭：持有者把锁还给了内核
+    os.close(held)  # Switching window closed: Holder returned the lock to kernel
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW + timedelta(seconds=1)) == 0
-    assert seen_locked == {}, "锁自由 → 忘掉它（下次再被锁住时重新计时）"
+    assert seen_locked == {}, "Lock your freedom, twirl. Forget it."
 
-    held_again = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))  # 又一次正常回队
+    held_again = _try_lock(
+        path=_lock_path(work_dir=tmp_path, subject="issue:5")
+    )  # Once again, we're back in line.
     assert held_again is not None
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 0, (
-        "计时必须从**这一次**首见起算，不能沿用上一次交接窗口留下的旧时刻"
+        "Time must start at the beginning of this time** and cannot follow the old time left by the last turn-over window"
     )
     assert parked == []
     assert _row(conn, subject="issue:5") is not None
@@ -783,53 +809,61 @@ def test_sweep_forgets_a_subject_once_its_lock_comes_free_again(tmp_path, monkey
 
 
 def test_sweep_parks_and_deletes_an_old_row_whose_lock_is_held_by_a_leak(tmp_path, monkeypatch):
-    """**跨 tick 一直**锁着 → 判**存活证明泄漏**（agent 留下的长命孙子进程）→ park 交人 + 删行。
+    """** Cross tick has been ** locked ** Survivors’ certificate leak** (Agent’s long-lived grandson process) + deleted.
 
-    没有这道闸，这一行就是永久静默停摆：`_reclaim_dead` 只扫 `claimed` 看不见它、IN_FLIGHT 告警读
-    `claimed_at` 看不见它、QUIET 看门狗只对 QUIET 裁决生效（而它是 ACTIONABLE，正因如此才入的队）——
-    每轮 `_claim_next` 抢不到锁就静默跳过，`_hang` 于是报「前沿空」，一句谎话报到宇宙热寂。
+    Without this gate, this business is a permanent quiet:`_reclaim_dead` Just sweep. `claimed` Can’t see it.IN_FLIGHT - I’m gonna call the cops.
+    `claimed_at` can’t see it, QuiET the watchdog only has effect on the QuiET ruling.
+    Every round of `_claim_next` skips without a lock, and `_hang` goes ”Front Empty” and a lie goes to the universe.
 
-    这里持的是**真** flock（不是打桩）：泄漏的孙子进程持锁与测试线程持锁，在内核眼里是同一件事。
+    Here’s the real**flock (not a peg): leaking grandchildren are locked in the test thread, and the same thing is in the inner nucleus.
     """
     _, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
     seen_locked: dict[str, datetime] = {}
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
-    _enqueue(conn=conn, subject="issue:6", priority=1, now=_stale_at(_NOW))  # 邻居：锁自由，无辜
-    leaked = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))  # 泄漏的孙子进程
+    _enqueue(
+        conn=conn, subject="issue:6", priority=1, now=_stale_at(_NOW)
+    )  # Neighbor: Lock free, innocent
+    leaked = _try_lock(
+        path=_lock_path(work_dir=tmp_path, subject="issue:5")
+    )  # The leaking grandchild process.
 
     assert leaked is not None
-    assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0  # 第一 tick：只记一笔
-    assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 1  # 还锁着 ⇒ 泄漏
+    assert (
+        _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0
+    )  # Number one tick: one note only
+    assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 1  # It's still locked.
 
-    assert parked == ["issue:5"], "只交泄漏的那一个（爆炸半径收敛到当事者）"
+    assert parked == ["issue:5"], "Only the one that leaked."
     assert _row(conn, subject="issue:5") is None, (
-        "交人了就删行——否则它继续占着 UNIQUE 的坑，永远领不走"
+        "Delete it when you have a friend -- otherwise it will continue to take over the pit of UniQUE and never take it away."
     )
-    assert _row(conn, subject="issue:6") is not None, "邻居的锁是自由的，一个字节都不许动"
+    assert _row(conn, subject="issue:6") is not None, (
+        "The neighbors’ locks are free. Don’t move a byte."
+    )
     os.close(leaked)
 
 
 def test_sweep_drops_the_row_and_stays_recoverable_when_the_park_label_never_lands(
     tmp_path, monkeypatch
 ):
-    """# Spec-0065/T2: park 的 `gh` 抛了（行已被 DELETE 抢下）→ **异常不许逃出 `_sweep_stalled`**，
-    且这个 subject 必须**仍然可恢复**。
+    """# Spec-0065/T2: Park’s `gh` dropped (line stolen by BELETE) ** Unusually not to escape `_sweep_stalled`**,
+    And this subject must ** still recover**.
 
-    这里的顺序（先删行、再说话）与 `_requeue_or_park`（先落 label、再删行）**故意相反**，因为两边丢 label
-    的代价不对称：那边删的是自己的 `claimed` 行（没人抢得走），丢了 label 会让 `attempts` 归零 → 无限重派、
-    白烧 LLM；这边删的是一个**谁都能领**的 `queued` 行，丢了 label 只是「行没了、label 没打」——下一 tick
-    `_intake` 从 GitHub 现态把它重新推导出来（锁还被占着，照样领不走），再等一个 `_STALE_LOCK_SECONDS`
-    重新 park：一次**有节流、零 LLM** 的重试而已。
+    The order here (exclude, then speak) is the opposite of `_requeue_or_park` (slip, delete)** because the label is dropped on both sides**
+    The cost is asymmetric: It’s its own. `claimed` Okay. label Will let `attempts` Zero. → The Infinite Re-According,
+    LLM; here’s a `queued` line, missing. Label, just ”Low, Label, no fight” -- next tick.
+    `_intake` From GitHub We’ll re-invert it. `_STALE_LOCK_SECONDS`
+    Repark: A re-test with no-flash, no-LLM**.
 
-    **异常必须就地隔离**：`_sweep_stalled` 跑在 `_producer_tick` 的最前面，抛出去就把 `_intake` 和整轮感知
-    一起掀了（`_producer_tick` 侧的钉子见 `test_producer_tick_survives_a_park_that_never_lands`）。
+    **It’s an anomaly that has to be isolated.**：`_sweep_stalled` Run in `_producer_tick` In the front, throw it. `_intake` And the whole cycle of perception.
+    Together, they lifted (the nails on the side of `_producer_tick` see `test_producer_tick_survives_a_park_that_never_lands`).
     """
     _, conn = _db(tmp_path)
     monkeypatch.setattr(
         vigil_module,
         "_fail_automation",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh restricted flow")),
     )
     seen_locked: dict[str, datetime] = {}
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
@@ -838,26 +872,30 @@ def test_sweep_drops_the_row_and_stays_recoverable_when_the_park_label_never_lan
 
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_NOW) == 0
     assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 0, (
-        "park 没落地 → 不许计入 park 数，且**异常绝不上抛**（它会掀掉整个生产 tick）"
+        "Park Unlanded Do not count the number of Parks and** won’t throw up in any way."
     )
 
-    assert _row(conn, subject="issue:5") is None, "行是 DELETE 抢下来的——`gh` 抛了也不回滚它"
+    assert _row(conn, subject="issue:5") is None, (
+        "The line is Delete, the one that took it -- `gh`, and threw it away and never rolled back."
+    )
     assert _enqueue(conn=conn, subject="issue:5", priority=1, now=_LATER) is True, (
-        "subject 必须仍可恢复：下一 tick 的 `_intake` 能重新入队（UNIQUE 的坑没被占死）"
+        "The subject must still be restored: the next tick `_intake` can re-enter the team (UNIQUE’s pit is not occupied dead)"
     )
     os.close(leaked)
 
 
 def test_park_stalled_reports_zero_parks_when_it_loses_the_row_to_a_worker(tmp_path, monkeypatch):
-    """# Spec-0065/T2: 抢行失败（worker 先领走了）→ `_park_stalled` 必须返回 **0**，不是 1。
+    """# Spec-0065/T2: The robbery failed (worker first took) `_park_stalled` must return ****, not 1.
 
-    返回值是「本轮真的交了几个人」，`_producer_tick` 的可观测性全挂在它上面。无条件返回 1 = 谎报一次并不
-    存在的 park：日志里说「已交人」，GitHub 上没有 label，而那个 subject 其实好端端地正在被 worker 跑。
+    Return value is ”a few people actually delivered this round”, and the `_producer_tick` is all attached to it. Unconditional returns 1 = falsely reported once
+    Existing Park: The log says ”off-put” and GitHub does not have a label, and the subject is actually being run by the worker.
     """
     db_path, conn = _db(tmp_path)
     labels = _park_spy(monkeypatch)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
-    row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)  # worker 抢先领走
+    row, fd = _claim_next(
+        conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW
+    )  # Go ahead, worker. Take it.
     assert row is not None
 
     assert (
@@ -870,44 +908,48 @@ def test_park_stalled_reports_zero_parks_when_it_loses_the_row_to_a_worker(tmp_p
             agent_id="vigil-1",
         )
         == 0
-    ), "一个字都没说、一行都没删 ⇒ 本轮 park 数是 0"
+    ), "No word, no line, no line."
 
-    assert labels == [], "抢不到行就不许开口（那把锁是 worker 的，天经地义）"
+    assert labels == [], "Don’t talk if you can’t get it."
     after = _row(conn, subject="issue:5")
-    assert after is not None and after["status"] == "claimed", "worker 的行一个字节都不许动"
+    assert after is not None and after["status"] == "claimed", (
+        "Do not move a byte on the worker line"
+    )
     os.close(fd)
 
 
 def test_sweep_does_not_park_a_row_a_worker_claimed_before_the_reservation(tmp_path, monkeypatch):
-    """# Spec-0065/T2 **最险的一条**：SELECT 的是快照，park 要发好几秒的 `gh`——这期间 worker 完全可能
-    正常领走**另一行**并锁上它。轮到我们探那一行时，锁当然是「被持着」的。
+    """Spec-0065/T2** The most dangerous one**: SELEECT is a snapshot, Park will send out a few seconds of `gh` -- and it’s possible that the time is time for the worker
+    The other line is taken and locked. The lock is ”held” when we look at it.
 
-    不在 `BEGIN IMMEDIATE` 里**先把行抢下来**（`DELETE … AND status='queued'`，抢不到就一个字都不说），
-    就会把一个**健康的、正被 worker 跑着的** subject 打上 `needs-human` —— 而 `needs-human` 是终态谓词：
-    worker 下一圈 `_classify` 判 TERMINAL → 掉头就走 → `_mark_done` 删行 → 这个 issue **再也不会被动手**。
-    **永久停摆，正是本函数要根除的那种东西**，只不过这次是护栏亲手造的。
+    * Not in `BEGIN IMMEDIATE`.** First take it off.** (`DELETE … AND status='queued'`, if you can’t get it, you won’t say a word.)
+    I’ll put one.**Healthy, being... worker He ran.** subject Hit it. `needs-human` —— And... `needs-human` It’s the final word:
+    worker Next round. `_classify` Judgement TERMINAL → Turn around and leave. → `_mark_done` Delete Line → This. issue **I’ll never get laid again.**。
+    ** Permanently, exactly the kind of thing that this function is going to eradicate** except this time it was made by hand.
 
-    交错点用真 `_claim_next`（它自己去抢 flock）**确定性地**驱动，不靠 sleep：泄漏的孙子进程恰在探锁的那一
-    刻死掉 → 锁自由 → worker 立刻领走这一行 → 我们探到的那把锁其实是 **worker 的**。
+    `_claim_next` (which itself robs theflock)** is driven with certainty**, not sleep: The leaked grandson process is the lock.
+    The carving of the freedom lock  →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →
     """
     db_path, conn = _db(tmp_path)
-    labels = _park_spy(monkeypatch)  # `_park_needs_human` 的调用 = 真的往 GitHub 上说了一句话
+    labels = _park_spy(monkeypatch)  # `_park_needs_human` = really said a word to GitHub
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     leaked = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))
     assert leaked is not None
-    seen_locked = {"issue:5": _NOW}  # 上一 tick 就见它锁着 → 本 tick 已过阈值，本该 park
+    seen_locked = {
+        "issue:5": _NOW
+    }  #   The last tick it locked     Ben tick has crossed the threshold, should park
 
     worker_conn = _connect(db_path=db_path)
     real_try_lock = vigil_module._try_lock
     handed_off: list[int] = []
 
     def _try_lock_with_a_worker_cutting_in(*, path: Path):
-        if not handed_off:  # 只在 sweep 的那一次探锁前交错（`_claim_next` 内的重入走真函数）
+        if not handed_off:  # Only stagger before the lock (re-entry real function in `_claim_next`)
             handed_off.append(leaked)
-            os.close(leaked)  # 泄漏进程死了 → 锁自由
+            os.close(leaked)  # The leak is dead.
             claimed = _claim_next(
                 conn=worker_conn, work_dir=tmp_path, worker_id="w", now=_NOW
-            )  # worker 正常领走它 + 拿到 flock
+            )  # Worker takes it normal + get the lock
             assert claimed is not None
             handed_off.append(claimed[1])
         return real_try_lock(path=path)
@@ -915,33 +957,35 @@ def test_sweep_does_not_park_a_row_a_worker_claimed_before_the_reservation(tmp_p
     monkeypatch.setattr(vigil_module, "_try_lock", _try_lock_with_a_worker_cutting_in)
     try:
         assert _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER) == 0, (
-            "worker 手里那把锁是天经地义的——不许把它读成泄漏"
+            "The lock in his hand is meant to be a sacred one."
         )
         assert labels == [], (
-            "**一个字都不许说**：`needs-human` 落在正在被跑的 subject 上 = worker 下一圈判 TERMINAL 掉头就走"
+            "** No word: `needs-human` falls on the runaway subject = worker next round Terminal turns around and leaves"
         )
         row = _row(conn, subject="issue:5")
         assert row is not None and row["status"] == "claimed", (
-            "绝不许把行从正在跑的 worker 底下删掉（它随后 `_mark_done` 删 0 行 → 静默双跑/永久停摆）"
+            "Never run away from the one who’s running. worker Delete it from the bottom. `_mark_done` Delete 0 Okay. → Quietly running together./  I’ll never stop  "
         )
         worker_fd = handed_off[1]
-        assert fcntl.fcntl(worker_fd, fcntl.F_GETFD) >= 0, "worker 的存活证明必须完好无损"
+        assert fcntl.fcntl(worker_fd, fcntl.F_GETFD) >= 0, (
+            "The worker’s survival certificate must be intact."
+        )
     finally:
         os.close(handed_off[1])
         worker_conn.close()
 
 
 def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, monkeypatch):
-    """# Spec-0065/T2 同一个 TOCTOU 的**第二段**（第五轮评审揪出的真 bug）：复核只保得住行，保不住**话**。
+    """#Spec-0065/T2 ** Second paragraph of the same TOCTOU** (the true bug from the fifth round): Review is only a valid one, it is not a valid one **.
 
-    旧顺序是「复核仍是 queued → 发两次 `gh`（数秒）→ `DELETE … AND status='queued'`」。那几秒里泄漏进程
-    恰好死掉 → 锁自由 → worker 合法 `_claim_next` 领走并开跑 → DELETE 的守卫确实救下了**行**，但那条
-    `needs-human` **已经说出去了**，落在一个健康且正在被执行的 subject 上：worker 下一圈 `_classify` 判
-    TERMINAL → 掉头就走 → `_mark_done` 删行 → 这个 issue 再也不会被动手。**行删得掉、话收不回。**
+    The old order was, ”Revision is still the same. queued → Twice. `gh`(secs)→ `DELETE … AND status='queued'`」。The process was leaked in those seconds.
+    Just as he died. → Lock free. → worker Legal `_claim_next` Take it and run. → DELETE The guards did save him.**Okay.**But that one.
+    `needs-human`** has been stated**, falling on a healthy and executed subject: next round of `_classify` sentences
+    THRINAL turns around and goes `_mark_done` delete this issue will never be killed again.** Deletes the line and cannot be answered.**
 
-    正确的顺序是**删行即预约**：`_claim_next` 只认 `queued`，行一被 DELETE 就从所有 worker 的视野里消失。
-    故本测试的判据不是「行还在不在」，而是**「说话的那一刻，worker 还可能领到它吗」** —— 答案必须是不可能：
-    在 `_park_needs_human` 里放一个真 `_claim_next`，它必须返回 **None**。
+    The correct order is** delete line and make an appointment**: `_claim_next` only admits `queued`, and the line disappears from all the worlds.
+    The test’s test is not ”is the line still in place” but ** ”Is it possible that the moment you speak, the worldr will still get it?”** - The answer must be impossible:
+    Puts a real `_claim_next` in `_park_needs_human`, which must return **None**.
     """
     db_path, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
@@ -953,7 +997,7 @@ def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, m
     handouts: list[object] = []
 
     def _slow_park(**kwargs) -> None:
-        # 正在发 `gh` 的这几秒里：泄漏进程死了 → 锁自由 → 一个 worker 立刻来领这一行。
+        # In the few seconds that `gh` is being sent: leaking process is dead, locking freedom, a worker is coming to take this line right away.
         os.close(leaked)
         handouts.append(_claim_next(conn=worker_conn, work_dir=tmp_path, worker_id="w", now=_NOW))
 
@@ -962,36 +1006,40 @@ def test_sweep_never_labels_a_subject_a_worker_could_still_be_handed(tmp_path, m
         _sweep(conn, tmp_path, seen_locked=seen_locked, now=_LATER)
 
         assert handouts == [None], (
-            "开口之前行必须已经被 DELETE 抢下 ⇒ `_claim_next` 根本发不出它 ⇒ 不可能有 worker 在跑它"
+            "Before you start, you must have been robbed by Delete, and `_claim_next`, and you can’t send it."
         )
-        assert _row(conn, subject="issue:5") is None, "抢下的行就是我们的，说完话它也不该回来"
+        assert _row(conn, subject="issue:5") is None, (
+            "We’re the ones who took the money. He shouldn’t have come back after talking."
+        )
     finally:
         for got in handouts:
             if got is not None:
-                os.close(got[1])  # 只有 mutant 才走得到这里（说话时行还发得出去）
+                os.close(got[1])  # Only mutant can get here.
         worker_conn.close()
 
 
 # --------------------------------------------------------------------------------------------------
-# `_reconcile` 振荡：fp 每轮都变、却在两个状态间兜圈子 —— `fp == last_fp` 只记得上一轮，识别不了周期 2 的环。
+# `_reconcile` concussion: fp changes every wheel, but circles between two states -- `fp == last_fp` remembers only the last round, and does not recognize the cycle 2 ring.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, monkeypatch):
-    """A→B→A→B… 在 claim 步数耗尽后仍成环，必须收口。
+    """A B-B-B-B-B-B-- and after the claim steps have run out, it’s still a ring and it has to be closed.
 
-    这是护栏一（attempt 戳）**识别不了**的死法：每一轮 fp 都真的变了（agent 真改了 GitHub），只是没走向
-    终态。没有这道轮数闸，它会一轮一次 LLM 地无限转下去，直到两小时后 IN_FLIGHT 告警才有人管。
+    This is the death of the guard I: it’s not possible to identify **: every fp has really changed.
+    Final. Without this wheel-to-manufacturer, it’ll be round once. LLM The earth goes down in infinite numbers until two hours later. IN_FLIGHT The police are the ones who do it.
     """
     flip = [_facts(ci="failure"), _facts(ci="failure", head_sha="f" * 40, e2e_head_sha="f" * 40)]
-    assert _fingerprint(facts=flip[0]) != _fingerprint(facts=flip[1])  # 每轮 fp 都真的变了
+    assert _fingerprint(facts=flip[0]) != _fingerprint(
+        facts=flip[1]
+    )  # Every fp has really changed.
     box = {"index": 0}
     acted: list[str] = []
     stamps: list[str] = []
     parked: list[str] = []
 
     def _fake_sense(*, config, subject):
-        facts = flip[box["index"] % 2]  # A→B→A→B…：周期 2 的环
+        facts = flip[box["index"] % 2]  # A → B → B → B: Ring of cycle 2
         box["index"] += 1
         return _Observed(facts=facts, clock=_Clock(last_progress_at=_NOW))
 
@@ -1000,7 +1048,7 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
     monkeypatch.setattr(
         vigil_module,
         "_act",
-        lambda **kwargs: acted.append(kwargs["verdict"].action) or "结论",
+        lambda **kwargs: acted.append(kwargs["verdict"].action) or "Conclusions",
     )
     monkeypatch.setattr(
         vigil_module, "_post_attempt_stamp", lambda **kwargs: stamps.append(kwargs["fp"])
@@ -1017,17 +1065,19 @@ def test_reconcile_parks_on_oscillation_instead_of_looping_forever(tmp_path, mon
         subject="issue:5",
         agent_id="a",
         now_fn=lambda: _NOW,
-        lock_fd=None,  # Spec-0065/T2: `_act` 已打桩，不起子进程 → 无 flock fd 可传
+        lock_fd=None,  # Spec-0065/T2: `_act` staked, uninhabited subprocess  → lock fd passable
     )
 
-    assert len(acted) == _MAX_RECONCILE_ROUNDS, "持续振荡必须在轮数上限处停下"
+    assert len(acted) == _MAX_RECONCILE_ROUNDS, (
+        "The continuous oscillation must stop at the maximum number of wheels."
+    )
     assert acted[0] == _ACT_FIX_CI
-    assert stamps == [], "振荡不是「零进展」——fp 每轮都变，护栏一（attempt 戳）根本认不出它"
-    assert parked == ["issue:5"], "机器判不了的振荡 → 交人"
+    assert stamps == [], "Vibration is not ”zero progress” -- fp, it changes every round."
+    assert parked == ["issue:5"], "The machine can’t judge the vibrations."
 
 
 # --------------------------------------------------------------------------------------------------
-# `_proposed_edges` / `_cycle_members`：一条幻觉边的爆炸半径必须收敛到当事者，且绝不合成 issue #0。
+# `_proposed_edges` / `_cycle_members`: An explosion radius by a hallucination must be constricted to the person concerned and never synthesize #issue #0.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -1040,9 +1090,9 @@ def _park_spy(monkeypatch) -> list[str]:
 
 
 def test_one_bad_edge_parks_only_its_host_not_the_whole_ready_set(monkeypatch):
-    """一条坏边（blocker 是幻觉编号）→ 整批否决，但**只 park 坏边的宿主**——别的 ready issue 一个不许动。
+    """A bad side (blocker is hallucinating number)  →  whole rejection, but ** only park bad side host** — other ready issue one is not moving.
 
-    否则 curator 的一次幻觉就冻结整条流水线（每个 ready issue 都挂上 needs-human，全靠人一个个摘）。
+    Otherwise, a curator’s illusion freezes the whole water line (each body issue hangs on a needs-human, all by himself).
     """
     parked = _park_spy(monkeypatch)
     assert (
@@ -1053,12 +1103,14 @@ def test_one_bad_edge_parks_only_its_host_not_the_whole_ready_set(monkeypatch):
             agent_id="vigil-1",
         )
         is None
-    ), "半张错图比没有图更糟 → 本轮不落任何边"
-    assert parked == ["issue:7"], "爆炸半径必须收敛到当事者（5 / 6 是无辜的）"
+    ), "Half the wrong graphs are worse than no graphs."
+    assert parked == ["issue:7"], (
+        "The explosion radius must be constricted to the person concerned (5 / 6 is innocent)"
+    )
 
 
 def test_cycle_parks_exactly_the_nodes_on_the_cycle(monkeypatch):
-    """A↔B 成环 + 一个无关的 C → 只冻结 A 和 B，C 照常并行（`_cycle_members` 返回**成员**而非 bool 的理由）。"""
+    """A → B Ring + A non-related C  →  freezes only A and B, C in parallel (the reason for `_cycle_members` returns** member** instead of bool)."""
     parked = _park_spy(monkeypatch)
     assert (
         _proposed_edges(
@@ -1069,21 +1121,25 @@ def test_cycle_parks_exactly_the_nodes_on_the_cycle(monkeypatch):
         )
         is None
     )
-    assert parked == ["issue:5", "issue:6"], "7 不在环上，不该被冻"
+    assert parked == ["issue:5", "issue:6"], "Seven, not on the ring. Shouldn’t be frozen."
 
 
 def test_cycle_members_returns_exactly_the_stuck_nodes():
-    """Kahn：剥不掉的就是环（及被环卡住的）；剥得掉的一个都不许进集合。纯函数，无 IO。"""
+    """Kahn: The one that can’t be stripped is the ring (and the one that’s stuck in the ring); none of the ones that can be stripped is allowed in the collection. Pure function, no IO."""
     assert _cycle_members(graph={5: {6}, 6: {5}, 7: {8}, 8: set()}) == {5, 6}
     assert _cycle_members(graph={5: {6}, 6: set()}) == set()
-    assert _cycle_members(graph={5: {6}, 6: {7}, 7: {5}}) == {5, 6, 7}  # 三元环全员在环上
+    assert _cycle_members(graph={5: {6}, 6: {7}, 7: {5}}) == {
+        5,
+        6,
+        7,
+    }  # The three ring is all on the ring.
 
 
 def test_unparseable_issue_number_never_synthesizes_issue_zero(monkeypatch):
-    """幻觉出一个非整数 / 不存在的 `issue` 字段 → 整批否决，但**绝不 park 到 issue #0 头上**。
+    """The illusion produces a non-integer / non-existent `issue` field  →  whole-of-a-part rejection, but** never park to issue #0**.
 
-    `bad.add(0)` 那种写法会往仓库里**编号 0** 的对象上写 label + 评论——一个无关的、甚至不存在的对象。
-    故这里直接盯 github 的写侧：一次调用都不许有。
+    `bad.add(0)` is written in the warehouse** object number 0** with a label + comment - a non-observed object.
+    So here’s the side of the github: no one calls at a time.
     """
     calls: list[tuple[str, int]] = []
     monkeypatch.setattr(
@@ -1107,7 +1163,7 @@ def test_unparseable_issue_number_never_synthesizes_issue_zero(monkeypatch):
         lambda *, pr_number, body: calls.append(("comment", pr_number)),
     )
 
-    for hallucination in ({"issue": "六", "blocked_by": [5]}, {"issue": None, "blocked_by": [5]}):
+    for hallucination in ({"issue": "Six.", "blocked_by": [5]}, {"issue": None, "blocked_by": [5]}):
         assert (
             _proposed_edges(
                 edges=[hallucination],
@@ -1116,15 +1172,17 @@ def test_unparseable_issue_number_never_synthesizes_issue_zero(monkeypatch):
                 agent_id="vigil-1",
             )
             is None
-        ), "引用不到任何真实 issue 的边 → 整批否决"
-    assert calls == [], "幻觉编号不许被合成成 issue #0（那会打扰一个无关/不存在的对象）"
+        ), "No reference to any real issue side of the veto"
+    assert calls == [], (
+        "No hallucinating numbers can be synthesized into a ”issue #0” (that would disturb a non-existent/involved object)"
+    )
 
 
 def test_proposed_edges_ignores_non_dict_junk_without_parking(monkeypatch):
-    """agent 吐出的非 dict 垃圾条目直接跳过：它没指向任何 issue，谁都不该为它挨一发 needs-human。"""
+    """Angent spits non-dict trash entry and skips it: it doesn’t point to any issue, and no one should take a hit on it."""
     parked = _park_spy(monkeypatch)
     fresh = _proposed_edges(
-        edges=["垃圾", None, {"issue": 6, "blocked_by": [5]}],
+        edges=["Garbage.", None, {"issue": 6, "blocked_by": [5]}],
         known={5, 6},
         existing={5: [], 6: []},
         agent_id="vigil-1",
@@ -1134,24 +1192,28 @@ def test_proposed_edges_ignores_non_dict_junk_without_parking(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# `_reclaim_dead`：只数**真的**被它打回 queued 的行（谎报会让「回收了几行」这个可观测量彻底失真）。
+# `_reclaim_dead`: Only ** really ** it hit back on the queued (false lies would make the observed amount of "recovered several lines" completely distorted).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_reclaim_counts_only_the_rows_it_actually_reclaimed(tmp_path):
-    """两行 claimed，一行的持有者还活着（锁在手）、一行的已死 → 只回收 1 行，只数 1。"""
+    """Two rows of claimed, one row of holders are still alive (locked to hand), one line of dead persons are recovered only 1 line, only 1 count."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW)
     _enqueue(conn=conn, subject="issue:6", priority=1, now=_NOW)
     alive_row, alive_fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="alive", now=_NOW)
     dead_row, dead_fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="dead", now=_NOW)
     assert (alive_row["subject"], dead_row["subject"]) == ("issue:5", "issue:6")
-    os.close(dead_fd)  # 「持有者进程死了」= 内核把它的 flock 收走了
+    os.close(dead_fd)  #   The holder's Process Dead     The kernel took itsflock away
 
     before = _open_fds()
-    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 1, "活着的持有者那行不算回收"
-    assert _leaked(before=before, allowed=set()) == set(), "回收过程中开的锁 fd 必须全部关掉"
-    assert _row(conn, subject="issue:5")["status"] == "claimed"  # 活人的行一个字节都不动
+    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 1, (
+        "The line of living possession is not recycled."
+    )
+    assert _leaked(before=before, allowed=set()) == set(), (
+        "The locks that were opened during the recycling process, fd, must be shut down."
+    )
+    assert _row(conn, subject="issue:5")["status"] == "claimed"  # The living don't move a byte.
     reclaimed = _row(conn, subject="issue:6")
     assert (reclaimed["status"], reclaimed["worker"], reclaimed["claimed_at"]) == (
         "queued",
@@ -1162,18 +1224,18 @@ def test_reclaim_counts_only_the_rows_it_actually_reclaimed(tmp_path):
 
 
 def test_reclaim_does_not_report_a_row_that_the_holder_finished_first(tmp_path):
-    """持有者在 SELECT 与 UPDATE 之间**正常收工删了行** → `rowcount=0` → 什么也没回收，**不许谎报**。
+    """The holder has been officially closed between SELECT and UPDATE** and deleted** `rowcount=0`  →  nothing has been recovered** and no lies are allowed**.
 
-    这个窗口天天发生（收工与回收各自持锁一瞬）。谎报的代价不是崩溃，是「回收了 N 行」这个唯一能看出
-    「有 worker 在批量猝死」的信号被噪声淹没。
+    This window happens every day. The price of false reporting is not crash, it’s the only thing that can be seen in ”recovered N.”
+    The signal ”there’s a hordes of dead people” was flooded with noise.
     """
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
-    os.close(fd)  # 锁已放（持有者已死 / 已收工），故 `_reclaim_dead` 抢得到
+    os.close(fd)  # Locks are released (possesser dead/ closed) so `_reclaim_dead` can be seized
 
     class _RacingConn:
-        """在 `_reclaim_dead` 拿到 SELECT 结果、正要 `BEGIN IMMEDIATE` 的那一刻，把行删掉（持有者收工了）。"""
+        """The moment `_reclaim_dead` gets SELEECT, it’s about `BEGIN IMMEDIATE`, it’s off."""
 
         def __init__(self, inner: sqlite3.Connection) -> None:
             self._inner = inner
@@ -1185,12 +1247,14 @@ def test_reclaim_does_not_report_a_row_that_the_holder_finished_first(tmp_path):
                 self._inner.execute("DELETE FROM work_queue WHERE id=?", (row["id"],))
             return self._inner.execute(sql, params)
 
-    assert _reclaim_dead(conn=_RacingConn(conn), work_dir=tmp_path) == 0, "0 行被改 ⇒ 0 行被回收"
+    assert _reclaim_dead(conn=_RacingConn(conn), work_dir=tmp_path) == 0, (
+        "0 Line modified 0 Line recycled"
+    )
     assert _count(conn) == 0
 
 
 # --------------------------------------------------------------------------------------------------
-# `_drain_queue`：`once=True` 的同步点——可以放弃，但**不能永不返回**（`oa vigil --once` 挂死是最糟的结局）。
+# `_drain_queue`: Synchronization point for `once=True` - can be abandoned, but** cannot never return** (`oa vigil --once` hanging to the worst end).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -1213,45 +1277,51 @@ def test_drain_returns_immediately_when_the_queue_is_empty(tmp_path):
 
 
 def test_drain_gives_up_at_the_hard_cap_instead_of_hanging_forever(tmp_path, monkeypatch):
-    """一行卡住（worker 死在收尾 / agent 挂死）→ 到 `_DRAIN_MAX_SECONDS` 就返回，把活留在队里下次接上。"""
+    """The line that’s stuck (worker dying at the end/ agent hanging) goes to `_DRAIN_MAX_SECONDS` and returns and leaves the life on the team next time."""
     db_path, conn = _db(tmp_path)
-    _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)  # 永远没人消费
+    _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)  # No one ever consumes it.
     monkeypatch.setattr(vigil_module, "_DRAIN_MAX_SECONDS", 0)
-    _drain(tmp_path, db_path)  # 不许挂死
-    assert _count(conn) == 1, "排空是尽力而为的同步点，不是正确性来源——真相在 GitHub"
+    _drain(tmp_path, db_path)  # Don't hang up.
+    assert _count(conn) == 1, (
+        "The emptiness is a synchronous point of the best, not the source of the correctness -- the truth in GitHub."
+    )
 
 
 def test_drain_sweeps_a_leaked_lock_row_instead_of_spinning_to_the_hard_cap(tmp_path, monkeypatch):
-    """# Spec-0065/T2: 排空期间也必须扫「存活证明泄漏」——那种行**永远**领不走。
+    """#Spec-0065/T2: The ”survival certificate leak” must also be cleaned during the runoff # #the line ** never ** can’t get away #
 
-    只在 tick 开头扫一次的话，`oa vigil --once` 会在 `_drain_queue` 里干等满 `_DRAIN_MAX_SECONDS`（1h）才
-    返回：没有 worker 领得走它（`_claim_next` 每轮抢不到锁就静默跳过），也没有第二个 tick 来扫它（`--once`
-    只跑一个）。CLI 与 e2e 都走这条路——挂一小时是最糟的结局。
+    Only once at tick start with `oa vigil --once` will wait in `_drain_queue` for full `_DRAIN_MAX_SECONDS` (1h)
+    Return: No `_claim_next` can take it (silently skip without a lock on a round) nor a second tick to sweep it (`--once`)
+    Just one. CLI and e2e both go this way -- one hour is the worst end.
     """
     db_path, conn = _db(tmp_path)
     parked = _park_spy(monkeypatch)
-    monkeypatch.setattr(vigil_module, "_DRAIN_MAX_SECONDS", 3)  # 没扫到 → 只能耗到这个上限才返回
+    monkeypatch.setattr(vigil_module, "_DRAIN_MAX_SECONDS", 3)  # It didn't get done.
     monkeypatch.setattr(vigil_module, "_WORKER_POLL_SECONDS", 0.01)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     leaked = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))
     assert leaked is not None
 
     started = time.monotonic()
-    _drain(tmp_path, db_path, seen_locked={"issue:5": _NOW}, now=_LATER)  # 上一 tick 已见它锁着
+    _drain(
+        tmp_path, db_path, seen_locked={"issue:5": _NOW}, now=_LATER
+    )  # The last tick saw it locked.
     elapsed = time.monotonic() - started
 
-    assert parked == ["issue:5"], "排空里也要交人，否则这一行没有任何人看得见它"
-    assert _count(conn) == 0, "park 落地 → 行删掉 → 队列排空 → 立刻返回"
-    assert elapsed < vigil_module._DRAIN_MAX_SECONDS, "不许耗到硬上限（那就是挂着）"
+    assert parked == ["issue:5"], (
+        "You have to give them in the air, or nobody in this business can see it."
+    )
+    assert _count(conn) == 0, "Park, land, line, delete."
+    assert elapsed < vigil_module._DRAIN_MAX_SECONDS, "Don’t take it to the hard limit."
     os.close(leaked)
 
 
 def test_drain_survives_a_sweep_that_blows_up_on_the_lock_file(tmp_path, monkeypatch):
-    """# Spec-0065/T2: 排空期扫陈锁炸了（`_try_lock` 抛 `OSError`：EMFILE / claims 目录被 chmod 掉）→
-    **不许逃出 `_drain_queue`**。
+    """# Spec-0065/T2: Emptyed the Qur’an lock (`_try_lock` Throw `OSError`: EMFILE / catalogues dropped by chmod)
+    ** Do not escape `_drain_queue`**.
 
-    守夜主循环把 `_producer_tick` 整个包在 except 里（第一要务是活着进下一轮），**排空这条路上没有那层网**：
-    异常从这里逃出去就直接打死 `oa vigil --once`（CLI 与 e2e 都走它）。扫不动 ≠ 排不空——照常等、照常到点返回。
+    The main Vigil cycle wraps the entire `_producer_tick` in except, ** the net is not on this road **:
+    The anomaly escapes from here and kills `oa vigil --once` (CLI and e2e both). No move, no move, no emptiness -- as usual, just back to point.
     """
     db_path, conn = _db(tmp_path)
     monkeypatch.setattr(vigil_module, "_DRAIN_MAX_SECONDS", 1)
@@ -1264,7 +1334,11 @@ def test_drain_survives_a_sweep_that_blows_up_on_the_lock_file(tmp_path, monkeyp
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
 
     started = time.monotonic()
-    _drain(tmp_path, db_path)  # 不许抛
+    _drain(tmp_path, db_path)  # Don't throw it.
 
-    assert time.monotonic() - started < _DEADLINE_SECONDS, "到硬上限就返回，不许挂死"
-    assert _count(conn) == 1, "扫不动就扫不动——行留在队里，下次启动接着来"
+    assert time.monotonic() - started < _DEADLINE_SECONDS, (
+        "You’ll return to the hard limit. Don’t hang up."
+    )
+    assert _count(conn) == 1, (
+        "If you can’t move, you can’t. Stay in the team. Next time, start and follow."
+    )

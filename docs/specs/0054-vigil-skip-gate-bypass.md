@@ -1,12 +1,12 @@
 ---
 number: "0054"
-title: vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
+title: "vigil per-gate bypass switch: --skip selectively disables any pipeline gate + README gate tree"
 issue: 135
 slug: vigil-skip-gate-bypass
-summary: 新增 CLI 临时 flag `openagents vigil --skip <gates>`，与 --hold 对称、纯解析无 IO，可按需把 issue/spec/code/ci/evidence（及 all）中任一闸视为 PASS 放行（可合并性预检闸不提供 --skip——见 Rationale 备选 4）；默认不传全闸开启、零回归；--hold 与 --skip 对同一闸的矛盾表达报错；并把全部闸门以树形写进 README。
+summary: "Add the temporary CLI flag `openagents vigil --skip <gates>`, symmetric with --hold, using pure parsing with no IO. It can selectively treat any gate among issue/spec/code/ci/evidence (or all) as PASS and allow progress (the mergeability precheck gate does not support --skip—see Rationale alternative 4). By default, omitting the flag leaves all gates enabled, with zero regressions. Contradictory --hold and --skip settings for the same gate produce an error. Also document all gates as a tree in the README."
 tasks:
   - id: T1
-    title: skip 解析模块 + 矛盾检测
+    title: "skip parsing module + conflict detection"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/skip.py
       - tests/test_skip.py
-    scope: 新增 openagents/skip.py（镜像 hold.py）：frozen Skip 值对象（at_issue/at_spec/at_code/at_ci/at_evidence，刻意不含 at_merge）+ 单点 token 常量（含 all）+ NONE 默认实例 + parse_skip（纯解析、无 IO、未知 token 报错）+ reconcile_hold_skip（hold/skip 共享 token 交集非空即 raise ValueError 的纯函数；Hold 与 Skip 唯一可能相交的 token 是 spec）。
-    acceptance: parse_skip 对 None/空→NONE、'spec,ci'→对应布尔置位、'all'→5 位全置、未知 token（含 'merge'，不再是合法 skip token）→ValueError 列合法取值；reconcile_hold_skip 对 hold spec+skip spec 报错、对作用于不同闸（hold merge+skip spec / hold spec+skip ci）放行；tests/test_skip.py 全覆盖，ruff + pytest 通过，无任何 IO/argparse 依赖。
+    scope: "Add openagents/skip.py (mirroring hold.py): a frozen Skip value object (at_issue/at_spec/at_code/at_ci/at_evidence, deliberately excluding at_merge) + token constants defined in one place (including all) + a default NONE instance + parse_skip (pure parsing, no IO, errors on unknown tokens) + reconcile_hold_skip (a pure function that raises ValueError if the intersection of tokens shared by hold/skip is nonempty; spec is the only token on which Hold and Skip can overlap)."
+    acceptance: "parse_skip maps None/empty input → NONE, 'spec,ci' → the corresponding booleans set, 'all' → all 5 flags set, and unknown tokens (including 'merge', which is no longer a valid skip token) → ValueError listing the valid values; reconcile_hold_skip errors on hold spec+skip spec and allows settings that affect different gates (hold merge+skip spec / hold spec+skip ci). Full coverage in tests/test_skip.py; ruff + pytest pass; no IO/argparse dependencies whatsoever."
   - id: T2
-    title: 逐闸消费：透传 Skip 到 5 道闸
+    title: "Per-gate consumption: pass Skip through to the 5 gates"
     status: done
     priority: P1
     tags: []
@@ -31,10 +31,10 @@ tasks:
       - openagents/vigil.py
       - openagents/messages.py
       - tests/test_messages_skip.py
-    scope: Vigil.run 新增 skip=NONE 关键字参数并逐轮透传：发现段 discover_and_dispatch 调 precheck_issue 前判 skip.at_issue 放行；守候段下传 messages.poll(skip=...)。Messages.poll 新增 skip=NONE，在 _process_rfc_review/_process_coding 的 spec/ci/code/evidence 四处判定点并列插入『skip 即 PASS』短路（镜像既有 hold 短路写法）。可合并性预检（mergeability）不设 skip 短路——预检只是省功早退，跳过它无实质放行语义。
-    acceptance: skip.at_spec → 不调 review_rfc、直接打 rfc-approved 标签进实现；at_ci → 跳过 check_status 当绿；at_code → 跳过 review_code 视为 PASS；at_evidence → 跳过 _evidence_gate；at_issue → 不调 precheck_issue 放行派单；mergeability 预检不受 skip 影响、照常执行。默认 NONE 时所有路径与今天逐字节一致（零回归），既有 test_messages/test_vigil 不变绿。tests/test_messages_skip.py 断言每道闸的 PASS 短路，ruff + pytest 通过。
+    scope: "Add the skip=NONE keyword parameter to Vigil.run and pass it through on every iteration: in the discovery phase, discover_and_dispatch checks skip.at_issue before calling precheck_issue and allows dispatch when set; in the watch phase, pass it down to messages.poll(skip=...). Add skip=NONE to Messages.poll, and insert parallel “skip means PASS” short circuits at the four spec/ci/code/evidence decision points in _process_rfc_review/_process_coding (mirroring the existing hold short-circuit pattern). Do not add a skip short circuit to the mergeability precheck—the precheck is merely an early exit that saves work, so skipping it has no substantive meaning in terms of allowing progress."
+    acceptance: "skip.at_spec → do not call review_rfc; apply the rfc-approved label directly and proceed to implementation; at_ci → skip check_status and treat CI as green; at_code → skip review_code and treat it as PASS; at_evidence → skip _evidence_gate; at_issue → do not call precheck_issue and allow dispatch; the mergeability precheck is unaffected by skip and executes as usual. With the default NONE, all paths remain byte-for-byte identical to their current behavior (zero regressions), and the existing test_messages/test_vigil remain unchanged and green. tests/test_messages_skip.py asserts the PASS short circuit for each gate; ruff + pytest pass."
   - id: T3
-    title: CLI 接线 --skip + hold/skip 矛盾校验
+    title: "CLI wiring for --skip + hold/skip conflict validation"
     status: done
     priority: P1
     tags: []
@@ -46,10 +46,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli_skip.py
-    scope: 给 vigil 子命令加 --skip（metavar/help 与 --hold 对称）；_cmd_vigil 先 parse_skip(raw=args.skip)、再 reconcile_hold_skip(hold, skip) 校验矛盾，最后 run(..., hold=hold, skip=skip)。非法值/矛盾经 _run 既有异常通道转干净一行提示、不 traceback。
-    acceptance: openagents vigil --skip spec,ci 解析并传入 run；--skip spc 报干净一行（列合法取值、不 traceback）；--hold spec --skip spec 报矛盾一行；不传 --skip 时 run 收到 NONE（零回归）。tests/test_cli_skip.py 覆盖解析/矛盾/默认三态，ruff + pytest 通过。
+    scope: "Add --skip to the vigil subcommand (with metavar/help symmetric with --hold); _cmd_vigil first calls parse_skip(raw=args.skip), then reconcile_hold_skip(hold, skip) to validate conflicts, and finally run(..., hold=hold, skip=skip). Invalid values/conflicts go through the existing exception handling path in _run to produce a clean one-line message, with no traceback."
+    acceptance: "openagents vigil --skip spec,ci parses the setting and passes it to run; --skip spc produces a clean one-line error (listing valid values, with no traceback); --hold spec --skip spec produces a one-line conflict error; when --skip is omitted, run receives NONE (zero regressions). tests/test_cli_skip.py covers parsing/conflicts/defaults; ruff + pytest pass."
   - id: T4
-    title: README 闸门树
+    title: "README gate tree"
     status: done
     priority: P2
     tags: []
@@ -59,10 +59,10 @@ tasks:
     parallel: false
     files:
       - README.md
-    scope: 在 README 增补一棵『vigil 自主环闸门』树：按发现段/守候段列出流水线各闸及各自 --skip/--hold 开关（5 道可 --skip；可合并性预检闸标注「不可 --skip」；merge 合并前夯住标注可 --hold），并单列 GitHub 分支保护硬闸（lint/test/commitlint/spec-validate，CLI 不可关）。
-    acceptance: README 含闸门树，5 个 --skip token 与 T1 常量一一对应、标注可关(--skip)/可停(--hold)，可合并性预检闸标注不提供 --skip，硬闸单独成节标明须在仓库设置改；markdown 渲染正常、无死链。
+    scope: "Add a “vigil autonomous loop gates” tree to the README: list each pipeline gate and its --skip/--hold switches by discovery phase/watch phase (5 gates support --skip; mark the mergeability precheck gate as “--skip unavailable”; mark the pre-merge hold at merge as supporting --hold), and separately list the hard gates enforced by GitHub branch protection (lint/test/commitlint/spec-validate, which cannot be disabled through the CLI)."
+    acceptance: "The README contains the gate tree; the 5 --skip tokens correspond one-to-one with the T1 constants and are marked as disableable (--skip)/pausable (--hold); the mergeability precheck gate is marked as not offering --skip; the hard gates have a separate section specifying that changes must be made in repository settings. Markdown renders correctly, with no dead links."
   - id: T5
-    title: 成果测试 e2e 脚本（离线闸控时间线）
+    title: "Outcome-testing e2e script (offline gate-control timeline)"
     status: done
     priority: P2
     tags: []
@@ -73,178 +73,178 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0054-vigil-skip-gate.sh
-    scope: 新增 scripts/e2e-spec-0054-vigil-skip-gate.sh（镜像 e2e-spec-0020-hold-gate.sh）：段1 离线确定性验证 ruff+pytest；段2 离线闸控时间线，用打桩 orchestrator/state + 内存 label 集合驱动 Messages.poll(skip=spec) 断言 spec 闸被当 PASS 直接进实现，并演示 --hold spec --skip spec 报错。CLI/离线形态（无 browser MCP，纯内部控制流、无前端）。
-    acceptance: bash scripts/e2e-spec-0054-vigil-skip-gate.sh 在无凭证环境可跑通、可重复：段1 lint+pytest 全绿；段2 打印『spec 闸 skip→直接进实现』断言通过 + 矛盾报错演示通过；脚本头注明因无 browser MCP 取 CLI 离线形态。
+    scope: "Add scripts/e2e-spec-0054-vigil-skip-gate.sh (mirroring e2e-spec-0020-hold-gate.sh): part 1 performs offline deterministic verification with ruff+pytest; part 2 provides an offline gate-control timeline, using stubbed orchestrator/state + an in-memory label set to drive Messages.poll(skip=spec), asserting that the spec gate is treated as PASS and proceeds directly to implementation, and demonstrating that --hold spec --skip spec produces an error. Use a CLI/offline format (no browser MCP, purely internal control flow, no frontend)."
+    acceptance: "bash scripts/e2e-spec-0054-vigil-skip-gate.sh runs successfully and repeatably in an environment without credentials: part 1 has lint+pytest all green; part 2 prints a passing assertion for “spec gate skip→proceed directly to implementation” + a successful demonstration of the conflict error; the script header states that the CLI offline format is used because browser MCP is unavailable."
 ---
 
-# 0054 · vigil 逐闸旁路开关：--skip 按需关闭任一流水线闸门 + README 闸门树
+# 0054 · vigil per-gate bypass switch: --skip disables any pipeline gate on demand + README gate tree
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给 `openagents vigil` 增加一个与既有 `--hold` 对称的临时命令行开关 `--skip <gates>`：把逗号分隔的闸门名解析成一个不可变 `Skip` 值对象（纯解析、无任何 IO），可按需把自主环里 **有真实放行语义的流水线闸门**——issue 自检 / spec 评审 / 代码评审 / CI 等待 / 证据闸（token：`issue` / `spec` / `code` / `ci` / `evidence`，外加展开为全部的 `all`）——**视为 PASS 直接放行**。可合并性预检闸**刻意不纳入 `--skip`**：它只是「DIRTY/CONFLICTING 早退省功」的优化，跳过它并不能让冲突 PR 变可合并，无放行语义（见 Rationale 备选 4）；`merge` 这个 token 因此只归 `--hold`（合并前夯住）。默认不传 `--skip` = 全闸开启，行为逐字节不变（零回归）。同时新增一条硬约束：`--hold` 与 `--skip` 若对同一道闸给出矛盾意图（如 `--hold spec --skip spec`）立即报错而非静默。最后把全部闸门以**树形**写进 README，让人一眼看清哪里有闸、哪些可经 CLI 关、哪些是 GitHub 分支保护里不可经 CLI 关的硬闸。
+Add a temporary command-line switch `--skip <gates>` to `openagents vigil`, symmetric with the existing `--hold`: parse comma-separated gate names into an immutable `Skip` value object (pure parsing, no IO whatsoever), allowing **pipeline gates with actual pass-through semantics** in the autonomous loop—issue self-check / spec review / code review / CI wait / evidence gate (tokens: `issue` / `spec` / `code` / `ci` / `evidence`, plus `all`, which expands to all of them)—to be **treated as PASS and allowed through directly** on demand. The mergeability precheck gate is **deliberately excluded from `--skip`**: it is merely an optimization that “returns early on DIRTY/CONFLICTING to save work”; skipping it cannot make a conflicting PR mergeable, so it has no pass-through semantics (see alternative 4 in Rationale). The `merge` token therefore belongs exclusively to `--hold` (hold before merging). By default, omitting `--skip` = all gates enabled, with behavior unchanged byte for byte (zero regressions). Also introduce a hard constraint: if `--hold` and `--skip` express contradictory intentions for the same gate (such as `--hold spec --skip spec`), report an error immediately rather than silently accepting them. Finally, document all gates as a **tree** in the README so readers can immediately see where gates exist, which can be disabled through the CLI, and which are hard gates in GitHub branch protection that cannot be disabled through the CLI.
 
 ## Motivation
 
-**现状（就地复述，不靠跨 spec 引用）。** OpenAgents 的守夜人（`openagents vigil`）是一个薄调度循环：每轮先在**发现段**扫描带发现标签的 issue、判读是否派单起草（`Vigil.discover_and_dispatch`），再在**守候段**对每个在途 run 轮询 PR、按阶段把它推过一串闸门（`Messages.poll` → `_process_rfc_review` / `_process_coding`）。这条流水线上目前有 **6 道 CLI 可达的强制闸**，全部无条件执行：
+**Current state (restated here, without relying on cross-spec references).** OpenAgents’ Vigil (`openagents vigil`) is a thin scheduling loop: each round first scans issues carrying discovery labels during the **discovery phase** and determines whether to dispatch drafting work (`Vigil.discover_and_dispatch`); then, during the **watch phase**, it polls PRs for each in-flight run and advances them through a series of gates according to their stage (`Messages.poll` → `_process_rfc_review` / `_process_coding`). This pipeline currently has **6 mandatory gates reachable through the CLI**, all executed unconditionally:
 
-1. **issue 自检闸**——起草前 `orchestrator.precheck_issue` 判读 issue 本身是否有会直接影响修法方向的内在冲突；命中则冻结 issue（打 needs-human + 贴对齐评论）、发现段不派单。
-2. **spec 评审闸**——draft PR 承载 spec，`_process_rfc_review` 调 `orchestrator.review_rfc` 评审；PASS 才打 `rfc-approved` 标签并进入实现。
-3. **可合并性预检闸**——`_process_coding` 开头先查 `github.mergeability`，DIRTY/CONFLICTING 的 PR 连 CI 都不必等，越早短路越省。
-4. **CI 等待闸**——`_process_coding` 查 `github.check_status`：失败→喂日志迭代，进行中→本轮不评审等下一轮。
-5. **代码评审闸**——CI 全绿后 `_process_coding` 调 `orchestrator.review_code` 评审代码；PASS 才继续。
-6. **证据闸**——代码评审 PASS 后、合并前，`_evidence_gate` 由独立 executor 照定稿说明书真跑系统、拿 RFC 意图对照证据门控合并。
+1. **Issue self-check gate**—before drafting, `orchestrator.precheck_issue` determines whether the issue itself contains internal contradictions that would directly affect the direction of the fix; if so, the issue is frozen (apply needs-human + post an alignment comment), and the discovery phase does not dispatch work.
+2. **Spec review gate**—the draft PR carries the spec, and `_process_rfc_review` calls `orchestrator.review_rfc` to review it; only PASS results in applying the `rfc-approved` label and entering implementation.
+3. **Mergeability precheck gate**—at the start of `_process_coding`, check `github.mergeability` first; DIRTY/CONFLICTING PRs need not even wait for CI, and the earlier the short circuit, the more work it saves.
+4. **CI wait gate**—`_process_coding` checks `github.check_status`: failure → feed logs back for iteration; in progress → do not review this round, wait for the next round.
+5. **Code review gate**—after all CI checks are green, `_process_coding` calls `orchestrator.review_code` to review the code; proceed only on PASS.
+6. **Evidence gate**—after code review passes and before merging, `_evidence_gate` uses an independent executor to actually run the system according to the finalized specification, comparing the RFC’s intent against the evidence to gate merging.
 
-调节这条流水线今天只有两类旋钮，都不能「临时整闸关闭」某一道：
+Today, there are only two kinds of controls for this pipeline, neither of which can “temporarily disable an entire gate”:
 
-- **`--hold spec|merge`**——**更严**的方向：让流水线在 spec 闸 / merge（合并前夯住）**停下等人**。它是一段纯解析逻辑（`openagents/hold.py`：把逗号分隔串解析成不可变 `Hold(at_spec, at_merge)`，无 IO、未知 token 立即报错），由 CLI 解析、经 `vigil.run(hold=...)` 逐轮透传给 `messages.poll(hold=...)`，在 spec / merge 两处闸据 `hold` 选择「停或照常」。
-- **`OPENAGENTS_*` 环境变量**——只调**数量/轮次**（如 `OPENAGENTS_MAX_ROUNDS` 每闸最大评审回合数），不改「闸开不开」。
+- **`--hold spec|merge`**—the **stricter** direction: make the pipeline **stop and wait for a human** at the spec gate / merge (hold before merging). It is pure parsing logic (`openagents/hold.py`: parse a comma-separated string into an immutable `Hold(at_spec, at_merge)`, with no IO and immediate errors for unknown tokens), parsed by the CLI, passed through each round via `vigil.run(hold=...)` to `messages.poll(hold=...)`, and used at the spec / merge gates to choose between “stop” and “proceed as usual.”
+- **`OPENAGENTS_*` environment variables**—adjust only **counts/rounds** (such as `OPENAGENTS_MAX_ROUNDS`, the maximum number of review rounds per gate), without changing “whether a gate is enabled.”
 
-于是缺了一个对称的、**更松**方向的开关：临时把某一道（或几道）闸**整个关掉、当作 PASS 放行**。真实场景反复需要它：spec 已离线人评过、想让 vigil 直接进实现（关 spec 闸）；本地已手验、CI 排队太久想先推进评审（关 ci 闸）；无 browser MCP 的环境里证据闸恒 skip、想显式放行而非每轮空转（关 evidence 闸）；演示/教学时想让某个 issue 一路走到底（`all`）。今天要达到这些只能改代码或凑 env，既不可发现也不可回溯。
+What is missing is a symmetric switch in the **more permissive** direction: temporarily **disable an entire gate (or several gates), treating it as PASS and allowing progress**. Real scenarios repeatedly need this: a spec has already been reviewed by a human offline, and Vigil should proceed directly to implementation (disable the spec gate); local manual verification is complete, and CI is queued for too long, so review should proceed first (disable the ci gate); in an environment without browser MCP, the evidence gate always returns skip, and explicit pass-through is preferable to spinning idle each round (disable the evidence gate); a demonstration or teaching session should take an issue all the way through (`all`). Today, achieving any of these requires modifying code or cobbling together env settings, making the behavior neither discoverable nor traceable.
 
-本 spec 用与 `--hold` **同构**的最小实现补上这个缺口，并顺带把「哪里有闸、哪些可关」这件今天只存在于源码里的隐性知识，以树形写进 README，让站在宏观位置的人（CLAUDE.md 理念 2/8）一眼看懂。
+This spec fills that gap with a minimal implementation **isomorphic** to `--hold`, while also documenting the currently source-only knowledge of “where the gates are and which can be disabled” as a tree in the README, so people viewing the system at a high level (CLAUDE.md principles 2/8) can understand it at a glance.
 
 ## Guide-level explanation
 
-对人来说，`--skip` 就是 `--hold` 的一面镜子：`--hold` 让某道闸「停下等我」，`--skip` 让某道闸「别拦我、放行」。用法：
+For users, `--skip` is a mirror of `--hold`: `--hold` tells a gate “stop and wait for me,” while `--skip` tells a gate “let me through.” Usage:
 
 ```bash
-# 默认：全闸开启，行为与今天逐字节一致（零回归）
+# Default: all gates enabled, behavior identical to today byte for byte (zero regressions)
 openagents vigil
 
-# spec 已离线人评过 → 关 spec 评审闸，让 vigil 直接进实现
+# The spec has already been reviewed by a human offline → disable the spec review gate so Vigil proceeds directly to implementation
 openagents vigil --skip spec
 
-# 本地已手验、CI 排队太久 → 关 CI 等待闸 + 代码评审闸，先把 PR 推到证据闸
+# Local manual verification is complete and CI is queued for too long → disable the CI wait gate + code review gate to advance the PR to the evidence gate first
 openagents vigil --skip ci,code
 
-# 演示某个 issue 一路走到底：关掉全部 5 道可跳过的闸
+# Demonstrate an issue going all the way through: disable all 5 skippable gates
 openagents vigil --skip all
 
-# 与 --hold 并用（作用在不同闸上，合法）：合并前夯住等人，但 CI 等待闸放行
+# Combine with --hold (operating on different gates, so valid): hold before merging to wait for a human, but bypass the CI wait gate
 openagents vigil --hold merge --skip ci
 
-# 矛盾：同一道闸既要停又要放 → 立即报错、绝不静默
+# Contradiction: the same gate is asked both to stop and to allow progress → error immediately, never silently accept
 openagents vigil --hold spec --skip spec
-#   error: --hold 与 --skip 对同一闸门 'spec' 给出矛盾意图（停下等人 vs 放行跳过）；请二选一
+#   error: --hold and --skip express contradictory intentions for the same gate 'spec' (stop and wait for a human vs bypass and allow progress); choose one
 ```
 
-合法闸门 token（5 道有放行语义的闸；可合并性预检闸不在此列，见下）：
+Valid gate tokens (5 gates with pass-through semantics; the mergeability precheck gate is excluded, as explained below):
 
-| token | 闸门 | `--skip` 后的行为 |
+| token | Gate | Behavior with `--skip` |
 |---|---|---|
-| `issue` | issue 自检闸 | 起草前不判读自洽性，issue 直接放行派单 |
-| `spec` | spec 评审闸 | 不调 reviewer 评 spec，draft PR 视为已批、直接进实现 |
-| `code` | 代码评审闸 | 不调 reviewer 评代码，视为 PASS、进证据闸 |
-| `ci` | CI 等待闸 | 不查/不等 CI 状态，当作已绿、继续推进 |
-| `evidence` | 证据闸 | 不跑独立取证，视为 PASS、进合并 |
-| `all` | 上述全部 | 5 道一次全放行 |
+| `issue` | Issue self-check gate | Do not assess consistency before drafting; allow the issue through directly for dispatch |
+| `spec` | Spec review gate | Do not invoke a reviewer to review the spec; treat the draft PR as approved and proceed directly to implementation |
+| `code` | Code review gate | Do not invoke a reviewer to review the code; treat it as PASS and enter the evidence gate |
+| `ci` | CI wait gate | Do not check/wait for CI status; treat it as green and continue |
+| `evidence` | Evidence gate | Do not perform independent evidence collection; treat it as PASS and proceed to merging |
+| `all` | All of the above | Allow progress through all 5 gates at once |
 
-> **为何没有 `merge`（可合并性预检闸）？** 该预检的唯一作用是对 DIRTY/CONFLICTING 的 PR 早退省功——「跳过」它并不能让一个冲突 PR 变得可合并，只会让 vigil 白等 CI、最终仍在真正合并时失败，没有任何「放行」效果。加上 `merge` 这个 token 已被 `--hold merge`（合并前夯住）占用、二者作用在流水线两端本不冲突，若也让 `--skip merge` 复用同一 token 反会让矛盾检测误报一个合法组合。故 `merge` 只归 `--hold`，不进 `--skip`（详见 Rationale 备选 4）。
+> **Why is there no `merge` (mergeability precheck gate)?** This precheck’s sole purpose is to return early for DIRTY/CONFLICTING PRs to save work—“skipping” it cannot make a conflicting PR mergeable; it only makes Vigil wait for CI unnecessarily and ultimately fail at the actual merge, with no “pass-through” effect whatsoever. In addition, the `merge` token is already used by `--hold merge` (hold before merging), and the two operate at opposite ends of the pipeline without inherently conflicting. Reusing the same token for `--skip merge` would instead cause contradiction detection to falsely reject a valid combination. Therefore, `merge` belongs exclusively to `--hold` and is excluded from `--skip` (see alternative 4 in Rationale for details).
 
-被关的闸一律视为 **PASS 放行**——即「就当它通过了」，而不是「停下」（那是 `--hold` 的语义）。未知 token（拼错如 `spc`）与 `--hold` 一样**立即报错并列出合法取值**，绝不静默丢监督。`--skip` 是**临时命令行 flag**、不落盘、不改任何持久状态：想恢复全闸只要下轮不带它。
+Every disabled gate is treated as **PASS, allowing progress**—that is, “act as if it passed,” rather than “stop” (which is the semantics of `--hold`). As with `--hold`, unknown tokens (such as the typo `spc`) **produce an immediate error listing the valid values**, never silently removing oversight. `--skip` is a **temporary command-line flag**: it is not written to disk and does not change any persistent state. To restore all gates, simply omit it on the next invocation.
 
-**README 闸门树。** 除 CLI，本 spec 把「自主环里到底有几道闸、各在哪个阶段、哪些可经 `--skip`/`--hold` 从 CLI 关、哪些是 GitHub 分支保护里的硬闸」画成一棵树写进 README，例如（示意，最终以 T4 落稿为准）：
+**README gate tree.** In addition to the CLI, this spec adds a tree to the README showing “how many gates the autonomous loop actually has, which stage each belongs to, which can be disabled from the CLI through `--skip`/`--hold`, and which are hard gates in GitHub branch protection,” for example (illustrative; the final version is determined by T4):
 
 ```
-vigil 自主环闸门
-├─ 发现段
-│  └─ issue 自检闸 ............ 可关: --skip issue
-├─ 守候段（每轮 poll 按阶段推进）
-│  ├─ spec 评审闸 ............. 可关: --skip spec   | 可停: --hold spec
-│  ├─ 可合并性预检闸 .......... 不可 --skip（仅省功早退，放行无意义）
-│  ├─ CI 等待闸 .............. 可关: --skip ci
-│  ├─ 代码评审闸 ............. 可关: --skip code
-│  ├─ 证据闸 ................. 可关: --skip evidence
-│  └─ 合并前夯住 ............. 可停: --hold merge
-└─ GitHub 分支保护硬闸（CLI 不可关，须在仓库设置里改）
-   └─ lint / test / commitlint / spec-validate（PR 必过检查）
+vigil autonomous loop gates
+├─ Discovery phase
+│  └─ Issue self-check gate .... Can disable: --skip issue
+├─ Watch phase (advance by stage on each poll round)
+│  ├─ Spec review gate ......... Can disable: --skip spec   | Can hold: --hold spec
+│  ├─ Mergeability precheck .... Cannot --skip (only returns early to save work; pass-through is meaningless)
+│  ├─ CI wait gate ............. Can disable: --skip ci
+│  ├─ Code review gate ......... Can disable: --skip code
+│  ├─ Evidence gate ............ Can disable: --skip evidence
+│  └─ Hold before merging ...... Can hold: --hold merge
+└─ GitHub branch protection hard gates (cannot disable through the CLI; must change repository settings)
+   └─ lint / test / commitlint / spec-validate (required PR checks)
 ```
 
 ## Reference-level explanation
 
-### 技术方案（与 `--hold` 同构，纯解析 + 逐点消费）
+### Technical approach (isomorphic to `--hold`, pure parsing + consumption at each gate)
 
-**① 解析层——新增 `openagents/skip.py`（镜像 `hold.py`）。** 一段纯解析逻辑，无 argparse、无 IO、无 GitHub 依赖（CLAUDE.md 理念 1 奥卡姆 / 10 解耦）：
+**① Parsing layer—add `openagents/skip.py` (mirroring `hold.py`).** Pure parsing logic, with no argparse, no IO, and no GitHub dependencies (CLAUDE.md principles 1, Occam / 10, decoupling):
 
-- 单点定义 5 个合法闸门 token 常量 `_GATE_ISSUE/_GATE_SPEC/_GATE_CODE/_GATE_CI/_GATE_EVIDENCE` 与聚合 `all`，组成 `_VALID_GATES`——解析与报错信息共用，杜绝字面量漂移。**刻意不含 `_GATE_MERGE`**：可合并性预检无放行语义、`merge` token 归 `--hold`（见 Rationale 备选 4）。
-- `@dataclass(frozen=True) Skip`，携带 5 个布尔意图 `at_issue / at_spec / at_code / at_ci / at_evidence`（默认全 `False`），并提供便于消费点读取的语义。模块级 `NONE = Skip()` 作「全不关」默认实例（等价现状全闸开启）。
-- `parse_skip(*, raw: str | None) -> Skip`：`None`/空串 → `NONE`；逗号分隔（容忍空格/大小写）→ 对应布尔置位；`all` → 5 个全置位；未知 token（含 `merge`——它不是合法 skip token）→ `raise ValueError` 并列出合法取值（与 `parse_hold` 逐字节同款报错纪律）。
-- **矛盾检测**（本 spec 唯一的新语义）：`reconcile_hold_skip(*, hold: Hold, skip: Skip) -> None`（纯函数，命中即 `raise ValueError`）。判据取「两侧共享 token 的交集非空」：`Hold` 有 `at_spec/at_merge`，而 `Skip` 无 `at_merge`——故二者唯一可能相交的 token 是 `spec`，只需比对 `hold.at_spec` 与 `skip.at_spec`：spec 闸若被同时要求「停下等人」与「放行跳过」即矛盾，报一行清楚提示（点名闸名 + 两种意图），绝不静默。（`--hold merge` 与任何 `--skip` 组合都合法——skip 不含 merge，天然不冲突。）**软约定硬化**（技能质量条）：把「别对同一闸既 hold 又 skip」从一句正文告诫，落成一个会 `raise` 的纯函数，让它在 CLI 入口**根本无法悄悄通过**。
+- Define the 5 valid gate token constants `_GATE_ISSUE/_GATE_SPEC/_GATE_CODE/_GATE_CI/_GATE_EVIDENCE` and the aggregate `all` in one place, forming `_VALID_GATES`—shared by parsing and error messages to prevent literal drift. **Deliberately exclude `_GATE_MERGE`**: the mergeability precheck has no pass-through semantics, and the `merge` token belongs to `--hold` (see alternative 4 in Rationale).
+- `@dataclass(frozen=True) Skip`, carrying 5 Boolean intentions `at_issue / at_spec / at_code / at_ci / at_evidence` (all `False` by default), and providing semantics that are convenient to read at consumption points. Module-level `NONE = Skip()` serves as the default “disable nothing” instance (equivalent to the current state with all gates enabled).
+- `parse_skip(*, raw: str | None) -> Skip`: `None`/empty string → `NONE`; comma-separated values (tolerating whitespace/case differences) → set the corresponding Booleans; `all` → set all 5; unknown tokens (including `merge`—it is not a valid skip token) → `raise ValueError` and list valid values (following exactly the same error-reporting discipline as `parse_hold`, byte for byte).
+- **Contradiction detection** (the only new semantics in this spec): `reconcile_hold_skip(*, hold: Hold, skip: Skip) -> None` (a pure function that immediately executes `raise ValueError` on a match). The criterion is “a nonempty intersection of tokens shared by both sides”: `Hold` has `at_spec/at_merge`, while `Skip` has no `at_merge`—so the only token on which they can intersect is `spec`, and only `hold.at_spec` and `skip.at_spec` need to be compared. If the spec gate is simultaneously asked to “stop and wait for a human” and “bypass and allow progress,” that is a contradiction; report a clear one-line message (naming the gate + both intentions), never silently accept it. (`--hold merge` is valid with any `--skip` combination—skip does not include merge, so there is inherently no conflict.) **Turn a soft convention into a hard constraint** (skill quality criterion): turn “do not both hold and skip the same gate” from a warning in prose into a pure function that will `raise`, making it **impossible for this to slip through silently** at the CLI entry point.
 
-**② 消费层——把 `Skip` 逐轮透传给每道闸的判定点（复用 `--hold` 已铺好的透传管线）。**
+**② Consumption layer—pass `Skip` through each round to the decision point for every gate (reusing the pass-through plumbing already established for `--hold`).**
 
-- `Vigil.run(...)` 新增关键字参数 `skip: Skip = NONE`（与 `hold` 并列），逐轮透传：发现段 `discover_and_dispatch` 在调 `precheck_issue` 前判 `skip.at_issue`——为真则跳过判读、直接放行派单（issue 自检闸 PASS）；守候段把 `skip` 下传 `messages.poll(skip=...)`。
-- `Messages.poll(*, skip: Skip = NONE)` 把 `skip` 下传 `_process_rfc_review` / `_process_coding`，在 4 个判定点插入「skip 即 PASS」短路，**位置与既有 `hold` 短路并列、镜像其写法**：
-  - `spec`：`_process_rfc_review` 中若 `skip.at_spec` → 走既有 PASS 分支（打 `rfc-approved` 标签 + `_report_implement`），等价「reviewer 全票 PASS」，不调 `review_rfc`。
-  - `ci`：若 `skip.at_ci` → 跳过 `github.check_status` 的 fail/pending 分支，当作绿灯继续。
-  - `code`：CI 绿后若 `skip.at_code` → 跳过 `review_code`，视为 `decision.passed`，进证据闸。
-  - `evidence`：若 `skip.at_evidence` → 跳过 `_evidence_gate`，视为其返回 `None`（放行到合并 / `--hold merge` 夯住点）。
-  - `_process_coding` 开头的 `github.mergeability` DIRTY/CONFLICTING 早退**照常执行、不受 `skip` 影响**（无对应 skip token）。
+- Add the keyword parameter `skip: Skip = NONE` to `Vigil.run(...)` (alongside `hold`), passing it through each round: in the discovery phase, `discover_and_dispatch` checks `skip.at_issue` before calling `precheck_issue`—if true, skip the assessment and allow dispatch directly (issue self-check gate PASS); in the watch phase, pass `skip` down to `messages.poll(skip=...)`.
+- `Messages.poll(*, skip: Skip = NONE)` passes `skip` down to `_process_rfc_review` / `_process_coding`, inserting “skip means PASS” short circuits at 4 decision points, **alongside the existing `hold` short circuits and mirroring their implementation**:
+  - `spec`: in `_process_rfc_review`, if `skip.at_spec` → take the existing PASS branch (apply the `rfc-approved` label + `_report_implement`), equivalent to “unanimous PASS from reviewers,” without calling `review_rfc`.
+  - `ci`: if `skip.at_ci` → skip the fail/pending branches of `github.check_status` and continue as if green.
+  - `code`: after CI is green, if `skip.at_code` → skip `review_code`, treat it as `decision.passed`, and enter the evidence gate.
+  - `evidence`: if `skip.at_evidence` → skip `_evidence_gate`, treating it as returning `None` (allow progress to merging / the `--hold merge` hold point).
+  - The `github.mergeability` DIRTY/CONFLICTING early return at the start of `_process_coding` **continues to execute as usual, unaffected by `skip`** (there is no corresponding skip token).
 
-**③ CLI 层——`openagents/cli.py`。** 给 `vigil` 子命令加 `--skip`（`metavar`/`help` 与 `--hold` 对称）；`_cmd_vigil` 先 `parse_skip(raw=args.skip)` 得 `Skip`、再 `reconcile_hold_skip(hold=hold, skip=skip)` 校验矛盾（非法值/矛盾由 `ValueError` 经 `_run` 既有异常通道转成干净一行提示、不 traceback），最后 `run(..., hold=hold, skip=skip)`。
+**③ CLI layer—`openagents/cli.py`.** Add `--skip` to the `vigil` subcommand (`metavar`/`help` symmetric with `--hold`); `_cmd_vigil` first obtains `Skip` with `parse_skip(raw=args.skip)`, then validates contradictions with `reconcile_hold_skip(hold=hold, skip=skip)` (invalid values/contradictions are converted from `ValueError` into a clean one-line message through `_run`’s existing exception channel, without a traceback), and finally calls `run(..., hold=hold, skip=skip)`.
 
-**零回归保证。** 所有新参数默认 `NONE`/全 `False`；不传 `--skip` 时每道闸的判定路径与今天逐字节一致（新短路条件恒为假）。已有 `vigil.run` / `messages.poll` 调用方与测试夹具因默认值不受影响。
+**Zero-regression guarantee.** All new parameters default to `NONE`/all `False`; when `--skip` is omitted, the decision path at every gate is identical to today byte for byte (the new short-circuit conditions are always false). Existing `vigil.run` / `messages.poll` callers and test fixtures are unaffected because of the defaults.
 
-### DAG + 文件分配
 
-| Task | 标题 | files（互斥） | depends-on |
+### DAG + File Allocation
+
+| Task | Title | files (mutually exclusive) | depends-on |
 |---|---|---|---|
-| T1 | skip 解析模块 + 矛盾检测 | `openagents/skip.py`, `tests/test_skip.py` | — |
-| T2 | 逐闸消费：透传 Skip 到 5 道闸 | `openagents/vigil.py`, `openagents/messages.py`, `tests/test_messages_skip.py` | T1 |
-| T3 | CLI 接线 `--skip` + hold/skip 矛盾校验 | `openagents/cli.py`, `tests/test_cli_skip.py` | T1, T2 |
-| T4 | README 闸门树 | `README.md` | T1 |
-| T5 | 成果测试 e2e 脚本（离线闸控时间线） | `scripts/e2e-spec-0054-vigil-skip-gate.sh` | T2, T3 |
+| T1 | skip parsing module + conflict detection | `openagents/skip.py`, `tests/test_skip.py` | — |
+| T2 | Gate-by-gate consumption: pass Skip through to 5 gates | `openagents/vigil.py`, `openagents/messages.py`, `tests/test_messages_skip.py` | T1 |
+| T3 | CLI wiring for `--skip` + hold/skip conflict validation | `openagents/cli.py`, `tests/test_cli_skip.py` | T1, T2 |
+| T4 | README gate tree | `README.md` | T1 |
+| T5 | Outcome test e2e script (offline gate-control timeline) | `scripts/e2e-spec-0054-vigil-skip-gate.sh` | T2, T3 |
 
 ```mermaid
 graph TD
-    T1[T1 skip.py 解析+矛盾检测] --> T2[T2 vigil/messages 逐闸消费]
-    T1 --> T3[T3 cli 接线+校验]
-    T1 --> T4[T4 README 闸门树]
+    T1[T1 skip.py parsing+conflict detection] --> T2[T2 vigil/messages gate-by-gate consumption]
+    T1 --> T3[T3 cli wiring+validation]
+    T1 --> T4[T4 README gate tree]
     T2 --> T3
-    T2 --> T5[T5 e2e 脚本]
+    T2 --> T5[T5 e2e script]
     T3 --> T5
 ```
 
-各 Task 的 `files` 集两两不相交（协同模式单一 writer 所有权，理念 6）：`skip.py` 归 T1，两个消费文件 `vigil.py`/`messages.py` 归 T2，`cli.py` 归 T3，`README.md` 归 T4，e2e 脚本归 T5；测试文件各归其 Task，均为新增、不与既有夹具重叠。
+The `files` sets of all Tasks are pairwise disjoint (single-writer ownership in collaboration mode, Principle 6): `skip.py` belongs to T1, the two consumer files `vigil.py`/`messages.py` belong to T2, `cli.py` belongs to T3, `README.md` belongs to T4, and the e2e script belongs to T5; each test file belongs to its respective Task, and all are new files with no overlap with existing fixtures.
 
-### e2e 脚本路径
+### e2e Script Path
 
-`scripts/e2e-spec-0054-vigil-skip-gate.sh`（T5）。**成果测试形态说明（理念 8）：** 本改动是纯 CLI/流水线内部控制流，**无前端、无产品对外浏览器行为**，且本 spec 起草环境**不具备 browser MCP（Playwright / Chrome DevTools）**——由 agent 自检工具列表确认——故成果测试取 **CLI/离线形态**，不设计浏览器导航/截图 e2e（与既有 `--hold` 的 `scripts/e2e-spec-0020-hold-gate.sh` 同构、可 CI 跑、可重复）。脚本两段：(1) 离线确定性验证：`ruff check` + `ruff format --check` + `pytest -q`（全程 mock，覆盖 skip 解析 / 矛盾检测 / 各闸 PASS 短路 / CLI 接线）；(2) 离线闸控时间线演示：用打桩 orchestrator/state + 内存 label 集合模拟 GitHub，离线驱动 `Messages.poll(skip=spec)` 断言「spec 闸被当作 PASS、直接进实现」，并演示 `--hold spec --skip spec` 报错。
+`scripts/e2e-spec-0054-vigil-skip-gate.sh` (T5). **Explanation of the outcome test format (Principle 8):** This change concerns only internal CLI/pipeline control flow, with **no frontend and no user-facing browser behavior**, and the environment in which this spec was drafted **has no browser MCP (Playwright / Chrome DevTools)**—confirmed by the agent's inspection of its tool list—so the outcome test uses a **CLI/offline format**, with no browser navigation/screenshot e2e tests (structurally equivalent to the existing `--hold` script, `scripts/e2e-spec-0020-hold-gate.sh`, runnable in CI, and repeatable). The script has two parts: (1) Offline deterministic verification: `ruff check` + `ruff format --check` + `pytest -q` (mocked throughout, covering skip parsing / conflict detection / PASS short-circuiting at each gate / CLI wiring); (2) An offline gate-control timeline demonstration: use stubbed orchestrator/state + an in-memory label set to simulate GitHub, drive `Messages.poll(skip=spec)` offline to assert that “the spec gate is treated as PASS, proceeding directly to implementation,” and demonstrate that `--hold spec --skip spec` produces an error.
 
 ## Drawbacks
 
-- **多了一把「关监督」的枪。** `--skip` 让人可以临时关掉评审/证据等安全闸，误用（尤其 `--skip all`）会让未经把关的改动一路合并。缓解：它是不落盘的临时 flag（下轮不带即恢复全闸）；被关的闸只是 CLI 可达的软闸，GitHub 分支保护里的硬闸（lint/test/commitlint/spec-validate）仍拦得住，README 树把这条边界画清楚。
-- **闸门集合从此有两处真相。** 闸门列表既在代码（各消费点）又在 README 树里，可能漂移。缓解：README 树是人读文档、天然滞后可接受；token 常量在 `skip.py` 单点定义，CLI/解析/报错共用。
-- **`--skip` 与 `--hold` 的 token 集合不对称**（`--hold` 有 `merge`、`--skip` 没有），需要人记住「预检不可 skip」这条例外。缓解：README 树把可合并性预检闸显式标注为「不可 --skip」，并一行说明原因（预检仅省功、放行无意义），把这条例外画在人眼前而非藏在代码里。
+- **Another weapon for “turning off oversight.”** `--skip` lets people temporarily disable safety gates such as review/evidence; misuse (especially `--skip all`) can let unchecked changes proceed all the way to merging. Mitigation: it is a temporary flag that is not persisted to disk (omitting it in the next round restores all gates); the disabled gates are only soft gates accessible through the CLI, while hard gates in GitHub branch protection (lint/test/commitlint/spec-validate) still block changes. The README tree makes this boundary clear.
+- **The gate set now has two sources of truth.** The gate list exists both in code (at each consumption point) and in the README tree, and they may drift. Mitigation: the README tree is human-readable documentation, so some inherent lag is acceptable; token constants are defined in a single place in `skip.py`, shared by the CLI, parsing, and error messages.
+- **The token sets for `--skip` and `--hold` are asymmetric** (`--hold` has `merge`, while `--skip` does not), requiring people to remember the exception that “the precheck cannot be skipped.” Mitigation: the README tree explicitly marks the mergeability precheck gate as “cannot --skip,” with a one-line explanation of why (the precheck only saves work; bypassing it serves no purpose), placing this exception in plain sight rather than hiding it in code.
 
 ## Rationale and alternatives
 
-**为什么这样设计。** 与 `--hold` 严格同构是最小改动：解析层照抄 `hold.py` 的 frozen dataclass + `parse_*` + 单点 token 常量 + 报错纪律；消费层复用 `--hold` 已经铺好的 `vigil.run(...) → messages.poll(...)` 逐轮透传管线，只在各闸判定点并列插一个「skip 即 PASS」短路。新语义只有一处——hold/skip 矛盾检测——且把它做成会 `raise` 的纯函数（软约定硬化），而非正文告诫。零回归由「默认 `NONE` / 短路恒假」保证。
+**Why this design.** Strict structural equivalence with `--hold` yields the smallest change: the parsing layer copies `hold.py`'s frozen dataclass + `parse_*` + token constants defined in one place + error-reporting discipline; the consumption layer reuses the existing `vigil.run(...) → messages.poll(...)` pipeline that passes `--hold` through each round, adding a parallel “skip means PASS” short-circuit at each gate's decision point. There is only one new semantic element—hold/skip conflict detection—and it is implemented as a pure function that can `raise` (turning a soft convention into an enforced rule), rather than a warning in prose. Zero regressions are guaranteed by “default `NONE` / short-circuit condition always false.”
 
-**备选 1（采纳的反面）：不做 CLI flag，只加 `OPENAGENTS_SKIP_*` 环境变量。** 与既有 `OPENAGENTS_*` 旋钮一致，无需动 argparse。否决：env 不可发现、不可回溯、易残留污染后续运行；`--hold` 已确立「意图闸门用命令行 flag、逐轮显式传入」的先例，对称性更重要。
+**Alternative 1 (the opposite of the adopted approach): do not add a CLI flag; add only `OPENAGENTS_SKIP_*` environment variables.** This would be consistent with existing `OPENAGENTS_*` controls and require no argparse changes. Rejected: environment variables are hard to discover, hard to trace retrospectively, and prone to lingering and contaminating subsequent runs; `--hold` has already established the precedent of “use command-line flags for intent gates, passed explicitly each round,” and symmetry matters more.
 
-**备选 2：把 skip 做成落盘的持久配置（state / YAML）。** 可跨进程记住「这个仓库永远关 evidence 闸」。否决：违背「临时旁路」的定位，且落盘的关监督开关比临时 flag 危险得多（忘了它一直开着）；真需要长期关某闸应改分支保护或 spec，而非藏在本地状态里。
+**Alternative 2: make skip a persistent configuration stored on disk (state / YAML).** This could remember across processes that “this repository always has the evidence gate disabled.” Rejected: it contradicts the intended role of a “temporary bypass,” and a persisted switch for disabling oversight is far more dangerous than a temporary flag (people forget it remains enabled); if a gate truly needs to be disabled long term, branch protection or the spec should be changed, rather than hiding the setting in local state.
 
-**备选 3：让被关的闸「停下等人」而非「PASS 放行」（即复用 `--hold` 语义、不新增 flag）。** 否决：这恰是 `--hold` 已有的更严方向；本 issue 要的是更松方向（放行），语义相反，硬塞进 `--hold` 会让一个 flag 两义。因此 `--skip` 必须是独立、对称的 flag。
+**Alternative 3: make disabled gates “stop and wait for a person” rather than “PASS and proceed” (reuse `--hold` semantics without adding a flag).** Rejected: this is precisely the stricter direction already provided by `--hold`; this issue calls for the more permissive direction (letting changes through), which has the opposite semantics. Forcing it into `--hold` would give one flag two meanings. Therefore, `--skip` must be a separate, symmetric flag.
 
-**备选 4（原设计，已否决）：让 `--skip merge` 也可关「可合并性预检闸」，令 `--skip` 覆盖全部 6 道闸。** 否决有两层理由：（1）**无放行语义**——预检的作用只是对 DIRTY/CONFLICTING 的 PR 早退省功；把它「当 PASS 放行」并不能让冲突 PR 变得可合并，只会让 vigil 白等 CI、白评审，最终仍在真正合并时失败。它不像其余 5 道闸那样能「放行本来会被拦下的改动」，跳过它没有任何操作者想要的效果。（2）**token 语义撞车**——`merge` 已被 `--hold merge`（流水线**末端**的「合并前夯住」）占用，而 skip-merge 指的是流水线**开头**的预检，二者作用在两端、本不冲突；若让 `--skip merge` 复用同一 token，按「token 交集」判矛盾会把 `--hold merge --skip merge` 这个**合法**组合误报成冲突。综合下来，`--skip` 只覆盖 5 道有真实放行语义的闸，`merge` token 仅归 `--hold`——集合更小（奥卡姆）、矛盾检测无误报、语义更干净。（可合并性预检若未来真需 CLI 旁路，应另起一个精确 token 如 `mergeable`，而非复用 `merge`。）
+**Alternative 4 (original design, rejected): let `--skip merge` also disable the “mergeability precheck gate,” so that `--skip` covers all 6 gates.** Rejected for two reasons: (1) **No meaningful pass-through semantics**—the precheck merely exits early for DIRTY/CONFLICTING PRs to save work; treating it as “PASS and proceed” cannot make a conflicting PR mergeable. It only makes Vigil wait for CI and perform reviews needlessly, before ultimately failing at the actual merge. Unlike the other 5 gates, it cannot “let through a change that would otherwise be blocked,” so skipping it produces no effect an operator would want. (2) **Token semantics collide**—`merge` is already used by `--hold merge` (“hold before merging” at the **end** of the pipeline), whereas skip-merge refers to the precheck at the **beginning** of the pipeline. The two operate at opposite ends and do not inherently conflict; if `--skip merge` reused the same token, detecting conflicts by “token intersection” would incorrectly report the **valid** combination `--hold merge --skip merge` as a conflict. Taken together, `--skip` covers only the 5 gates with meaningful pass-through semantics, and the `merge` token belongs exclusively to `--hold`—a smaller set (Occam's razor), no false positives in conflict detection, and cleaner semantics. (If the mergeability precheck truly needs a CLI bypass in the future, it should use a separate, precise token such as `mergeable`, rather than reusing `merge`.)
 
 ## Prior art
 
-- **本仓 `openagents/hold.py`（Spec-0020）**——`--hold` 的 frozen `Hold` 值对象 + `parse_hold` + 单点 token 常量 + 未知 token 立即报错 + 逐轮透传，是本 spec 直接镜像的范式。
-- **Rust RFC 形态**（[rust-lang/rfcs](https://github.com/rust-lang/rfcs)）——本总览的 9 段结构来源。
-- **通用 CLI 惯例**——`pytest --no-header`/`git commit --no-verify`/`make -k` 等「临时旁路某道默认检查」的 flag 是成熟先例：旁路开关不落盘、只作用于本次调用、与「更严」的开关对称并存。
+- **This repository's `openagents/hold.py` (Spec-0020)**—the frozen `Hold` value object for `--hold` + `parse_hold` + token constants defined in one place + immediate errors for unknown tokens + passing values through each round form the pattern directly mirrored by this spec.
+- **Rust RFC format** ([rust-lang/rfcs](https://github.com/rust-lang/rfcs))—the source of this overview's 9-section structure.
+- **General CLI conventions**—flags such as `pytest --no-header`/`git commit --no-verify`/`make -k` that “temporarily bypass a default check” provide established precedents: bypass switches are not persisted to disk, apply only to the current invocation, and coexist symmetrically with “stricter” switches.
 
 ## Unresolved questions
 
-- `--skip all`（及任何 skip 命中）是否要在运行时额外打一条显眼日志/警示（提示「本轮 X 闸被 --skip 放行」）？倾向要——被跳过的闸走的是既有 PASS 分支、发的是常规 event，日志里看不出「这道闸是被人为跳过的」，留痕能补上这层可观测性。属实现细节，留待 Phase 3 与人确认，不阻塞本 spec。
-- 可合并性预检闸目前完全不提供 CLI 旁路（见 Rationale 备选 4）。若未来出现「明知冲突仍想推进到 CI」的真实场景，应另起精确 token `mergeable` 给 `--skip`（而非复用已归 `--hold` 的 `merge`）。当前无此需求，记为待观察。
+- Should `--skip all` (and any skip that takes effect) emit an additional conspicuous log message/warning at runtime (stating “gate X was allowed through by --skip this round”)? The inclination is yes—the skipped gates follow existing PASS branches and emit normal events, so the logs do not reveal that “this gate was manually skipped.” Leaving a record can fill this observability gap. This is an implementation detail, deferred to Phase 3 for confirmation with a person, and does not block this spec.
+- The mergeability precheck gate currently offers no CLI bypass at all (see Rationale, Alternative 4). If a real scenario arises in the future where someone “knows there are conflicts but still wants to proceed to CI,” a separate, precise token `mergeable` should be added to `--skip` (rather than reusing `merge`, which already belongs to `--hold`). There is no current need for this; it remains under observation.
 
 ## Future possibilities
 
-- 若未来出现更多 CLI 可达闸（如安全扫描、许可证检查），`Skip` 的 token 集与 README 树可平滑扩展（单点常量 + 新增布尔位 + 新增消费点短路）。
-- 可把 issue #71 的运行期 owner 检查思路借来：把「哪些闸允许被 `--skip`」也做成 schema/frontmatter 声明，让「不可关的硬闸」在解析期即拒绝（进一步软约定硬化）。
-- README 闸门树若稳定，可考虑由 `spec graph` 之类工具从消费点自动生成，消除代码/文档双真相的漂移风险。
-
+- If more CLI-accessible gates appear in the future (such as security scans or license checks), the `Skip` token set and README tree can be extended smoothly (constants defined in one place + a new boolean field + a short-circuit at a new consumption point).
+- The runtime owner-checking idea from issue #71 could be borrowed: declare “which gates may be bypassed with `--skip`” in schema/frontmatter as well, so that attempts to disable “hard gates that cannot be turned off” are rejected during parsing (further turning soft conventions into enforced rules).
+- Once the README gate tree stabilizes, consider generating it automatically from consumption points using a tool such as `spec graph`, eliminating the risk of drift between code and documentation as dual sources of truth.

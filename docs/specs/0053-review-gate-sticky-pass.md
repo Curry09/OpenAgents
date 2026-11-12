@@ -1,12 +1,12 @@
 ---
 number: "0053"
-title: 代码评审闸每轮重审：代码状态未变时复用上轮 PASS（对照 k8s Tide sticky approve / tree-hash）
+title: "The code review gate re-reviews every round: reuse the previous round's PASS when the code state is unchanged (compare k8s Tide sticky approve / tree-hash)"
 issue: 133
 slug: review-gate-sticky-pass
-summary: 给代码评审闸引入「PR 净改动指纹」短路：reviewer 全票 PASS 时落盘指纹，下一轮进 review_code 前比指纹一致则复用 PASS、跳过重审——止住 base 前进（BEHIND→update_branch→CI 重跑）触发的同码空转重审。
+summary: "Introduce a \"PR net-change fingerprint\" short-circuit for the code review gate: persist the fingerprint when all reviewers vote PASS; before entering review_code in the next round, compare fingerprints and, if they match, reuse PASS and skip re-review—preventing repeated reviews of unchanged code triggered by the base advancing (BEHIND→update_branch→CI rerun)."
 tasks:
   - id: T1
-    title: state：PR 净 diff 指纹字段 + setter
+    title: "state: PR net-diff fingerprint field + setter"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/state.py
       - tests/test_state_code_fingerprint.py
-    scope: RunRecord 加 code_passed_fingerprint 字段（默认 "" 向后兼容）+ State.set_code_fingerprint setter（仿 set_block_gate）
-    acceptance: RunRecord(**缺该键的旧记录) 不报错；set_code_fingerprint 写入后 State 重载读回一致；ruff+pytest 绿
+    scope: "Add a code_passed_fingerprint field to RunRecord (default \"\" for backward compatibility) + a State.set_code_fingerprint setter (modeled on set_block_gate)"
+    acceptance: "RunRecord(**old_record_missing_this_key) raises no error; after set_code_fingerprint writes the value, reloading State reads back the same value; ruff+pytest pass"
   - id: T2
-    title: github：PR 净 diff 指纹取值
+    title: "github: obtain the PR net-diff fingerprint"
     status: done
     priority: P1
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github_code_fingerprint.py
-    scope: 新增 code_fingerprint(pr_number)：sha256(gh pr diff <n>) 的 hexdigest；gh 故障/空输出返回空串（fail-open），不含短路业务判定
-    acceptance: 同一 diff 输入哈希稳定且等长；gh 失败/空输出返回 ""；两次相同 diff 指纹相等、diff 变化后指纹不等；ruff+pytest 绿
+    scope: "Add code_fingerprint(pr_number): the hexdigest of sha256(gh pr diff <n>); return an empty string on gh failure/empty output (fail-open); do not include the business logic that determines whether to short-circuit"
+    acceptance: "The hash is stable and has a fixed length for the same diff input; gh failure/empty output returns \"\"; fingerprints for two identical diffs are equal, and fingerprints differ after the diff changes; ruff+pytest pass"
   - id: T3
-    title: messages：_process_coding 3c sticky 短路接线
+    title: "messages: wire up the _process_coding 3c sticky short-circuit"
     status: done
     priority: P0
     tags: []
@@ -44,10 +44,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages_review_sticky.py
-    scope: CI 全绿后先算 code_fingerprint：与 record.code_passed_fingerprint 相等则复用 PASS 跳过 review_code、_progress 记一行；不等则照常评审、PASS 后 set_code_fingerprint；空指纹 fail-open 落回评审；证据闸/merge 下游不变
-    acceptance: 指纹与上次 PASS 相同→review_code 不被调用且照进证据闸/merge；指纹不同→review_code 被调一次并落盘新指纹；指纹为空→照常评审（fail-open）；ruff+pytest 绿
+    scope: "After all CI checks pass, compute code_fingerprint first: if it equals record.code_passed_fingerprint, reuse PASS, skip review_code, and add one line to _progress; otherwise, review as usual and call set_code_fingerprint after PASS; an empty fingerprint falls back to review (fail-open); the downstream evidence gate/merge remain unchanged"
+    acceptance: "Fingerprint matches the previous PASS→review_code is not called, and processing proceeds to the evidence gate/merge as usual; fingerprint differs→review_code is called once and the new fingerprint is persisted; fingerprint is empty→review proceeds as usual (fail-open); ruff+pytest pass"
   - id: T4
-    title: e2e：sticky 复用 PASS 成果脚本
+    title: "e2e: script demonstrating sticky PASS reuse"
     status: done
     priority: P1
     tags: []
@@ -57,222 +57,221 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0053-review-sticky-pass.sh
-    scope: 构造已 PASS 一次的 run，stub code_fingerprint 返回同指纹 + 计数版 review_code，驱动 _process_coding 连跑：两轮同码断言 reviewer 只调一次、翻转指纹第三轮断言再调一次
-    acceptance: 脚本可执行、退出码 0；断言输出显示 reviewer 调用次数=1（两轮同码）后=2（指纹翻转）；沿用 scripts/e2e-spec-NNNN-*.sh 约定
+    scope: "Construct a run that has already passed once, stub code_fingerprint to return the same fingerprint, use a version of review_code that counts calls, and drive _process_coding through consecutive rounds: after two rounds with the same code, assert that the reviewer was called only once; change the fingerprint for the third round and assert that it is called once more"
+    acceptance: "The script is executable and exits with code 0; assertion output shows reviewer call count=1 (two rounds with the same code), then =2 (after the fingerprint changes); follow the scripts/e2e-spec-NNNN-*.sh convention"
 ---
 
-# 0053 · 代码评审闸每轮重审：代码状态未变时复用上轮 PASS（对照 k8s Tide sticky approve / tree-hash）
+# 0053 · Re-review at the code review gate on every round: reuse the previous PASS when the code state is unchanged (with reference to k8s Tide sticky approve / tree-hash)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-给守夜人 poll 循环里的**代码评审闸**引入一个「PR 净改动指纹」短路：reviewer 全票 PASS 时，把当轮 PR 相对其 base 的净 diff 指纹落进 run state；下一轮进入 `review_code` 前先算一次指纹，**与上次 PASS 的指纹一致就直接复用上轮 PASS、跳过重审**，不一致才照常重审并更新指纹。这利用了一条我们此前没利用的不变式——「审过的代码，在代码状态没变时依然有效」——止住「base 前进（`BEHIND` → `update_branch` 拉 main → CI 重跑 → 下一轮 CI 绿）→ 又白跑一遍 N 个 reviewer」的同码空转重审。指纹取「PR 净 diff（`gh pr diff` 的 base…head 三点语义）」而非「PR head tree SHA」，因为 `update_branch` 会把 main 并进 PR head、连带改掉 head tree，唯有净 diff 在「只是 base 前进、PR 自身未改」时保持不变。设计直接对照 Kubernetes Tide/Prow 的 sticky `approve` 标签与 `lgtm` 的 `store_tree_hash` 机制。
+Introduce a “PR net-change fingerprint” short circuit into the **code review gate** in Vigil’s poll loop: when all reviewers vote PASS, persist a fingerprint of that round’s PR net diff relative to its base in the run state; before entering `review_code` in the next round, compute the fingerprint once, and **if it matches the fingerprint from the last PASS, reuse that PASS directly and skip re-review**. Only re-review as usual and update the fingerprint when it differs. This uses an invariant we have not previously used—“a review of code remains valid while the code state is unchanged”—to stop redundant re-reviews of identical code along the path “base advances (`BEHIND` → `update_branch` pulls in main → CI reruns → CI is green in the next round) → run N reviewers again for nothing.” The fingerprint uses the “PR net diff (the three-dot base…head semantics of `gh pr diff`)” rather than the “PR head tree SHA,” because `update_branch` merges main into the PR head and changes the head tree along with it; only the net diff remains unchanged when “only the base advances and the PR itself is unchanged.” The design directly references Kubernetes Tide/Prow’s sticky `approve` label and the `store_tree_hash` mechanism for `lgtm`.
 
 ## Motivation
 
-### 现状（就地复述，读本段即懂问题，无需翻别的 spec）
+### Current behavior (restated here so this section explains the problem without requiring another spec)
 
-守夜人每个 poll 间隔对每个 open PR 跑一遍状态机。处于 coding 阶段的 run 落到 `messages._process_coding`（`openagents/messages.py:549`），它这样推进代码评审闸（RFC-0012 决策 1）：
+At each poll interval, Vigil runs the state machine once for each open PR. A run in the coding phase reaches `messages._process_coding` (`openagents/messages.py:549`), which advances the code review gate as follows (RFC-0012 decision 1):
 
-1. `github.mergeability(pr_number)` 取 `mergeable` / `mergeStateStatus` 两个 GitHub 原值做可合并性预检（Spec-0022）。
-   - `DIRTY` / `CONFLICTING` → 真冲突，走 agent 解冲突 / `_block`。
-   - `UNKNOWN` → GitHub 异步没算完，本轮不动，下轮重查。
-   - **`BEHIND`（落后 main 但无文本冲突）→ 调 `github.update_branch(pr_number)`**：GitHub 服务端把最新 main **merge 进** PR 分支（默认非 rebase，产生一个 merge commit），触发该 PR 的 CI 在「集成后代码」上重跑；本轮不评审，返回 `synced`，下一轮以集成态推进。
-2. CI 失败 → `iterate(reason="ci")`；CI 进行中 → 本轮不动。
-3. **CI 全绿 → 无条件 `decision = self._orchestrator.review_code(pr_number)`（`openagents/messages.py:604`）**，起 N 个 reviewer 后端进程评审 PR 的代码 diff，聚合成 `ReviewDecision(passed=...)`。PASS → 过证据闸（Spec-0040）→ merge 闸夯住（Spec-0041）；非 PASS → `iterate` 或超 K 挂起。
+1. `github.mergeability(pr_number)` retrieves the two raw GitHub values `mergeable` / `mergeStateStatus` for a mergeability precheck (Spec-0022).
+   - `DIRTY` / `CONFLICTING` → a real conflict; route to agent conflict resolution / `_block`.
+   - `UNKNOWN` → GitHub has not finished its asynchronous calculation; take no action this round and check again next round.
+   - **`BEHIND` (behind main but without text conflicts) → call `github.update_branch(pr_number)`**: GitHub merges the latest main **into** the PR branch on the server (by default, this is not a rebase and creates a merge commit), triggering the PR’s CI to rerun on the “integrated code”; do not review this round, return `synced`, and proceed with the integrated state next round.
+2. CI fails → `iterate(reason="ci")`; CI is in progress → take no action this round.
+3. **All CI checks are green → unconditionally call `decision = self._orchestrator.review_code(pr_number)` (`openagents/messages.py:604`)**, starting N reviewer backend processes to review the PR’s code diff and aggregating their results into `ReviewDecision(passed=...)`. PASS → pass through the evidence gate (Spec-0040) → remain held at the merge gate (Spec-0041); non-PASS → `iterate`, or suspend after exceeding K.
 
-问题出在第 3 步的「无条件」：**只要 run 还在 coding 阶段且 CI 绿，每一轮 poll 都从头重跑一遍 N 个 reviewer**，没有「上一轮已 PASS 且代码没变则复用」的短路。
+The problem is the “unconditionally” in step 3: **as long as the run remains in the coding phase and CI is green, every poll round starts all N reviewers again from scratch**, with no short circuit to “reuse the previous round’s PASS if the code is unchanged.”
 
-### 为什么要改
+### Why change this
 
-典型触发路径把这个浪费放大：一个 PR 落后于 main 但无文本冲突（`BEHIND`）→ `update_branch` 拉最新 main 进来 → 触发 CI 重跑 → 下一轮 CI 绿 → **又重跑一遍 `review_code`**。但这一步里 **PR 自身的代码相对 base 一个字节都没改**（只是 base 前进、main 的改动被 merge 进来），上一轮 reviewer 的「全票 PASS」判断在**代码状态未变时依然成立**。后果：
+A typical trigger path amplifies this waste: a PR is behind main but has no text conflicts (`BEHIND`) → `update_branch` pulls in the latest main → CI reruns → CI is green next round → **run `review_code` again**. Yet in this step, **not a single byte of the PR’s own code relative to its base has changed** (only the base has advanced, and main’s changes have been merged in), so the previous round’s unanimous reviewer PASS **remains valid while the code state is unchanged**. The consequences:
 
-- 每轮无条件重审 → 白白多起 N 个 reviewer 后端进程，浪费 token / 墙钟。
-- base 每动一次（别的 PR 合入 → 本 PR 变 `BEHIND` → `update_branch`）就重审一次；PR 越晚合、并行 PR 越多，重审次数越多。
-- 我们只有 RFC 闸的 `rfc-approved` 是 sticky 标签；**代码闸没有任何持久化的 PASS 状态**，等于每轮从零信任。
+- Unconditional re-review every round → start N additional reviewer backend processes for nothing, wasting tokens / wall-clock time.
+- Every base movement (another PR merges → this PR becomes `BEHIND` → `update_branch`) causes another re-review; the later the PR merges and the more PRs run in parallel, the more re-reviews occur.
+- Only the RFC gate’s `rfc-approved` is a sticky label; **the code gate has no persisted PASS state at all**, effectively starting from zero trust every round.
 
-「审过的代码，在代码状态没变时依然有效」这个不变式我们完全没利用。本 spec 就是把它做进机制。
+We have made no use at all of the invariant “a review of code remains valid while the code state is unchanged.” This spec builds it into the mechanism.
 
-### 证据 —— Kubernetes 的做法（对照，已核对来源正文）
+### Evidence — Kubernetes’ approach (for comparison; checked against the source text)
 
-Kubernetes 的 Tide/Prow 恰好把这个不变式做进了合并机制：
+Kubernetes’ Tide/Prow incorporates precisely this invariant into its merge mechanism:
 
-- **`approve` 标签 sticky**：base 前进 / 落后都不掉标签，approver 无需在 base 移动后重签。
-- **`lgtm` 只在 PR 自身 commit 变化时才被摘**；开启 `store_tree_hash` 后，Prow 把加 `lgtm` 时的 **git tree hash** 记进评论，后续 push 若 tree hash 未变则**连改动都不掉 `lgtm`**——base 移动完全不触发重审。
-- Tide 用「PR + 最新 base 的临时 merge commit」批量测试，保证在最新集成态上测过，而**不重跑人工评审**（评审与集成测试是两个维度）。
+- **The `approve` label is sticky**: it stays in place whether the base advances or the PR falls behind; approvers do not need to sign off again after the base moves.
+- **`lgtm` is removed only when the PR’s own commits change**; with `store_tree_hash` enabled, Prow records the **git tree hash** at the time `lgtm` is added in a comment. If the tree hash is unchanged on a subsequent push, **even a change does not remove `lgtm`**—base movement never triggers re-review.
+- Tide batch-tests “temporary merge commits combining PRs + the latest base,” ensuring testing against the latest integrated state **without rerunning human review** (review and integration testing are separate dimensions).
 
-来源（均为真实可访问页面）：
-- Tide 组件文档 — https://docs.prow.k8s.io/docs/components/core/tide/
-- `lgtm` 掉标签行为 / `store_tree_hash` — https://github.com/kubernetes/test-infra/issues/10578
-- decouple `lgtm`/`approve` 的用意 — https://groups.google.com/g/kubernetes-dev/c/1pmyXLmYW_E
+Sources (all are real, accessible pages):
+- Tide component documentation — https://docs.prow.k8s.io/docs/components/core/tide/
+- `lgtm` label removal behavior / `store_tree_hash` — https://github.com/kubernetes/test-infra/issues/10578
+- The rationale for decoupling `lgtm`/`approve` — https://groups.google.com/g/kubernetes-dev/c/1pmyXLmYW_E
 
-我们的映射：**reviewer 全票 PASS ≈ sticky `approve`（代码没变就别重签）**，**证据闸 + CI ≈ Tide 的集成态批测（永远在最新集成态上跑，不短路）**。
+Our mapping: **unanimous reviewer PASS ≈ sticky `approve` (no need to sign off again when the code is unchanged)**, and **evidence gate + CI ≈ Tide’s integration-state batch testing (always run against the latest integrated state, with no short circuit)**.
 
 ## Guide-level explanation
 
-从「代码闸多了一层短路」的视角看，改动前后的一轮 poll 是这样的：
+Viewed as “adding a short circuit to the code gate,” a poll round before and after the change looks like this:
 
-**改动前**（`_process_coding` 3c，CI 全绿后）：
-
-```
-CI 全绿 → review_code(pr)  # 每轮都起 N 个 reviewer，无条件
-        → PASS → 证据闸 → merge 闸
-```
-
-**改动后**：
+**Before** (`_process_coding` 3c, after all CI checks are green):
 
 ```
-CI 全绿 → fp = github.code_fingerprint(pr)          # 算 PR 净 diff 指纹（一次 gh pr diff）
-        → if fp 非空 and fp == record.code_passed_fingerprint:
-              复用上轮 PASS（sticky），跳过 review_code，_progress 记一行「指纹未变，复用 PASS」
-          else:
-              review_code(pr)                        # 照常起 N 个 reviewer
-              PASS → state.set_code_fingerprint(fp)  # 落盘本轮 PASS 的指纹
-        → （无论走哪条）PASS 后照常：证据闸 → merge 闸
+All CI checks green → review_code(pr)  # Start N reviewers every round, unconditionally
+                    → PASS → evidence gate → merge gate
 ```
 
-几个使用者视角的直觉：
+**After**:
 
-- **base 前进不再触发重审。** 别的 PR 合入 → 本 PR 变 `BEHIND` → `update_branch` 把 main merge 进来 → CI 重跑绿 → 这一轮算出的 `code_fingerprint` **与上次 PASS 时相同**（PR 相对 base 的净改动没变），于是直接复用 PASS。省下 N 个 reviewer 进程。
-- **`iterate` 追加 commit 会改指纹 → 自然触发重审。** 写码 agent 据 CI / REWORK 反馈改了代码，PR 净 diff 变了，指纹与上次 PASS 不一致 → 照常重审。无需为「代码真变了」写任何特判——指纹不等自然覆盖。
-- **证据闸 / CI 永远照跑，不受短路影响。** 短路只跳过 reviewer（人工评审的类比），证据闸和 CI 测的是「PR + 最新 base」的集成态（另一个维度），继续每轮跑。这与 k8s「sticky approve 但 Tide 仍在最新 merge commit 上批测」一一对应。
-- **不确定就重审（fail-safe 方向）。** 指纹算不出来（`gh pr diff` 失败 / 空）→ 指纹为空串 → `fp 非空` 条件不成立 → 落回照常 `review_code`。短路只在「可证明代码逐字节相同」时省工，任何含糊都走完整评审——省的是确定安全的那部分。
-- **首轮无历史指纹。** 新 PR 第一次到代码闸时 `code_passed_fingerprint == ""`，短路不命中，照常评审，PASS 后落盘。从第二轮起才可能复用。
+```
+All CI checks green → fp = github.code_fingerprint(pr)          # Compute the PR net-diff fingerprint (one gh pr diff)
+                    → if fp is nonempty and fp == record.code_passed_fingerprint:
+                          Reuse the previous PASS (sticky), skip review_code, and log “Fingerprint unchanged; reusing PASS” via _progress
+                      else:
+                          review_code(pr)                        # Start N reviewers as usual
+                          PASS → state.set_code_fingerprint(fp)  # Persist the fingerprint for this round’s PASS
+                    → (Either path) After PASS, proceed as usual: evidence gate → merge gate
+```
+
+A few intuitions from the user’s perspective:
+
+- **Base advancement no longer triggers re-review.** Another PR merges → this PR becomes `BEHIND` → `update_branch` merges main in → CI reruns and turns green → the `code_fingerprint` computed this round **matches the one from the last PASS** (the PR’s net changes relative to its base are unchanged), so PASS is reused directly. This saves N reviewer processes.
+- **A commit appended by `iterate` changes the fingerprint → naturally triggers re-review.** The coding agent changes code in response to CI / REWORK feedback, changing the PR’s net diff; the fingerprint differs from the last PASS → re-review as usual. No special case is needed for “the code really changed”—fingerprint inequality naturally covers it.
+- **The evidence gate / CI always run as usual, unaffected by the short circuit.** The short circuit skips only reviewers (the analogue of human review); the evidence gate and CI test the integrated state of “PR + latest base” (a separate dimension), and continue running every round. This corresponds directly to k8s’ “sticky approve, while Tide still batch-tests the latest merge commit.”
+- **When uncertain, re-review (the fail-safe direction).** The fingerprint cannot be computed (`gh pr diff` fails / is empty) → the fingerprint is an empty string → the `fp is nonempty` condition fails → fall back to `review_code` as usual. The short circuit saves work only when “the code is provably identical byte for byte”; any ambiguity takes the full review path—the savings are limited to the portion known to be safe.
+- **The first round has no historical fingerprint.** When a new PR first reaches the code gate, `code_passed_fingerprint == ""`, so the short circuit does not match; review proceeds as usual, and the fingerprint is persisted after PASS. Reuse becomes possible only from the second round onward.
 
 ## Reference-level explanation
 
-### 指纹取什么：PR 净 diff（`gh pr diff`），不是 head tree SHA
+### What to fingerprint: the PR net diff (`gh pr diff`), not the head tree SHA
 
-指纹要满足一个硬约束：**「只是 base 前进、PR 自身未改」时必须不变**，否则短路命中不了本 spec 要优化的那个场景（这正是 `update_branch` 引发的重审）。
+The fingerprint must satisfy one hard constraint: **it must remain unchanged when “only the base advances and the PR itself is unchanged”**. Otherwise, the short circuit cannot match the scenario this spec aims to optimize (precisely the re-review caused by `update_branch`).
 
-- **PR head tree SHA（否决）。** `update_branch` 默认把 main **merge 进** PR head（`openagents/github.py:749`，非 rebase）→ PR head OID 变、连带 head tree 也变（现在含 main 的改动）。于是 head-tree-SHA 指纹会被**恰恰是本 spec 想优化的那次 `update_branch` 本身**改掉 → 短路永远命中不了目标场景。故 head tree SHA 直接出局，不是「简单但略差」，而是「测不到点」。
-- **PR 净 diff（采纳）。** GitHub 的 `gh pr diff <n>` 返回的是 PR 相对其 base 的 **三点语义（`base...head`）unified diff**（GitHub 侧计算的「这个 PR 在 base 之上加了什么」）——这是 GitHub PR「Files changed」与 `gh pr diff` 一致采用的比较口径，非两点 `base..head`。为什么这个口径在 `update_branch` 后保持不变，可由三点 diff 的定义严格推出：`base...head` ≡ `diff(merge-base(base, head), head)`（git 三点语义）。`update_branch` 把 main（即 base 的 tip）**merge 进** head 后，base 成为 head 的祖先，于是 `merge-base(base, head)` 前移到 base 的 tip；相对这个新 merge-base，head 的净贡献**仍只是 PR 自身的改动**（main 的改动既在新 merge-base 里、也在 head 里，相消）。因此在「无冲突地 merge 最新 main」时 `base...head` 保持逐字节不变——这正是要的不变式，与 k8s `lgtm` 的 tree-hash 同构（都锚在「PR 自身贡献」而非「含 base 的完整树」）。
-  - **证据（三点 diff 口径，来源已列，本会话 web 受限未能在线复核，均为稳定的官方文档）**：
-    - GitHub PR 用三点比较 — https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests
-    - git 三点语义 `A...B` = `merge-base(A,B)` 到 `B` 的差 — https://git-scm.com/docs/git-diff（"git diff A...B" is equivalent to "git diff `$(git merge-base A B)` B"）
-    - `gh pr diff` 展示 PR 的改动集 — https://cli.github.com/manual/gh_pr_diff
+- **PR head tree SHA (rejected).** By default, `update_branch` **merges** main **into** the PR head (`openagents/github.py:749`, not a rebase) → the PR head OID changes, and the head tree changes along with it (it now includes main’s changes). Thus, a head-tree-SHA fingerprint would be changed by **the very `update_branch` operation this spec aims to optimize** → the short circuit could never match the target scenario. The head tree SHA is therefore ruled out outright; it is not “simple but slightly worse,” but “unable to measure what matters.”
+- **PR net diff (adopted).** GitHub’s `gh pr diff <n>` returns a **unified diff with three-dot semantics (`base...head`)** of the PR relative to its base (GitHub’s calculation of “what this PR adds on top of the base”)—this is the comparison basis consistently used by both GitHub PR “Files changed” and `gh pr diff`, not the two-dot `base..head` comparison. Why this comparison remains unchanged after `update_branch` follows rigorously from the definition of a three-dot diff: `base...head` ≡ `diff(merge-base(base, head), head)` (git’s three-dot semantics). After `update_branch` **merges** main (the base tip) **into** head, base becomes an ancestor of head, so `merge-base(base, head)` advances to the base tip; relative to this new merge-base, head’s net contribution **still consists only of the PR’s own changes** (main’s changes are present in both the new merge-base and head, so they cancel out). Thus, when “the latest main is merged without conflicts,” `base...head` remains identical byte for byte—exactly the required invariant, isomorphic to the tree-hash mechanism of k8s `lgtm` (both anchor on “the PR’s own contribution” rather than “the complete tree including the base”).
+  - **Evidence (the three-dot diff comparison basis; sources are listed, but web access was restricted in this session, preventing online re-verification; all are stable official documentation)**:
+    - GitHub PRs use three-dot comparisons — https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests
+    - git’s three-dot semantics `A...B` = the difference from `merge-base(A,B)` to `B` — https://git-scm.com/docs/git-diff ("git diff A...B" is equivalent to "git diff `$(git merge-base A B)` B")
+    - `gh pr diff` displays a PR’s changeset — https://cli.github.com/manual/gh_pr_diff
 
-**指纹实现**：在 `openagents/github.py` 新增薄封装 `code_fingerprint(*, pr_number: int) -> str`——跑 `gh pr diff <n>`，对输出做 `sha256` 取 hexdigest 返回；`gh` 故障 / 空输出时返回 `""`（fail-open，调用方据空串落回照常评审）。理念 10：github 层只做「取 diff + 定长哈希」，不含任何「要不要短路」的业务判定。
+**Fingerprint implementation**: add a thin wrapper, `code_fingerprint(*, pr_number: int) -> str`, in `openagents/github.py`—run `gh pr diff <n>`, compute the `sha256` of its output, and return the hexdigest; return `""` if `gh` fails / produces empty output (fail-open; the caller uses the empty string to fall back to normal review). Principle 10: the github layer only “fetches the diff + computes a fixed-length hash” and contains no business decision about “whether to short-circuit.”
 
-### 短路状态：`RunRecord.code_passed_fingerprint`
+### Short-circuit state: `RunRecord.code_passed_fingerprint`
 
-在 `openagents/state.py` 的 `RunRecord` 加一个字段（镜像既有 `block_gate` / `block_watermark` / `unblock_detail` 的加法）：
+Add a field to `RunRecord` in `openagents/state.py` (mirroring the existing additions of `block_gate` / `block_watermark` / `unblock_detail`):
 
 ```python
-# Spec-0053/T1：上一次 reviewer 全票 PASS 时 PR 净 diff 的指纹（sha256(gh pr diff)）。
-# 默认 "" 使 RunRecord(**旧记录) 不报错（向后兼容缺该键的旧 state.json）。代码闸每轮据它短路：
-# 本轮 code_fingerprint 与它相等 → 复用上轮 PASS、跳过重审；不等 → 照常重审、PASS 后更新它。
-# 与 block_* / merge_attempts / closed_at 互不干扰。
+# Spec-0053/T1: Fingerprint of the PR's net diff when the reviewers last unanimously returned PASS (sha256(gh pr diff)).
+# Defaulting to "" prevents RunRecord(**old_record) from raising an error (backward compatibility with old state.json files missing this key). The code gate uses it each round to short-circuit:
+# This round's code_fingerprint matches it → reuse the previous PASS and skip re-review; otherwise → review as usual and update it after PASS.
+# Independent of block_* / merge_attempts / closed_at.
 code_passed_fingerprint: str = ""
 ```
 
-配套 `State.set_code_fingerprint(*, issue_number: int, fingerprint: str)`——逐字节仿 `set_block_gate`（按 issue 定位 run、只改单字段、整体落盘）。`fingerprint=""` 即清除（虽然本设计不主动清，留作对称）。
+Add the corresponding `State.set_code_fingerprint(*, issue_number: int, fingerprint: str)`—follow `set_block_gate` byte for byte (locate the run by issue, change only one field, and persist the entire state). `fingerprint=""` clears it (although this design does not actively clear it, this is retained for symmetry).
 
-### 短路接线：`messages._process_coding` 的 3c 段
+### Short-circuit wiring: section 3c of `messages._process_coding`
 
-把 `openagents/messages.py:604` 的无条件 `decision = self._orchestrator.review_code(...)` 改成短路结构。核心是把「是否 PASS」抽成一个布尔 `passed`，让 sticky 分支和真评审分支汇流到同一段下游（证据闸 + merge），下游一字不改：
+Replace the unconditional `decision = self._orchestrator.review_code(...)` at `openagents/messages.py:604` with a short-circuit structure. The key is to extract “whether it passed” into a boolean `passed`, allowing the sticky branch and the actual review branch to converge on the same downstream section (evidence gate + merge), with that downstream section unchanged down to the last character:
 
 ```python
-# 3c. CI 全绿 → 代码闸。Spec-0053/T3：先算 PR 净 diff 指纹做 sticky 短路。
+# 3c. CI all green → code gate. Spec-0053/T3: first compute the PR net diff fingerprint for the sticky short-circuit.
 fingerprint = github.code_fingerprint(pr_number=pr_number)
 if fingerprint and fingerprint == record.code_passed_fingerprint:
-    # 代码状态未变（k8s sticky approve / tree-hash 不变式）→ 复用上轮 PASS，跳过重审。
-    self._progress(message=f"↩ PR #{pr_number} 代码指纹未变，复用上轮 PASS，跳过重审")
+    # Code state unchanged (k8s sticky approve / tree-hash invariant) → reuse the previous PASS and skip re-review.
+    self._progress(message=f"↩ PR #{pr_number} code fingerprint unchanged, reusing the previous PASS and skipping re-review")
     passed = True
 else:
     decision = self._orchestrator.review_code(pr_number=pr_number)
     passed = decision.passed
     if passed:
-        # 全票 PASS → 落盘本轮指纹，下一轮同码即可短路。
+        # Unanimous PASS → persist this round's fingerprint so the same code can short-circuit next round.
         self._state.set_code_fingerprint(issue_number=record.issue_number, fingerprint=fingerprint)
 if passed:
-    # …证据闸 + merge 闸（Spec-0040 / 0041），逐字节保持现状…
+    # …evidence gate + merge gate (Spec-0040 / 0041), preserve the current implementation byte for byte…
 else:
-    # …iterate / 超 K 挂起（decision 承载反馈），逐字节保持现状…
+    # …iterate / suspend after exceeding K (decision carries feedback), preserve the current implementation byte for byte…
 ```
 
-要点：
+Key points:
 
-- **只短路 reviewer，不短路证据闸 / CI**：sticky 命中时仍进 `_evidence_gate` 与 merge 闸；CI 的 fail/pending 分支在 3c 之前，天然不受影响（边界与 k8s 一致：集成态批测继续跑）。
-- **fail-open**：`fingerprint` 为空串（`gh pr diff` 抖动 / 失败）→ `if fingerprint and …` 短路，落回真评审。sticky 永不基于「算不出指纹」做跳过。
-- **只在 PASS 时落盘指纹**：REWORK 轮不写，故保留的仍是最后一次 PASS 的指纹；下一轮 `iterate` 改了码 → 指纹不等 → 重审，闭环自洽。
-- **无需为 `iterate` / merge 加特判**：追加 commit 改净 diff → 指纹自然不等；这是本设计「用指纹而非事件」的简洁性红利（理念 1 奥卡姆）。
+- **Short-circuit only the reviewer, not the evidence gate / CI**: a sticky hit still enters `_evidence_gate` and the merge gate; CI's fail/pending branches precede 3c and are naturally unaffected (the boundary is consistent with k8s: batch testing against the integrated state continues).
+- **fail-open**: if `fingerprint` is an empty string (`gh pr diff` is flaky / fails), `if fingerprint and …` short-circuits and falls back to an actual review. Sticky never skips a review on the basis of “the fingerprint could not be computed.”
+- **Persist the fingerprint only on PASS**: REWORK rounds do not write it, so the retained fingerprint is still that of the last PASS; if `iterate` changes the code in the next round → the fingerprint differs → re-review, making the loop self-consistent.
+- **No special cases are needed for `iterate` / merge**: an additional commit changes the net diff → the fingerprint naturally differs; this is the simplicity benefit of this design's use of “fingerprints rather than events” (Principle 1, Occam's razor).
 
-### DAG 与文件分配
+### DAG and file allocation
 
 ```mermaid
 graph LR
-    T1["T1 state 指纹字段+setter<br/>state.py"]
-    T2["T2 github 指纹取值<br/>github.py"]
-    T3["T3 messages 短路接线<br/>messages.py"]
-    T4["T4 e2e 成果脚本<br/>scripts/e2e-spec-0053-*.sh"]
+    T1["T1 state fingerprint field+setter<br/>state.py"]
+    T2["T2 github fingerprint retrieval<br/>github.py"]
+    T3["T3 messages short-circuit wiring<br/>messages.py"]
+    T4["T4 e2e outcome script<br/>scripts/e2e-spec-0053-*.sh"]
     T1 --> T3
     T2 --> T3
     T3 --> T4
 ```
 
-| Task | 拥有文件（互斥） | 依赖 | 说明 |
+| Task | Owned files (mutually exclusive) | Dependencies | Description |
 |------|------------------|------|------|
-| T1 | `openagents/state.py`, `tests/test_state_code_fingerprint.py` | — | `RunRecord.code_passed_fingerprint` 字段 + `set_code_fingerprint` setter + 向后兼容（旧 state.json 缺键） |
-| T2 | `openagents/github.py`, `tests/test_github_code_fingerprint.py` | — | `code_fingerprint(pr_number)`：`sha256(gh pr diff)`，故障/空 → `""` |
-| T3 | `openagents/messages.py`, `tests/test_messages_review_sticky.py` | T1, T2 | `_process_coding` 3c 短路接线：指纹一致复用 PASS、不一致重审并落盘；fail-open |
-| T4 | `scripts/e2e-spec-0053-review-sticky-pass.sh` | T3 | 成果脚本：`BEHIND→update_branch→CI 绿→连跑两轮`，断言 reviewer 只被调一次 |
+| T1 | `openagents/state.py`, `tests/test_state_code_fingerprint.py` | — | `RunRecord.code_passed_fingerprint` field + `set_code_fingerprint` setter + backward compatibility (old state.json missing the key) |
+| T2 | `openagents/github.py`, `tests/test_github_code_fingerprint.py` | — | `code_fingerprint(pr_number)`: `sha256(gh pr diff)`, failure/empty → `""` |
+| T3 | `openagents/messages.py`, `tests/test_messages_review_sticky.py` | T1, T2 | `_process_coding` 3c short-circuit wiring: reuse PASS when fingerprints match; re-review and persist when they differ; fail-open |
+| T4 | `scripts/e2e-spec-0053-review-sticky-pass.sh` | T3 | Outcome script: `BEHIND→update_branch→CI green→run two consecutive rounds`, assert that the reviewer is called only once |
 
-T1 与 T2 无相互依赖，可并行（协同模式，文件互斥）。所有文件在组内两两不相交（理念 6 单一 writer 所有权）。
+T1 and T2 have no mutual dependencies and can run in parallel (collaborative mode, mutually exclusive files). All file allocations within the group are pairwise disjoint (Principle 6, single-writer ownership).
 
-### e2e 成果脚本（理念 8）与浏览器 e2e 自检
+### e2e outcome script (Principle 8) and browser e2e self-check
 
-**e2e 脚本路径**：`scripts/e2e-spec-0053-review-sticky-pass.sh`（沿用本仓既有 `scripts/e2e-spec-NNNN-*.sh` 约定，被 PR 证据路标 Spec-0008 拾取）。
+**e2e script path**: `scripts/e2e-spec-0053-review-sticky-pass.sh` (following this repository's existing `scripts/e2e-spec-NNNN-*.sh` convention, picked up by the PR evidence signposts in Spec-0008).
 
-脚本以「成果」为中心断言短路真的发生：构造一条已 PASS 一次的 run（`code_passed_fingerprint` 已落盘），用 stub 的 `github.code_fingerprint` 返回与上次相同的指纹 + 计数版 `orchestrator.review_code`，驱动 `_process_coding` 连跑两轮，**断言 reviewer 只被调用一次**（第二轮走 sticky）；再翻转 stub 指纹（模拟 `iterate` 改码）跑第三轮，**断言 reviewer 再被调一次**（指纹变 → 重审）。即以「reviewer 调用次数」这一可观测成果验证短路语义，而非只跑单元断言。
+The script centers on the “outcome” to assert that short-circuiting actually occurs: construct a run that has passed once (`code_passed_fingerprint` has been persisted), use a stubbed `github.code_fingerprint` that returns the same fingerprint as last time + a counting version of `orchestrator.review_code`, drive `_process_coding` through two consecutive rounds, and **assert that the reviewer is called only once** (the second round takes the sticky path); then change the stub fingerprint (simulating a code change by `iterate`) and run a third round, and **assert that the reviewer is called once more** (fingerprint changed → re-review). This verifies the short-circuit semantics through the observable outcome of “reviewer call count,” rather than merely running unit assertions.
 
-**测试边界（显式声明，evidence 分层）**：T4 用 stub 的 `code_fingerprint` 喂「同指纹 / 翻转指纹」，验证的是**编排层短路语义**（同码复用 PASS、变码重审、空指纹 fail-open），**不**去实跑一次真 `update_branch` 来观察「merge main 进 head 后 `gh pr diff` 果真不变」。原因：真 `update_branch` 要一个活的 GitHub 服务端 PR 状态（本仓 e2e 走 CLI/pytest 无 live GitHub lane），成本高且不稳定；而「`base...head` 三点 diff 在无冲突 merge base 后不变」是上文 Reference-level 已由三点语义定义严格推出、并有官方文档背书的**前提**，不是需要每次 e2e 复验的运行期行为。二者分层：T4 锚定「给定指纹口径不变式 → 我们的短路正确」，不变式本身锚定「GitHub/git 三点语义」。这条边界若要补强，见 Unresolved 3。
+**Test boundary (explicit declaration, layered evidence)**: T4 feeds “matching fingerprint / changed fingerprint” through a stubbed `code_fingerprint`, verifying **orchestration-layer short-circuit semantics** (reuse PASS for unchanged code, re-review changed code, fail-open for an empty fingerprint). It does **not** actually execute a real `update_branch` to observe whether “`gh pr diff` really remains unchanged after merging main into head.” Reason: a real `update_branch` requires a live GitHub server-side PR state (this repository's e2e tests use CLI/pytest and have no live GitHub lane), which is costly and unstable; meanwhile, “the `base...head` three-dot diff remains unchanged after a conflict-free merge of base” is a **premise** rigorously derived above at the Reference-level from the definition of three-dot semantics and supported by official documentation, not runtime behavior that needs to be reverified in every e2e run. The two are layered: T4 anchors “given the invariant of the fingerprint definition → our short-circuiting is correct,” while the invariant itself is anchored in “GitHub/git three-dot semantics.” For strengthening this boundary, see Unresolved 3.
 
-**浏览器 e2e 自检**：我具备浏览器工具（playwright / chrome-devtools MCP）。但本 feature **没有 product-facing 的前端界面**——它是守夜人 poll 循环内部的编排短路，唯一可观测成果是「代码未变时不再起 reviewer 进程」，这不经任何 HTTP 前端 / 看板渲染（本仓 `results.py` 是 CLI/markdown 看板，也不呈现「本轮是否复用 PASS」）。因此按理念 8 与任务的 product-facing 条件，浏览器 e2e **不适用**；成果证据用上述 CLI/pytest 驱动的 shell 脚本以「reviewer 调用计数」断言，是此内部行为的正确观测面。
+**Browser e2e self-check**: I have browser tools (playwright / chrome-devtools MCP). However, this feature **has no product-facing frontend interface**—it is an orchestration short-circuit inside the Vigil poll loop, and its only observable outcome is “the reviewer process is no longer started when the code is unchanged.” This does not pass through any HTTP frontend / dashboard rendering (this repository's `results.py` is a CLI/markdown dashboard and also does not show “whether PASS was reused this round”). Therefore, under Principle 8 and the task's product-facing condition, browser e2e is **not applicable**; outcome evidence is provided by the CLI/pytest-driven shell script above, asserting the “reviewer call count,” which is the correct observation surface for this internal behavior.
 
 ## Drawbacks
 
-- **多一个持久化状态维度**：`code_passed_fingerprint` 是 run state 又一个字段，增加了状态机的表面积（虽然加法与既有 `block_*` 同构、成本很小）。
-- **每轮多一次 `gh pr diff` 往返**：短路命中前要先算指纹，等于每个 coding-阶段 poll 多一次 `gh` 调用。但它替换掉的是「起 N 个 reviewer 后端进程」，净成本远低于重审；且 `gh pr diff` 走既有瞬时重试。
-- **指纹口径与 reviewer 实际所看未必逐字节对齐的风险**：reviewer 看的是 PR 的代码 diff；`gh pr diff` 是 GitHub 计算的 base…head 净 diff。二者语义一致，但若将来 reviewer 改成看别的输入（如含未提交改动、或看完整树），指纹口径需同步，否则可能「指纹说没变、reviewer 实际会看到不同输入」。当前二者都锚在「PR 相对 base 的净改动」，一致。
-- **sticky 的信任假设**：一旦 PASS 落盘指纹，同指纹的后续轮次无条件复用，不再有 reviewer 复核。若「相同净 diff 在不同集成态下语义不同」（例如 PR 未改、但 main 引入了让 PR 代码含义变化的隐性耦合），reviewer 不会重看——但这类语义漂移正是**证据闸 / CI 在最新集成态上跑**要抓的（评审看代码本身、集成测试看跑起来对不对），两维度互补，故此风险由证据闸兜底、可接受。
+- **One more dimension of persistent state**: `code_passed_fingerprint` is another field in the run state, increasing the state machine's surface area (although the addition is structurally identical to the existing `block_*` fields and costs very little).
+- **One additional `gh pr diff` round trip per round**: the fingerprint must be computed before a short-circuit hit, amounting to one additional `gh` call for every poll in the coding stage. But what it replaces is “starting N reviewer backend processes,” so its net cost is far lower than re-review; also, `gh pr diff` uses the existing transient retries.
+- **Risk that the fingerprint definition may not align byte for byte with what the reviewer actually sees**: the reviewer looks at the PR's code diff; `gh pr diff` is the base…head net diff computed by GitHub. The two are semantically consistent, but if the reviewer later switches to other inputs (such as including uncommitted changes or examining the entire tree), the fingerprint definition must change accordingly; otherwise, “the fingerprint says nothing changed, but the reviewer would actually see different inputs.” Currently, both are anchored in “the PR's net changes relative to base” and are consistent.
+- **The trust assumption behind sticky behavior**: once a PASS fingerprint is persisted, subsequent rounds with the same fingerprint reuse it unconditionally, with no further reviewer verification. If “the same net diff has different semantics in different integrated states” (for example, the PR is unchanged, but main introduces implicit coupling that changes the meaning of the PR's code), the reviewer will not look again—but this kind of semantic drift is precisely what **the evidence gate / CI running against the latest integrated state** is intended to catch (review examines the code itself; integration tests check whether it behaves correctly when run). The two dimensions complement each other, so the evidence gate covers this risk, making it acceptable.
 
 ## Rationale and alternatives
 
-**为什么是「PR 净 diff 指纹 + 只短路 reviewer + fail-open」这套**：它用一个不变式（同 diff → 同 PASS）覆盖所有触发场景，无需为 `update_branch` / `iterate` / merge 分别写事件特判（理念 1 奥卡姆）；短路方向只在「可证明相同」时省工、含糊即全审，安全侧偏保守；且与 k8s 成熟机制（sticky approve + tree-hash + 集成态批测）逐点对齐，有真实先例背书（理念 7 证据驱动）。
+**Why this combination of “PR net diff fingerprint + short-circuit only the reviewer + fail-open”**: it uses one invariant (same diff → same PASS) to cover all triggering scenarios, with no need for separate event-specific cases for `update_branch` / `iterate` / merge (Principle 1, Occam's razor); the short-circuit saves work only when sameness can be proven and performs a full review whenever there is ambiguity, taking a conservative approach to safety; it also aligns point for point with mature k8s mechanisms (sticky approve + tree-hash + batch testing against the integrated state), with real precedent to support it (Principle 7, evidence-driven).
 
-考虑过的备选：
+Alternatives considered:
 
-1. **指纹取 PR head tree SHA（否决）。** 更简单（一次 `gh pr view --json headRefOid` + 一次 `git rev-parse HEAD^{tree}`），但 `update_branch` merge main 进 head 会改掉 head tree，**恰恰在本 spec 要优化的场景里指纹就变了**，短路命中不了目标 → 功能性不达标。这是采纳净 diff 而非 tree SHA 的决定性理由。
+1. **Use the PR head tree SHA as the fingerprint (rejected).** Simpler (one `gh pr view --json headRefOid` + one `git rev-parse HEAD^{tree}`), but when `update_branch` merges main into head, the head tree changes, so **the fingerprint changes in precisely the scenario this spec aims to optimize**, preventing a short-circuit hit in the target case → fails to meet the functional requirement. This is the decisive reason for adopting the net diff instead of the tree SHA.
 
-2. **用一个 sticky 标签（如 `code-approved`）替代 state 字段（部分否决）。** 更贴近 k8s 的「标签即状态」，人也能在 GitHub 上直接看到。但：本仓的评审结论已有结构化评论回贴（Spec-0047），标签不承载指纹（GitHub 标签是布尔、存不下 sha256）；要判「代码是否变」仍需把指纹存在别处。故标签解决不了核心的「存指纹」需求，反而多一层。指纹存 state（既有持久化层）更直接；可观测性由既有 PASS 评论 + `_progress` 日志覆盖。（把「让人看到 sticky 状态」列入 Future possibilities。）
+2. **Use a sticky label (such as `code-approved`) instead of a state field (partially rejected).** This is closer to k8s's “labels as state,” and people can see it directly on GitHub. However, this repository already posts review conclusions as structured comments (Spec-0047), and a label does not carry a fingerprint (GitHub labels are boolean and cannot store a sha256); determining “whether the code changed” still requires storing the fingerprint elsewhere. A label therefore cannot address the core requirement of “storing the fingerprint” and instead adds another layer. Storing the fingerprint in state (the existing persistence layer) is more direct; observability is covered by the existing PASS comments + `_progress` logs. (“Making sticky state visible to people” is listed under Future possibilities.)
 
-3. **排除生成物（`docs/specs/OVERVIEW.md` / `ARCHITECTURE.md`）后再算 diff 指纹（暂不采纳，降级为 Unresolved）。** issue 担心 OVERVIEW 重渲被误判为变化。但在本 spec 的核心触发路径（`update_branch` 拉 main）里没人会重渲 OVERVIEW，`gh pr diff` 天然稳定；OVERVIEW 只在 spec 源变时才重渲，而那本就是值得重审的真代码改动。加 pathspec 排除要解析 diff、多一层，先不做（理念 1）；留作 Unresolved 观察。
+3. **Exclude generated artifacts (`docs/specs/OVERVIEW.md` / `ARCHITECTURE.md`) before computing the diff fingerprint (not adopted for now, moved to Unresolved).** The issue raises a concern that rerendering OVERVIEW could be misclassified as a change. But in this spec's core triggering path (`update_branch` pulls main), nobody rerenders OVERVIEW, and `gh pr diff` is naturally stable; OVERVIEW is rerendered only when the spec source changes, which is itself a real code change worth re-reviewing. Adding pathspec exclusions would require parsing the diff and add another layer, so this is deferred (Principle 1); retained as Unresolved for observation.
 
-4. **按 commit SHA 而非 diff 判变（否决）。** `update_branch` 改 head commit SHA，故 commit SHA 与 tree SHA 同病——测不到「只是 base 前进」的场景。
+4. **Detect changes by commit SHA instead of diff (rejected).** `update_branch` changes the head commit SHA, so commit SHA has the same problem as tree SHA—it cannot identify the case where “only base has advanced.”
 
 ## Prior art
 
-- **Kubernetes Tide/Prow**（本 spec 的直接对照，来源已在 Motivation 核对）：sticky `approve` 标签（base 移动不掉、不重签）、`lgtm` + `store_tree_hash`（tree hash 不变则 push 也不掉 lgtm）、Tide 用 PR+最新 base 的临时 merge commit 批测而不重跑人工评审。我们的映射：净 diff 指纹 ≈ tree hash，reviewer PASS ≈ approve，证据闸/CI ≈ Tide 集成批测。
+- **Kubernetes Tide/Prow** (the direct comparison for this spec; sources already checked in Motivation): a sticky `approve` label (not removed when base moves, with no need to approve again), `lgtm` + `store_tree_hash` (a push does not remove lgtm if the tree hash is unchanged), and Tide batch-testing temporary merge commits combining PRs with the latest base without rerunning human review. Our mapping: net diff fingerprint ≈ tree hash, reviewer PASS ≈ approve, evidence gate/CI ≈ Tide integration batch testing.
   - https://docs.prow.k8s.io/docs/components/core/tide/
   - https://github.com/kubernetes/test-infra/issues/10578
   - https://groups.google.com/g/kubernetes-dev/c/1pmyXLmYW_E
-- **git 自身的 tree/内容寻址**：git 用 tree SHA 做内容指纹本就是「内容不变则 hash 不变」的范式；本设计把它下沉到「PR 净贡献」这个粒度。
-- **OpenAgents 内部先例**：`rfc-approved` 已是 sticky 标签（RFC 闸），本 spec 相当于把「代码闸」补齐成同款 sticky 语义；评审去重（Spec-0047「同 kind 同结论且同反馈才跳过重发」）已在「评论层」做过一次「状态没变就别重复」的判断，本 spec 在「评审执行层」做同类短路。
+- **git's own tree/content addressing**: git's use of tree SHAs as content fingerprints already follows the paradigm of “unchanged content means an unchanged hash”; this design applies it at the granularity of a “PR's net contribution.”
+- **Internal OpenAgents precedents**: `rfc-approved` is already a sticky label (the RFC gate); this spec effectively completes the “code gate” with the same sticky semantics. Review deduplication (Spec-0047: “skip reposting only when the kind, conclusion, and feedback are all identical”) already implements a “do not repeat if the state has not changed” check at the “comment layer”; this spec implements a similar short circuit at the “review execution layer.”
 
 ## Unresolved questions
 
-1. **要不要排除生成物再算指纹？**（issue 待确认之一）当前设计取 `gh pr diff` 全量哈希、**不**排除 `docs/specs/OVERVIEW.md` / `ARCHITECTURE.md`。判断：核心触发路径（`update_branch`）下这些生成物不会在 base 移动时被重渲，`gh pr diff` 天然稳定，故不需要排除（理念 1 少加一层）。**留观**：若实测出现「仅生成物 diff 抖动导致的误重审」，再加 pathspec 排除（`:(exclude)docs/specs/OVERVIEW.md`）——届时另起小 Task 或并入本组。倾向：先不做。
+1. **Should generated artifacts be excluded before computing the fingerprint?** (One of the issues awaiting confirmation.) The current design hashes the full output of `gh pr diff` and does **not** exclude `docs/specs/OVERVIEW.md` / `ARCHITECTURE.md`. Assessment: along the core trigger path (`update_branch`), these generated artifacts are not re-rendered when base moves, so `gh pr diff` is naturally stable and exclusion is unnecessary (Principle 1: avoid adding another layer). **Monitor**: if actual testing reveals “unnecessary re-reviews caused solely by fluctuations in generated-artifact diffs,” add a pathspec exclusion (`:(exclude)docs/specs/OVERVIEW.md`) then—either as a separate small Task or as part of this group. Leaning: do not implement this yet.
 
-2. **sticky 会不会给恶意改动开口（是否需要 k8s `store_tree_hash` 式安全门）？**（issue 待确认之二）我们的 agent 跑在隔离 worktree、无外部不可信贡献者，安全模型比 k8s 宽（k8s 要防「lgtm 后偷偷 force-push 换掉代码」）。判断：**直接 sticky，不加额外安全门**——`fail-open`（算不出指纹就全审）已覆盖「状态不明」；恶意 force-push 这类威胁在本项目的信任边界外。倾向：接受直接 sticky。
+2. **Could sticky behavior create an opening for malicious changes (is a security gate like k8s `store_tree_hash` needed)?** (The second issue awaiting confirmation.) Our agents run in isolated worktrees, with no external untrusted contributors, so the security model is more permissive than k8s (which must guard against “secretly force-pushing replacement code after lgtm”). Assessment: **use sticky behavior directly, without an additional security gate**—`fail-open` (run the full review if the fingerprint cannot be computed) already covers “unknown state”; threats such as malicious force-pushes fall outside this project's trust boundary. Leaning: accept direct sticky behavior.
 
-3. **指纹口径要不要与 reviewer 的实际输入做一次显式对齐校验，以及三点不变式要不要跑一条 live `update_branch` 集成测试？** 目前指纹与 reviewer 输入都锚在「PR 相对 base 的净 diff」，一致；若将来 reviewer 输入口径变化，需同步 `code_fingerprint` 的取值口径，是否加一个「口径一致性」断言把它硬化（软约定硬化）待定。另外，T4 以 stub 指纹验证短路语义、把「merge main 进 head 后 `gh pr diff` 不变」当已由三点语义 + 官方文档背书的前提（见 Reference-level 与 e2e 测试边界），**未**实跑真 `update_branch` 复验该不变式。判断：本仓无 live GitHub e2e lane，为一条已被 git 三点语义严格蕴含的不变式引入活服务端依赖，成本收益不划算，故先不做。**留观**：若将来接入 live GitHub e2e lane，可补一条「真 `update_branch` 前后指纹相等」的集成断言把前提也纳入可执行证据。倾向：先靠文档背书 + 定义推导，不加 live 集成测试。
+3. **Should the fingerprint's definition be explicitly checked for alignment with the reviewer's actual input, and should a live `update_branch` integration test be run for the three-dot invariant?** Currently, both the fingerprint and reviewer input are anchored to “the PR's net diff relative to base,” so they are aligned. If the definition of reviewer input changes in the future, the definition used to compute `code_fingerprint` must change with it. Whether to add a “definition consistency” assertion to enforce this (turning a convention into an enforced constraint) remains undecided. In addition, T4 uses stub fingerprints to verify short-circuit semantics and treats “`gh pr diff` remains unchanged after merging main into head” as a premise already supported by three-dot semantics + official documentation (see Reference-level and e2e test boundaries); it has **not** rerun a real `update_branch` to verify this invariant. Assessment: this repository has no live GitHub e2e lane, and introducing a dependency on a live server for an invariant strictly implied by git's three-dot semantics is not worth the cost, so do not do this yet. **Monitor**: if a live GitHub e2e lane is introduced in the future, an integration assertion that “fingerprints are equal before and after a real `update_branch`” can be added to include the premise itself in the executable evidence. Leaning: rely on documentation support + derivation from the definition for now; do not add a live integration test.
 
 ## Future possibilities
 
-- **把 sticky 状态显性化到 GitHub**：加一个 `code-approved` sticky 标签（或在 PASS 评论里明示「本 PASS 在代码指纹 `abc123…` 上有效」），让人在 GitHub 上直接看到「代码闸已通过、base 移动不影响」，进一步贴近 k8s 的标签即状态。
-- **指纹升级为 tree-hash 级 store**：若引入批量合并 / Tide 式集成批测，可把指纹从「PR 净 diff」升级为记录「PASS 时的 base + head 组合」，支持「在集成态维度也能复用部分结果」。
-- **生成物排除通用化**：把「哪些是生成物、算指纹时排除」抽成一处配置（与 `spec render` 的生成物清单同源），供本 spec 及未来任何「按内容判变」的短路复用。
-- **短路可观测性看板化**：在成果看板上统计「本 run 省下多少次重审 / 多少 reviewer 进程」，量化本优化的收益（理念 8 以成果为中心）。
-
+- **Make sticky state explicit on GitHub**: add a sticky `code-approved` label (or explicitly state in the PASS comment that “this PASS is valid for code fingerprint `abc123…`”), so people can see directly on GitHub that “the code gate has passed, and base movement does not affect it,” bringing this closer to k8s's use of labels as state.
+- **Upgrade fingerprints to tree-hash-level storage**: if batch merging / Tide-style integration batch testing is introduced, upgrade the fingerprint from “the PR's net diff” to a record of “the base + head combination at PASS time,” supporting “reuse of some results at the integration-state level as well.”
+- **Generalize generated-artifact exclusion**: extract “which files are generated artifacts and should be excluded when computing fingerprints” into a single configuration (sharing its source with the generated-artifact list used by `spec render`), for reuse by this spec and any future short circuit that “detects changes by content.”
+- **Add short-circuit observability to the outcomes dashboard**: report “how many re-reviews / reviewer processes this run saved” on the outcomes dashboard to quantify the benefits of this optimization (Principle 8: focus on outcomes).

@@ -7,20 +7,23 @@ Spec-0089/T1: resume existing work and finish publication without empty commits.
 from string import Template
 
 PROMPT = Template(
-    """你是 generate-only flow 的临时 coding executor，处理 issue #$issue_number / PR #$pr_number。
+    """You are the temporary coding executor in the generate-only flow for issue #$issue_number / PR #$pr_number.
 
-唯一任务是执行上下文中的 compact objective spec。不得重写 spec、重新选题、缩小目标、做架构评审或判断
-是否值得实现。首次修改前最多 6 次必要读取/检索；随后直接写代码。此次实验刻意不做验证：不要运行 ruff、
-pytest、smoke、e2e 或全仓审计，也不要新增超出 spec 唯一 implementation task 的工作。
+Implement only the compact objective Spec below. Do not rewrite it, change the objective, narrow its scope,
+review the architecture, or decide whether it is worthwhile. Use at most six necessary reads or searches
+before the first edit, then implement. This experiment deliberately omits verification: do not run Ruff,
+pytest, smoke or end-to-end tests, or a repository-wide audit. Do not add work beyond the sole implementation task.
 
-backend 启动时的 pwd 是唯一隔离 worktree。严禁 cd /work/harness、访问父 checkout、其它 issue worktree 或
-宿主路径。完成后只暂存预期文件，commit 并 push 当前分支；不得修改 forge 标签或自行合并 PR。
-若是中断恢复，沿用现有成果继续剩余工作；已经 commit 则只补 push，已经推送则核对后直接返回，不制造空提交。
+The backend's starting directory is your only isolated worktree. Do not cd to /work/harness or access
+the parent checkout, another issue's worktree, or host paths. Stage only intended files, then commit and
+push the current branch. Do not change forge labels or merge the PR yourself.
+On resumption, continue from the existing work. If already committed, push it; if already pushed, verify
+and return. Do not create an empty commit.
 
-最后只输出一行 JSON：
-{"summary":"实现内容","head_sha":"已 push 的当前 HEAD","lookup_exception_reason":"超过 6 次定位时的客观原因；否则空串"}
+Return one line of JSON:
+{"summary":"implementation summary","head_sha":"pushed HEAD","lookup_exception_reason":"specific reason if more than six lookups were needed; otherwise empty"}
 
-compact spec、原 issue 与运行约束只在下方上下文出现一次。
+Read the compact Spec, original issue, and runtime constraints once below.
 """
 )
 

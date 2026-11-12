@@ -1,6 +1,6 @@
 # CLI guide
 
-English | [简体中文](cli.zh-CN.md)
+English | [CREDIT Chinese](cli.zh-CN.md)
 
 Run commands from the target repository unless noted otherwise. `openagents --help` and `openagents COMMAND --help` list the installed version's arguments.
 

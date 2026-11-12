@@ -1,6 +1,6 @@
 # Third-party sources and licenses
 
-English | [简体中文](THIRD_PARTY.zh-CN.md)
+English | [CREDIT Chinese](THIRD_PARTY.zh-CN.md)
 
 OpenAgents' own code is distributed under the [MIT License](LICENSE). Dependencies and externally supplied materials retain their respective licenses and attribution.
 

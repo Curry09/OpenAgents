@@ -1,4 +1,4 @@
-// Spec-0073/T6: 待看优先级 + Tab 循环纯函数单测。
+// Spec-0073/T6: Check pending order and cyclic Tab navigation.
 import { describe, expect, it } from 'vitest'
 import type { BoardEntry } from '../types'
 import { nextPending, orderPending, pendingCategory } from './pending'
@@ -8,11 +8,11 @@ function entry(subject: string, over: Partial<BoardEntry> = {}): BoardEntry {
 }
 
 describe('pendingCategory', () => {
-  it('优先用 daemon 已算好的 pending', () => {
+  it('uses the pending category computed by the daemon', () => {
     expect(pendingCategory(entry('issue:1', { pending: 'pr-to-merge' }))).toBe('pr-to-merge')
   })
 
-  it('daemon 未给时按布尔位就地推断，遵四级优先级', () => {
+  it('infers the pending category in priority order when absent', () => {
     expect(
       pendingCategory(entry('issue:1', { automation_failed: true, pr_ready_to_merge: true }))
     ).toBe('automation-failed')
@@ -22,7 +22,7 @@ describe('pendingCategory', () => {
 })
 
 describe('orderPending', () => {
-  it('按四级优先级排序，非待看剔除', () => {
+  it('sorts by priority and excludes entries with no pending action', () => {
     const board = [
       entry('issue:changed', { pending: 'just-changed' }),
       entry('issue:idle'),
@@ -38,7 +38,7 @@ describe('orderPending', () => {
     ])
   })
 
-  it('同级按 enqueued_at 稳定定序', () => {
+  it('uses enqueued_at as the stable tie breaker', () => {
     const board = [
       entry('issue:b', { pending: 'automation-failed', enqueued_at: '2026-07-15T10:00:02Z' }),
       entry('issue:a', { pending: 'automation-failed', enqueued_at: '2026-07-15T10:00:01Z' })
@@ -53,17 +53,17 @@ describe('nextPending', () => {
     entry('issue:merge', { pending: 'pr-to-merge' })
   ]
 
-  it('从当前跳下一个，循环到底回头', () => {
+  it('cycles to the next pending entry and wraps around', () => {
     expect(nextPending(pending, 'issue:human')).toBe('issue:merge')
     expect(nextPending(pending, 'issue:merge')).toBe('issue:human')
   })
 
-  it('当前不在待看序内 → 取序首', () => {
+  it('selects the first pending entry when the current one is absent', () => {
     expect(nextPending(pending, 'pr:999')).toBe('issue:human')
     expect(nextPending(pending, null)).toBe('issue:human')
   })
 
-  it('无待看 → null（Tab 无操作）', () => {
+  it('returns null when no action is pending', () => {
     expect(nextPending([], 'issue:human')).toBeNull()
   })
 })

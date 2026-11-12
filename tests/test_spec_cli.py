@@ -1,7 +1,7 @@
-"""spec CLI + 编号校验脚本单元测试 —— markdown 单文件形态（2026-06-24）。
+"""Spec CLI+ Numbered Script Module Test - markdown single file form (2026-06-24).
 
-CLI：render 写 OVERVIEW；validate 退出码；abandon/new/add-task 路由到 mutate；graph 生成/校验
-ARCHITECTURE。check-spec-number-conflicts：重复编号报冲突、唯一编号通过。
+CLI: Ender writes for Overview; Validate exit code; abandon/new/add-task route to mutate; graph generation/ verification
+ARCHITECTURE. check-spec-nomber-conflits: conflicting and single-numbered.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _task(**overrides: object) -> Task:
     base: dict[str, object] = dict(id="T1", title="t", status="pending", priority="P1")
     base.update(overrides)
     base.setdefault("files", [f"{base['id']}.py"])
-    base.setdefault("acceptance", "可验证。")
+    base.setdefault("acceptance", "Validated.")
     return Task(**base)  # type: ignore[arg-type]
 
 
@@ -70,7 +70,9 @@ def test_validate_warning_only_returns_zero(tmp_path: Path, capsys) -> None:
 
 def test_abandon_routes_to_mutate(tmp_path: Path) -> None:
     path = _group(root=tmp_path, number="0001", slug="alpha", tasks=[_task(files=["a.py"])])
-    code = main(argv=["abandon", "0001", "T1", "--reason", "弃用", "--specs-root", str(tmp_path)])
+    code = main(
+        argv=["abandon", "0001", "T1", "--reason", "Discard", "--specs-root", str(tmp_path)]
+    )
     assert code == 0
     assert model.load_group(path=path).tasks == []
 
@@ -89,7 +91,7 @@ def test_new_subcommand_creates_group(tmp_path: Path) -> None:
             "--title",
             "Alpha",
             "--summary",
-            "人话 TL;DR",
+            "Talent TL;DR",
             "--specs-root",
             str(tmp_path),
         ]
@@ -97,7 +99,7 @@ def test_new_subcommand_creates_group(tmp_path: Path) -> None:
     assert code == 0
     group = model.load_group(path=tmp_path / "0001-alpha.md")
     assert group.metadata.issue == 7
-    assert group.metadata.summary == "人话 TL;DR"
+    assert group.metadata.summary == "Talent TL;DR"
 
 
 def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
@@ -137,29 +139,32 @@ def test_add_task_subcommand_writes_task(tmp_path: Path) -> None:
     task = model.load_group(path=tmp_path / "0001-alpha.md").tasks[0]
     assert task.files == ["a.py", "b.py"]
     assert task.depends_on == ["T0"]
-    assert task.status == "pending"  # 默认
+    assert task.status == "pending"  # Default
 
 
 def test_graph_generates_architecture(tmp_path: Path) -> None:
-    """spec graph 扫一个小包，生成 ARCHITECTURE.md。"""
+    """Spec graph sweeps a small package to generate ARCHITECTURE.md."""
     pkg = tmp_path / "pkg"
     pkg.mkdir()
-    (pkg / "__init__.py").write_text('"""小包：演示子系统。"""\n', encoding="utf-8")
-    (pkg / "a.py").write_text('"""组件 a：做 A。"""\nimport pkg.b\n', encoding="utf-8")
-    (pkg / "b.py").write_text('"""组件 b：做 B。"""\n', encoding="utf-8")
+    (pkg / "__init__.py").write_text('"""Example subsystem."""\n', encoding="utf-8")
+    (pkg / "a.py").write_text('"""Component a: Do A."""\nimport pkg.b\n', encoding="utf-8")
+    (pkg / "b.py").write_text('"""Component b: Do B."""\n', encoding="utf-8")
     code = main(argv=["graph", "--package-root", str(pkg), "--specs-root", str(tmp_path)])
     assert code == 0
     text = (tmp_path / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    assert "组件 a：做 A。" in text
+    assert "Component a: Do A." in text
     assert "graph LR" in text
 
 
 def test_graph_check_flags_missing_docstring(tmp_path: Path) -> None:
-    """--check 在缺 docstring 时返回非 0。"""
+    """--check returns non-0 when it lacks docstring."""
     pkg = tmp_path / "pkg"
     pkg.mkdir()
-    (pkg / "__init__.py").write_text('"""小包。"""\n', encoding="utf-8")
-    (pkg / "a.py").write_text("x = 1\n", encoding="utf-8")  # 无 docstring
+    (pkg / "__init__.py").write_text(
+        "””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””\n",
+        encoding="utf-8",
+    )
+    (pkg / "a.py").write_text("x = 1\n", encoding="utf-8")  # No doingcstring
     code = main(
         argv=["graph", "--package-root", str(pkg), "--specs-root", str(tmp_path), "--check"]
     )
@@ -170,7 +175,7 @@ def test_graph_check_flags_missing_docstring(tmp_path: Path) -> None:
 
 
 def test_ownership_table_lists_owner_and_path(tmp_path: Path, capsys) -> None:
-    """无 --check：打印单一 writer 表，每行 owner Task 限定 ID + 声明文件。"""
+    """No --check: Print a single Writer table, owner Task for a restricted ID+ declaration file."""
     _group(root=tmp_path, number="0071", slug="own", tasks=[_task(files=["a.py", "b.py"])])
     code = main(argv=["ownership", "--specs-root", str(tmp_path)])
     assert code == 0
@@ -258,7 +263,7 @@ def _make_group_file(root: Path, name: str) -> None:
 def test_conflict_script_detects_duplicate_number(tmp_path: Path) -> None:
     mod = _load_conflict_script()
     _make_group_file(tmp_path, "0001-alpha.md")
-    _make_group_file(tmp_path, "0001-beta.md")  # 同号不同 slug
+    _make_group_file(tmp_path, "0001-beta.md")  # Same number different slug
     conflicts = mod._find_local_conflicts(tmp_path)
     assert any("0001" in c for c in conflicts)
 
@@ -267,7 +272,7 @@ def test_conflict_script_unique_numbers_pass(tmp_path: Path) -> None:
     mod = _load_conflict_script()
     _make_group_file(tmp_path, "0001-alpha.md")
     _make_group_file(tmp_path, "0002-beta.md")
-    # dated 设计文档不应被当成组。
+    # The dated design document should not be considered a group.
     _make_group_file(tmp_path, "2026-06-24-design.md")
     assert mod._find_local_conflicts(tmp_path) == []
 

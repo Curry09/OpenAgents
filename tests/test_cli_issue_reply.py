@@ -1,9 +1,9 @@
-"""# Spec-0016/T5：reply-comment --issue 手动出口（与 --pr 互斥二选一）契约测试。
+"""# Spec-0016/T5：reply-comment --issue Manual exit (with --pr (ii) Contract test.
 
-覆盖：
-- oa reply-comment --issue N --body X 经 identity.post_signed_comment_on_issue 落 issue；
-- --pr 与 --issue 同给报错、都不给报错（argparse 互斥必选组）；
-- --pr N --body X 仍走既有 post_signed_comment（零回归）。
+Coverage:
+- oa reply-comment --issue N --body X The long term identity.post_signed_comment_on_issue Fall issue；
+- --pr and --issue are reported as faults and not as faults (argparse is given to the group;
+- --pr N --body X is still in place post_signed_comment (no behavior change).
 """
 
 from pathlib import Path
@@ -26,7 +26,7 @@ def _stub_project(monkeypatch, ctx):
     monkeypatch.setattr("openagents.cli._agent_id_for", lambda *, ctx: "AID")
 
 
-# ---- argparse：--pr / --issue 互斥必选 -----------------------------------------------------------
+# ---- argparse：--pr / --issue You have to choose between the two. -----------------------------------------------------------
 
 
 def test_issue_flag_parses():
@@ -49,7 +49,7 @@ def test_neither_pr_nor_issue_errors():
         build_parser().parse_args(["reply-comment", "--body", "hi"])
 
 
-# ---- 转发：--issue → post_signed_comment_on_issue；--pr → post_signed_comment（零回归）-------------
+# ---- Forward:--issue → post_signed_comment_on_issue；--pr → post_signed_comment Zero returns-------------
 
 
 def test_issue_forwards_to_signed_issue_comment(monkeypatch, tmp_path):
@@ -60,9 +60,9 @@ def test_issue_forwards_to_signed_issue_comment(monkeypatch, tmp_path):
     monkeypatch.setattr(
         identity_mod, "post_signed_comment_on_issue", lambda **kw: captured.update(kw)
     )
-    rc = main(["reply-comment", "--issue", "149", "--body", "收到"])
+    rc = main(["reply-comment", "--issue", "149", "--body", "Copy that."])
     assert rc == 0
-    assert captured == {"number": 149, "body": "收到", "agent_id": "AID"}
+    assert captured == {"number": 149, "body": "Copy that.", "agent_id": "AID"}
 
 
 def test_pr_forwards_to_signed_pr_comment(monkeypatch, tmp_path):

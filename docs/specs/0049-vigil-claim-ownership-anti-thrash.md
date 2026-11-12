@@ -1,12 +1,12 @@
 ---
 number: "0049"
-title: vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
+title: "vigil multi-backend dispatch and claim conflict prevention: no claim on resume + claims with ownership + yielding after a second check"
 issue: 120
 slug: vigil-claim-ownership-anti-thrash
-summary: 消除 vigil 多后端认领标签反复互撕：resume 不再重复认领(止血) + 认领编码 agent 归属(署名认领评论) + 认领后 read-after-write 退让，使同一 issue 任一时刻只被一个后端有效认领、他方识别并退让。
+summary: "Eliminate repeated contention over vigil claim labels across backends: stop claiming again on resume (immediate mitigation) + encode agent ownership in claims (signed claim comments) + yield after a read-after-write check following a claim, so that only one backend effectively claims a given issue at any time and other backends recognize that ownership and yield."
 tasks:
   - id: T1
-    title: github：认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕）
+    title: "github: claim-note read primitive + idempotent label add (stop remove-then-add contention)"
     status: done
     priority: P0
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github_claim_label.py
-    scope: 新增 list_issue_comments 读原语（author/body/created_at）；认领标签改为幂等 add（在就不动），停用无差别 remove-then-add 跨后端刷新；为过期改用便签年龄让路
-    acceptance: list_issue_comments 能取回 issue 全部评论（含 body/created_at）；认领打标签不再产生 unlabeled 事件（对已带标签的 issue 再认领是 no-op，不删）；标签本不在时 add 幂等；ruff + pytest tests/test_github_claim_label.py 通过
+    scope: "Add a list_issue_comments read primitive (author/body/created_at); make claim-label application an idempotent add (leave it alone if already present), and stop indiscriminate remove-then-add refreshes across backends; use note age instead to allow expired claims to be reclaimed"
+    acceptance: "list_issue_comments can retrieve all comments on an issue (including body/created_at); applying a claim label no longer produces unlabeled events (claiming an issue that already has the label is a no-op, with no removal); add is idempotent when the label is initially absent; ruff + pytest tests/test_github_claim_label.py pass"
   - id: T2
-    title: identity：认领便签标记 + 归属/年龄解析
+    title: "identity: claim-note marker + ownership/age parsing"
     status: done
     priority: P0
     tags: []
@@ -30,10 +30,10 @@ tasks:
     files:
       - openagents/identity.py
       - tests/test_identity_claim.py
-    scope: 定义认领便签 claim 标记常量（与 agent 签名并存，区分 precheck 等其它署名机器评论）；纯函数 latest_claim(comments) 过滤 claim 标记评论→parse_agent_id 取 owner→按 created_at 取最新→返回 (owner_agent_id, age_seconds) 或 None；提供构造署名认领便签正文的 helper
-    acceptance: latest_claim 在混入 precheck 署名评论/无签名人类评论时只认 claim 便签、取最新一条的 owner 与年龄；无 claim 便签返回 None；往返（build→parse）保真；ruff + pytest tests/test_identity_claim.py 通过
+    scope: "Define a claim marker constant for claim notes (coexisting with the agent signature to distinguish them from other signed machine comments such as precheck); the pure function latest_claim(comments) filters comments for the claim marker → uses parse_agent_id to obtain the owner → selects the latest by created_at → returns (owner_agent_id, age_seconds) or None; provide a helper to construct the body of a signed claim note"
+    acceptance: "When signed precheck comments and unsigned human comments are mixed in, latest_claim recognizes only claim notes and returns the owner and age of the latest one; returns None if there are no claim notes; the round trip (build→parse) preserves fidelity; ruff + pytest tests/test_identity_claim.py pass"
   - id: T3
-    title: vigil：_dispatch_kind/_claim_expired 归属感知闸
+    title: "vigil: ownership-aware gates in _dispatch_kind/_claim_expired"
     status: done
     priority: P0
     tags: []
@@ -45,10 +45,10 @@ tasks:
     files:
       - openagents/vigil.py
       - tests/test_vigil_claim.py
-    scope: record is None 分支认领闸归属化：带认领标签时读便签判归属——最近便签是他人且未过期→None 跳过；已过期(僵尸)/无有效便签→fresh 回收；自己的僵尸残留→fresh 重认领。_claim_expired 数据源从标签时间线年龄迁到便签年龄，取不到证据保守判未过期。resume 分支语义不受认领闸影响
-    acceptance: 他人未过期认领→_dispatch_kind 返回 None；他人认领已过期或无便签→fresh；resume(solving/pr=0)仍先于 record is None 判定、不读认领闸；便签年龄查询异常/None 时保守判未过期不上抛（不拖垮整轮）；ruff + pytest tests/test_vigil_claim.py 通过
+    scope: "Make the claim gate in the record is None branch ownership-aware: when the claim label is present, read the notes to determine ownership—the latest note belongs to someone else and has not expired → return None to skip; expired (zombie)/no valid note → reclaim as fresh; a zombie claim left by the same agent → claim again as fresh. Move the data source for _claim_expired from label timeline age to note age; conservatively treat the claim as unexpired when evidence cannot be obtained. The claim gate does not affect resume-branch semantics"
+    acceptance: "Someone else's unexpired claim → _dispatch_kind returns None; someone else's expired claim or no note → fresh; resume(solving/pr=0) is still evaluated before record is None and does not consult the claim gate; if the note-age query raises an exception or returns None, conservatively treat the claim as unexpired without propagating the exception (so the entire round is not disrupted); ruff + pytest tests/test_vigil_claim.py pass"
   - id: T4
-    title: orchestrator+state：resume 免认领 + 署名认领 + 二次确认退让
+    title: "orchestrator+state: no claim on resume + signed claims + yielding after a second check"
     status: done
     priority: P0
     tags: []
@@ -61,10 +61,10 @@ tasks:
       - openagents/orchestrator.py
       - openagents/state.py
       - tests/test_orchestrator_claim.py
-    scope: 止血：删除 start_rfc resume 分支的 _claim_issue（认领只在 fresh 首次打一次），复核 _release_claim 仍自洽。治本：_claim_issue 贴固定标签(幂等 add)+追加署名认领便签；贴后 read-after-write 重读最近便签，owner 是他人→抛 ClaimLost；start_rfc 捕获后退让——调 state 新增清 run 原语抹掉本轮 begin_run 的 solving/pr=0 记录、把 ClaimLost 交 vigil per-issue except 兜住
-    acceptance: resume 路径不再调用 _claim_issue（无新 labeled/comment 认领事件）；fresh 认领后被他方更晚认领→抛 ClaimLost 且本地 solving 记录被清空（下轮回到跳过而非 resume）；单赢家场景正常开 draft PR 并 _release_claim；state 清 run 原语幂等；ruff + pytest tests/test_orchestrator_claim.py 通过
+    scope: "Immediate mitigation: remove _claim_issue from the resume branch of start_rfc (claim only once, initially, on fresh), and verify that _release_claim remains consistent. Root fix: _claim_issue applies the fixed label (idempotent add) + appends a signed claim note; after posting, perform a read-after-write reread of the latest note, and raise ClaimLost if the owner is someone else; start_rfc catches it and yields—call a new state primitive for clearing a run to erase the solving/pr=0 record created by begin_run in this round, then pass ClaimLost to vigil's per-issue except handler"
+    acceptance: "The resume path no longer calls _claim_issue (no new labeled/comment claim events); if another backend posts a later claim after a fresh claim → raise ClaimLost and clear the local solving record (so the next round skips rather than resumes); in the single-winner scenario, open a draft PR normally and call _release_claim; the state primitive for clearing a run is idempotent; ruff + pytest tests/test_orchestrator_claim.py pass"
   - id: T5
-    title: 成果测试：多后端竞态复现集成测试 + e2e 脚本
+    title: "Outcome verification: integration tests reproducing multi-backend races + e2e script"
     status: done
     priority: P1
     tags: []
@@ -76,146 +76,146 @@ tasks:
     files:
       - scripts/e2e-spec-0049-vigil-claim-ownership.sh
       - tests/test_claim_dedup_integration.py
-    scope: 内存假 GitHub(标签集合+评论账本+事件记录)驱动两个 Orchestrator+State 实例对同一 issue 竞态；断言恰好一个开 draft PR、另一个 ClaimLost 退让清本地、全程零 unlabeled 互撕事件、双 solving 下多轮 resume 零新认领事件、僵尸认领可回收。e2e 脚本跑 ruff+定向 pytest+spec validate 并打印三条断言证据（浏览器 e2e 不适用：无产品前端界面）
-    acceptance: bash scripts/e2e-spec-0049-vigil-claim-ownership.sh 退出码 0；集成测试断言唯一赢家 + 零 unlabeled 事件 + resume 零新认领事件 + 僵尸可回收全部通过；脚本输出可作 PR 指路牌收录的可复现证据
+    scope: "An in-memory fake GitHub (label set + comment ledger + event log) drives two Orchestrator+State instances racing over the same issue; assert that exactly one opens a draft PR, the other yields on ClaimLost and clears its local state, there are zero unlabeled contention events throughout, multiple rounds of resume with both instances in solving produce zero new claim events, and zombie claims can be reclaimed. The e2e script runs ruff+targeted pytest+spec validate and prints evidence for three assertions (browser e2e is not applicable: there is no product frontend UI)"
+    acceptance: "bash scripts/e2e-spec-0049-vigil-claim-ownership.sh exits with code 0; all integration-test assertions pass: a unique winner + zero unlabeled events + zero new claim events on resume + reclaimable zombie claims; the script output can be included as reproducible evidence in the PR guide"
 ---
 
-# 0049 · vigil 多后端派单认领去互撕：resume 免认领 + 认领带归属 + 二次确认退让
+# 0049 · vigil multi-backend dispatch claims without mutual interference: no claims on resume + claim ownership + confirmation and yielding
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-多台机器同时对同一仓库跑 vigil 时，同一 issue 上的认领标签 `openagents-dispatching`
-会被两个后端反复加/去、来回互撕数分钟，直到某方先开出 draft PR 才停。本 spec 分两层根治：
-**（止血）** 让 `resume` 路径不再重复认领——认领只在 `fresh` 首次派单打一次；
-**（治本）** 给认领**编码 agent 归属**（在既有固定标签之上，追加一条带隐藏签名的「认领评论」作归属凭证），
-并在认领后做一次 **read-after-write 二次确认**：若发现 issue 已被别的 agent 更晚认领，本后端**主动退让**
-（放弃本轮起草、清掉本地 solving 记录）。结果是：同一 issue 在任一时刻只被**一个**后端有效认领，
-其它后端能识别「这是别人的认领」并退让；后端只回收/刷新**自己的**认领、绝不无差别撕掉别人的——
-不引入任何外部锁服务 / DB（奥卡姆，理念 1），不追求完整分布式一致性。
+When multiple machines run vigil against the same repository simultaneously, two backends repeatedly add and remove the claim label `openagents-dispatching`
+on the same issue, overwriting each other's claims for minutes until one of them opens a draft PR. This spec addresses the root causes in two layers:
+**(Immediate mitigation)** Stop claiming again on the `resume` path—claim only once, on the initial `fresh` dispatch;
+**(Root-cause fix)** **Encode agent ownership** in claims (in addition to the existing fixed label, append a “claim comment” with a hidden signature as proof of ownership),
+and perform a **read-after-write confirmation** after claiming: if the issue has subsequently been claimed by another agent, this backend **actively yields**
+(abandons drafting for this round and clears its local solving record). The result is that, at any given moment, the same issue is effectively claimed by only **one** backend;
+other backends can recognize “this is someone else's claim” and yield. A backend reclaims/refreshes only **its own** claims and never indiscriminately removes someone else's—
+without introducing any external lock service / DB (Occam's razor, Principle 1), and without pursuing full distributed consistency.
 
 ## Motivation
 
-**现状（就地复述，不靠裸引用承载）。** vigil 是 OpenAgents 的无人值守守夜循环：每轮 `discover`
-扫仓库上带 `openagents` 标签的 issue，对每个 issue 由 `_dispatch_kind`（`openagents/vigil.py:139`）
-判定 `fresh` / `resume` / 跳过，然后 `Orchestrator.start_rfc`（`openagents/orchestrator.py:212`）
-建隔离 worktree、调后端起草 spec、推分支、开 draft PR。为把「多后端对同一 issue 重复派单」的窗口
-从**分钟级**（一次起草几分钟）压到**秒级**，前一轮工作（认领标签方案）引入了第 4 个流程标签
-`openagents-dispatching`（`openagents/github.py:72`）：某后端判 `fresh` 决定派单时给 issue 打上它，
-其它后端在发现段读到「已带该标签且未过期」即跳过（`vigil.py:161`）；为回收「领了没人干」的死后端占坑，
-带一个基于标签时间线年龄的过期回收（`_claim_expired`，`vigil.py:169`，超 `CLAIM_EXPIRY_SECONDS` 判僵尸）。
-该方案的 spec 自述**只压概率、不做完整分布式一致性**。
+**Current behavior (restated here rather than left to bare references).** Vigil is OpenAgents' unattended overnight loop: each round, `discover`
+scans the repository for issues labeled `openagents`. For each issue, `_dispatch_kind` (`openagents/vigil.py:139`)
+determines `fresh` / `resume` / skip, and then `Orchestrator.start_rfc` (`openagents/orchestrator.py:212`)
+creates an isolated worktree, invokes a backend to draft the spec, pushes the branch, and opens a draft PR. To shrink the window for “multiple backends dispatching the same issue”
+from **minutes** (drafting takes several minutes) to **seconds**, the previous round of work (the claim-label approach) introduced a fourth workflow label,
+`openagents-dispatching` (`openagents/github.py:72`): when a backend determines `fresh` and decides to dispatch, it applies this label to the issue;
+other backends skip the issue if discovery finds “this label is already present and has not expired” (`vigil.py:161`). To reclaim slots occupied by dead backends that “claimed but did no work,”
+the approach includes expiration-based reclamation using the label's age in the timeline (`_claim_expired`, `vigil.py:169`; a claim is considered a zombie
+once it exceeds `CLAIM_EXPIRY_SECONDS`).
+That approach's spec explicitly states that it **only reduces the probability and does not provide full distributed consistency**.
 
-**为什么要改——三层缺陷叠加，把「抢分支」变成了更刺眼、且停不下来的「反复抢标签」。**
+**Why change it—three overlapping defects turn “racing for a branch” into the more conspicuous and relentless “repeated racing for a label.”**
 
-1. **check-then-claim 非原子（秒级残留窗口）。** `_dispatch_kind` 读标签（`vigil.py:161`）与
-   `_claim_issue` 写标签（`orchestrator.py:333`）之间有时间差；GitHub 标签不是 CAS，两后端在
-   「一方写上标签之前」都读到「无标签」→ 双双判 `fresh` → 各自 `begin_run`，各自**本地**
-   `state.json` 变成 `solving/pr_number=0`（本地状态互不可见）。这是前一轮已承认、只做概率性压缩的窗口。
+1. **Non-atomic check-then-claim (a residual window of seconds).** There is a time gap between `_dispatch_kind` reading labels (`vigil.py:161`) and
+   `_claim_issue` writing a label (`orchestrator.py:333`); GitHub labels are not CAS. Both backends can read “no label”
+   before either writes it → both determine `fresh` → each calls `begin_run`, and each **local**
+   `state.json` becomes `solving/pr_number=0` (their local states are invisible to each other). This is the window acknowledged in the previous round, which only reduced its probability.
 
-2. **resume 绕过认领闸却仍重复认领（致命放大器）。** 两边进 solving 后，每轮 `discover`
-   `_dispatch_kind` 命中 `record.status == STATUS_SOLVING and record.pr_number == 0` → 返回
-   `"resume"`（`vigil.py:165-166`）；而认领闸只在 `record is None` 分支（`vigil.py:152-164`）——
-   **resume 完全绕过去重判定**。更糟：`start_rfc` 的 resume 分支**仍调 `_claim_issue`**
-   （`orchestrator.py:236`）。于是两个都在 solving 的后端**每轮都重新认领**。
+2. **resume bypasses the claim gate yet still claims again (the fatal amplifier).** After both sides enter solving, each round of `discover`
+   has `_dispatch_kind` match `record.status == STATUS_SOLVING and record.pr_number == 0` → return
+   `"resume"` (`vigil.py:165-166`); the claim gate exists only in the `record is None` branch (`vigil.py:152-164`)—
+   **resume completely bypasses the deduplication check**. Worse, the resume branch of `start_rfc` **still calls `_claim_issue`**
+   (`orchestrator.py:236`). As a result, the two backends in solving **claim again every round**.
 
-3. **认领标签无归属 + stamp 是 remove-then-add（互撕的直接原因）。** 标签名固定
-   `openagents-dispatching`，**不编码是哪个 agent 认领**；`_claim_issue` → `issue_stamp_label`
-   是 remove-then-add（`openagents/github.py:492-493`，为刷新过期时戳而先删后加），remove
-   **无差别抹掉 issue 上的标签、不管是谁打的** → 两后端每轮互相撕掉对方标签、贴自己的，无限抖动，
-   直到某方先 push 分支 + 开 PR（分支/PR 本身成为去重信号，认领闸之外的另一道闸接管）。
+3. **The claim label has no owner + stamping uses remove-then-add (the direct cause of mutual interference).** The label name is fixed,
+   `openagents-dispatching`, and **does not encode which agent claimed it**; `_claim_issue` → `issue_stamp_label`
+   uses remove-then-add (`openagents/github.py:492-493`, removing and then adding to refresh the expiration timestamp). The removal
+   **indiscriminately erases the label on the issue, regardless of who applied it** → every round, the two backends remove each other's label and apply their own, oscillating indefinitely,
+   until one pushes a branch + opens a PR first (the branch/PR itself becomes a deduplication signal, and another gate outside the claim gate takes over).
 
-一句话：认领标签本是给 `fresh` 判定用的去重信号，却管不住「已各自进入 solving 的两个后端」，
-反被它们的 remove-then-add 反复对撕。**实证时间线**（本仓库 issue #116，两个后端账号 `pcj-sudo` /
-`Drifting12345`；来源 `gh api repos/Curry09/OpenAgents/issues/116/timeline`）：
+In one sentence: the claim label was intended as a deduplication signal for the `fresh` decision, but it cannot control “two backends that have each already entered solving”;
+instead, their remove-then-add operations repeatedly overwrite each other's claims. **Observed timeline** (issue #116 in this repository, with backend accounts `pcj-sudo` /
+`Drifting12345`; source: `gh api repos/Curry09/OpenAgents/issues/116/timeline`):
 
 ```
-06:25:44  pcj-sudo    加 dispatching     ← pcj 认领
-06:25:45  Drifting    去 dispatching     ← 1 秒后 Drifting 撕掉别人的认领
-06:25:49  Drifting    加 dispatching     ← 换成自己认领
-06:29:27  Drifting    去 dispatching
-06:29:30  Drifting    加 dispatching
-06:32:12  pcj-sudo    去 dispatching     ← pcj 又来撕
-06:33:40  Drifting    加 dispatching
+06:25:44  pcj-sudo    add dispatching       ← pcj claims
+06:25:45  Drifting    remove dispatching    ← 1 second later, Drifting removes someone else's claim
+06:25:49  Drifting    add dispatching       ← replaces it with its own claim
+06:29:27  Drifting    remove dispatching
+06:29:30  Drifting    add dispatching
+06:32:12  pcj-sudo    remove dispatching    ← pcj removes it again
+06:33:40  Drifting    add dispatching
 ```
 
-**期望行为（验收目标）。**
-- 两后端进入 solving 后，不再对认领标签反复加/去互撕。
-- 同一 issue 在任一时刻只被**一个**后端有效认领；其它后端识别「这是别人的认领」并退让。
-- 秒级残留窗口内的双重认领能被**事后检测**并让一方主动退出，不至于走到「各自开 PR 撞车」。
-- **反向约束**：`fresh` 首次认领仍要保留（否则退回到方案之前的分钟级重复派单）；
-  不引入锁服务 / DB，不追求完整分布式一致性（奥卡姆，理念 1）。
+**Expected behavior (acceptance criteria).**
+- After both backends enter solving, they no longer repeatedly add/remove the claim label and overwrite each other's claims.
+- At any given moment, the same issue is effectively claimed by only **one** backend; other backends recognize “this is someone else's claim” and yield.
+- Double claims within the residual window of seconds can be **detected after the fact**, causing one side to withdraw voluntarily before they reach “each opens a PR and collides.”
+- **Constraints in the other direction**: the initial `fresh` claim must remain (otherwise duplicate dispatch returns to the minutes-long window that existed before the approach);
+  introduce no lock service / DB, and do not pursue full distributed consistency (Occam's razor, Principle 1).
 
 ## Guide-level explanation
 
-把认领理解成「在 issue 上按门铃并留一张**署名便签**」，而不是「抢一块无名的牌子」。
+Think of a claim as “ringing the doorbell on an issue and leaving a **signed note**,” rather than “grabbing an anonymous sign.”
 
-- **谁按了铃 + 是谁按的。** 认领仍先打固定标签 `openagents-dispatching`（便宜的「有人在认领」信号，
-  随 issue 一起被拉下来、零额外 API），**再在 issue 上贴一条带隐藏签名的「认领便签」评论**
-  （`<!-- openagents:claim --> <!-- openagents:agent=<id> -->`）记下**是哪个 agent、什么时候**认领的。
-  归属与新鲜度都从「最近一条认领便签」读出——一次读，既知道「是不是我的」，也知道「过没过期」。
+- **Someone rang the bell + who rang it.** Claiming still first applies the fixed label `openagents-dispatching` (a cheap “someone is claiming this” signal,
+  fetched along with the issue with zero additional API calls), **then posts a “claim note” comment with a hidden signature on the issue**
+  (`<!-- openagents:claim --> <!-- openagents:agent=<id> -->`) recording **which agent claimed it and when**.
+  Both ownership and freshness are read from “the latest claim note”—one read tells us both “is it mine?” and “has it expired?”
 
-- **只动自己的便签，不撕别人的。** 认领刷新不再 remove-then-add 那个无名标签，而是**再贴一条自己的
-  新便签**（产生新的时戳）。标签只做幂等 `add`（在就不动）。因此**没有任何一方会去删掉对方的东西**——
-  互撕的物理来源被移除。
+- **Only touch your own notes; do not tear down someone else's.** Refreshing a claim no longer uses remove-then-add on the anonymous label; instead, **post another new note of your own**
+  (creating a new timestamp). The label is only added idempotently with `add` (leave it alone if already present). Thus, **neither side deletes anything belonging to the other**—
+  the physical source of the interference is removed.
 
-- **看见别人的便签就退。** 发现段判定：若最近一条认领便签是**别人的**且未过期 → 本后端跳过（不派单）；
-  只有便签**是自己的**、或已**过期**（僵尸认领，超 `CLAIM_EXPIRY_SECONDS`）、或**根本没有有效便签**
-  时才认领起草。
+- **Yield when you see someone else's note.** During discovery: if the latest claim note belongs to **someone else** and has not expired → this backend skips the issue (does not dispatch);
+  claim and draft only when the note **is your own**, has **expired** (a zombie claim exceeding `CLAIM_EXPIRY_SECONDS`), or **there is no valid note at all**.
 
-- **认领后再回头看一眼（二次确认）。** 因为「读—写」非原子，两后端可能几乎同时贴便签。所以贴完自己的
-  便签后**重读一次最近便签**：如果最上面那张已经是**别人更晚**贴的，说明我抢慢了 → **主动退让**：
-  放弃本轮起草、把本地刚落的 `solving/pr=0` 记录清掉（这样下一轮我会重新变回「看见别人的认领 → 跳过」，
-  而不是走 resume 续跑）。评论按 `created_at` 严格有序，最上面一张唯一 → **恰好一个赢家**，其余退让。
+- **Look back once after claiming (confirmation).** Because “read—write” is not atomic, two backends may post notes almost simultaneously. After posting its own
+  note, a backend therefore **rereads the latest note**: if the topmost note was posted **later by someone else**, it means I lost the race → **actively yield**:
+  abandon drafting for this round and clear the local `solving/pr=0` record just written (so that next round I return to “see someone else's claim → skip,”
+  rather than continuing through resume). Comments are strictly ordered by `created_at`, so the topmost note is unique → **exactly one winner**, with all others yielding.
 
-- **resume 不再认领。** 一旦我本地已在推进（`solving`），说明认领早已在 `fresh` 首次派单时打过，
-  `resume` 意味「我在断点续跑」，**无需也不应重新认领**——从根上止住「两个都在 solving 的后端每轮互撕」。
+- **resume no longer claims.** Once I am already making progress locally (`solving`), the claim was made during the initial `fresh` dispatch;
+  `resume` means “I am continuing from a checkpoint,” so **there is no need to claim again, nor should I**—eliminating at the source the behavior where “two backends in solving overwrite each other's claims every round.”
 
-对使用者/运维：行为上，两台机器同跑同一仓库时，issue 时间线不再出现分钟级的 labeled/unlabeled 抖动；
-最多在开跑瞬间看到两条认领便签，随即其中一台打印「检出他方更晚认领，主动退让」并安静退出，另一台开出唯一 draft PR。
+For users/operators: when two machines run against the same repository, the issue timeline no longer shows minutes of labeled/unlabeled oscillation;
+at most, two claim notes appear at startup, after which one machine prints “Detected a later claim by another agent; yielding” and exits quietly, while the other opens the sole draft PR.
 
 ## Reference-level explanation
 
-### 技术方案（对照三层缺陷逐层落）
+### Technical approach (addressing the three layers of defects in turn)
 
-**① 止血 — resume 免认领（对应缺陷 2）。** 删除 `start_rfc` resume 分支里的
-`self._claim_issue(...)`（`orchestrator.py:236`）。认领只在 `fresh` 分支首次派单打一次
-（`orchestrator.py:244` 保留）。复核 `_release_claim`（`orchestrator.py:335-346`）在「resume 不认领」后
-仍自洽（幂等、尽力而为、残留标签无害，不受影响）。此改**不消除**残留窗口①，只止住「进 solving 后反复互撕」。
+**① Immediate mitigation — no claims on resume (addresses defect 2).** Remove
+`self._claim_issue(...)` from the resume branch of `start_rfc` (`orchestrator.py:236`). Claim only once, on the initial dispatch in the `fresh` branch
+(retain `orchestrator.py:244`). Verify that `_release_claim` (`orchestrator.py:335-346`) remains coherent after
+“resume no longer claims” (idempotent, best-effort, harmless leftover labels; unaffected). This change **does not eliminate** residual window ①; it only stops “repeated mutual interference after entering solving.”
 
-**② 归属凭证 — 署名认领便签（对应缺陷 3）。** 认领 = 幂等 `add` 固定标签 + 追加一条带**两段隐藏标记**
-的 issue 评论：`<!-- openagents:claim -->`（区分「认领便签」与 precheck 对齐评论等其它署名机器评论）
-+ 既有 `<!-- openagents:agent=<id> -->` 签名（复用 `identity.sign` / `parse_agent_id`）。
-「认领归属 + 年龄」由一个纯解析函数从 issue 评论列表算出：过滤含 claim 标记的评论 → `parse_agent_id`
-取 owner → 按 `created_at` 取最新一条 → 返回 `(owner_agent_id, age_seconds)`。
-`issue_stamp_label` 的 remove-then-add **不再用于跨后端刷新**（改为「幂等 add 标签 + 贴新便签刷新时戳」），
-从而**根除无差别撕别人标签**。过期判定从「标签时间线年龄」迁移到「最近认领便签年龄」（同一 `now - created_at`
-语义、跨后端共享时钟，取不到证据时保守判「未过期」，宁可占坑多留一轮也不误回收活后端）。
+**② Proof of ownership — signed claim notes (addresses defect 3).** Claim = idempotently `add` the fixed label + append an issue comment with **two hidden markers**:
+`<!-- openagents:claim -->` (distinguishing “claim notes” from other signed machine comments, such as precheck alignment comments)
++ the existing `<!-- openagents:agent=<id> -->` signature (reusing `identity.sign` / `parse_agent_id`).
+A pure parsing function computes “claim ownership + age” from the issue's comment list: filter for comments containing the claim marker → use `parse_agent_id`
+to obtain the owner → select the latest by `created_at` → return `(owner_agent_id, age_seconds)`.
+The remove-then-add behavior of `issue_stamp_label` **is no longer used for refreshes across backends** (replaced by “idempotently add the label + post a new note to refresh the timestamp”),
+thereby **eliminating indiscriminate removal of other agents' labels**. Expiration detection moves from “label timeline age” to “age of the latest claim note” (the same `now - created_at`
+semantics, with a clock shared across backends; if evidence cannot be obtained, conservatively treat it as “not expired,” preferring to leave a slot occupied for one more round over mistakenly reclaiming it from a live backend).
 
-**③ 二次确认退让 — read-after-write（对应缺陷 1，把非原子 CAS 逼近一次有效认领）。**
-`_claim_issue` 贴完**自己的**认领便签后，**重读**最近认领便签：若 owner 是**别的 agent**（对方更晚贴、
-或存在他方认领覆盖）→ 抛 `ClaimLost`（`OrchestratorError` 子类）。`start_rfc` 捕获后**退让**：
-调用一个新的 state 原语清掉本轮刚 `begin_run` 落下的 `solving/pr=0` 记录（使本后端下一轮回到「record is None
-→ 看见他方有效认领 → 跳过」，而**不是** resume 续跑），并把 `ClaimLost` 交给 vigil 发现段既有的
-per-issue `except (OrchestratorError, GithubError)` 兜住（`vigil.py:134`）——只跳过该 issue、
-下轮重试，绝不拖垮整轮（决策 8）。因评论 `created_at` 严格有序，最新便签唯一 → **恰好一个赢家**、其余退让。
+**③ Confirmation and yielding — read-after-write (addresses defect 1, approximating a single effective claim despite non-atomic CAS).**
+After `_claim_issue` posts **its own** claim note, it **rereads** the latest claim note: if the owner is **another agent** (the other agent posted later,
+or another agent's claim has superseded it) → raise `ClaimLost` (a subclass of `OrchestratorError`). `start_rfc` catches it and **yields**:
+call a new state primitive to clear the `solving/pr=0` record just written by `begin_run` in this round (so that this backend returns next round to “record is None
+→ see another agent's valid claim → skip,” **rather than** continuing through resume), and pass `ClaimLost` to the existing
+per-issue `except (OrchestratorError, GithubError)` handler in vigil discovery (`vigil.py:134`)—skip only this issue,
+retry next round, and never bring down the entire round (Decision 8). Because comments are strictly ordered by `created_at`, the latest note is unique → **exactly one winner**, with all others yielding.
 
-**发现段闸的归属化（`_dispatch_kind` / `_claim_expired`，`vigil.py`）。** `record is None` 分支的认领闸
-改为**归属感知**：issue 带 `openagents-dispatching` 标签时（便宜的粗信号，已随 issue 拉下）才读认领便签
-（罕见路径、不拖慢常态扫描，与今日 `_claim_expired` 同频）——最近便签是**他人**且未过期 → `None`（退让/跳过）；
-已过期（僵尸）或无有效便签 → 落到 `fresh` 回收重认领；是**自己**的僵尸残留 → 亦视 `fresh` 重认领。
-`resume` 分支（`record.status==SOLVING and pr_number==0`）**先于** `record is None` 判定、语义完全不受认领闸影响。
+**Make the discovery gate ownership-aware (`_dispatch_kind` / `_claim_expired`, `vigil.py`).** Change the claim gate in the `record is None` branch
+to be **ownership-aware**: read claim notes only when the issue has the `openagents-dispatching` label (a cheap coarse signal already fetched with the issue)
+(a rare path that does not slow normal scanning, with the same frequency as today's `_claim_expired`)—if the latest note belongs to **someone else** and has not expired → `None` (yield/skip);
+if expired (a zombie) or there is no valid note → fall through to `fresh` to reclaim it; a zombie remnant belonging to **this agent** → likewise treat as `fresh` and claim again.
+The `resume` branch (`record.status==SOLVING and pr_number==0`) is evaluated **before** `record is None`, and its semantics are entirely unaffected by the claim gate.
 
-### 模块 / DAG / 文件分配
+### Modules / DAG / File Allocation
 
 ```mermaid
 graph TD
-    T1["T1 github.py<br/>认领便签读原语 + 标签幂等 add（停 remove-then-add 互撕）"]
-    T2["T2 identity.py<br/>认领便签标记 + 归属/年龄解析（owner, age）"]
-    T3["T3 vigil.py<br/>_dispatch_kind/_claim_expired 归属感知闸"]
-    T4["T4 orchestrator.py + state.py<br/>resume 免认领 + 署名认领 + 二次确认退让 + 清 run 原语"]
-    T5["T5 成果测试<br/>多后端竞态复现集成测试 + e2e 脚本"]
+    T1["T1 github.py<br/>Claim-note read primitive + idempotent label add (stop remove-then-add interference)"]
+    T2["T2 identity.py<br/>Claim-note marker + ownership/age parsing (owner, age)"]
+    T3["T3 vigil.py<br/>Ownership-aware _dispatch_kind/_claim_expired gate"]
+    T4["T4 orchestrator.py + state.py<br/>Claim-free resume + signed claims + recheck-and-retreat + run-clearing primitive"]
+    T5["T5 Outcome tests<br/>Integration tests reproducing races across backends + e2e script"]
     T1 --> T2
     T1 --> T3
     T2 --> T3
@@ -225,93 +225,94 @@ graph TD
     T4 --> T5
 ```
 
-| Task | 拥有文件（互斥） | 关键交付 |
+| Task | Owned files (exclusive) | Key deliverables |
 |---|---|---|
-| T1 | `openagents/github.py`, `tests/test_github_claim_label.py` | `list_issue_comments` 读原语；认领标签改幂等 `add`（不再 remove-then-add 无差别撕） |
-| T2 | `openagents/identity.py`, `tests/test_identity_claim.py` | 认领便签 `claim` 标记常量 + `latest_claim(comments)->（owner_agent_id, age_seconds）\|None` 纯解析 |
-| T3 | `openagents/vigil.py`, `tests/test_vigil_claim.py` | `_dispatch_kind`/`_claim_expired` 归属感知（尊重他人认领、只回收过期/无主） |
-| T4 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator_claim.py` | resume 免认领；`_claim_issue` 贴署名便签 + read-after-write `ClaimLost` 退让；state 新增清 run 原语 |
-| T5 | `scripts/e2e-spec-0049-vigil-claim-ownership.sh`, `tests/test_claim_dedup_integration.py` | 成果测试：两后端同 issue 竞态复现 → 断言无互撕 + 唯一赢家 + resume 零新认领事件 |
+| T1 | `openagents/github.py`, `tests/test_github_claim_label.py` | `list_issue_comments` read primitive; change claim-label operations to idempotent `add` (no more indiscriminate removal through remove-then-add) |
+| T2 | `openagents/identity.py`, `tests/test_identity_claim.py` | Claim-note `claim` marker constant + pure parsing via `latest_claim(comments)->（owner_agent_id, age_seconds）\|None` |
+| T3 | `openagents/vigil.py`, `tests/test_vigil_claim.py` | Ownership-aware `_dispatch_kind`/`_claim_expired` (respect others' claims; reclaim only expired/unowned claims) |
+| T4 | `openagents/orchestrator.py`, `openagents/state.py`, `tests/test_orchestrator_claim.py` | Claim-free resume; `_claim_issue` posts a signed note + read-after-write `ClaimLost` retreat; add a run-clearing primitive to state |
+| T5 | `scripts/e2e-spec-0049-vigil-claim-ownership.sh`, `tests/test_claim_dedup_integration.py` | Outcome tests: reproduce two backends racing on the same issue → assert no mutual label removal + a unique winner + zero new claim events on resume |
 
-文件跨 Task 互斥（理念 6 单一 writer）：`github.py`(T1) / `identity.py`(T2) / `vigil.py`(T3) /
-`orchestrator.py`+`state.py`(T4) / 脚本+集成测试(T5) 无重叠。
+Files are exclusive across Tasks (Principle 6: single writer): `github.py`(T1) / `identity.py`(T2) / `vigil.py`(T3) /
+`orchestrator.py`+`state.py`(T4) / script+integration tests(T5) do not overlap.
 
-### 成果测试（理念 8）与 e2e 脚本
+### Outcome Tests (Principle 8) and e2e Script
 
-**浏览器 e2e 适用性自检：不适用。** 本 feature 是后端 GitHub 标签/评论并发时序问题，
-**无任何产品前端界面可驱动**（无导航/交互/截图可断言的视觉成果）。因此成果测试形态为
-**确定性并发复现**（pytest 集成测试 + 一条 shell e2e 脚本跑它并打印证据），而非浏览器 e2e。
+**Browser e2e applicability self-check: not applicable.** This feature concerns concurrent timing of backend GitHub label/comment operations,
+with **no product frontend interface to drive** (no visual outcomes that can be asserted through navigation/interactions/screenshots). The outcome tests therefore take the form of
+**deterministic concurrency reproduction** (pytest integration tests + one shell e2e script that runs them and prints evidence), rather than browser e2e.
 
-- **集成测试** `tests/test_claim_dedup_integration.py`：用内存假 GitHub（标签集合 + 评论账本，
-  记录每次 labeled/unlabeled/comment 事件）驱动**两个** `Orchestrator`+`State` 实例（两个 agent_id）
-  对**同一** issue 竞态，断言：
-  1. 二者几乎同时判 `fresh` 起草 → 恰好**一个**成功开 draft PR，另一个抛 `ClaimLost` 退让并清空本地 solving；
-  2. 全程**零 unlabeled 事件**（不再无差别撕标签）；便签评论只增不删；
-  3. 两者都进入 `solving/pr=0` 的场景下多轮 `_dispatch_kind` 走 resume → **不产生任何新的 labeled/comment 认领事件**；
-  4. 僵尸认领（便签年龄 > `CLAIM_EXPIRY_SECONDS`）能被他方回收重认领。
-- **e2e 脚本** `scripts/e2e-spec-0049-vigil-claim-ownership.sh`：`ruff` + 定向 `pytest`
-  上述集成测试 + `spec validate`，把「无 unlabeled 互撕事件 / 唯一赢家 / resume 零新事件」三条断言的
-  通过输出作为可复现证据（被 PR 指路牌自动收录）。
+- **Integration tests** `tests/test_claim_dedup_integration.py`: use an in-memory fake GitHub (a label set + a comment ledger,
+  recording every labeled/unlabeled/comment event) to drive **two** `Orchestrator`+`State` instances (two agent_id values)
+  racing on the **same** issue, and assert:
+  1. Both classify it as `fresh` and begin drafting almost simultaneously → exactly **one** successfully opens a draft PR; the other raises `ClaimLost`, retreats, and clears its local solving state;
+  2. **Zero unlabeled events** throughout (no more indiscriminate label removal); note comments are only added, never deleted;
+  3. When both have entered `solving/pr=0`, multiple rounds of `_dispatch_kind` take the resume path → **no new labeled/comment claim events are generated**;
+  4. A zombie claim (note age > `CLAIM_EXPIRY_SECONDS`) can be reclaimed and claimed anew by another agent.
+- **e2e script** `scripts/e2e-spec-0049-vigil-claim-ownership.sh`: `ruff` + targeted `pytest`
+  for the integration tests above + `spec validate`, using the passing output of the three assertions
+  “no unlabeled mutual-removal events / unique winner / zero new events on resume” as reproducible evidence (automatically included by the PR signpost).
 
 ## Drawbacks
 
-- **多一条 issue 评论。** 每次 `fresh` 认领（及僵尸回收）会在 issue 上留一条隐藏签名的认领便签，
-  刷新认领也追加新便签——issue 评论区会多出机器噪声（虽被 `<!-- ... -->` 隐藏、GitHub 不渲染，但
-  `gh` raw body 可见）。缓解：便签简短、带 claim 标记可被过滤；且 resume 免认领后刷新频次大幅下降。
-- **发现段多一次读评论 API。** 认领闸判归属时需读该 issue 评论（仅在 issue 已带认领标签的罕见路径，
-  与今日 `_claim_expired` 同频），比纯读标签多一次 `gh` 调用；常态「无标签直接 fresh」路径零变化。
-- **仍不是真 CAS。** read-after-write 退让把双重认领概率进一步压低、并保证「便签有序 → 唯一赢家」，
-  但两后端在贴便签前的极窄窗口理论上仍可能都未见对方便签而双双起草（末位由 `created_at` 定胜负后退让化解）；
-  不追求完整分布式一致性是本 spec 的显式取舍（理念 1）。
-- **过期回收数据源迁移。** 过期判定从标签时间线年龄改为便签年龄，需保证「首次认领」「僵尸回收」
-  两种情形便签年龄都良定义（贴新便签即产生新 `created_at`），否则回收逻辑退化。
+- **One more issue comment.** Each `fresh` claim (and zombie reclamation) leaves a claim note with a hidden signature on the issue,
+  and refreshing a claim also appends a new note—adding machine-generated noise to the issue comments (although hidden by `<!-- ... -->` and not rendered by GitHub,
+  it remains visible in the `gh` raw body). Mitigation: keep notes short and filterable by their claim marker; claim-free resume also greatly reduces refresh frequency.
+- **One additional comment-read API call during discovery.** Determining ownership at the claim gate requires reading the issue's comments (only on the rare path
+  where the issue already carries a claim label, at the same frequency as today's `_claim_expired`), adding one `gh` call compared with reading labels alone; the normal
+  “no label, directly fresh” path is unchanged.
+- **Still not true CAS.** Read-after-write retreat further reduces the probability of double claims and guarantees “ordered notes → a unique winner,”
+  but in the extremely narrow window before the two backends post their notes, both could theoretically fail to see the other's note and both begin drafting (resolved by retreat after
+  `created_at` determines the winner based on the last position);
+  not pursuing full distributed consistency is an explicit tradeoff in this spec (Principle 1).
+- **Migration of the data source for expiry reclamation.** Expiry determination changes from label timeline age to note age, so note age must be well-defined
+  for both “initial claim” and “zombie reclamation” (posting a new note produces a new `created_at`); otherwise, the reclamation logic degrades.
 
 ## Rationale and alternatives
 
-**为何选「固定标签(粗信号) + 署名便签(归属凭证) + 二次确认退让」。** 它在**不引入锁服务/DB**
-（奥卡姆）的前提下同时解掉三层缺陷：便签给了标签所缺的**归属**（缺陷 3），「只贴自己便签、幂等 add 标签」
-根除**无差别 remove 互撕**（缺陷 3 的物理来源），read-after-write 退让把**非原子窗口**（缺陷 1）
-逼近一次有效认领，resume 免认领止住**放大器**（缺陷 2）。复用既有 `identity` 署名/解析原语，新增面极小。
+**Why choose “fixed label (coarse signal) + signed note (proof of ownership) + recheck-and-retreat.”** Without **introducing a lock service/DB**
+(Occam's razor), it addresses three layers of defects at once: the note supplies the **ownership** missing from the label (defect 3); “post only your own note and add the label idempotently”
+eliminates **indiscriminate mutual removal** (the physical source of defect 3); read-after-write retreat brings the **non-atomic window** (defect 1)
+closer to a single effective claim; and claim-free resume stops the **amplifier** (defect 2). It reuses existing `identity` signing/parsing primitives, with a very small addition surface.
 
-**备选 A：动态归属标签 `dispatching:<agent_id>`（issue 建议修法 2·1 的标签变体）。**
-每个 agent 用自己的标签认领，只回收/刷新自己的。优点：归属留在标签层、发现段仍只读标签、无需读评论。
-缺点：需为每个 agent **动态创建 label**（`ensure_prerequisites` 的幂等自举只预建固定的 4 个流程标签），
-标签会随 agent 增殖污染仓库标签空间，且「过期回收别家标签」又要跨 agent 删标签、退回互删风险；
-时戳仍需 remove-then-add 自家标签。**取舍**：评论账本天然 append-only、有序、自带 `created_at` 与作者，
-比动态标签更契合「只增不删 + 唯一赢家」的需求，故不选 A。
+**Alternative A: dynamic ownership labels `dispatching:<agent_id>` (a label variant of the issue's proposed fix 2·1).**
+Each agent claims with its own label and reclaims/refreshes only its own. Advantages: ownership stays at the label layer, discovery still reads only labels, and no comment reads are needed.
+Disadvantages: a label must be **created dynamically for each agent** (the idempotent bootstrap in `ensure_prerequisites` pre-creates only the fixed 4 workflow labels);
+labels proliferate with agents and clutter the repository's label namespace, while “reclaim another agent's expired label” again requires deleting labels across agents, returning to the risk of mutual deletion;
+timestamps still require remove-then-add on the agent's own label. **Tradeoff**: the comment ledger is naturally append-only and ordered, and comes with `created_at` and an author,
+making it a better fit than dynamic labels for the requirement “add only, never delete + unique winner”; therefore A is not selected.
 
-**备选 B：只做阶段一止血（resume 免认领），不做归属/退让。** 最小改，能止住「进 solving 后互撕」。
-缺点：残留窗口①与「无归属标签仍会被 fresh 首认领时的 remove-then-add 撕一次」未解，仍可能偶发各自开 PR。
-**取舍**：issue 明确倾向「阶段一止血 → 阶段二 1+2 组合治本」，只做 B 达不到「同一 issue 任一时刻单一有效认领」
-的期望行为，故 B 仅作为 T4 的第一步、不作为终态。
+**Alternative B: implement only the phase-one mitigation (claim-free resume), without ownership/retreat.** The smallest change, capable of stopping “mutual removal after entering solving.”
+Disadvantages: residual window ① and “a label without ownership is still removed once by remove-then-add during an initial fresh claim” remain unresolved, so each backend could still occasionally open its own PR.
+**Tradeoff**: the issue explicitly favors “phase-one mitigation → phase-two combination of 1+2 to address the root cause”; B alone cannot achieve the expected behavior of “a single effective claim on the same issue at any given time.”
+B is therefore only the first step of T4, not the final state.
 
-**备选 C：PR 层兜底去重（按 issue 号检测重复 draft PR、自动关较晚/较空者）作为主线。**
-issue 建议修法 2·3。缺点：是「最后防线、不替代 1/2」，且自动关别人的 PR 破坏性更大、判定「较空」易误伤。
-**取舍**：本 spec 以「认领层根治」为主线，PR 层兜底列入 Future possibilities，不作为主交付。
+**Alternative C: make PR-level fallback deduplication the main approach (detect duplicate draft PRs by issue number and automatically close the later/less substantial one).**
+The issue's proposed fix 2·3. Disadvantages: it is “the last line of defense, not a substitute for 1/2”; automatically closing someone else's PR is also more destructive, and judging which is “less substantial” can easily close the wrong one.
+**Tradeoff**: this spec takes “addressing the root cause at the claim layer” as its main approach, and lists PR-level fallback under Future possibilities rather than making it a primary deliverable.
 
 ## Prior art
 
-- **rust-lang/rfcs 的 RFC 形态**（本 spec 9 段结构本身，https://github.com/rust-lang/rfcs）。
-- **乐观并发控制 / read-after-write**：本设计的「贴便签→重读→末位退让」等价于无锁乐观 CAS 的
-  「compare-and-retreat」，是无中心协调者场景的常见弱一致手法（对比 DB 的 `SELECT ... FOR UPDATE` 悲观锁，
-  这里刻意选乐观以避免引入锁服务）。
-- **本仓库前序认领标签方案**（第 4 个流程标签 + 过期回收）是本 spec 的直接改造对象——现状与其缺陷已在
-  Motivation 就地复述完整，本节仅作线索，不承载理解本 spec 所需的任何必要信息。
+- **The RFC format used by rust-lang/rfcs** (the 9-section structure of this spec itself, https://github.com/rust-lang/rfcs).
+- **Optimistic concurrency control / read-after-write**: this design's “post a note → reread → retreat based on the last position” is equivalent to
+  “compare-and-retreat” in lock-free optimistic CAS, a common weak-consistency technique in scenarios without a central coordinator (compare the pessimistic lock of a DB's `SELECT ... FOR UPDATE`;
+  optimism is deliberately chosen here to avoid introducing a lock service).
+- **This repository's preceding claim-label scheme** (the 4th workflow label + expiry reclamation) is the direct target of this spec's changes—the current state and its defects have already been
+  restated in full in Motivation. This section provides only a reference and carries no information essential to understanding this spec.
 
 ## Unresolved questions
 
-- **`CLAIM_EXPIRY_SECONDS` 是否需要因「便签年龄」语义微调？** 迁移数据源后过期阈值是否仍取原值，
-  留待实现时用集成测试标定（T5）。
-- **认领便签是否需要在开出 draft PR 后清理/归档？** 当前 `_release_claim` 只摘标签；便签留存有审计价值
-  但增噪声，是否加一条「已开 PR」收尾便签或折叠旧便签，待评审确认。
-- **两后端便签 `created_at` 撞同一秒的 tie-break。** 概率极低；是否需要 `agent_id` 字典序等确定性
-  tie-break，还是交给 PR 层兜底（Future possibilities），待评审取舍。
+- **Does `CLAIM_EXPIRY_SECONDS` need adjustment for the semantics of “note age”?** Whether the expiry threshold should retain its original value after
+  migrating the data source is left for calibration through integration tests during implementation (T5).
+- **Should claim notes be cleaned up/archived after a draft PR is opened?** Currently, `_release_claim` only removes the label; retaining notes has audit value
+  but adds noise. Whether to add a closing “PR opened” note or collapse old notes awaits review.
+- **Tie-breaking when the two backends' note `created_at` values fall within the same second.** The probability is extremely low; whether a deterministic
+  tie-break such as lexicographic `agent_id` order is needed, or whether to leave it to the PR-level fallback (Future possibilities), awaits review.
 
 ## Future possibilities
 
-- **PR 层兜底去重（备选 C 落地）**：偶发双开时按 issue 号检测重复 draft PR、自动关掉较晚/较空的一个，
-  作为认领层之外的最后一道防线（不替代本 spec 的归属+退让）。
-- **认领便签折叠/清理**：开 PR 后归档历史认领便签，降低 issue 评论噪声。
-- **把「认领」抽象成可复用的轻量租约原语**：若未来更多跨后端资源（分支、worktree、评审配额）也需
-  去重，可把「署名便签 + 二次确认退让」提炼成通用租约模块。
-
+- **PR-level fallback deduplication (implementing alternative C)**: when duplicate PRs are occasionally opened, detect duplicate draft PRs by issue number and automatically close the later/less substantial one,
+  as the final line of defense beyond the claim layer (not a substitute for this spec's ownership+retreat).
+- **Claim-note collapsing/cleanup**: archive historical claim notes after opening a PR to reduce noise in issue comments.
+- **Abstract “claiming” into a reusable lightweight lease primitive**: if more resources shared across backends (branches, worktrees, review quotas) also need
+  deduplication in the future, “signed note + recheck-and-retreat” can be extracted into a general-purpose lease module.

@@ -1,25 +1,8 @@
-"""RFC-0005 T1: worktree 生命周期 + git 封装（从 orchestrator 抽出）。
+# RFC-0005
+"""Manage isolated worktrees and their Git lifecycle.
 
-Spec-0089/T1: verify clean published delivery, read candidate heads and safely fast-forward
-behind-only worktrees without discarding interrupted implementation.
-
-把 issue 求解所需的 git/worktree 机制收敛到一个**只懂 git** 的模块：不感知
-GitHub / backend / state。orchestrator 的原子操作借本模块完成「确保工作区」与
-「提交推送」，从而把 git 关注点与 GitHub/状态等关注点解耦（RFC-0005 决策 3）。
-
-RFC-0003 的 worktree 隔离与基线锁定语义在此原样保留：每 issue 独立 worktree、
-从 `origin/<base>` 拉分支；iterate/续写复用既有 worktree、缺失则重建。所有 git 操作走 subprocess。
-
-# Spec-0056/T1（决策 7 修订）：由「绝不 force-push」改为**绝不裸 force-push；允许
-`--force-with-lease`，且仅限 agent 自己的工作分支（派单/迭代 `openagents/issue-<n>`、反向补全
-`openagents/backfill-<slug>`），不得作用于 main / 受保护分支 / 他人分支**。交付（含分叉后
-rebase 解冲突 + `push --force-with-lease`）
-下放给 agent（prompt 软约束，见 orchestrator._GIT_DELIVERY_PROTOCOL）；harness 自身
-**不执行** force-with-lease，只留一道只读硬闸 `assert_delivered`（断言成果真的推上远端）。
-# Spec-0056/T4：原 `commit_and_push`（harness 代 agent 提交推送）随 run_e2e 证据交付也下放 executor
-agent 后**已无生产调用方**，按理念 1（如无必要勿增实体）删除——本模块交付侧只剩 `assert_delivered`
-一道只读硬闸，harness 不再有任何「agent 执行完后代 commit/push」的死代码；worktree 建/拉/清等**编排**
-git（agent 无法自建沙箱）仍留本模块。
+Never use a bare force push. An explicit --force-with-lease is limited to the
+current openagents/issue- branch, never main or another issue branch.
 """
 
 from __future__ import annotations
@@ -31,58 +14,58 @@ import subprocess
 import threading
 from pathlib import Path
 
-# RFC-0003 决策 1：每 issue 的隔离 worktree 根目录（.openagents/ 已被 .gitignore 忽略）。
+# RFC-0003 Decision 1: The isolated worktree root directory for each issue (.openagents/ has been ignored by.gitignore).
 _WORKTREE_SUBDIR = Path(".openagents") / "worktrees"
 _CONFLICT_WORKTREE_SUBDIR = Path(".openagents") / "conflict-worktrees"
 
-# Spec-0068/T1: 进程级 git-mutation 串行锁——照抄 RuntimeState._LOCK 同款模式
-# （openagents/runtime/state.py）。守夜 K 个 worker 并发对**同一主仓 .git** 跑
-# prepare/ensure（fetch + worktree remove/prune/add + branch -D）会争 packed-refs.lock /
-# worktree 管理锁，且 worktree prune 是跨 worker 的全局副作用可误清他人半成品（P2）。
-# 把这段秒级的共享 .git 变更整段串行化：起草+reconcile 是分钟级，串行几乎不损失并行度却一次
-# 消掉全部三类竞态；prune 落在同一把锁内故再不会与并发 add 相撞。用 Lock 而非 RLock——变更段
-# 不自嵌套，互斥即够。模块级（非实例级）因每次调用都 new 一个 Workspace，实例锁串不起跨 worker。
-# commit_and_push（各 worktree 私有 index）与 assert_delivered（纯读）天然隔离，不进锁。
+# Spec-0068/T1: process level git-mutation serial lock - copy RuntimeState._LOCK
+# (openagents/runtime/state.py). Watch K and send a pair of ** main warehouse. Git** run
+# prepare/ensure（fetch + worktree remove/prune/add + branch -D）- Yes, it is. packed-refs.lock /
+# Worktree management lock, and worktree rune is a cross-worker-wide side effect that can mistook a person 's half-finished product (P2).
+# Share this second indent.get change the whole line: Draft +reconcile is a minute, and the line almost loses the parallel once
+# Remove all three types of competition; preune is in the same lock and will no longer collide with the side-haired add. Use Lock instead of Rock -- Change
+# Without a trap, a mutually exclusive approach is sufficient. The module level (non-example level) is not able to cross the worker because each call is new and a workspace.
+# commit_and_push(each) worktree Private index）with assert_delivered(Pretty reading) Natural isolation, not locking.
 _GIT_MUTATION_LOCK = threading.Lock()
 
-# Spec-0035/T2: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
-# 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
+# Spec-0035/T2: The number of hours of time-out seconds for the sub-process network (coordinate github._GH_TIMEOUT_SECONDS = 30; only triggered when the real card is stuck).
+# Each of the three modules has one (git.py/workspace.py/release.py) and is replaced by zero import coupling (see spec Nationale Option 1).
 _GIT_NET_TIMEOUT_SECONDS = 30
 
-# 2026-06-24 spec-markdown-form：spec 组 = 单文件 NNNN-slug.md（slug 以字母起，
-# 排除 dated 设计文档 YYYY-MM-DD-*.md）。
+# 2026-06-24 spec-markdown-form: spec group = single file NNNN-slug.md (slug) starts with letters, and the ZVP is now in the middle of the day.
+# Excludes the design document YYYY-MM-DD-*.md.
 _SPEC_GROUP_FILE_RE = re.compile(r"^\d{4}-[A-Za-z].*\.md$")
 
 
 def _short_sha(*, sha: str) -> str:
-    """# Spec-0056/T1：把完整 SHA 截成短摘要用于硬闸报错（空则显式标注，便于人工定位）。"""
-    return sha[:12] if sha else "（空）"
+    """# Spec-0056/T1: Use the full SHA in short summary for hard-lock error reporting (empty-spectrum labels, easy to locate manually)."""
+    return sha[:12] if sha else "(empty)"
 
 
 class WorkspaceError(Exception):
-    """git / worktree 操作失败时抛出，携带 git 的 stderr 摘要。"""
+    """guit / worktree when the operation failed to throw, carry the git stderr summary."""
 
 
 class Workspace:
-    """RFC-0005 T1：只懂 git 的 worktree 工作区管理器（按 work_dir 构造）。"""
+    """RFC-0005 T1: Worktree Workspace Manager (constructed by work_dir) with only guit."""
 
     def __init__(self, *, work_dir: Path) -> None:
         self._work_dir = Path(work_dir)
 
     def prepare(self, *, issue_number: int, branch: str, base: str) -> Path:
-        """准备 issue worktree；远端已有成果时恢复该分支，否则从最新基线创建。"""
+        """Prepares issue worktree; restores the branch when results are available at the remote end, otherwise created from the latest baseline."""
         path = self._worktree_path(issue_number=issue_number)
-        # Spec-0068/T1: 整段共享 .git 变更（fetch→remove→prune→branch -D→add）持锁串行，
-        # 消除 K worker 并发下的 packed-refs / worktree 管理锁竞争与 prune 误清半成品（P2）。
+        # Spec-0068/T1: Share the whole .get change (fetch → remove → prene → brancy_Dzaadd) with a chained line,
+        # Eliminated Kworker and released packed-refs / worktree management lock competition with prune half-finished (P2).
         with _GIT_MUTATION_LOCK:
-            # 决策 2：起草前先拉最新 base（fetch 不触碰用户当前检出）。
+            # Decision 2: Draw up the latest base before drafting (fetch does not touch current user check).
             self._git(args=["fetch", "origin", base], cwd=self._work_dir, check=True)
-            # 重试必须延续已经推送的 issue 分支。若仍从 base 重建，首次调用成功交付的
-            # Spec/代码会被丢弃，后续模型只能重复起草，并最终形成相互竞争的实现。
+            # Retry must continue the already sent issue branch. If you are still rebuilt from base, you will be called for the first successful delivery.
+            # Spec/codes are discarded, and follow-up models can only be drafted over and eventually become competitively achieved.
             resume_remote = self.remote_branch_exists(branch=branch)
             if resume_remote:
                 self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=True)
-            # 决策 4：幂等清理同 issue 可能残留的 worktree 与本地分支（失败忽略）。
+            # Decision 4: The equivalent of the possible worktree left by the issue and local branch (failed to ignore).
             self._git(
                 args=["worktree", "remove", "--force", str(path)], cwd=self._work_dir, check=False
             )
@@ -97,11 +80,11 @@ class Workspace:
         return path
 
     def ensure(self, *, issue_number: int, branch: str) -> Path:
-        """RFC-0003 决策 5：复用既有 worktree；缺失则从远端分支重建。"""
+        """RFC-0003 Decision 5: Reuse existing worktree; the missing is rebuilt from a remote branch."""
         path = self._worktree_path(issue_number=issue_number)
         if path.exists():
             return path
-        # Spec-0068/T1: 续写路径同样 fetch + worktree add 共享 .git，整段持锁串行（同 prepare）。
+        # Spec-0068/T1: Continue path is also setch + worktree add shared.git, whole locked line (same as prepare).
         with _GIT_MUTATION_LOCK:
             self._git(args=["fetch", "origin", branch], cwd=self._work_dir, check=False)
             self._git(args=["worktree", "add", str(path), branch], cwd=self._work_dir, check=True)
@@ -168,26 +151,26 @@ class Workspace:
         return False
 
     def assert_delivered(self, *, worktree: Path, branch: str) -> None:
-        """# Spec-0056/T1：断言没有未提交成果，且本地 HEAD 已推到远端 <branch>。
+        """#Spec-0056/T1: It is asserted that no results were submitted and local HEAD has been pushed to a remote <branch>.
 
-        agent 交付后（commit → 记 fetch 前 BASE → rebase 解冲突 → push --force-with-lease）由
-        harness 调用：检查工作区（允许 Git 已忽略的缓存），成功 `git fetch origin <branch>` 后取
-        `git rev-parse origin/<branch>` 与 `git rev-parse HEAD` 对比——相等 = 已交付放行；
-        不等 = agent 自判完成却没推上去（正是 issue #140 的复现场景）→ 抛 WorkspaceError（携双
-        SHA 摘要）。远端无该分支（rev-parse 失败）视作「未交付」→ 抛（agent 理应已 push 建分支）。
+        After delivery (committee  →  setch  →  rebase resolve conflict  →  push --force-with-lease) by
+        Harness Call: Checking Workspace (allowing Git’s ignored cache), successful `git fetch origin <branch>`
+        `git rev-parse origin/<branch>` vs. `git rev-parse HEAD` - Same = released;
+        = agent self-determination completed without pushing it up and throwing Workspace Error.
+        SHA Summary. Far from the branch (rev-parse failed) is considered as ”undelivered” throw (agent should have push-built branch).
 
-        只刷新跟踪 ref，不改工作区、不感知 GitHub/backend（守 RFC-0005「只懂 git」边界）；harness 绝不代
-        agent force-push（决策 7），本闸只判「到没到」。routing（打 automation-failed）留在 orchestrator。
+        Ref only updated tracking, unremarked GitHub/backend (watching RFC-0005 ”Only GIT” borders); Harness never acts
+        The gate is only ”unattendable” (offerment decision 7) and is left in order.
 
-        版本假设（PR #141 review 次要项）：依赖 `git fetch origin <branch>` 会刷新本地
-        `origin/<branch>` 跟踪 ref，随后 `rev-parse origin/<branch>` 才读得到最新远端 head——该行为需
-        git ≥ 1.8.4（更早版本 fetch 不更新单分支跟踪 ref）。开发/CI 环境 git 均远超此版，故不做运行时探测。
+        Version assumption (PR #141 review minor): Reliance on `git fetch origin <branch>` will refresh local
+        `origin/<branch>` Track ref, and then `rev-parse origin/<branch>` I read the latest far end. head——Requirement of the act
+        glit gi (1.8.4 (early version of the setch does not update single branch tracking ref). The development/CI environment guit is much higher than this version and therefore does not run-time detection.
         """
         head_sha, remote_sha = self.delivery_heads(worktree=worktree, branch=branch)
         if remote_sha != head_sha:
             raise WorkspaceError(
-                f"分支 {branch} head 未前移、疑似未交付："
-                f"origin/{branch}={_short_sha(sha=remote_sha)} ≠ 本地 HEAD={_short_sha(sha=head_sha)}"
+                f"branch {branch} not delivered: remote and local heads differ; "
+                f"origin/{branch}={_short_sha(sha=remote_sha)} and local HEAD={_short_sha(sha=head_sha)}"
             )
 
     def delivery_heads(self, *, worktree: Path, branch: str) -> tuple[str, str]:
@@ -202,7 +185,7 @@ class Workspace:
             args=["status", "--porcelain", "--untracked-files=all"], cwd=worktree, check=True
         )
         if status.stdout.strip():
-            raise WorkspaceError(f"分支 {branch} 未交付：工作区仍有未提交文件")
+            raise WorkspaceError(f"branch {branch} not delivered: worktree has uncommitted changes")
         self._git(args=["fetch", "origin", branch], cwd=worktree, check=True)
         remote = self._git(args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=False)
         head = self._git(args=["rev-parse", "HEAD"], cwd=worktree, check=True)
@@ -210,17 +193,17 @@ class Workspace:
         remote_sha = remote.stdout.strip()
         if remote.returncode != 0 or not remote_sha:
             raise WorkspaceError(
-                f"分支 {branch} 未交付：远端无 origin/{branch}"
-                f"（本地 HEAD={_short_sha(sha=head_sha)}，疑似 agent 未 push）"
+                f"branch {branch} not delivered: missing remote branch origin/{branch}"
+                f"(local HEAD=){_short_sha(sha=head_sha)}- I don’t think so."
             )
         if not head_sha:
-            raise WorkspaceError(f"分支 {branch} 无法读取本地 HEAD")
+            raise WorkspaceError(f"branch {branch} Unable to read local HEAD")
         # Spec-0017: fetching may take time; reject source dirt introduced during IO too.
         status = self._git(
             args=["status", "--porcelain", "--untracked-files=all"], cwd=worktree, check=True
         )
         if status.stdout.strip():
-            raise WorkspaceError(f"分支 {branch} 未交付：工作区仍有未提交文件")
+            raise WorkspaceError(f"branch {branch} not delivered: worktree has uncommitted changes")
         return head_sha, remote_sha
 
     def sync_delivered(self, *, worktree: Path, branch: str) -> bool:
@@ -240,7 +223,7 @@ class Workspace:
             args=["rev-parse", f"origin/{branch}"], cwd=worktree, check=True
         ).stdout.strip()
         if not head or not remote:
-            raise WorkspaceError(f"分支 {branch} 无法读取本地或远端 HEAD")
+            raise WorkspaceError(f"branch {branch} Unable to read local or remote HEAD")
         if head == remote:
             return True
         ancestor = self._git(
@@ -249,25 +232,27 @@ class Workspace:
         if ancestor.returncode == 1:
             return False  # Ahead/diverged: preserve every local commit for the delivery agent.
         if ancestor.returncode != 0:
-            raise WorkspaceError(f"分支 {branch} 无法判断祖先关系：{ancestor.stderr.strip()}")
+            raise WorkspaceError(
+                f"branch {branch} I can’t judge the relationship:{ancestor.stderr.strip()}"
+            )
         self._git(args=["merge", "--ff-only", f"origin/{branch}"], cwd=worktree, check=True)
         return True
 
     def changed_spec_groups(self, *, worktree: Path, base: str) -> list[Path]:
         """Locate every spec group markdown file this branch touches, via git diff vs base.
 
-        2026-06-24 spec-markdown-form：spec 组现为单文件 docs/specs/NNNN-slug.md。用
-        `git diff --name-only origin/<base>...HEAD -- docs/specs/` 取本分支改动的组文件
-        （排除 OVERVIEW.md / ARCHITECTURE.md / README.md / dated 设计文档），返回其在 worktree
-        下的绝对路径列表。只读 git，不抛业务错。
+        2026-06-24 spec-markdown-form: spec group is now a single file docs/specs/NNNN-slug.md.
+        `git diff --name-only origin/<base>...HEAD -- docs/specs/` Group File to Fetch Changes to this Branch
+        (Excludes OVERVIEW.md / ARCHITECTURE.md / README.md / designed document) returns it in worktree
+        list of absolute paths. Read only guit, do not drop business errors.
         """
-        # 1. 列出本分支相对 base 改动的 docs/specs/ 文件（三点 diff：仅本分支侧的改动）。
+        # 1. Lists docs/specs/ files (three points diff: changes to the side of this branch only) that have been changed by this branch relative to base.
         result = self._git(
             args=["diff", "--name-only", f"origin/{base}...HEAD", "--", "docs/specs/"],
             cwd=worktree,
             check=False,
         )
-        # 2. 取所有 NNNN-slug.md 组文件（路径第三段；排除生成物/README/dated 文档）。
+        # 2. Take all NNNN-slug.md group files (third segment of the path; exclusion of the generator /README/dated document).
         paths = []
         for line in result.stdout.splitlines():
             rel = line.strip()
@@ -285,11 +270,11 @@ class Workspace:
         return paths[0] if paths else None
 
     def remote_branch_exists(self, *, branch: str) -> bool:
-        """远端是否已存在该分支（`git ls-remote --heads`）。
+        """Whether the branch (`git ls-remote --heads`) exists at a remote end.
 
-        # Spec-0035/T2: ls-remote 走网络。check=False 下 `_git` 的 WorkspaceError **唯一来源**即超时转换
-        # （普通非零退出在 check=False 下正常返回 CompletedProcess、不抛），故这层 catch 精确等价「超时→True」、
-        # 不误吞真实失败——保守判「可能在途」→ 本轮跳过、下轮重试，绝不误判「无分支」而重复派单（fail-open）。
+        # Spec-0035/T2: ls-remote go network. check=WorkspaceError under `_git`** sole source**
+        # (normal non-zero exit normally returns Completed Process under check = False) so this level of catch exact equivalents ”overtime”
+        #Do not misapprove the true failure # — conservative judgment ”may be on the way” — skips this round, retries the next round, never repeats the ”no branch” by misjudgement (fail-open)
         """
         try:
             result = self._git(
@@ -302,15 +287,15 @@ class Workspace:
         return bool(result.stdout.strip())
 
     def _worktree_path(self, *, issue_number: int) -> Path:
-        """RFC-0003 决策 1：每 issue 的 worktree 确定式派生路径（不持久化）。"""
+        """RFC-0003 Decision 1: The defined worktree path for each issue (not durable)."""
         return self._work_dir / _WORKTREE_SUBDIR / f"issue-{issue_number}"
 
     def _git(self, *, args: list[str], cwd: Path, check: bool) -> subprocess.CompletedProcess[str]:
-        """在 cwd 内运行一条 git 子命令；check=True 时非零退出抛 WorkspaceError。
+        """Runs a guit sub-command in cwd; check =True does not exit at zero for workspaceError.
 
-        # Spec-0035/T2: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（fetch/ls-remote）卡满即中断，
-        # 归一为既有 WorkspaceError（覆盖 prepare/ensure/assert_delivered 三个 fetch 调用方 → 落既有
-        # per-issue/per-round 隔离，不掀翻整轮）；本地 git（worktree/rev-parse/diff/branch）只拿无害上限。
+        #Spec-0035/T2: Pass = _GIT_NET_TIMEOUT_SECONDS — Internet git (fetch/ls-remote) is blocked and the #system is broken.
+        # WorksspaceError (overcovering prepare/ensure/assert_delivered three setch callers)
+        # per-issue/per-round quarantine, without lifting the wheel; local git (worktree/rev-parse/diff/branch) is only up to the limit of no harm.
         """
         try:
             result = subprocess.run(
@@ -321,9 +306,11 @@ class Workspace:
             )
         except subprocess.TimeoutExpired:
             raise WorkspaceError(
-                f"git {' '.join(args)} 超时（{_GIT_NET_TIMEOUT_SECONDS}s）"
+                f"git {' '.join(args)} Timeout (Performance){_GIT_NET_TIMEOUT_SECONDS}s）"
             ) from None
         if check and result.returncode != 0:
-            reason = result.stderr.strip() or f"git {' '.join(args)} 返回码 {result.returncode}"
+            reason = (
+                result.stderr.strip() or f"git {' '.join(args)} Return Code {result.returncode}"
+            )
             raise WorkspaceError(reason)
         return result

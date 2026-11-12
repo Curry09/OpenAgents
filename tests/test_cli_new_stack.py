@@ -1,11 +1,11 @@
-"""Spec-0064/T5: CLI 收敛为四命令 + 隐藏 reply-comment + YAML/flag 覆盖 + 签名硬化契约测试。
+"""Spec-0064/T5: CLI Condense as Four Commands + Hide Reply-Commment + YAML/flag Overwrite + Scorching Compact Test.
 
-薄路由验证（打桩 recipe/工厂，不真跑守夜、不触真实 gh/后端）：
-  - 人面向仅 vigil/issue/backfill-rfc/release 在册；旧九命令（rfc/refine-rfc/implement/iterate/
-    solve/poll/watch/vigil-all/fleet）不再注册；reply-comment 仍可解析（隐藏，help=SUPPRESS）。
-  - _effective_config：YAML 单一真源 + --skip 单次覆盖并存；非法旁路与零闸报错。
-  - backfill-rfc 转发 recipes.backfill；reply-comment 转发 identity.post_signed_comment。
-  - post_signed_comment 同步后校验漏签 → 补签（非只 warn）。
+Thin route (stabbing pillar recipe/workshop, not really running Vigil, not touching real gh/back end):
+  - Persons are only on vigil/issue/backfill-rfc/release; old nine commands (rfc/refine-rfc/implement/iterate/)
+    solve/poll/watch/vigil-all/fleet is no longer registered; reply-comment can still be deciphered (hidden, help=SUPPRESS).
+  - _effective_config: YAML Single Source + --skip One-time cover; illegal sidewalks and zero locks report errors.
+  -backfill-refc forward recipes.backfill; reply-comment forward identity.post_signed_comment.
+  - post_signed_comment synced and verified the missing signature  →  supplementary signature (not just warn).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _stub_project(monkeypatch, ctx):
 
 
 # --------------------------------------------------------------------------- #
-# 解析：四命令在册 + 旧九命令下线 + reply-comment 隐藏
+# Parsing: Four Commands in Book + the old nine commands downline + fully-comment hidden
 # --------------------------------------------------------------------------- #
 
 
@@ -91,7 +91,7 @@ def test_vigil_parses_override_flags():
 
 
 # --------------------------------------------------------------------------- #
-# _effective_config：YAML 单一真源 + flag 单次覆盖
+# _effective_config: YAML Single Real Source + flag One-time overwrite
 # --------------------------------------------------------------------------- #
 
 
@@ -138,12 +138,12 @@ def test_retired_hold_flag_is_rejected_by_parser():
 
 def test_effective_config_zero_gate_override_raises(tmp_path):
     ctx = _FakeCtx(tmp_path)
-    with pytest.raises(ValueError, match="不许零闸"):
+    with pytest.raises(ValueError, match="Automatic merge requires agent review"):
         _effective_config(ctx=ctx, args=_vigil_args(skip="review"))
 
 
 # --------------------------------------------------------------------------- #
-# 转发：backfill-rfc / reply-comment
+# Forward: Backfill-refc /reply-comment
 # --------------------------------------------------------------------------- #
 
 
@@ -176,7 +176,7 @@ def test_reply_comment_forwards_signed(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# 签名硬化：同步后校验漏签 → 补签（非只 warn）
+# Comment signing: route the request and verify the final signature.
 # --------------------------------------------------------------------------- #
 
 
@@ -192,11 +192,13 @@ def test_post_signed_comment_verifies_and_fixes_missing_signature(monkeypatch):
         identity_mod.github,
         "list_comments",
         lambda *, pr_number: [
-            Comment(id="1", author="a", body="裸回复无签名", created_at="2026-01-01")
+            Comment(
+                id="1", author="a", body="No signature for naked reply", created_at="2026-01-01"
+            )
         ],
     )
-    identity_mod.post_signed_comment(pr_number=1, body="回复", agent_id="AID")
-    assert len(posted) == 2  # 签名回复 + 补签（非只 warn）
+    identity_mod.post_signed_comment(pr_number=1, body="Reply", agent_id="AID")
+    assert len(posted) == 2  # Sign Reply + Backup (not just Warn)
     assert "openagents:agent=AID" in posted[1]
 
 
@@ -215,10 +217,10 @@ def test_post_signed_comment_no_fix_when_signature_present(monkeypatch):
             Comment(
                 id="1",
                 author="a",
-                body="回复\n\n<!-- openagents:agent=AID -->",
+                body="Reply\n\n<!-- openagents:agent=AID -->",
                 created_at="2026-01-01",
             )
         ],
     )
-    identity_mod.post_signed_comment(pr_number=1, body="回复", agent_id="AID")
-    assert len(posted) == 1  # 只有原始签名回复，无补签
+    identity_mod.post_signed_comment(pr_number=1, body="Reply", agent_id="AID")
+    assert len(posted) == 1  # Only original signature reply, no backup

@@ -1,12 +1,12 @@
 ---
 number: "0055"
-title: e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
+title: "e2e v2: capability awareness + direct specification input + combined review (redesign of 0040)"
 issue: 123
 slug: e2e-v2-capability-aware
-summary: 把 e2e 从 0040 的「form 分派 + runbook 定稿 + 独立证据闸」三层机械脚手架，重设计为「启动时固化浏览器能力状态量 → RFC 写 prose 测法（能力决定要不要求截图）→ 独立 executor agent 运行时自检工具真跑并把截图/声明写进 docs/e2e-results/<pr>/ → 现有 review 同时判代码+证据（reviewer 亲眼看图）」，砍掉 finalize_runbook/form 枚举/独立 evidence_gate；流水线在 CI 后跑 executor 再 review，配源码指纹（排除证据目录）幂等闸与 sticky 复用，证据 commit 意外弄红 CI 走 bad_ci_after_e2e 挂起。
+summary: "Redesign e2e from 0040's three layers of mechanical scaffolding—“form dispatch + runbook finalization + standalone evidence gate”—into “persist the browser capability state at startup → write prose test methods in the RFC (capability determines whether screenshots are required) → have an independent executor agent check its tools at runtime, perform actual runs, and write screenshots/statements into docs/e2e-results/<pr>/ → have the existing review assess both code and evidence (the reviewer personally views the images).” Remove finalize_runbook/form enumerations/the standalone evidence_gate; the pipeline runs the executor after CI, then review, with an idempotency gate based on a source fingerprint (excluding the evidence directory) and sticky reuse. If an evidence commit unexpectedly causes CI to fail, suspend via bad_ci_after_e2e."
 tasks:
   - id: T1
-    title: 能力状态量：envcheck 结构化 + 启动固化进 state + cli 接线
+    title: "Capability state: structured envcheck + persistence into state at startup + CLI wiring"
     status: done
     priority: P1
     tags: []
@@ -20,10 +20,10 @@ tasks:
       - tests/test_envcheck.py
       - tests/test_state.py
       - tests/test_cli.py
-    scope: envcheck 扩出 ui_capable()->bool（browser MCP 在册 ∧ bypassPermissions）；State 增顶层 ui_capable 字段 + set/get_ui_capable；cli 的 vigil/poll/init 入口起 Messages/Orchestrator 前调 envcheck.ui_capable() 固化进 state.json（每次启动重写）。
-    acceptance: 单测：ui_capable() 两态正确；set/get_ui_capable 落盘往返；cli 入口固化调用被打桩验证。ruff + pytest 通过。
+    scope: "Extend envcheck with ui_capable()->bool (browser MCP is registered ∧ bypassPermissions); add a top-level ui_capable field and set/get_ui_capable to State; at the cli vigil/poll/init entry points, call envcheck.ui_capable() before starting Messages/Orchestrator and persist it into state.json (overwrite on every startup)."
+    acceptance: "Unit tests: ui_capable() returns the correct value in both states; set/get_ui_capable round-trips through disk; verify the persistence call at the cli entry points using stubs. ruff + pytest pass."
   - id: T2
-    title: spec e2e 段瘦身：{intent,method} 换 {form,intent,acceptance}，砍 form 枚举
+    title: "Streamline the spec e2e section: replace {form,intent,acceptance} with {intent,method}, and remove the form enumeration"
     status: done
     priority: P1
     tags: []
@@ -40,10 +40,10 @@ tasks:
       - tests/test_spec_validate.py
       - tests/test_spec_render.py
       - tests/test_spec_signpost.py
-    scope: e2e 块从 {form∈枚举,intent,acceptance[]} 改为 {intent:str, method:str prose 测法}；退役 E2E_FORM_VALUES；validate 要求 intent/method 非空（无 e2e 块向后兼容）；render/signpost 改渲 intent+method。
-    acceptance: 单测：新格式 validate 通过、旧枚举字段不再被 schema 认；render/signpost 显示 intent+method；无 e2e 块零回归。ruff + pytest 通过。
+    scope: "Change the e2e block from {form∈enumeration,intent,acceptance[]} to {intent:str, method:str prose test method}; retire E2E_FORM_VALUES; validate requires nonempty intent/method (backward compatible when there is no e2e block); change render/signpost to render intent+method."
+    acceptance: "Unit tests: the new format passes validate, and the schema no longer recognizes the old enumeration field; render/signpost display intent+method; no regressions when there is no e2e block. ruff + pytest pass."
   - id: T3
-    title: executor 重写：单一自主 agent 运行时自检真跑，删 form 分派
+    title: "Rewrite the executor: a single autonomous agent checks its tools at runtime and performs actual runs; remove form dispatch"
     status: done
     priority: P1
     tags: []
@@ -54,10 +54,10 @@ tasks:
     files:
       - openagents/executor.py
       - tests/test_executor.py
-    scope: 'run_executor 删 form 形参/_parse_form/_run_by_form；直接把 spec method+intent 塞进 prompt 派独立 agent，要求运行时自检 browser_* 有则开前端截图、无则命令行/HTTP 真跑或如实降级报告，末行 OUTCOME: PASSED|FAILED（不做判决）；证据写 evidence_dir/result.md + 截图；绝不抛错。删 form 相关常量。'
-    acceptance: 单测（假 backend）：run_executor 无 form 形参、把 method 喂进 prompt、outcome 随 OUTCOME 解析、异常→failed 不抛、result.md 落地。ruff + pytest 通过。
+    scope: "Remove the form parameter/_parse_form/_run_by_form from run_executor; put the spec method+intent directly into the prompt and dispatch an independent agent, requiring it to check for browser_* at runtime: if available, open the frontend and take screenshots; otherwise, perform actual command-line/HTTP runs or truthfully report degraded execution. The final line is OUTCOME: PASSED|FAILED (no adjudication); write evidence to evidence_dir/result.md + screenshots; never raise an exception. Remove form-related constants."
+    acceptance: "Unit tests (fake backend): run_executor has no form parameter, feeds method into the prompt, parses outcome from OUTCOME, converts exceptions to failed without raising, and writes result.md to disk. ruff + pytest pass."
   - id: T4
-    title: reviewer 合并职责：RFC 据 ui_capable 分流 + code reviewer 判证据/截图
+    title: "Combine reviewer responsibilities: branch RFC requirements based on ui_capable + have the code reviewer assess evidence/screenshots"
     status: done
     priority: P1
     tags: []
@@ -68,10 +68,10 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer.py
-    scope: _RFC_REVIEW_TASK 加据 ui_capable（透传参数）分流的截图测法要求；_CODE_REVIEW_TASK 反转 0040/T4——改为读 docs/e2e-results/<pr>/ 证据（result.md + Read 打开截图）对照 intent 判运行时行为，截图对不上→REWORK，并入 0044 无证据=REWORK；review() 增 ui_capable 形参。
-    acceptance: 单测：_CODE_REVIEW_TASK 含判证据/截图措辞、不再含不判运行时行为；_RFC_REVIEW_TASK 据 ui_capable 分流；review(ui_capable=...) 透传；聚合解析零回归。ruff + pytest 通过。
+    scope: "Add screenshot test-method requirements to _RFC_REVIEW_TASK that branch based on ui_capable (passed through as a parameter); reverse 0040/T4 in _CODE_REVIEW_TASK—change it to read evidence in docs/e2e-results/<pr>/ (result.md + open screenshots with Read) and assess runtime behavior against intent; screenshots that do not match → REWORK. Incorporate 0044's no evidence = REWORK rule; add a ui_capable parameter to review()."
+    acceptance: "Unit tests: _CODE_REVIEW_TASK contains wording about assessing evidence/screenshots and no longer contains wording about not assessing runtime behavior; _RFC_REVIEW_TASK branches based on ui_capable; review(ui_capable=...) passes it through; no regressions in aggregate parsing. ruff + pytest pass."
   - id: T5
-    title: 编排+github：删 finalize_runbook + run_e2e 幂等 + code_fingerprint 排除证据目录
+    title: "Orchestration + github: remove finalize_runbook + make run_e2e idempotent + exclude the evidence directory from code_fingerprint"
     status: done
     priority: P1
     tags: []
@@ -85,10 +85,10 @@ tasks:
       - openagents/github.py
       - tests/test_orchestrator.py
       - tests/test_github.py
-    scope: orchestrator 删 finalize_runbook；_e2e_plan 读新 {intent,method}；新增 run_e2e(pr_number)——算源码指纹（排除证据目录）与 record.e2e_ran_fingerprint 比对，变了才 executor.run_executor+commit 证据+更新指纹，没变返回 reused；ui_capable 透传给起草/reviewer。github.code_fingerprint 加 exclude_paths 参数（默认排除 docs/e2e-results/）。
-    acceptance: 单测（假 backend/github）：run_e2e 指纹变则跑+commit、没变则复用不重跑；code_fingerprint 排除证据目录；无 e2e 段返回 None。ruff + pytest 通过。
+    scope: "Remove finalize_runbook from orchestrator; have _e2e_plan read the new {intent,method}; add run_e2e(pr_number)—compute the source fingerprint (excluding the evidence directory) and compare it with record.e2e_ran_fingerprint; only if it has changed, run executor.run_executor + commit the evidence + update the fingerprint; if unchanged, return reused. Pass ui_capable through to drafting/the reviewer. Add an exclude_paths parameter to github.code_fingerprint (exclude docs/e2e-results/ by default)."
+    acceptance: "Unit tests (fake backend/github): run_e2e runs + commits when the fingerprint changes, and reuses without rerunning when unchanged; code_fingerprint excludes the evidence directory; return None when there is no e2e section. ruff + pytest pass."
   - id: T6
-    title: messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本
+    title: "Reorder the messages pipeline + sticky + bad_ci_after_e2e + e2e script"
     status: done
     priority: P1
     tags: []
@@ -102,223 +102,224 @@ tasks:
       - openagents/messages.py
       - tests/test_messages.py
       - scripts/e2e-spec-0055-e2e-v2-capability-aware.sh
-    scope: _process_coding 顺序改 ①mergeability→②CI→③run_e2e→④review_code（读证据）→⑤merge；删 _evidence_gate/iterate(e2e)/_block(e2e)；证据 commit 后源码指纹未变则 sticky 复用 PASS+跳 executor、CI 绿直接 merge、不重 review；该轮 CI 红→_block(gate='bad-ci-after-e2e')+额外打 bad_ci_after_e2e GitHub 标签。加 e2e 脚本离线段。
-    acceptance: 单测（假 backend/github）：新顺序、executor 在 review 前、REWORK 走普通 iterate、sticky 直接 merge 不重 review、CI 红走 _block(bad-ci-after-e2e)+双标签+blocked 状态。e2e 脚本离线段绿。ruff + pytest 通过。
+    scope: "Change the _process_coding order to ①mergeability→②CI→③run_e2e→④review_code (read evidence)→⑤merge; remove _evidence_gate/iterate(e2e)/_block(e2e); if the source fingerprint is unchanged after the evidence commit, use sticky reuse of PASS + skip the executor, merge directly when CI is green, and do not repeat review; if CI is red in that round → _block(gate='bad-ci-after-e2e') + additionally apply the bad_ci_after_e2e GitHub label. Add an offline section to the e2e script."
+    acceptance: "Unit tests (fake backend/github): the new order, executor before review, REWORK follows the normal iterate path, sticky merges directly without repeating review, and red CI goes through _block(bad-ci-after-e2e) + both labels + blocked status. The e2e script's offline section passes. ruff + pytest pass."
 ---
 
-# 0055 · e2e v2：能力感知 + 说明书直喂 + 合并 review（重设计 0040）
+# 0055 · e2e v2: Capability Awareness + Direct Test Instructions + Combined Review (Redesign of 0040)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-把 OpenAgents 的 e2e 从 Spec-0040 的「`form` 枚举分派 + `finalize_runbook` 定稿 + 独立证据闸
-（`evidence_gate`）」这套三层机械脚手架，重设计成一条**能力感知、说明书直喂、合并 review** 的流水线：
+Redesign OpenAgents e2e from Spec-0040's three layers of mechanical scaffolding—`form` enum dispatch + `finalize_runbook` finalization + a separate evidence gate
+(`evidence_gate`)—into a **capability-aware pipeline that feeds test instructions directly to the executor and combines review**:
 
 ```
-① 守夜进程启动    envcheck 扫一遍 → 固化「浏览器能力状态量」ui-capable 进 state.json
-② 写 RFC(spec)   e2e 段 = intent(验什么) + prose 测法(怎么测)，无 form、无精确命令；
-                  RFC 起草/评审据 ui-capable 决定「要不要求真实截图」
-③ implement       写功能代码（现状不变）
-④ executor        独立 agent 拿 RFC 那段 prose 测法直接跑，运行时自检工具（有 browser_* 就开前端
-                  截图、没有就如实降级报告），把截图 + result.md 声明写进 docs/e2e-results/<pr>/
-⑤ 合并 review     现有 review_code 同时判「代码 diff + 证据（reviewer 用 Read 亲眼看截图）」——
-                  运行时行为由 reviewer 判，不再有独立证据闸
+① Vigil process starts    envcheck scans once → persist the “browser capability state variable” ui-capable in state.json
+② Write RFC(spec)         e2e section = intent(what to verify) + prose test method(how to test), no form or exact commands;
+                          RFC drafting/review uses ui-capable to decide “whether to require real screenshots”
+③ implement               Write feature code (unchanged)
+④ executor                An independent agent directly runs the prose test method from the RFC, checking its tools at runtime
+                          (if browser_* is available, open the frontend and take screenshots; otherwise, report the fallback honestly),
+                          and writes screenshots + a result.md statement to docs/e2e-results/<pr>/
+⑤ Combined review         Existing review_code assesses both “code diff + evidence (reviewer uses Read to inspect screenshots firsthand)”—
+                          the reviewer judges runtime behavior; there is no longer a separate evidence gate
 ```
 
-砍掉 `finalize_runbook`、`form` 枚举与 `_run_by_form` 分派、独立的 `evidence_gate` 模块与
-`review_evidence`、`iterate(reason=e2e)`/`_block(gate=e2e)` 专属回合预算。流水线在 `_process_coding`
-里的顺序是 **mergeability → CI → executor → review → merge**（executor 在 CI 之后、review 之前，
-因为证据是 review 的对象之一），配一道**源码指纹（排除 `docs/e2e-results/`）幂等闸**避免证据 commit
-自我刷屏、复用 Spec-0053 的 **sticky 复用**（源码没变就不重跑 executor、不重 review、CI 绿即直接
-合），并对「纯 docs 证据 commit 意外把 CI 弄红」这一异常单打 `bad_ci_after_e2e` 标签 + `_block` 挂起。
+Remove `finalize_runbook`, the `form` enum and `_run_by_form` dispatch, the separate `evidence_gate` module and
+`review_evidence`, and the dedicated round budgets for `iterate(reason=e2e)`/`_block(gate=e2e)`. The pipeline order in `_process_coding`
+is **mergeability → CI → executor → review → merge** (executor comes after CI and before review,
+because evidence is one of the objects of review). Add a **source fingerprint idempotency gate (excluding `docs/e2e-results/`)** to prevent evidence commits
+from repeatedly triggering themselves, reuse Spec-0053's **sticky reuse** mechanism (if the source has not changed, do not rerun executor or review; merge directly once
+CI is green), and handle the exceptional case where “a docs-only evidence commit unexpectedly turns CI red” by applying a separate `bad_ci_after_e2e` label + suspending with `_block`.
 
-本组（Spec-0055）落**核心重写**；删除 0040 遗留死码（`evidence_gate.py` 等）与存量 spec 的 e2e 块
-迁移收进后继清扫组（见 Unresolved）。
+This group (Spec-0055) delivers the **core rewrite**; deletion of dead code left over from 0040 (`evidence_gate.py`, etc.) and migration of e2e blocks
+in existing specs are deferred to a subsequent cleanup group (see Unresolved).
 
 ## Motivation
 
-**背景（就地复述，不靠裸引用）。** OpenAgents 是 spec/RFC 驱动的多 agent 框架：守夜人
-`messages.Messages.poll` 每隔一段时间扫所有 open 的 run，按阶段路由。一个 issue 的典型生命：
-`solving`→起 RFC 草稿 PR→`rfc-review`→RFC 获批→`implement` 写码转正→`pr-open`→`_process_coding`
-每轮查 CI/mergeability、CI 绿则 `review_code`（N 个独立 reviewer 投票），全票 PASS 则合并（或
-`hold.at_merge` 停「待人合」），非 PASS 则 `iterate`/攒满 K 轮 `_block` 挂起。e2e 就嵌在这条链路里。
+**Background (restated here, without relying on bare references).** OpenAgents is a spec/RFC-driven multi-agent framework: the Vigil
+`messages.Messages.poll` periodically scans all open runs and routes them by phase. A typical issue lifecycle is:
+`solving` → create an RFC draft PR → `rfc-review` → RFC approved → `implement` writes code and marks the PR ready → `pr-open` → `_process_coding`
+checks CI/mergeability each round; once CI is green, `review_code` runs (N independent reviewers vote); unanimous PASS leads to merge (or
+`hold.at_merge` stops at “awaiting human merge”), while a non-PASS leads to `iterate`/suspension with `_block` after K rounds accumulate. e2e is embedded in this chain.
 
-**Spec-0040 现状（本组要替换的对象）。** 0040 把 e2e 设计成：spec 声明 `e2e{form∈ui|api|cli|backend,
-intent, acceptance[]}` 粗规划 → 代码后 `orchestrator.finalize_runbook` 派实现者把粗规划定稿成
-`docs/e2e-results/<pr>/runbook.md` → `executor.run_executor` 按 `form` 分派（`_run_by_form`）派独立
-agent 真跑 → `evidence_gate.review_evidence` 拿意图对照 `result.md` 判 PASS/FAIL 门控合并。逐行核对
-现有代码后，这套设计有四个结构性问题：
+**Current Spec-0040 design (what this group replaces).** 0040 designs e2e as: the spec declares `e2e{form∈ui|api|cli|backend,
+intent, acceptance[]}` as a rough plan → after coding, `orchestrator.finalize_runbook` assigns the implementer to finalize that rough plan into
+`docs/e2e-results/<pr>/runbook.md` → `executor.run_executor` dispatches by `form` (`_run_by_form`) and assigns an independent
+agent to actually run it → `evidence_gate.review_evidence` compares `result.md` against the intent and returns PASS/FAIL to gate merging. A line-by-line inspection
+of the existing code reveals four structural problems with this design:
 
-1. **招牌能力 `ui` 从未实现，还会拖死 UI PR。** `executor._run_by_form`（`executor.py:150`）对
-   `form==ui` **无条件返回 `skipped`**（Phase 2 留白），但 `run_executor` 仍把这份 skipped 结果写进
-   `result.md`；`evidence_gate.review_evidence`（`evidence_gate.py:118`）见 `result.md` 存在→不触发
-   「缺证据硬 FAIL」→派 agent 拿 skipped 证据对照 UI 意图→判 FAIL→`iterate(e2e)`→攒满 K→`_block`。
-   **老实声明 `form: ui` 的前端 PR 在 Phase 1 下永远过不了、只能被挂起**——唯一出路是人肉把 `form`
-   降级成 `cli`（仓库里唯一一次真实证据闸产出 `docs/e2e-results/128/` 正是这么干的，跑的是离线
-   `ruff+pytest+grep`，浏览器截图「可选、缺失不 FAIL」）。招牌的「真跑 UI」能力从未被行使。
-2. **两套证据机制冗余。** 0040 的运行时证据落 `docs/e2e-results/<pr>/`；Spec-0044 又引入一套**手工**
-   「跑真 app 截图」skill，证据落 `docs/evidence/spec-NNNN/`，且把「宣称验证过但无 tracked 证据=REWORK」
-   塞进**代码 reviewer** 的 rubric（`reviewer.py`）。于是有两个证据目录、两个消费者查不同目录，且
-   0044 让代码 reviewer 查运行时证据，与 0040/T4「代码 reviewer 不判运行时行为」直接张力。
-3. **`form` 分派 + `finalize_runbook` 是过度设计。** `form` 枚举、`_parse_form` 正则、`_run_by_form`
-   分派、外加一个「代码后另起草 runbook」的 `finalize_runbook` 步骤，是把「给 agent 一段测法让它跑」
-   这件简单事拆成三层机械脚手架。历史上（老 `scripts/e2e-*.sh` 时代）**具体命令一贯是代码实现完才由
-   实现者写**（RFC 只含指路牌 + 验收标准，不含命令），说明「命令定在代码后」是反复的正确选择——但把它
-   打包成 runbook 文件是多余的中间物。
-4. **独立证据闸与「合并 review」诉求相悖。** 运行时行为验收本应是 review 的一部分；单拆一个
-   `evidence_gate` 模块 + `review_evidence` + 专属回合预算，增加了状态机复杂度却没有本质收益——
-   reviewer 本就是满配 claude-code agent（`backends/claude_code.py:159` 起 `claude -p` **无
-   `--allowedTools` 限制**），其 `Read` 工具能读 PNG 并可视化喂给多模态模型，**完全能亲眼看截图判**。
+1. **The flagship `ui` capability was never implemented, and it can stall UI PRs indefinitely.** `executor._run_by_form` (`executor.py:150`)
+   **unconditionally returns `skipped`** for `form==ui` (left blank for Phase 2), but `run_executor` still writes this skipped result into
+   `result.md`; `evidence_gate.review_evidence` (`evidence_gate.py:118`) sees that `result.md` exists → does not trigger
+   the “hard FAIL for missing evidence” → assigns an agent to compare the skipped evidence against the UI intent → returns FAIL → `iterate(e2e)` → accumulates K rounds → `_block`.
+   **Frontend PRs that honestly declare `form: ui` can never pass under Phase 1 and can only be suspended**—the only way out is to manually downgrade `form`
+   to `cli` (the repository's only actual evidence-gate output, `docs/e2e-results/128/`, did exactly this, running offline
+   `ruff+pytest+grep`, with browser screenshots “optional; absence does not cause FAIL”). The flagship capability to “actually run the UI” has never been exercised.
+2. **Two redundant evidence mechanisms.** 0040 puts runtime evidence in `docs/e2e-results/<pr>/`; Spec-0044 introduces another **manual**
+   skill for “running the real app and taking screenshots,” with evidence stored in `docs/evidence/spec-NNNN/`, and inserts “claiming verification without tracked evidence = REWORK”
+   into the **code reviewer's** rubric (`reviewer.py`). This leaves two evidence directories and two consumers checking different directories, while
+   0044 has code reviewers inspect runtime evidence, in direct tension with 0040/T4's rule that “code reviewers do not judge runtime behavior.”
+3. **`form` dispatch + `finalize_runbook` are overengineered.** The `form` enum, `_parse_form` regex, `_run_by_form`
+   dispatch, and an additional `finalize_runbook` step to “draft a separate runbook after coding” split the simple task of “give an agent a test method and let it run”
+   into three layers of mechanical scaffolding. Historically (in the old `scripts/e2e-*.sh` era), **the implementer consistently wrote the concrete commands only after
+   completing the implementation** (the RFC contained only pointers + acceptance criteria, without commands), showing that “deciding commands after coding” has repeatedly been the right choice—but packaging them
+   into a runbook file creates an unnecessary intermediate artifact.
+4. **A separate evidence gate conflicts with the goal of “combined review.”** Acceptance of runtime behavior should be part of review; splitting it into a separate
+   `evidence_gate` module + `review_evidence` + dedicated round budget increases state-machine complexity without any fundamental benefit—
+   the reviewer is already a fully equipped claude-code agent (`backends/claude_code.py:159` launches `claude -p` **without
+   `--allowedTools` restrictions**), whose `Read` tool can read PNGs and feed them visually to the multimodal model, so it **is fully capable of inspecting screenshots firsthand and judging them**.
 
-**核心转变。** 「按 form 分派 + 定稿 runbook + 独立证据闸」→「**能力状态量决定测法要求 → prose 测法
-直喂独立 executor 自检真跑 → 合进现有 review 一次判代码+证据（亲眼看图）**」。四个问题同根于：把简单
-的「跑 + 看」过度机械化，且没让能力探测贯穿「要不要验」的决策。本组用一个固化能力状态量 + 一个自主
-executor + 现有 reviewer 的复用，把这套压扁。
+**Core shift.** “Dispatch by form + finalize a runbook + separate evidence gate” → “**a capability state variable determines test-method requirements → feed the prose test method
+directly to an independent executor that checks its tools and actually runs it → incorporate it into existing review to assess code + evidence together (inspecting images firsthand)**.” All four problems share the same root: overmechanizing
+the simple task of “run + inspect,” while failing to carry capability detection through the decision of “whether verification is required.” This group flattens the design
+using one persisted capability state variable + one autonomous executor + reuse of the existing reviewers.
 
 ## Guide-level explanation
 
-以一个真实例子走一遍：issue #142「给成果看板 `board.html` 加按状态筛选 run 的下拉框」（UI 改动）。
+Walk through a real example: issue #142, “Add a dropdown to the results dashboard `board.html` to filter runs by status” (a UI change).
 
-**① 守夜启动固化能力。** `openagents vigil` 起循环那一刻，`envcheck` 扫本机：`playwright` 在
-`~/.claude.json` 注册 + 权限 `bypassPermissions` → 固化 `ui-capable=true` 进 `state.json` 顶层
-（和 `agent_id` 平级）。整个会话只在 ③ 读一次。
+**① Persist capabilities when Vigil starts.** At the moment `openagents vigil` starts its loop, `envcheck` scans the local machine: `playwright` is
+registered in `~/.claude.json` + permissions are `bypassPermissions` → persist `ui-capable=true` at the top level of `state.json`
+(alongside `agent_id`). It is read only once throughout the session, at ③.
 
-**② 起草含 prose 测法的 spec。** start_rfc 派 agent 起草 spec、开 draft PR、转 `rfc-review`。起草时
-**读 `ui-capable`**：=true 且是 UI 改动 → e2e 段写成要求截图的形态（只有 `intent` + prose `method`，
-**无 form、无精确命令**）：
+**② Draft a spec containing a prose test method.** start_rfc assigns an agent to draft the spec, open a draft PR, and transition to `rfc-review`. During drafting,
+**read `ui-capable`**: if =true and this is a UI change → write the e2e section in a form that requires screenshots (only `intent` + prose `method`,
+**no form or exact commands**):
 
 ```yaml
 e2e:
-  intent: 看板能按状态筛选——选中某状态后只剩该状态的 run，其余隐藏。
+  intent: The dashboard can filter by status—after selecting a status, only runs with that status remain; all others are hidden.
   method: |
-    1. 起本地看板；2. 确认下拉框在、默认显示全部；
-    3. 选「done」→ 截图确认列表只剩 done 的 run；4. 选「全部」→ 截图确认恢复。
-    要求：UI 可见改动，必须有真实导航后的截图为证。
+    1. Start the local dashboard; 2. Confirm that the dropdown exists and shows all runs by default;
+    3. Select “done” → take a screenshot to confirm that the list contains only done runs; 4. Select “All” → take a screenshot to confirm that the full list is restored.
+    Requirement: This is a visible UI change; screenshots taken after real navigation are required as evidence.
 ```
 
-**③ RFC 评审闸判「要不要验、测法对不对」。** `review_rfc` 的 rubric **也读 `ui-capable`**（与起草
-共用一个「读 ui-capable → 分流标准」函数，杜绝两头漂移）：`ui-capable=true` 且 UI 改动却没写像样的
-截图测法 → REWORK；写了且覆盖意图 → PASS → 打 `spec-approved` → `implement`。
+**③ The RFC review gate judges “whether verification is required and whether the test method is appropriate.”** The `review_rfc` rubric **also reads `ui-capable`** (sharing
+a single “read ui-capable → select criteria” function with drafting to prevent the two from drifting apart): `ui-capable=true` and a UI change without a reasonable
+screenshot-based test method → REWORK; a method is provided and covers the intent → PASS → apply `spec-approved` → `implement`.
 
-**④ implement。** 与现状一致，派 agent 写码、转正 PR、`pr-open`。**implement 不再跑任何 e2e。**
+**④ implement.** As today, assign an agent to write code, mark the PR ready, and transition to `pr-open`. **implement no longer runs any e2e.**
 
-**⑤ 每轮 poll 的 coding 阶段**（核心，`_process_coding`）。门顺序：**① mergeability 预检 → ② CI（绿）
-→ ③ executor 跑 e2e → ④ review_code → ⑤ merge**。
+**⑤ The coding phase of each poll round** (the core, `_process_coding`). Gate order: **① mergeability precheck → ② CI (green)
+→ ③ executor runs e2e → ④ review_code → ⑤ merge**.
 
-- **③ executor**：CI 绿后，另起一个独立 executor agent（运动员≠裁判），输入**直接是 spec 那段
-  `method` prose 测法**（不再有中间 runbook）。它**自检工具**：有 `browser_*` → 真开看板导航、选
-  「done」、`browser_take_screenshot`。若发现筛选没生效（截图显示列表没变），把**截图 + 一句话
-  `result.md` 声明**（「结论 FAILED：选 done 后列表未变，见 step3.png」）写进 `docs/e2e-results/142/`、
-  commit。executor **只跑只报，不做判决**。
-- **④ review_code**：N 个 reviewer（满配 claude-code，`Read` 能看 PNG）各自读 `git diff` + **用
-  `Read` 打开截图真看到画面** + 读 `result.md` 声明 + 对照 intent，一起判。看到「代码有筛选逻辑但
-  截图显示没生效」→ REWORK（一段简短中文）。**没有独立证据闸——就这一个 review 同时判了代码和 e2e，
-  运行时行为 reviewer 现在管**（反转 0040/T4）。REWORK → `iterate(reason="review")` → 下一轮。
-- **下一轮**：`iterate` 修筛选逻辑 → CI 再绿 → executor **重跑**（源码指纹变了，测的是最新版）→ 截图
-  显示筛选生效、`result.md` 结论 PASSED → review 全票 PASS → merge（或 hold.at_merge 停「待人合」）。
+- **③ executor**: After CI turns green, start a separate, independent executor agent (athlete ≠ referee), with **the prose test method from the spec's
+  `method` fed directly as input** (no intermediate runbook). It **checks its tools**: if `browser_*` is available → actually open and navigate the dashboard, select
+  “done,” and call `browser_take_screenshot`. If it finds that filtering has not taken effect (the screenshot shows an unchanged list), write **screenshots + a one-sentence
+  `result.md` statement** (“Conclusion FAILED: the list did not change after selecting done; see step3.png”) to `docs/e2e-results/142/`,
+  then commit. The executor **only runs and reports; it does not adjudicate**.
+- **④ review_code**: Each of N reviewers (fully equipped claude-code, with `Read` able to view PNGs) reads `git diff` + **opens screenshots with
+  `Read` to actually see the rendered screen** + reads the `result.md` statement + compares against intent, then judges them together. Seeing “the code contains filtering logic, but
+  the screenshot shows that it did not take effect” → REWORK (a short paragraph in Chinese). **There is no separate evidence gate—this one review judges both code and e2e;
+  runtime behavior is now the reviewer's responsibility** (reversing 0040/T4). REWORK → `iterate(reason="review")` → next round.
+- **Next round**: `iterate` fixes the filtering logic → CI turns green again → executor **reruns** (the source fingerprint changed, so it tests the latest version) → screenshots
+  show that filtering works, and `result.md` concludes PASSED → unanimous PASS in review → merge (or hold.at_merge stops at “awaiting human merge”).
 
-**证据 commit 后的收敛（sticky）。** executor 那次 commit 是纯 docs，会让 GitHub CI 在其上重跑一次。
-下一轮：**源码指纹（排除 `docs/e2e-results/`）没变 → executor 跳过、review sticky 复用上轮 PASS
-（都不重跑，复用 Spec-0053 机制）→ 等证据 commit 的 CI 绿即直接 merge，不再 review**（重 review 同码
-有翻盘风险，正是 0053/0041 要防的复审震荡）。若该次 CI 意外变红（源码之前明明绿+过审）→ 打
-`bad_ci_after_e2e` 独立诊断标签 + `_block`（needs-human，`blocked` 状态夯住不空转），**不当普通 CI
-fail 打回 iterate**（源码没错）；人解挂后回 `pr-open`，sticky 直接合。
+**Convergence after the evidence commit (sticky).** The executor's commit is docs-only and causes GitHub CI to run again on it.
+Next round: **the source fingerprint (excluding `docs/e2e-results/`) is unchanged → skip executor and use sticky reuse of the previous round's review PASS
+(neither reruns; reuse the Spec-0053 mechanism) → merge directly once the evidence commit's CI is green, without another review** (reviewing the same code again
+risks reversing the verdict, precisely the repeated-review oscillation that 0053/0041 aim to prevent). If that CI run unexpectedly turns red (the source was previously green and approved) → apply
+the separate diagnostic label `bad_ci_after_e2e` + `_block` (needs-human; hold firmly in the `blocked` state without spinning), **rather than sending it back to iterate as an ordinary CI
+failure** (the source is not at fault); after a human unblocks it, return to `pr-open` and merge directly using sticky reuse.
 
-**降级与边界。** 若守夜跑在 headless CI 机（`ui-capable=false`）：② 起草时测法就不要求截图、写离线断言
-形态或注明无浏览器；⑤ executor 自检无 `browser_*` → 如实报「无浏览器、UI 截图不可得」；review **软判**
-（不因缺截图 REWORK，就着能拿到的证据判）。纯 docs PR：测法段写「无运行时行为可验」，executor 不折腾、
-reviewer 认同即放行。**每个 PR 都走这段 e2e**，但内容按改动性质可退化到 N/A。
+**Fallbacks and boundaries.** If Vigil runs on a headless CI machine (`ui-capable=false`): at ②, drafting already avoids requiring screenshots and writes the test method
+as offline assertions or notes that no browser is available; at ⑤, executor's tool check finds no `browser_*` → honestly reports “No browser available; UI screenshots cannot be obtained”; review **uses a soft assessment**
+(does not return REWORK because screenshots are missing; judges using the available evidence). For a docs-only PR: the test-method section says “No runtime behavior to verify”; executor does not perform unnecessary work,
+and the reviewer lets it pass if they agree. **Every PR goes through this e2e step**, but its content can reduce to N/A depending on the nature of the change.
 
 ## Reference-level explanation
 
-### 机制 1：能力状态量（单一真相源，只在 RFC-authoring 读）
+### Mechanism 1: Capability state (single source of truth, read only during RFC-authoring)
 
-- `envcheck` 扩出结构化能力：现有 `detect_browser_mcp()` + `effective_permission_mode()` 组合成
-  `ui_capable() -> bool`（browser MCP 在册 ∧ `bypassPermissions`）。
-- **启动固化**：`cli` 的守夜/单步入口（`vigil` / `poll` / `init`）在起 `Messages`/`Orchestrator` 前
-  调 `envcheck.ui_capable()` 写进 `state.json` 顶层键 `ui_capable`（新增 `State.set_ui_capable` /
-  `State.get_ui_capable`，与 `agent_id` 平级，每次启动重写——环境变了下次启动即更新）。
-- **只在两处读**：起草 spec 的 prompt（`orchestrator` 起草测法段）+ RFC 评审 rubric（`reviewer` 的
-  `_RFC_REVIEW_TASK`）。**执行时不读**（executor 运行时自检工具，见机制 3）。两处共用同一「据
-  `ui_capable` 选测法标准」的分流文案，保证起草与评审标准一致。
+- Extend `envcheck` with a structured capability: combine the existing `detect_browser_mcp()` + `effective_permission_mode()` into
+  `ui_capable() -> bool` (browser MCP is registered ∧ `bypassPermissions`).
+- **Persist at startup**: the Vigil/single-step entry points in `cli` (`vigil` / `poll` / `init`) call
+  `envcheck.ui_capable()` before starting `Messages`/`Orchestrator` and write it to the top-level `ui_capable` key in `state.json` (add `State.set_ui_capable` /
+  `State.get_ui_capable`, at the same level as `agent_id`, overwritten on every startup—environment changes take effect at the next startup).
+- **Read in only two places**: the spec-drafting prompt (where `orchestrator` drafts the testing-method section) + the RFC review rubric (`reviewer`'s
+  `_RFC_REVIEW_TASK`). **Not read during execution** (the executor checks its tools at runtime; see Mechanism 3). Both places share the same branching text for
+  “selecting testing-method criteria based on `ui_capable`,” ensuring consistent drafting and review criteria.
 
-### 机制 2：spec e2e 段瘦身（intent + prose 测法，砍 form）
+### Mechanism 2: Slim down the spec e2e section (intent + prose testing method, remove form)
 
-- `spec/schema.py` + `model.py`：`e2e` 块从 `{form, intent, acceptance[]}` 改为
-  `{intent: str, method: str}`（`method` 为 prose 测法）。`form` 枚举 `E2E_FORM_VALUES` 退役。
-- `validate`：`e2e` 存在时 `intent` 非空、`method` 非空即合法（向后兼容无 e2e 块的组）。
-- `render`（OVERVIEW）+ `signpost`（PR 正文指路牌）改渲 `intent + method`。
-- 存量 spec 的旧 `e2e{form,...}` 块迁移到新格式——收进后继清扫组（Unresolved）。
+- `spec/schema.py` + `model.py`: change the `e2e` block from `{form, intent, acceptance[]}` to
+  `{intent: str, method: str}` (`method` is a prose testing method). Retire the `form` enum `E2E_FORM_VALUES`.
+- `validate`: when `e2e` is present, a nonempty `intent` and nonempty `method` are sufficient for validity (backward compatible with groups that have no e2e block).
+- Change `render` (OVERVIEW) + `signpost` (the signpost in the PR body) to render `intent + method`.
+- Migration of old `e2e{form,...}` blocks in existing specs to the new format is assigned to a follow-up cleanup group (Unresolved).
 
-### 机制 3：executor 重写（单一自主 agent + 输出路径约定）
+### Mechanism 3: Rewrite the executor (single autonomous agent + output-path convention)
 
-- `executor.run_executor(*, backend, work_dir, method, evidence_dir, pr_number, ui_intent)` ——
-  **删掉 `form` 形参、`_parse_form`、`_run_by_form`**。直接把 spec 的 `method` prose 测法 + intent
-  塞进一段任务 prompt 派独立 agent：要求它**运行时自检手里有没有 `browser_*` 工具**——有则真开浏览器
-  导航/交互/截图存进 `evidence_dir`；无则用命令行/HTTP 等能用的方式真跑，或如实报「无法真跑/环境不
-  具备」。末行仍给 `OUTCOME: PASSED|FAILED`（供 messages 渲报告，**不做门控判决**）。
-- 契约不变：绝不抛错（异常映射 failed）；无论何结果把 `result.md`（一句话声明 + 观察）写进
-  `evidence_dir`；截图等附件由 agent 自己落 `evidence_dir`。
-- `OUTCOME_SKIPPED` / `_UI_FORM` / `_RUNTIME_FORMS` / `_UI_PHASE2_NOTE` 等 form 相关常量删除。
+- `executor.run_executor(*, backend, work_dir, method, evidence_dir, pr_number, ui_intent)` —
+  **remove the `form` parameter, `_parse_form`, and `_run_by_form`**. Put the spec's prose testing method `method` + intent directly
+  into a task prompt and dispatch an independent agent: require it to **check at runtime whether it has `browser_*` tools**—if so, actually open a browser,
+  navigate/interact/take screenshots, and save them in `evidence_dir`; otherwise, actually run the test using available means such as the command line/HTTP, or truthfully report “unable to perform an actual run/the environment lacks the required capabilities.”
+  The final line still provides `OUTCOME: PASSED|FAILED` (for messages to render the report; **not used to make a gating decision**).
+- The contract remains unchanged: never raise an error (map exceptions to failed); regardless of the outcome, write `result.md` (a one-sentence statement + observations) to
+  `evidence_dir`; the agent itself saves attachments such as screenshots in `evidence_dir`.
+- Delete form-related constants such as `OUTCOME_SKIPPED` / `_UI_FORM` / `_RUNTIME_FORMS` / `_UI_PHASE2_NOTE`.
 
-### 机制 4：reviewer 合并职责（RFC 分流 + code 判运行时行为）
+### Mechanism 4: Consolidate reviewer responsibilities (RFC branching + code review judges runtime behavior)
 
-- `_RFC_REVIEW_TASK`：加「据 `ui_capable` 分流的截法要求」（capability 由 `orchestrator` 透传，
-  reviewer 保持只依赖 `AgentBackend` + 传入参数的解耦）。
-- `_CODE_REVIEW_TASK`：**反转 0040/T4**——从「运行时行为由证据闸负责、你不判」改为「**读
-  `docs/e2e-results/<pr>/` 的证据（`result.md` + 用 `Read` 打开截图亲眼看），对照 spec intent 判运行时
-  行为是否达成；executor 声明达成但截图对不上→REWORK**」。Spec-0044 的「宣称验证过但无 tracked 证据=
-  REWORK」并入这条、指向统一的 `docs/e2e-results/<pr>/`。
-- `reviewer.review` 增 `ui_capable: bool`（RFC 闸用）与「证据目录可读」的语义；聚合/解析不变。
+- `_RFC_REVIEW_TASK`: add “requirements for how to capture evidence, selected based on `ui_capable`” (the capability is passed through by `orchestrator`;
+  reviewer remains decoupled, depending only on `AgentBackend` + supplied parameters).
+- `_CODE_REVIEW_TASK`: **reverse 0040/T4**—change “the evidence gate is responsible for runtime behavior; you do not judge it” to “**read
+  the evidence in `docs/e2e-results/<pr>/` (`result.md` + open screenshots with `Read` and inspect them visually), and judge whether runtime
+  behavior fulfills the spec intent; if the executor claims success but the screenshots do not match → REWORK**.” Incorporate Spec-0044's “claims of verification without tracked evidence =
+  REWORK” into this rule, pointing to the unified `docs/e2e-results/<pr>/`.
+- Add `ui_capable: bool` (for the RFC gate) and the semantics that “the evidence directory is readable” to `reviewer.review`; aggregation/parsing remain unchanged.
 
-### 机制 5：编排与流水线（_process_coding 重排 + 幂等 + sticky + bad_ci_after_e2e）
+### Mechanism 5: Orchestration and pipeline (reorder _process_coding + idempotency + sticky + bad_ci_after_e2e)
 
-`orchestrator`：**删 `finalize_runbook`**；`_e2e_plan` 读新 `e2e{intent,method}`；新增
-`run_e2e(*, pr_number)`——ensure worktree → 算源码指纹（`github.code_fingerprint` 排除
-`docs/e2e-results/`）→ 与 `record.e2e_ran_fingerprint`（新 state 字段）比对：变了才 `executor.run_executor`
-+ commit 证据、更新指纹；没变则复用（返回「skipped-reuse」）。把 `ui_capable` 透传给 reviewer/起草。
+`orchestrator`: **delete `finalize_runbook`**; `_e2e_plan` reads the new `e2e{intent,method}`; add
+`run_e2e(*, pr_number)`—ensure worktree → compute the source-code fingerprint (`github.code_fingerprint` excludes
+`docs/e2e-results/`) → compare with `record.e2e_ran_fingerprint` (a new state field): only if it has changed, call `executor.run_executor`
++ commit the evidence and update the fingerprint; otherwise, reuse (return “skipped-reuse”). Pass `ui_capable` through to reviewer/drafting.
 
-`github.code_fingerprint`：加「排除 `docs/e2e-results/` 路径」——证据 commit 不改源码指纹。
+`github.code_fingerprint`: add “exclude the `docs/e2e-results/` path”—evidence commits do not change the source-code fingerprint.
 
-`messages._process_coding` 新顺序（每轮 poll）：
+New order for `messages._process_coding` (each poll cycle):
 
 ```
-① mergeability 预检（不变；冲突→解/ _block(merge)）
-② CI 检查（不变；fail→iterate(ci)；pending→等）
-   —— CI 绿 ——
-③ orchestrator.run_e2e：源码指纹变→executor 真跑+commit 证据；没变→跳过复用
-④ review_code（读 diff + docs/e2e-results/<pr>/ 证据+截图）
-     ├ 指纹与上轮 PASS 一致（Spec-0053 sticky）→ 复用 PASS、跳过 ③④ 重跑
-     ├ REWORK → iterate(reason="review") → 下一轮
+① mergeability precheck (unchanged; conflict → resolve / _block(merge))
+② CI check (unchanged; fail → iterate(ci); pending → wait)
+   —— CI green ——
+③ orchestrator.run_e2e: source-code fingerprint changed → executor performs an actual run + commits evidence; unchanged → skip and reuse
+④ review_code (read diff + docs/e2e-results/<pr>/ evidence + screenshots)
+     ├ Fingerprint matches the previous PASS (Spec-0053 sticky) → reuse PASS, skip rerunning ③④
+     ├ REWORK → iterate(reason="review") → next cycle
      └ PASS → ⑤
-⑤ hold-merge 冻结 / merge_pr → done
+⑤ hold-merge freeze / merge_pr → done
 ```
 
-- **证据 commit 后一轮**：源码指纹未变 → ③ 跳过 executor、④ sticky 复用 PASS → 只等证据 commit 的
-  CI；绿→直接 merge，红→`_block(gate="bad-ci-after-e2e")` + 额外打 `bad_ci_after_e2e` GitHub 标签。
-- **删** `_evidence_gate`、`iterate(reason="e2e")`、`_block(gate="e2e")` 专属分支；e2e FAIL 经普通
-  `review_code` 的 REWORK/iterate 走（复用现成 `rounds`/`MAX_ROUNDS`）。
-- `bad_ci_after_e2e` 走现成 `_block` 机制：`STATUS_BLOCKED`（不在 `_OPEN_STATUSES`→poll 跳过，夯住
-  不空转）+ `needs-human`（`BLOCKED_LABEL`）+ `block_gate="bad-ci-after-e2e"`（解挂路由回 `pr-open`
-  → sticky 直接合）+ 额外 `bad_ci_after_e2e` 诊断标签（区分「证据 commit 弄红 CI」与别的 blocked 原因）。
+- **The cycle after the evidence commit**: source-code fingerprint unchanged → ③ skips executor, ④ reuses PASS via sticky → only wait for
+  CI on the evidence commit; green → merge directly, red → `_block(gate="bad-ci-after-e2e")` + additionally apply the `bad_ci_after_e2e` GitHub label.
+- **Delete** `_evidence_gate` and the dedicated branches for `iterate(reason="e2e")` and `_block(gate="e2e")`; e2e FAIL goes through the ordinary
+  `review_code` REWORK/iterate flow (reusing the existing `rounds`/`MAX_ROUNDS`).
+- `bad_ci_after_e2e` uses the existing `_block` mechanism: `STATUS_BLOCKED` (not in `_OPEN_STATUSES` → poll skips it, keeping it firmly blocked
+  without spinning) + `needs-human` (`BLOCKED_LABEL`) + `block_gate="bad-ci-after-e2e"` (unblocking routes back to `pr-open`
+  → sticky merges directly) + an additional `bad_ci_after_e2e` diagnostic label (distinguishing “the evidence commit made CI fail” from other reasons for being blocked).
 
-### 状态机影响
+### State machine impact
 
-不新增 status。新增 state 字段：`ui_capable`（顶层，非 per-run）、`e2e_ran_fingerprint`（per-run，
-executor 幂等用）。`block_gate` 取值集加 `"bad-ci-after-e2e"`。`BLOCKED_LABEL` 之外新增 GitHub 标签
-`bad_ci_after_e2e`（诊断，不参与解挂判定）。
+No new status. New state fields: `ui_capable` (top-level, not per-run), `e2e_ran_fingerprint` (per-run,
+used for executor idempotency). Add `"bad-ci-after-e2e"` to the set of `block_gate` values. Add the GitHub label
+`bad_ci_after_e2e` alongside `BLOCKED_LABEL` (diagnostic; does not participate in unblocking decisions).
 
-### DAG 与文件分配
+### DAG and file allocation
 
 ```mermaid
 graph TD
-    T1[T1 能力状态量: envcheck+state+cli 固化]
-    T2[T2 spec e2e 段瘦身: schema/model/validate/render/signpost]
-    T3[T3 executor 重写: 单一自主 agent 自检真跑]
-    T4[T4 reviewer 合并职责: RFC 分流 + code 判证据]
-    T5[T5 编排+github: 删 finalize_runbook + run_e2e + 指纹排除证据]
-    T6[T6 messages 流水线重排 + sticky + bad_ci_after_e2e + e2e 脚本]
+    T1[T1 Capability state: envcheck+state+cli startup persistence]
+    T2[T2 Slim down spec e2e section: schema/model/validate/render/signpost]
+    T3[T3 Rewrite executor: single autonomous agent checks its tools and performs an actual run]
+    T4[T4 Consolidate reviewer responsibilities: RFC branching + code review judges evidence]
+    T5[T5 Orchestration+github: delete finalize_runbook + run_e2e + exclude evidence from fingerprint]
+    T6[T6 Reorder messages pipeline + sticky + bad_ci_after_e2e + e2e script]
     T2 --> T3
     T1 --> T4
     T1 --> T5
@@ -328,7 +329,7 @@ graph TD
     T5 --> T6
 ```
 
-| Task | 拥有文件（互斥） | depends-on |
+| Task | Owned files (mutually exclusive) | depends-on |
 |---|---|---|
 | T1 | `openagents/envcheck.py`, `openagents/state.py`, `openagents/cli.py`, `tests/test_envcheck.py`, `tests/test_state.py`, `tests/test_cli.py` | — |
 | T2 | `openagents/spec/schema.py`, `openagents/spec/model.py`, `openagents/spec/validate.py`, `openagents/spec/render.py`, `openagents/spec/signpost.py`, `tests/test_spec_model.py`, `tests/test_spec_validate.py`, `tests/test_spec_render.py`, `tests/test_spec_signpost.py` | — |
@@ -337,90 +338,89 @@ graph TD
 | T5 | `openagents/orchestrator.py`, `openagents/github.py`, `tests/test_orchestrator.py`, `tests/test_github.py` | T1, T2 |
 | T6 | `openagents/messages.py`, `tests/test_messages.py`, `scripts/e2e-spec-0055-e2e-v2-capability-aware.sh` | T3, T4, T5 |
 
-（T1/T2 为并行叶子；`evidence_gate.py` 的**删除**与存量 spec e2e 块迁移收进后继清扫组，避免本组 T6 与
-清扫组抢 `evidence_gate.py`——本组 T6 只**停止调用** `evidence_gate`，删文件留清扫组。）
+(T1/T2 are parallel leaf tasks; **deletion** of `evidence_gate.py` and migration of existing spec e2e blocks are assigned to a follow-up cleanup group to prevent this group's T6 and
+the cleanup group from contending over `evidence_gate.py`—this group's T6 only **stops calling** `evidence_gate`; file deletion is left to the cleanup group.)
 
-### 接口契约
+### Interface contracts
 
-- `envcheck.ui_capable() -> bool`；`State.set_ui_capable(*, value)` / `State.get_ui_capable() -> bool`。
+- `envcheck.ui_capable() -> bool`; `State.set_ui_capable(*, value)` / `State.get_ui_capable() -> bool`.
 - `executor.run_executor(*, backend, work_dir, method, evidence_dir, pr_number, ui_intent) -> ExecutorResult`
-  （`ExecutorResult{outcome: passed|failed, notes}`，删 `form`）。
-- `orchestrator.run_e2e(*, pr_number) -> E2ERunResult | None`（None=无 e2e 段空过；含
-  `reused: bool` 表 sticky 跳过）。
-- `github.code_fingerprint(*, pr_number, exclude_paths=("docs/e2e-results/",)) -> str`。
-- `reviewer.review(*, backend, work_dir, kind, pr_number, n, history, ui_capable=False) -> ReviewDecision`。
+  (`ExecutorResult{outcome: passed|failed, notes}`, remove `form`).
+- `orchestrator.run_e2e(*, pr_number) -> E2ERunResult | None` (None = no e2e section, so pass through without action; includes
+  `reused: bool` to indicate a sticky skip).
+- `github.code_fingerprint(*, pr_number, exclude_paths=("docs/e2e-results/",)) -> str`.
+- `reviewer.review(*, backend, work_dir, kind, pr_number, n, history, ui_capable=False) -> ReviewDecision`.
 
-### 本组自身 e2e 粗规划
+### Rough e2e plan for this group itself
 
-- **intent**：证明 e2e v2 链路真的有牙——executor 自检真跑、证据进 review、源码指纹幂等+sticky 收敛、
-  bad_ci_after_e2e 夯住。
-- **method**（离线确定性 dogfood，本组是纯后端编排无前端可导航）：造 fixture PR/worktree + prose 测法，
-  跑 `run_e2e` 断言证据落 `docs/e2e-results/<pr>/`、源码没变则复用不重跑；喂「达成/未达成」证据给
-  `review_code`（假 backend）断言 PASS 放行 / REWORK 不合；构造「证据 commit 后 CI 红」断言走
-  `_block(bad-ci-after-e2e)` + 双标签 + `blocked` 状态。
-- 脚本：`scripts/e2e-spec-0055-e2e-v2-capability-aware.sh`（离线段：ruff + pytest + grep 锚点）。
+- **intent**: Prove that the e2e v2 pipeline really has teeth—the executor actually runs its self-checks, evidence enters review, source fingerprint idempotency + sticky converge,
+  and bad_ci_after_e2e is firmly enforced.
+- **method** (offline deterministic dogfood; this group is purely backend orchestration with no navigable frontend): Create a fixture PR/worktree + a prose test method,
+  run `run_e2e` and assert that evidence lands in `docs/e2e-results/<pr>/` and is reused without rerunning when the source has not changed; feed “achieved/not achieved” evidence to
+  `review_code` (fake backend) and assert that PASS allows merging / REWORK prevents merging; construct a case where “CI turns red after the evidence commit” and assert that it takes
+  `_block(bad-ci-after-e2e)` + both labels + the `blocked` state.
+- Script: `scripts/e2e-spec-0055-e2e-v2-capability-aware.sh` (offline portion: ruff + pytest + grep anchors).
 
 ## Drawbacks
 
-- **无浏览器机器上 UI 硬闸缺失。** `ui-capable=false` 时 UI 类改动只剩 reviewer 软判（看 executor 的
-  「没跑成」报告自行定），没有机械硬门——headless/纯 CI 守夜环境下 UI 行为验证实质缺失（取舍：不误挡，
-  但也不硬保。见 Rationale）。
-- **每个 PR 都跑 e2e。** 即使纯 docs/重构也走一遍 executor（虽可退化 N/A），比 0040「无 e2e 块空过」多
-  一次 agent 调用的开销。
-- **executor 自证残余风险。** executor 只被 prompt 要求「真跑」，末行自报 `OUTCOME`；框架层面不能机械
-  保证它真跑了。牙在「executor 产证据 + reviewer 独立看截图核对」的交叉牵制，非机械可证。
-- **merge 比证据生成晚一轮。** 证据 commit 后要等其 CI 绿才合（sticky 那轮），稳态多一次 poll。
-- **能力是每启动快照。** 跨机器/跨会话（起草在本机、执行在服务器）以执行环境启动快照为准；单机 MVP 无此
-  错位，但分布式时需注意（见 Future）。
+- **No hard UI gate on machines without a browser.** When `ui-capable=false`, UI changes have only the reviewer's soft judgment (deciding based on the executor's
+  “could not run” report), with no mechanical hard gate—UI behavior verification is effectively absent in headless/pure CI Vigil environments (tradeoff: avoid false blocking,
+  but provide no hard guarantee either. See Rationale).
+- **e2e runs for every PR.** Even pure docs/refactoring changes go through the executor once (though it can degrade to N/A), adding
+  one agent invocation compared with 0040's “skip when there is no e2e block.”
+- **Residual risk from executor self-attestation.** The executor is only instructed by its prompt to “actually run” and self-reports `OUTCOME` on the final line; the framework cannot mechanically
+  guarantee that it actually ran. The teeth come from the cross-check between “executor produces evidence + reviewer independently inspects screenshots,” not from mechanical proof.
+- **Merge happens one round after evidence generation.** After the evidence commit, merging must wait for its CI to go green (the sticky round), adding one poll in steady state.
+- **Capabilities are a snapshot taken at each startup.** Across machines/sessions (drafting locally, executing on a server), the execution environment's startup snapshot is authoritative; the single-machine MVP has no such
+  mismatch, but distributed use requires attention (see Future).
 
 ## Rationale and alternatives
 
-**为什么这样设计。** 四个问题同根于「把简单的跑+看过度机械化，且能力探测没贯穿要不要验的决策」。用一个
-固化能力状态量（贯穿 RFC 阶段的测法要求）+ 一个自主 executor（运行时自检、不分 form）+ 复用现有 reviewer
-（能看图，合并判代码+证据），把三层脚手架压扁，复用 Spec-0053 sticky 与现成 `iterate`/`_block`/`rounds`
-使状态机几乎不动（奥卡姆，理念 1）。executor 放在 CI 后、review 前，是因为**证据是 review 的对象之一**
-（review 必须在 e2e 之后），而 CI 前跑会在没过 CI 的代码上白跑浏览器。
+**Why this design.** The four problems share a root cause: “over-mechanizing the simple act of running and inspecting, while capability detection does not carry through to the decision of whether verification is needed.” A single
+persisted capability state variable (carried through the RFC-stage test-method requirements) + an autonomous executor (runtime self-checks, with no distinction by form) + reuse of the existing reviewer
+(which can view images and jointly assess code + evidence) flatten three layers of scaffolding. Reusing Spec-0053 sticky and the existing `iterate`/`_block`/`rounds`
+keeps the state machine almost unchanged (Occam, principle 1). The executor sits after CI and before review because **evidence is one of the objects of review**
+(review must follow e2e), while running before CI would waste browser runs on code that has not passed CI.
 
-**备选 1：保留 0040 的 form 机制，只补 `ui` 分支真跑。** 最小改动，但没解决「两套证据目录冗余、独立
-证据闸与合并 review 相悖、finalize_runbook 冗余」三个根——只补上 ui 仍是四层脚手架。否决。
+**Alternative 1: Keep 0040's form mechanism and only make the `ui` branch actually run.** The smallest change, but it leaves three root problems unresolved: “redundant evidence directories, a separate
+evidence gate at odds with combined review, and redundant finalize_runbook”—patching ui alone still leaves four layers of scaffolding. Rejected.
 
-**备选 2：保留独立证据闸（0040 的选择），executor 后单独 `review_evidence`。** 顺序不拖轮，但**再拆
-一个模块 + 专属回合预算**，与「合并 review」诉求相悖，且 reviewer 本就能看图、无需第二个 agent 角色。
-否决——合进 `review_code` 更省（理念 1/10）。
+**Alternative 2: Keep the separate evidence gate (0040's choice), with a separate `review_evidence` after the executor.** The sequence adds no extra round, but **splits out
+another module + a dedicated round budget**, contrary to the goal of “combined review”; the reviewer can already view images, so a second agent role is unnecessary.
+Rejected—folding it into `review_code` is more economical (principles 1/10).
 
-**备选 3：executor 放在 CI 之前跑。** 能让证据 commit 赶在 CI 前、CI 一次判含证据的树、免 sticky 那轮。
-但会在**没过 CI 的代码**上白跑最贵的浏览器 e2e，且合进去的证据 commit 反而没被 CI/review 单独覆盖。
-否决——宁可多一轮 sticky（有 `paths-ignore: docs/e2e-results/**` 可选优化免这轮）。
+**Alternative 3: Run the executor before CI.** This lets the evidence commit precede CI, lets CI assess the tree including evidence in one pass, and avoids the sticky round.
+But it wastes the most expensive browser e2e runs on **code that has not passed CI**, and the evidence commit merged in would instead lack separate CI/review coverage.
+Rejected—prefer an extra sticky round (with `paths-ignore: docs/e2e-results/**` as an optional optimization to avoid that round).
 
 ## Prior art
 
-- **Spec-0040**（直接前身）：说明书驱动 + 独立执行 + 证据评审门控。本组保留「独立执行 + 证据固化 +
-  merge 前门控」的骨，砍掉 form/runbook/独立证据闸的机械外壳，关键内容已在 Motivation 就地复述。
-- **Spec-0030**：init 环境体检 `envcheck`（检测 browser MCP + 权限模式）+「有浏览器工具就优先设计前端
-  e2e」的软引导。本组把它从「init 一次性打印 + 软 prompt」升级为「启动固化状态量 + RFC 阶段确定性分流」。
-- **Spec-0044**：「跑真 app 截图」纪律 skill + 「宣称验证过但无证据=REWORK」。本组把它并进统一的
-  `docs/e2e-results/<pr>/` 与合并后的 code reviewer rubric（消除两套证据目录）。
-- **Spec-0053**：代码闸「PR 净 diff 指纹」sticky 复用（对照 k8s Tide sticky approve / tree-hash）。本组
-  复用其指纹机制做「源码指纹（排除证据目录）幂等 + sticky」。
-- **Spec-0041**：hold-merge 冻结消除同码复审震荡——本组「证据 commit 后不重 review、sticky 直接合」同源。
-- 多模态 code review：claude-code `Read` 工具读图（PNG/JPG 可视化喂模型），是 reviewer 亲眼看截图的能力面。
+- **Spec-0040** (direct predecessor): Instruction-driven + independent execution + evidence review gating. This group retains the skeleton of “independent execution + persisted evidence +
+  gating before merge,” strips away the mechanical shell of form/runbook/separate evidence gate, and has already restated the key content in place in Motivation.
+- **Spec-0030**: The init environment check `envcheck` (detecting browser MCP + permission mode) + soft guidance to “prioritize designing frontend
+  e2e when browser tools are available.” This group upgrades it from “one-time init output + soft prompt” to “persisted startup state variable + deterministic routing at the RFC stage.”
+- **Spec-0044**: The discipline skill for “running the real app and taking screenshots” + “claimed verification without evidence = REWORK.” This group folds these into the unified
+  `docs/e2e-results/<pr>/` and the combined code reviewer rubric (eliminating the two sets of evidence directories).
+- **Spec-0053**: Sticky reuse of the code gate's “PR net diff fingerprint” (cf. k8s Tide sticky approve / tree-hash). This group
+  reuses its fingerprint mechanism for “source fingerprint (excluding the evidence directory) idempotency + sticky.”
+- **Spec-0041**: The hold-merge freeze eliminates repeated review oscillation on unchanged code—this group's “no re-review after the evidence commit; merge directly via sticky” shares the same origin.
+- Multimodal code review: The claude-code `Read` tool reads images (feeding PNG/JPG images visually to the model), providing the capability for the reviewer to inspect screenshots firsthand.
 
 ## Unresolved questions
 
-- **0040 死码删除 + 存量 spec e2e 块迁移**：`evidence_gate.py` 删除、`docs/evidence/` 合并进
-  `docs/e2e-results/`、存量 spec 的旧 `e2e{form,...}` 迁移到新 `{intent,method}`、0029 pending 的
-  RFC-NNNN 遗留注释清扫——收进**后继清扫组 Spec-0056**（依赖本组），避免与本组 T6 抢 `evidence_gate.py`。
-- **`scripts/e2e-*.sh`（32 个开发期 dogfood 脚本）去留**：与运行时 e2e 是两回事（CI 期离线自测）。倾向
-  **保留**（现在还绿、是 CI dogfood），仅在文档/命名上厘清它与 runbook/executor 的区别——放清扫组定夺。
-- **CI `paths-ignore: docs/e2e-results/**`**：能免掉 sticky 那轮 CI 重跑，是可选优化；本组先不依赖它、
-  用 sticky + bad_ci_after_e2e 兜底，待实测决定是否加。
+- **0040 dead code removal + migration of existing spec e2e blocks**: Deleting `evidence_gate.py`, merging `docs/evidence/` into
+  `docs/e2e-results/`, migrating existing specs' old `e2e{form,...}` to the new `{intent,method}`, and cleaning up legacy
+  RFC-NNNN comments in 0029 pending—assigned to **the follow-up cleanup group Spec-0056** (which depends on this group), to avoid competing with this group's T6 over `evidence_gate.py`.
+- **Whether to keep `scripts/e2e-*.sh` (32 development-time dogfood scripts)**: These are separate from runtime e2e (offline self-tests during CI). The preference is
+  to **keep them** (they still pass and serve as CI dogfood), clarifying their distinction from runbook/executor only in documentation/naming—leave the decision to the cleanup group.
+- **CI `paths-ignore: docs/e2e-results/**`**: This can avoid the CI rerun in the sticky round and is an optional optimization; this group does not depend on it for now,
+  using sticky + bad_ci_after_e2e as the fallback, with actual testing to determine whether to add it.
 
 ## Future possibilities
 
-- **`api` 形态富化**：executor 对起好的服务发 HTTP 断言（现在 prose 测法已能表达，工具面待补）。
-- **证据看板**：把 `docs/e2e-results/<pr>/` 的截图/声明渲进前端成果看板，让人面向成果审阅（理念 8）。
-- **跨机器能力真相源**：分布式（起草在本机、守夜在服务器）时，把执行环境能力做成两边都读的单一源，
-  避免测法要求与执行能力错位（本组单机 MVP 用启动快照即可）。
-- **runbook 自动生成的反向**：本组已省掉 runbook；若将来要留可 diff 的测法定稿，可让 executor 把它实际
-  跑的步骤回写成 tracked 记录（而非事先定稿）。
-
+- **Enriching the `api` form**: Have the executor make HTTP assertions against a running service (prose test methods can already express this; tooling support remains to be added).
+- **Evidence dashboard**: Render screenshots/statements from `docs/e2e-results/<pr>/` into a frontend results dashboard so people can review the results (principle 8).
+- **Cross-machine source of truth for capabilities**: In distributed use (drafting locally, Vigil on a server), make the execution environment's capabilities a single source read by both sides,
+  avoiding a mismatch between test-method requirements and execution capabilities (a startup snapshot suffices for this group's single-machine MVP).
+- **Reversing runbook auto-generation**: This group has already eliminated the runbook; if a diffable final record of the test method is wanted in the future, the executor could write back the steps it actually
+  ran as a tracked record (rather than finalizing them in advance).

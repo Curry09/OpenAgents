@@ -1,9 +1,9 @@
-"""Spec-0043/T1：issue 级评论出口 github.issue_comment 单元测试。
+"""Spec-0043/T1:issue level reviews the export github.issue_comment unit test.
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。覆盖：
-- issue_comment 走 `gh issue comment <number> --body <body>`、参数正确；
-- gh 失败照抛 GithubError；
-- 既有 post_comment 仍走 `gh pr comment`（零回归、两条路径互不干扰）。
+All gh subprocesses are always mock (monkeywatch subprocess.run), not actually called gh. Overwrite:
+- issue_comment walk `gh issue comment <number> --body <body>`, correct parameters;
+- gh failed to take Github Error;
+- post_comment is still on `gh pr comment` (no behavior change, two paths without interference).
 """
 
 import subprocess
@@ -37,14 +37,14 @@ def test_issue_comment_invokes_gh_issue_comment(monkeypatch):
     runner = _fake_run()
     monkeypatch.setattr(subprocess, "run", runner)
 
-    assert issue_comment(number=111, body="对齐一下") is None
+    assert issue_comment(number=111, body="Get in line.") is None
 
     cmd = runner.calls[-1]
     assert cmd[:3] == ["gh", "issue", "comment"]
-    # number 作为定位参数、body 经 --body 传入。
+    # Number as a position parameter, body is passed through --body.
     assert "111" in cmd
-    assert cmd[cmd.index("--body") + 1] == "对齐一下"
-    # 是 issue 级出口，绝不误走 pr comment。
+    assert cmd[cmd.index("--body") + 1] == "Get in line."
+    # Is a grade exit, never miss pr company.
     assert "pr" not in cmd
 
 
@@ -57,7 +57,7 @@ def test_issue_comment_reraises_gh_error(monkeypatch):
 
 
 def test_post_comment_still_targets_pr(monkeypatch):
-    # 零回归：既有 PR 级评论出口不受影响，仍走 `gh pr comment`。
+    # Zero regression: The PR-level comment exit is not affected, but `gh pr comment` is still on the way.
     runner = _fake_run()
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -69,7 +69,7 @@ def test_post_comment_still_targets_pr(monkeypatch):
 
 
 def test_issue_comment_is_a_distinct_symbol():
-    # issue_comment 与 post_comment 是两个不同的公开函数（对称的 issue / PR 出口）。
+    # issue_comment and post_comment are two distinct public functions (symmetrically asset/ PR exit).
     assert github.issue_comment is not github.post_comment
 
 

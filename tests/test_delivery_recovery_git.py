@@ -99,7 +99,7 @@ def test_real_git_worktree_gate_preserves_source_and_allows_cache(local_repo, re
         workspace.assert_delivered(worktree=repo.worktree, branch=_BRANCH)
         assert workspace.sync_delivered(worktree=repo.worktree, branch=_BRANCH)
     else:
-        with pytest.raises(WorkspaceError, match="未提交"):
+        with pytest.raises(WorkspaceError, match="worktree has uncommitted changes"):
             workspace.assert_delivered(worktree=repo.worktree, branch=_BRANCH)
         assert not workspace.sync_delivered(worktree=repo.worktree, branch=_BRANCH)
     assert path.read_text() == "unfinished work\n"
@@ -207,7 +207,7 @@ def test_real_git_candidate_change_requires_new_review_not_execution_retry(
 
         monkeypatch.setattr(forge, "pr_snapshot", late_snapshot)
     preserved = repo.head()
-    with pytest.raises(gates.MergeNotReady, match="候选版本已变化"):
+    with pytest.raises(gates.MergeNotReady, match="candidate revision changed"):
         vigil._verify_candidate(worktree=repo.worktree, facts=candidate_facts)
     assert repo.head() == preserved  # Verification never changes reviewed files.
     assert _git("status", "--porcelain", repo=repo.worktree) == ""
@@ -236,7 +236,7 @@ def test_real_git_candidate_dirt_is_not_disguised_as_remote_churn(
             return result
 
         monkeypatch.setattr(Workspace, "_git", git_io)
-    with pytest.raises(WorkspaceError, match="未提交"):
+    with pytest.raises(WorkspaceError, match="worktree has uncommitted changes"):
         vigil._verify_candidate(worktree=repo.worktree, facts=candidate_facts)
     assert path.read_text() == "value = 2\n"
 
@@ -251,7 +251,7 @@ def test_real_git_unpublished_reader_commit_is_still_an_execution_error(
     if remote_moves:
         repo.commit(path=repo.publisher, name="remote.py", content="published\n")
         _git("push", "origin", f"HEAD:{_BRANCH}", repo=repo.publisher)
-    with pytest.raises(WorkspaceError, match="未推送"):
+    with pytest.raises(WorkspaceError, match="unpushed local commits"):
         vigil._verify_candidate(worktree=repo.worktree, facts=candidate_facts)
     assert repo.head() == new_local
 
@@ -330,7 +330,7 @@ def test_real_git_interrupted_run_reconciles_through_review_to_merge(
         assert Path(kw["work_dir"]) == repo.worktree
         assert repo.worktree.stat().st_ino == preserved_inode
         if name == "implementer":
-            assert "原任务" in kw["context"] or "original issue" in kw["context"]
+            assert "Original Task" in kw["context"] or "original issue" in kw["context"]
             if residue == "uncommitted":
                 assert "partial implementation" in (repo.worktree / "entry.py").read_text()
             (repo.worktree / "entry.py").write_text("value = 1\n")
@@ -498,7 +498,7 @@ def test_executor_cannot_use_resume_to_pass_without_pushing(local_repo, monkeypa
     repo = local_repo
     repo.commit(path=repo.worktree, name="entry.py", content="value = 1\n")
     monkeypatch.setattr(engine, "run_agent", lambda *a, **kw: {"head_sha": repo.head()})
-    with pytest.raises(WorkspaceError, match="未交付"):
+    with pytest.raises(WorkspaceError, match="not delivered"):
         stages.execute_compact_spec(
             backend=object(),
             work_dir=repo.worktree,

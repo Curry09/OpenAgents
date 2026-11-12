@@ -1,12 +1,12 @@
 ---
 number: "0028"
-title: PR 自动化两处改进：spec 草稿 PR 内嵌 9 段总览摘要 + merge 冲突派 agent 语义解冲突
+title: "Two PR automation improvements: embed a 9-section overview summary in spec draft PRs + dispatch an agent to resolve merge conflicts semantically"
 issue: 79
 slug: pr-digest-and-conflict-agent
-summary: spec 草稿 PR 正文内嵌总览摘要三段；merge 真冲突派 coding agent 语义解决，分层降级 indexheal→agent→人工。
+summary: "Embed the three overview summary sections in the spec draft PR body; dispatch a coding agent to resolve actual merge conflicts semantically, with tiered fallback from indexheal→agent→human."
 tasks:
   - id: T1
-    title: 改进1：总览摘要 digest + PR 正文接线
+    title: "Improvement 1: overview summary digest + PR body wiring"
     status: done
     priority: P1
     tags: []
@@ -18,10 +18,10 @@ tasks:
       - openagents/orchestrator.py
       - tests/test_signpost_digest.py
       - tests/test_orchestrator_pr_body.py
-    scope: 新增 signpost.overview_digest_for_group 抽三段（行数截断、缺失返 None）；orchestrator._pr_body/_backfill_pr_body 在 summary 后、e2e_section 前内嵌 digest，start_rfc/backfill_rfc 复用 spec_group 透传
-    acceptance: digest 块含 Summary/Motivation/Reference-level 三段且超行截断附「…（完整见 spec 文件）」；spec 不可读时 digest 为 None、PR 正文逐字节同今天（零回归）；ruff+pytest 绿
+    scope: "Add signpost.overview_digest_for_group to extract three sections (truncate by line count; return None if missing); orchestrator._pr_body/_backfill_pr_body embed the digest after summary and before e2e_section, with start_rfc/backfill_rfc reusing spec_group to pass it through"
+    acceptance: "The digest block contains the Summary/Motivation/Reference-level sections, truncates content that exceeds the line limit, and appends “… (see the spec file for the full text)”; when the spec cannot be read, digest is None and the PR body remains byte-for-byte identical to the current behavior (zero regressions); ruff+pytest pass"
   - id: T2
-    title: 改进2：conflict.py 语义解冲突（纯决策 + IO 工厂）
+    title: "Improvement 2: semantic conflict resolution in conflict.py (pure decision logic + IO factory)"
     status: done
     priority: P1
     tags: []
@@ -31,10 +31,10 @@ tasks:
     files:
       - openagents/conflict.py
       - tests/test_conflict.py
-    scope: 新增 conflict.py：纯决策 resolve_branch（merge origin/base→冲突喂 backend.run 语义解+自测→无残留则 add/commit 返 True，否则 merge --abort 返 False）+ IO 工厂 make_resolver（临时 detached worktree→resolve→push→finally 清理），照搬 indexheal 骨架 + 异常吞成 False
-    acceptance: 干净合并返 True；agent 解决且自测过返 True 并 add/commit；仍冲突/自测失败 merge --abort 返 False；任何异常吞成 False（hermetic 注入 run/backend 单测覆盖三分支）
+    scope: "Add conflict.py: pure decision logic in resolve_branch (merge origin/base→feed conflicts to backend.run for semantic resolution + self-tests→if no conflicts remain, add/commit and return True; otherwise, merge --abort and return False) + IO factory make_resolver (temporary detached worktree→resolve→push→cleanup in finally), copying the indexheal structure + swallowing exceptions and returning False"
+    acceptance: "A clean merge returns True; successful agent resolution with passing self-tests returns True and performs add/commit; remaining conflicts/self-test failures trigger merge --abort and return False; any exception is swallowed and converted to False (hermetic unit tests with injected run/backend cover the three branches)"
   - id: T3
-    title: 改进2：接线 rebase / messages / cli（分层降级 + 门控）
+    title: "Improvement 2: wiring rebase / messages / cli (tiered fallback + gating)"
     status: done
     priority: P1
     tags: []
@@ -48,10 +48,10 @@ tasks:
       - openagents/cli.py
       - tests/test_rebase_resolve.py
       - tests/test_messages_resolve.py
-    scope: rebase_open_prs 加可选 resolve 注入、冲突顺序 heal→resolve→留言、新增 RESULT_RESOLVED；Messages 加 backend 参数 + _make_resolver（同 _make_heal 门控），poll 扇出与 _process_coding 撞冲突先试 resolve；cli._messages_for 注入 backend，sync-prs 不注入 resolve
-    acceptance: 冲突时 heal 命中→RESULT_HEALED、resolve 命中→RESULT_RESOLVED、都没命中→RESULT_CONFLICT 留言；resolve=None 时逐字节回落现状；sync-prs 不注入 resolve；ruff+pytest 绿
+    scope: "Add optional resolve injection to rebase_open_prs, process conflicts in the order heal→resolve→comment, and add RESULT_RESOLVED; add a backend parameter + _make_resolver to Messages (with the same gating as _make_heal), and try resolve first when poll fan-out or _process_coding encounters conflicts; cli._messages_for injects backend, while sync-prs does not inject resolve"
+    acceptance: "On a conflict, successful heal→RESULT_HEALED, successful resolve→RESULT_RESOLVED, neither succeeds→RESULT_CONFLICT with a comment; when resolve=None, fall back to the current behavior byte for byte; sync-prs does not inject resolve; ruff+pytest pass"
   - id: T4
-    title: hermetic e2e 脚本（无网络、不触真实 LLM）
+    title: "Hermetic e2e script (no network access, no real LLM calls)"
     status: done
     priority: P2
     tags: []
@@ -62,256 +62,202 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0028-pr-digest-and-conflict.sh
-    scope: 新增 hermetic e2e 脚本：① ruff check + format --check + pytest 离线确定性验证；② 用 fake backend/fake run 闭环演练 digest 抽取与 resolve_branch 分层降级，全程不触网/不调真实 LLM/不碰真实 gh
-    acceptance: bash scripts/e2e-spec-0028-pr-digest-and-conflict.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM；两段均通过
+    scope: "Add a hermetic e2e script: ① ruff check + format --check + pytest for offline, deterministic verification; ② use fake backend/fake run for an end-to-end exercise of digest extraction and tiered fallback in resolve_branch, with no network access, real LLM calls, or real gh invocations throughout"
+    acceptance: "bash scripts/e2e-spec-0028-pr-digest-and-conflict.sh exits with code 0 in an environment without network access; the script does not invoke real gh/LLMs; both parts pass"
 ---
 
-# 0028 · PR 自动化两处改进：spec 草稿 PR 内嵌 9 段总览摘要 + merge 冲突派 agent 语义解冲突
+# 0028 · Two PR automation improvements: embed a digest of the nine-section overview in spec draft PRs + dispatch an agent to resolve merge conflicts semantically
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is the group-level nine-section rust-RFC overview. -->
 
 ## Summary
 
-源自实跑 PR #76 的两个相互独立的观察，合并为一组、分 Task 落地：
+Two independent observations from the actual run of PR #76 are combined into one group and implemented as separate Tasks:
 
-1. **spec 草稿 PR 正文内嵌总览摘要** —— 开 draft PR 时，把本分支新增 spec 组 9 段总览里信息
-   密度最高的三段（Summary / Motivation / Reference-level explanation）摘要内嵌进 PR 正文，
-   评审者无需点开 Files changed 即可在 PR 页读到核心设计。
-2. **merge 冲突派 agent 语义解冲突** —— 自动合并扇出撞到真冲突时，不再一律「请人工 rebase」，
-   而是派一个 coding 后端 agent 到该 PR 分支临时 worktree 里读冲突标记、语义解决、跑 ruff+pytest
-   自测、续 commit、push；解不了才回落人工。形成分层降级：**indexheal（确定性，仅 OVERVIEW）→
-   agent（通用，啃真冲突）→ 人工兜底**。
+1. **Embed an overview digest in the body of spec draft PRs** — When opening a draft PR, embed a digest of the three most information-dense sections (Summary / Motivation / Reference-level explanation) from the nine-section overview of the spec group added on this branch into the PR body, so reviewers can read the core design on the PR page without opening Files changed.
+2. **Dispatch an agent to resolve merge conflicts semantically** — When automatic merge fan-out encounters a real conflict, instead of invariably asking a human to rebase, dispatch a coding backend agent to a temporary worktree for that PR branch to read conflict markers, resolve the conflict semantically, run ruff+pytest self-tests, create the follow-up commit, and push; fall back to a human only if it cannot resolve the conflict. This creates a layered fallback: **indexheal (deterministic, OVERVIEW only) → agent (general-purpose, handles real conflicts) → human fallback**.
 
-两处都是「把人当前在做的机械活交给 agent」（理念 2/5：人负责宏观把控、细节交给 agent），且都
-**严格零回归**：任何新路径失败都回落到现状行为。
+Both changes “hand mechanical work currently done by humans to agents” (principles 2/5: humans handle high-level oversight; agents handle the details), and both enforce **strictly zero regressions**: any failure in a new path falls back to the current behavior.
 
 ## Motivation
 
-**背景（就地复述，不靠裸引用承载）**：OpenAgents 是 RFC/spec 驱动的多 agent 框架，从 issue
-自动起草 spec → 开 draft PR → 评审 → 实现 → 合并。两个痛点都在 PR 自动化链路上：
+**Background (restated here rather than relying on bare references)**: OpenAgents is an RFC/spec-driven multi-agent framework that automatically drafts a spec from an issue → opens a draft PR → reviews → implements → merges. Both pain points occur in the PR automation pipeline:
 
-### 问题 1：spec 草稿 PR 的正文读不到设计
+### Problem 1: the body of a spec draft PR does not show the design
 
-`orchestrator.start_rfc`（issue 驱动）与 `orchestrator.backfill_rfc`（brownfield 反向补全）
-开 draft PR 时，正文由 `_pr_body` / `_backfill_pr_body` 拼出，当前只含：
-`Closes #N` + 一句「spec 草稿待评审。」+ 一个 `## 端到端验证` 指路牌（由
-`spec/signpost.py:signpost_for_group` 渲染，指向 e2e 脚本与组文件）。
+When `orchestrator.start_rfc` (issue-driven) and `orchestrator.backfill_rfc` (brownfield reverse backfill) open draft PRs, the body is assembled by `_pr_body` / `_backfill_pr_body` and currently contains only:
+`Closes #N` + one sentence, “Spec draft awaiting review.” + a `## End-to-end verification` signpost (rendered by `spec/signpost.py:signpost_for_group`, pointing to the e2e script and group file).
 
-而 spec 的实际设计——组级 rust-RFC 9 段总览——全在 `docs/specs/NNNN-slug.md` 里。评审者要读
-设计，必须点开 PR 的 Files changed 标签页、找到那个 markdown、再滚动阅读。**PR 页本身读不到
-任何设计内容**，这抬高了评审摩擦，与「PR/comment 即 agent 协作界面」的定位相悖。
+The actual spec design—the group-level nine-section rust-RFC overview—is entirely in `docs/specs/NNNN-slug.md`. To read the design, a reviewer must open the PR’s Files changed tab, find that Markdown file, and scroll through it. **The PR page itself shows no design content**, which increases review friction and runs counter to the positioning of “PRs/comments as the agent collaboration interface.”
 
-### 问题 2：merge 冲突一律甩给人工
+### Problem 2: merge conflicts are invariably handed off to humans
 
-合并扇出 `rebase.rebase_open_prs`（一个 PR 合并进 main 后，把最新 main 并入其余 open PR）与
-代码闸的可合并性预检 `messages.Messages._process_coding`（reviewer 评审前先查 PR 是否冲突）
-撞冲突时，目前只有一种自动消解：`indexheal`（issue #48）——它**只能确定性消解**
-`docs/specs/OVERVIEW.md` 这一个由 `spec render` 整表重渲的生成式索引文件的冲突（按合并后的
-spec 源重渲该文件即得并集）。其余**任何真冲突**一律贴 `rebase.CONFLICT_COMMENT`（「请手动
-rebase / 解决冲突后重新 push」）甩给人。
+When merge fan-out via `rebase.rebase_open_prs` (after one PR merges into main, merge the latest main into the remaining open PRs) or the code gate’s mergeability precheck via `messages.Messages._process_coding` (check whether the PR has conflicts before reviewer review) encounters a conflict, there is currently only one automatic resolution mechanism: `indexheal` (issue #48). It **can only deterministically resolve** conflicts in the single generated index file `docs/specs/OVERVIEW.md`, whose entire table is rerendered by `spec render` (rerendering that file from the merged spec sources produces the union). **Any other real conflict** invariably results in posting `rebase.CONFLICT_COMMENT` (“Please rebase manually / resolve the conflicts and push again”) and handing it off to a human.
 
-**整条链路目前没有任何 agent 参与冲突解决**——这与目标「人负责宏观把控、细节交给 agent」
-（理念 2/5）相悖。实例：PR #76 与 PR #78 各加一个 spec，两边都重渲整张 OVERVIEW.md → 冲突
-（这种 OVERVIEW 冲突 indexheal 能消解）；更早还出现 spec **撞号**，PR #78 是靠人**手动改 spec
-编号**避让 PR #76 的——这类机械的、语义可判定的冲突，正该交给 agent 啃。
+**No agent currently participates in conflict resolution anywhere in the pipeline**—this runs counter to the goal of “humans handle high-level oversight; agents handle the details” (principles 2/5). Example: PR #76 and PR #78 each added a spec, and both rerendered the entire OVERVIEW.md → conflict (indexheal can resolve this kind of OVERVIEW conflict); earlier, there was also a spec **number collision**, and PR #78 relied on a human **manually changing the spec number** to avoid PR #76—this kind of mechanical conflict, whose resolution can be determined semantically, is exactly what an agent should handle.
 
 ## Guide-level explanation
 
-### 改进 1 落地后的体验
+### Experience after improvement 1 is implemented
 
-agent 解决一个 issue、开出 spec 草稿 draft PR 后，PR 正文长这样（示意）：
+After an agent handles an issue and opens a spec draft PR, the PR body looks like this (illustrative):
 
 ```markdown
 Closes #79
 
-spec 草稿待评审。
+Spec draft awaiting review.
 
-## spec 总览（摘自 docs/specs/0028-pr-digest-and-conflict-agent.md）
+## Spec overview (excerpted from docs/specs/0028-pr-digest-and-conflict-agent.md)
 
 ### Summary
-源自实跑 PR #76 的两个相互独立的观察……
+Two independent observations from the actual run of PR #76…
 
 ### Motivation
-…（前 N 行）…
-…（完整见 spec 文件）
+…(first N lines)…
+…(see the spec file for the full text)
 
 ### Reference-level explanation
-…（前 N 行）…
-…（完整见 spec 文件）
+…(first N lines)…
+…(see the spec file for the full text)
 
-## 端到端验证
-- 跑：`bash scripts/e2e-spec-0028-pr-digest-and-conflict.sh`
-- 详细手动步骤见 docs/specs/0028-pr-digest-and-conflict-agent.md 的组级总览 + 各 Task 的 `acceptance`
+## End-to-end verification
+- Run: `bash scripts/e2e-spec-0028-pr-digest-and-conflict.sh`
+- For detailed manual steps, see the group-level overview in docs/specs/0028-pr-digest-and-conflict-agent.md + each Task’s `acceptance`
 ```
 
-总览摘要块**夹在 summary 之后、`## 端到端验证` 之前**。只取三段（不是全 9 段），每段超过行数
-上限就截断并附「…（完整见 spec 文件）」，避免正文膨胀淹没 `Closes #N` 与指路牌。spec 不可读
-时该块整体缺省（回退现状），PR 照开。
+The overview digest block is **inserted after the summary and before `## End-to-end verification`**. Only three sections are included (not all nine); any section exceeding the line limit is truncated and followed by “…(see the spec file for the full text)” to prevent the body from growing so large that it buries `Closes #N` and the signpost. If the spec cannot be read, the entire block is omitted (falling back to the current behavior), and the PR is still opened.
 
-### 改进 2 落地后的体验
+### Experience after improvement 2 is implemented
 
-自动 poll 扇出时，某 open PR 与新合并的 main 撞冲突：
+During automatic poll fan-out, an open PR conflicts with the newly merged main:
 
-1. 先试 `indexheal`：若冲突**仅**落在 `docs/specs/OVERVIEW.md` → 重渲消解、push，完事
-   （`RESULT_HEALED`）。
-2. indexheal 不适用（含其它文件的真冲突）→ 试新的 **agent 语义解冲突**：在该 PR 分支临时
-   worktree 里 `git merge origin/main`，把冲突文件清单喂给 coding 后端 agent，让它读
-   `<<<<<<<`/`>>>>>>>` 标记、语义解决、跑 ruff+pytest 自测、`git add`+`commit`，成功则 push
-   （新增 `RESULT_RESOLVED`）。
-3. agent 也解不了（自测失败 / 仍有残留冲突标记 / 任何异常）→ `merge --abort`，回落到现有
-   人工留言路径（`RESULT_CONFLICT`，贴 `CONFLICT_COMMENT`）。
+1. Try `indexheal` first: if conflicts occur **only** in `docs/specs/OVERVIEW.md` → rerender to resolve them, push, and finish (`RESULT_HEALED`).
+2. If indexheal is not applicable (real conflicts involving other files) → try the new **agent-based semantic conflict resolution**: run `git merge origin/main` in a temporary worktree for that PR branch, feed the list of conflicted files to the coding backend agent, and have it read the `<<<<<<<`/`>>>>>>>` markers, resolve the conflicts semantically, run ruff+pytest self-tests, and perform `git add`+`commit`; push on success (new `RESULT_RESOLVED`).
+3. If the agent also cannot resolve the conflicts (self-tests fail / conflict markers remain / any exception) → `merge --abort`, then fall back to the existing human-facing comment path (`RESULT_CONFLICT`, posting `CONFLICT_COMMENT`).
 
-人手动触发的 `openagents sync-prs` **不启用**第 2 层（不在人手动命令里偷烧 token）；只在自动
-poll 扇出里启用。
+The manually invoked `openagents sync-prs` **does not enable** layer 2 (do not silently spend tokens in a manual command); it is enabled only in automatic poll fan-out.
 
 ## Reference-level explanation
 
-### 改进 1：`overview_digest_for_group` + 接线 `_pr_body`
+### Improvement 1: `overview_digest_for_group` + wiring into `_pr_body`
 
-**新增** `openagents/spec/signpost.py:overview_digest_for_group(*, group_path) -> str | None`，
-与既有 `signpost_for_group` 并列同质（同样「只懂 spec 文档结构、为 PR 正文抽取、缺失返 None」，
-不感知 git/GitHub/orchestrator，理念 10 解耦）：
+**Add** `openagents/spec/signpost.py:overview_digest_for_group(*, group_path) -> str | None`, alongside and of the same kind as the existing `signpost_for_group` (likewise, “understands only the spec document structure, extracts content for the PR body, and returns None when missing”; has no awareness of git/GitHub/orchestrator, decoupling per principle 10):
 
-- `model.load_group(path=group_path)` 取 `overview.summary` / `overview.motivation` /
-  `overview.reference_level` 三段（字段已存在于 `model.Overview`）。
-- 每段按**行数上限**（模块常量，如 `_DIGEST_MAX_LINES`）截断；超出则保留前 N 行并追加一行
-  「…（完整见 spec 文件）」。
-- 渲染 `## spec 总览（摘自 docs/specs/<name>）` 块，三段各以 `### <段名>` 小标题分隔。
-- `group_path` 不是文件 / `load_group` 抛 `OSError|ValueError` → 返回 `None`（零回归）。
+- Use `model.load_group(path=group_path)` to obtain the three sections `overview.summary` / `overview.motivation` / `overview.reference_level` (the fields already exist in `model.Overview`).
+- Truncate each section by a **line limit** (a module constant, such as `_DIGEST_MAX_LINES`); if exceeded, retain the first N lines and append a line reading “…(see the spec file for the full text)”.
+- Render a `## Spec overview (excerpted from docs/specs/<name>)` block, with the three sections separated by `### <section name>` subheadings.
+- If `group_path` is not a file / `load_group` raises `OSError|ValueError` → return `None` (zero regressions).
 
-**接线** `openagents/orchestrator.py`：`_pr_body` / `_backfill_pr_body` 各新增一个必填关键字参数
-`digest_section: str | None`，**位置在 summary 之后、`e2e_section` 之前**追加（`None` 即跳过）。
-`start_rfc` / `backfill_rfc` 已各算出 `spec_group`（`workspace.changed_spec_group`）并据此调
-`signpost.signpost_for_group`；复用同一 `spec_group` 调
-`signpost.overview_digest_for_group(group_path=spec_group)`，把结果透传进 `_pr_body` /
-`_backfill_pr_body`。
+**Wire into** `openagents/orchestrator.py`: add a required keyword parameter `digest_section: str | None` to each of `_pr_body` / `_backfill_pr_body`, appending it **after the summary and before `e2e_section`** (skip it when `None`). `start_rfc` / `backfill_rfc` already each compute `spec_group` (`workspace.changed_spec_group`) and use it to call `signpost.signpost_for_group`; reuse the same `spec_group` to call `signpost.overview_digest_for_group(group_path=spec_group)`, and pass the result through to `_pr_body` / `_backfill_pr_body`.
 
-### 改进 2：`openagents/conflict.py` + 接线 rebase / messages / cli
+### Improvement 2: `openagents/conflict.py` + wiring into rebase / messages / cli
 
-**新增模块** `openagents/conflict.py`，作为 `indexheal.py` 的**语义化兄弟**（照搬其骨架：任意
-PR 分支临时 detached worktree + 注入 `run`/callable 解耦 IO + 全程异常吞成 `False` 安全降级）：
+**Add the module** `openagents/conflict.py` as a **semantic counterpart** to `indexheal.py` (copy its skeleton: a temporary detached worktree for an arbitrary PR branch + injected `run`/callable to decouple IO + swallow exceptions throughout, returning `False` for safe fallback):
 
-- 纯决策 `resolve_branch(*, worktree, base, backend, run) -> bool`：
-  - `run(args=["merge", f"origin/{base}", "--no-edit"], cwd=worktree, check=False)`；
-    returncode 0（干净合并）→ `True`。
-  - 冲突 → 取冲突文件清单（`git diff --name-only --diff-filter=U`），喂给
-    `backend.run(work_dir=worktree, task=<语义解冲突+自测指令>, context=<冲突文件清单>)` 让
-    agent 语义解决 + 跑 ruff+pytest 自测。
-  - agent 跑完后校验**无残留冲突标记**（再查 `--diff-filter=U` 为空 / grep 无 `<<<<<<<`）→
-    `git add -A` + `git commit --no-edit` → `True`。
-  - 仍有冲突 / 自测失败 / 任何异常 → `run(args=["merge", "--abort"], …)` → `False`。
-- IO 工厂 `make_resolver(*, work_dir, base, backend, agent_id) -> Callable[..., bool]`，与
-  `indexheal.make_healer` 同构：取 PR head 分支 → 建临时 detached worktree（`.openagents/`
-  下、按分支名隔离，已 gitignore）→ `resolve_branch` → 成功则 push 回该分支 → `finally`
-  幂等清理 worktree。返回的回调签名 `(*, pr_number: int) -> bool`。
+- Pure decision function `resolve_branch(*, worktree, base, backend, run) -> bool`:
+  - `run(args=["merge", f"origin/{base}", "--no-edit"], cwd=worktree, check=False)`;
+    returncode 0 (clean merge) → `True`.
+  - Conflict → obtain the list of conflicted files (`git diff --name-only --diff-filter=U`), feed it to `backend.run(work_dir=worktree, task=<semantic conflict resolution + self-test instructions>, context=<list of conflicted files>)`, and have the agent resolve the conflicts semantically + run ruff+pytest self-tests.
+  - After the agent finishes, verify that **no conflict markers remain** (check again that `--diff-filter=U` is empty / grep finds no `<<<<<<<`) → `git add -A` + `git commit --no-edit` → `True`.
+  - Conflicts remain / self-tests fail / any exception → `run(args=["merge", "--abort"], …)` → `False`.
+- IO factory `make_resolver(*, work_dir, base, backend, agent_id) -> Callable[..., bool]`, structurally identical to `indexheal.make_healer`: obtain the PR head branch → create a temporary detached worktree (under `.openagents/`, isolated by branch name, already gitignored) → `resolve_branch` → push back to that branch on success → idempotently clean up the worktree in `finally`. The returned callback has the signature `(*, pr_number: int) -> bool`.
 
-**接线**：
+**Wiring**:
 
-- `openagents/rebase.py`：`rebase_open_prs` 新增可选注入 `resolve: Callable[..., bool] | None`，
-  冲突处理顺序改为 **heal → resolve → 留言**：`heal` 命中返回 `RESULT_HEALED`；否则
-  `resolve` 命中返回**新增常量** `RESULT_RESOLVED`；都没命中才 `post_signed_comment` +
-  `RESULT_CONFLICT`。`resolve=None`（如手动 sync-prs）即跳过该层，行为同今天。
-- `openagents/messages.py`：`Messages.__init__` 新增 `backend` 参数；新增 `_make_resolver()`
-  （与 `_make_heal` 同款门控：`work_dir` + `base` + `backend` 齐备才构造，缺一返 `None`）。
-  poll 的合并扇出（`_process_run` 里调 `rebase_open_prs` 处）透传 `resolve=self._make_resolver()`；
-  `_process_coding` 的可合并性预检撞冲突时，先试 `resolve`（成功则本轮不 block、等下一轮 CI），
-  失败才走现有 `CONFLICT_COMMENT` + `_block`。
-- `openagents/cli.py`：`_messages_for` 注入 `backend=_backend_for()`（复用既有 backend 工厂）；
-  `_cmd_sync_prs` 的 `rebase_open_prs` 调用**不**注入 `resolve`（保持手动命令不烧 token）。
+- `openagents/rebase.py`: add optional injection `resolve: Callable[..., bool] | None` to `rebase_open_prs`, and change the conflict-handling order to **heal → resolve → comment**: if `heal` succeeds, return `RESULT_HEALED`; otherwise, if `resolve` succeeds, return the **new constant** `RESULT_RESOLVED`; only if neither succeeds, call `post_signed_comment` + return `RESULT_CONFLICT`. `resolve=None` (as with manual sync-prs) skips this layer and behaves as it does today.
+- `openagents/messages.py`: add a `backend` parameter to `Messages.__init__`; add `_make_resolver()` (with the same gating as `_make_heal`: construct it only when `work_dir` + `base` + `backend` are all present; return `None` if any is missing). Pass `resolve=self._make_resolver()` through in poll’s merge fan-out (where `_process_run` calls `rebase_open_prs`); when the mergeability precheck in `_process_coding` encounters conflicts, try `resolve` first (on success, do not block this round; wait for CI in the next round), and follow the existing `CONFLICT_COMMENT` + `_block` path only on failure.
+- `openagents/cli.py`: inject `backend=_backend_for()` in `_messages_for` (reuse the existing backend factory); do **not** inject `resolve` into the `rebase_open_prs` call in `_cmd_sync_prs` (keep manual commands from spending tokens).
 
-**为什么 merge 而非 rebase**：复用 indexheal 的 `git merge origin/<base>` 路径，避免 force-push
-改写已推送历史（多 agent 并发下 force-push 易相撞）。用户口语「rebase」= 同步到最新 main 并解
-冲突，merge 达成同一目的且更安全。
+**Why merge rather than rebase**: reuse indexheal’s `git merge origin/<base>` path to avoid rewriting pushed history with force-push (force-pushes can easily collide when multiple agents run concurrently). The user’s colloquial “rebase” = sync to the latest main and resolve conflicts; merge achieves the same goal more safely.
 
-### DAG + 文件分配
+### DAG + File allocation
 
-两处改进互相独立（不同文件、无依赖），可并行实现。
+The two improvements are independent (different files, no dependencies) and can be implemented in parallel.
 
 ```mermaid
 graph TD
-  T1["T1 改进1：overview_digest + PR 正文接线"]
-  T2["T2 改进2：conflict.py 纯决策+IO 工厂"]
-  T3["T3 改进2：接线 rebase/messages/cli"]
-  T4["T4 hermetic e2e 脚本"]
+  T1["T1 Improvement 1: overview_digest + PR body wiring"]
+  T2["T2 Improvement 2: conflict.py pure decision logic + IO factory"]
+  T3["T3 Improvement 2: wire up rebase/messages/cli"]
+  T4["T4 hermetic e2e script"]
   T2 --> T3
   T1 --> T4
   T3 --> T4
 ```
 
-| Task | 标题 | files | 依赖 |
+| Task | Title | files | Dependencies |
 |---|---|---|---|
-| T1 | 改进1：总览摘要 digest + PR 正文接线 | `openagents/spec/signpost.py`, `openagents/orchestrator.py`, `tests/test_signpost_digest.py`, `tests/test_orchestrator_pr_body.py` | — |
-| T2 | 改进2：`conflict.py` 语义解冲突（纯决策 + IO 工厂） | `openagents/conflict.py`, `tests/test_conflict.py` | — |
-| T3 | 改进2：接线 rebase / messages / cli（分层降级 + 门控） | `openagents/rebase.py`, `openagents/messages.py`, `openagents/cli.py`, `tests/test_rebase_resolve.py`, `tests/test_messages_resolve.py` | T2 |
-| T4 | hermetic e2e 脚本（无网络、不触真实 LLM） | `scripts/e2e-spec-0028-pr-digest-and-conflict.sh` | T1, T3 |
+| T1 | Improvement 1: overview digest + PR body wiring | `openagents/spec/signpost.py`, `openagents/orchestrator.py`, `tests/test_signpost_digest.py`, `tests/test_orchestrator_pr_body.py` | — |
+| T2 | Improvement 2: semantic conflict resolution in `conflict.py` (pure decision logic + IO factory) | `openagents/conflict.py`, `tests/test_conflict.py` | — |
+| T3 | Improvement 2: wire up rebase / messages / cli (tiered fallback + gating) | `openagents/rebase.py`, `openagents/messages.py`, `openagents/cli.py`, `tests/test_rebase_resolve.py`, `tests/test_messages_resolve.py` | T2 |
+| T4 | hermetic e2e script (no network access, no calls to real LLMs) | `scripts/e2e-spec-0028-pr-digest-and-conflict.sh` | T1, T3 |
 
-`files` 同组互斥（单一 writer 所有权，理念 6）。注：现有 `tests/` 里既有 `test_signpost.py` /
-`test_rebase.py` / `test_messages.py` 等不被本组任何 Task 占有——本组只新增上表所列新测试文件，
-不改既有测试文件，从而保持组内 `files` 与既有所有权双重不重叠。
+`files` are mutually exclusive within the group (single-writer ownership, principle 6). Note: existing files in `tests/`, such as `test_signpost.py` /
+`test_rebase.py` / `test_messages.py`, are not owned by any Task in this group—this group only adds the new test files listed in the table above
+and does not modify existing test files, ensuring that both the group's `files` and existing ownership remain non-overlapping.
 
-**e2e 脚本路径**：`scripts/e2e-spec-0028-pr-digest-and-conflict.sh`（hermetic，两段：① ruff +
-pytest 离线确定性验证；② 用 fake backend / fake run 闭环演练 digest 抽取与 `resolve_branch`
-分层降级，全程不触网、不调真实 LLM、不碰真实 gh）。
+**e2e script path**: `scripts/e2e-spec-0028-pr-digest-and-conflict.sh` (hermetic, in two parts: ① offline, deterministic verification with ruff +
+pytest; ② an end-to-end exercise of digest extraction and tiered fallback in `resolve_branch` using a fake backend / fake run,
+with no network access, no calls to real LLMs, and no interaction with real gh throughout).
 
-### 严格零回归不变式
+### Strict zero-regression invariants
 
-- 改进 1：digest 为 `None` 时 PR 正文逐字节同今天。
-- 改进 2：`resolve` 未注入（手动 sync-prs / 老测试夹具）或返回 `False` 时，冲突处理逐字节
-  回落到既有 `CONFLICT_COMMENT` + `_block` / 留言路径。
+- Improvement 1: when digest is `None`, the PR body is byte-for-byte identical to today's output.
+- Improvement 2: when `resolve` is not injected (manual sync-prs / old test fixtures) or returns `False`, conflict handling falls back byte-for-byte
+  to the existing `CONFLICT_COMMENT` + `_block` / comment path.
 
-每层新代码注释按代码注释规范标注本组 spec id（0028）+ 对应 Task 号。
+Comments in new code at every layer must include this group's spec id (0028) + the corresponding Task number, following the code comment conventions.
 
 ## Drawbacks
 
-- **token 成本**：改进 2 的 agent 解冲突要真起一个 coding 后端，比确定性 indexheal 贵得多；
-  故严格限定「只在自动 poll 扇出启用、手动 sync-prs 不启用」，且仅在 indexheal 不适用时才触发。
-- **正确性风险**：agent 语义解冲突可能解错。缓解：强制 ruff+pytest 自测门控，自测不过即
-  `merge --abort` 回落人工——宁可不解，不可解错后静默 push。
-- **PR 正文变长**：改进 1 让正文变长，可能稀释 `Closes`/指路牌。缓解：只取三段 + 行数上限截断。
-- **新增并发临时 worktree**：改进 2 与 indexheal 共用 `.openagents/` 下临时 worktree 区域，
-  多 agent 并发时需注意路径隔离（按分支名）与幂等清理——照搬 indexheal 已验证的骨架。
+- **Token cost**: agent-based conflict resolution in improvement 2 must actually start a coding backend, which is much more expensive than deterministic indexheal;
+  it is therefore strictly limited to automatic poll fan-out, disabled for manual sync-prs, and triggered only when indexheal is not applicable.
+- **Correctness risk**: agent-based semantic conflict resolution may produce incorrect resolutions. Mitigation: mandatory ruff+pytest self-test gates; if self-tests fail,
+  run `merge --abort` and fall back to manual handling—leaving a conflict unresolved is preferable to silently pushing an incorrect resolution.
+- **Longer PR bodies**: improvement 1 lengthens the body, potentially diluting `Closes`/signposts. Mitigation: extract only three sections + truncate at a line limit.
+- **Additional concurrent temporary worktrees**: improvement 2 shares the temporary worktree area under `.openagents/` with indexheal;
+  concurrent agents require care with path isolation (by branch name) and idempotent cleanup—reuse indexheal's proven skeleton as-is.
 
 ## Rationale and alternatives
 
-**改进 1 为何只取三段而非全 9 段**：Summary/Motivation/Reference-level 是信息密度最高的三段
-（是什么 / 为什么 / 怎么做），覆盖评审者在 PR 页的第一需求；全 9 段会把正文撑爆、淹没
-`Closes`/指路牌。备选：① 内嵌全文——否决（正文膨胀）；② 只放一个「点开看设计」链接——否决
-（等于现状，没解决「PR 页读不到设计」）。
+**Why improvement 1 extracts only three sections rather than all 9**: Summary/Motivation/Reference-level are the three sections with the highest information density
+(what / why / how), covering reviewers' primary needs on the PR page; all 9 sections would bloat the body and bury
+`Closes`/signposts. Alternatives: ① embed the full text—rejected (body bloat); ② provide only a “click to view the design” link—rejected
+(equivalent to the status quo; does not solve the problem of being unable to read the design on the PR page).
 
-**改进 2 为何 merge 而非 rebase**：见 Reference-level——避免 force-push 改写已推送历史。备选：
-① rebase + force-push——否决（多 agent 并发易相撞、且改写他人可见历史）；② 直接扩展
-`indexheal` 让它处理通用冲突——否决（indexheal 是「确定性、零 LLM」的纯函数消解，混入 agent
-调用会污染其语义边界；新建语义化兄弟 `conflict.py` 各司其职，理念 10 解耦）；③ 在主 worktree
-里解冲突——否决（会污染当前工作区，临时 detached worktree 才能隔离）。
+**Why improvement 2 uses merge rather than rebase**: see Reference-level—to avoid rewriting pushed history through force-push. Alternatives:
+① rebase + force-push—rejected (prone to collisions with multiple concurrent agents, and rewrites history visible to others); ② directly extend
+`indexheal` to handle general conflicts—rejected (indexheal performs pure-function resolution that is “deterministic, zero LLM”; mixing in agent
+calls would compromise its semantic boundary; create its semantic sibling `conflict.py` so each has its own responsibility, following principle 10 on decoupling); ③ resolve conflicts in the main worktree—rejected
+(would contaminate the current workspace; a temporary detached worktree is needed for isolation).
 
-**为何分层降级而非直接上 agent**：indexheal 对 OVERVIEW 冲突是确定性、零成本、零风险的，应
-优先；agent 是通用但贵且有风险的兜底；人工是最终安全网。三层从「便宜确定」到「贵但通用」到
-「人」逐级降级，是成本/风险的最优排序。
+**Why use tiered fallback rather than going straight to an agent**: indexheal is deterministic, zero-cost, and zero-risk for OVERVIEW conflicts, so it should
+take priority; the agent is a general-purpose but expensive and risky fallback; manual handling is the final safety net. The three tiers fall back progressively from “cheap and deterministic” to “expensive but general-purpose” to
+“human,” providing the optimal ordering for cost/risk.
 
 ## Prior art
 
-- **`indexheal.py`（issue #48）**：本组改进 2 的直接蓝本——同样的「临时 worktree + 注入 IO +
-  异常吞成 False 安全降级」骨架，`conflict.py` 是它的语义化兄弟。
-- **`signpost.py`（issue #53）**：本组改进 1 的直接蓝本——`overview_digest_for_group` 与
-  `signpost_for_group` 并列同质（只懂文档结构、为 PR 正文抽取、缺失返 None）。
-- **rust-lang/rfcs**（https://github.com/rust-lang/rfcs）：9 段总览形态的来源；本组复用其
-  Summary/Motivation/Reference-level 作为 PR 摘要的三段。
-- 业界 AI 解 merge 冲突先例：GitHub Copilot / Mergify 等提供冲突辅助；本组走「派 coding agent
-  到隔离 worktree 自测后再 push」的自托管路径，强调自测门控与安全降级。
+- **`indexheal.py` (issue #48)**: the direct template for this group's improvement 2—the same skeleton of “temporary worktree + injected IO +
+  exceptions swallowed into False for safe fallback”; `conflict.py` is its semantic sibling.
+- **`signpost.py` (issue #53)**: the direct template for this group's improvement 1—`overview_digest_for_group` sits alongside
+  `signpost_for_group` with the same characteristics (understands only document structure, extracts content for the PR body, returns None when missing).
+- **rust-lang/rfcs** (https://github.com/rust-lang/rfcs): the source of the 9-section overview structure; this group reuses its
+  Summary/Motivation/Reference-level as the three sections of the PR digest.
+- Industry precedents for AI merge conflict resolution: GitHub Copilot / Mergify and others provide conflict assistance; this group takes the self-hosted approach of “dispatch a coding agent
+  to an isolated worktree, run self-tests, then push,” emphasizing self-test gates and safe fallback.
 
 ## Unresolved questions
 
-- 行数上限 `_DIGEST_MAX_LINES` 取多少最合适（初定一个保守值，可后续按实际 PR 观感调）。
-- agent 解冲突的自测范围：跑全量 pytest 还是仅受影响子集？（初定全量 ruff+pytest，保守优先
-  正确性；若太慢再议。）
-- agent 解冲突失败后，是否在留言里附上 agent 的尝试摘要帮助人工？（初定不附，保持与现状一致；
-  列为 Future。）
+- What is the most suitable line limit for `_DIGEST_MAX_LINES`? (Initially choose a conservative value; adjust later based on how actual PRs read.)
+- Scope of self-tests for agent-based conflict resolution: run the full pytest suite or only the affected subset? (Initially use full ruff+pytest, conservatively prioritizing
+  correctness; revisit if it is too slow.)
+- After agent-based conflict resolution fails, should the comment include a summary of the agent's attempt to help with manual handling? (Initially omit it to remain consistent with current behavior;
+  list under Future.)
 
 ## Future possibilities
 
-- spec **撞号**自动避让：把「PR #78 手动改编号避让 #76」这类机械操作也纳入 agent 解冲突
-  （或前移到 `spec new` 时按 open PR 探测占用号）。
-- digest 三段可配置：让 `overview_digest_for_group` 支持自定义抽取哪几段 / 行数上限。
-- agent 解冲突的尝试摘要回贴到 PR，提升人工兜底时的可观测性。
-- 把分层降级抽象成统一的「冲突消解责任链」，未来插入更多确定性消解器（如 lockfile、生成代码）。
-
+- Automatic avoidance of spec **number collisions**: include mechanical operations such as “manually renumber PR #78 to avoid a collision with #76” in agent-based conflict resolution
+  (or move the check earlier, to `spec new`, by detecting occupied numbers from open PRs).
+- Configurable three-section digest: allow `overview_digest_for_group` to support custom section selection / line limits.
+- Post a summary of the agent's conflict-resolution attempt back to the PR to improve observability when falling back to manual handling.
+- Abstract tiered fallback into a unified “chain of responsibility for conflict resolution,” allowing more deterministic resolvers to be inserted in the future (such as for lockfiles and generated code).

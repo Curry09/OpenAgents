@@ -1,15 +1,15 @@
 ---
 number: "0016"
-title: issue 页面新增评论 agent 自动回复（把评论回复从 PR 扩展到 issue）
+title: "Automatic agent replies to new comments on issue pages (extending comment replies from PRs to issues)"
 issue: 149
 slug: issue-comment-agent-reply
-summary: 把「新人类评论→agent 签名回复」闭环从 PR 扩展到 issue 页：vigil 的 reply 分支②对**已准入、尚无 PR** 的 issue subject 也读 issue 页评论、按签名滤新人类评论、派 replier（issue 语境提示词，只答疑不改代码）经 issue 级签名出口回帖。读侧/写侧 issue 原语补齐（identity.new_human_comments_on_issue / post_signed_comment_on_issue，复用已存在的 github.list_issue_comments/issue_comment），state 加 issue 评论游标，reply-comment CLI 加 --issue 手动出口。准入面 admitter（triage:human 一次性入闸对话）与本回复面（已准入 issue 的持续答疑）按 issue 准入态天然切开、互不打架。
+summary: "Extend the “new human comment → signed agent reply” loop from PRs to issue pages: reply branch ② of vigil also reads issue-page comments for **admitted issue subjects that do not yet have a PR**, filters for new human comments based on signatures, and dispatches replier (with an issue-context prompt, answering questions only without changing code) to post through the issue-level signed-comment interface. Complete the issue primitives on the read and write sides (identity.new_human_comments_on_issue / post_signed_comment_on_issue, reusing the existing github.list_issue_comments/issue_comment), add an issue-comment cursor to state, and add a manual --issue interface to the reply-comment CLI. The admission flow handled by admitter (the one-time triage:human admission conversation) and this reply flow (ongoing Q&A for admitted issues) are naturally separated by the issue's admission state and do not interfere with each other."
 e2e:
-  intent: 证明「issue 页面出现新人类评论 → agent 感知 → 派 replier → 带签名回帖到该 issue」闭环在离线确定性链路上成立，且不自触发（自己的签名回复不会被下一轮当成新人类评论）。
-  method: "形态：纯后端编排，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，\n故不设浏览器 e2e，改用离线确定性测法（承 Spec-0061/0065 的 fake-github 离线 e2e 风格）：\n脚本 scripts/e2e-spec-0016-issue-comment-agent-reply.sh 反复调 run_vigil(once=True)，用注入的\nfake github + fake backend 构造一个**已准入（带 ready label）、尚无 PR** 的 issue，其评论流最新一条\n是无签名的人类评论。断言：\n1. 该 tick vigil 对此 issue 判 ACTIONABLE:reply（而非 solve），派出 replier；\n2. replier 的回复经 identity.post_signed_comment_on_issue 落到该 issue（gh issue comment），且带本\n   实例签名 `<!-- openagents:agent=… -->`；\n3. 再跑一 tick：最新评论已是我方签名 → `_latest_is_ours` True → 不再重复回帖（不自触发死循环）；\n4. 手动出口 `oa reply-comment --issue N --body …` 同样经签名出口落到 issue。\n"
+  intent: "Prove that the closed loop “a new human comment appears on an issue page → the agent detects it → dispatches a replier → posts a signed reply to that issue” works through an offline deterministic execution path and does not trigger itself (its own signed reply is not treated as a new human comment in the next round)."
+  method: "Form: backend-only orchestration, with no navigable product-facing frontend; the self-check tool list has no Playwright / Chrome DevTools MCP,\nso no browser e2e is specified. Instead, use an offline deterministic testing method (following the fake-github offline e2e style of Spec-0061/0065):\nthe script scripts/e2e-spec-0016-issue-comment-agent-reply.sh repeatedly calls run_vigil(once=True), using injected\nfake github + fake backend to construct an issue that **has been admitted (has the ready label) and has no PR yet**, whose latest comment\nis an unsigned human comment. Assertions:\n1. On that tick, vigil classifies this issue as ACTIONABLE:reply (rather than solve) and dispatches a replier;\n2. The replier's reply is posted to that issue (gh issue comment) through identity.post_signed_comment_on_issue and carries this\n   instance's signature `<!-- openagents:agent=… -->`;\n3. Run another tick: the latest comment now carries our signature → `_latest_is_ours` True → no duplicate reply is posted (no self-triggering infinite loop);\n4. The manual posting path `oa reply-comment --issue N --body …` likewise posts to the issue through the signed posting path.\n"
 tasks:
   - id: T1
-    title: identity issue 签名读/写原语（new_human_comments_on_issue + post_signed_comment_on_issue）
+    title: "identity issue signature read/write primitives (new_human_comments_on_issue + post_signed_comment_on_issue)"
     status: done
     priority: P1
     tags: []
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/utils/identity.py
       - tests/test_identity_issue_reply.py
-    scope: 补 identity 的 issue 版签名读/写原语，与既有 PR 版对称、既有 PR 版函数零改动（零回归）。读侧 new_human_comments_on_issue(*, number, since) 镜像 new_human_comments，改调 github.list_issue_comments(number=…)，沿用「created_at > since 且 parse_agent_id is None」双约束（仅新 + 仅人类，防自触发）。写侧 post_signed_comment_on_issue(*, number, body, agent_id)：sign 盖签名 → github.issue_comment(number=…, body=…) → issue 版回读校验漏签则补签（回读经 list_issue_comments、补签经 issue_comment），闭合 Spec-0064 约束③（非只 warn）。复用既有 github.list_issue_comments/issue_comment，不改 github.py。
-    acceptance: 'pytest tests/test_identity_issue_reply.py 通过：new_human_comments_on_issue 只返回 since 之后的无签名人类评论、滤掉一切带签名机器评论、按 created_at 升序（monkeypatch github.list_issue_comments）；post_signed_comment_on_issue 盖签名后经 issue_comment 落 issue，回读最新评论已含本实例签名则 no-op、漏签则补一条签名评论（monkeypatch list_issue_comments/issue_comment）；既有 PR 版 new_human_comments/post_signed_comment 行为不变。ruff clean，注释引用 # Spec-0016/T1。'
+    scope: "Add issue-specific signature read/write primitives to identity, symmetric with the existing PR versions, with zero changes to the existing PR functions (zero regressions). On the read side, new_human_comments_on_issue(*, number, since) mirrors new_human_comments, calling github.list_issue_comments(number=…) instead and retaining the two constraints “created_at > since and parse_agent_id is None” (new comments only + humans only, to prevent self-triggering). On the write side, post_signed_comment_on_issue(*, number, body, agent_id): apply the signature with sign → github.issue_comment(number=…, body=…) → issue-specific read-back verification and an additional signed comment if the signature is missing (read back through list_issue_comments and add the signed comment through issue_comment), fully satisfying Spec-0064 constraint ③ (rather than merely warning). Reuse the existing github.list_issue_comments/issue_comment; do not modify github.py."
+    acceptance: "pytest tests/test_identity_issue_reply.py passes: new_human_comments_on_issue returns only unsigned human comments after since, filters out all signed machine comments, and sorts by created_at in ascending order (monkeypatch github.list_issue_comments); post_signed_comment_on_issue applies the signature and posts to the issue through issue_comment, then performs a no-op if the latest comment read back already contains this instance's signature, or adds a signed comment if the signature is missing (monkeypatch list_issue_comments/issue_comment); the behavior of the existing PR versions, new_human_comments/post_signed_comment, remains unchanged. ruff clean; comments reference # Spec-0016/T1."
   - id: T2
-    title: state issue 评论游标（get/set_issue_cursor，独立命名空间）
+    title: "state issue-comment cursor (get/set_issue_cursor, independent namespace)"
     status: done
     priority: P1
     tags: []
@@ -32,10 +32,10 @@ tasks:
     files:
       - openagents/runtime/state.py
       - tests/test_runtime_state_issue_cursor.py
-    scope: 给 RuntimeState 加 issue 评论游标，与既有 PR 游标（cursors 键，按 pr_number）平级但独立命名空间（如 issue_cursors 键，按 issue number），避免 issue N 与 PR N 撞键。get_issue_cursor(*, number) -> str | None / set_issue_cursor(*, number, comment_id)，落 runtime-state.json；写路径持 RuntimeState._LOCK（同 set_cursor，丢一条游标=对同一人类评论重复回帖）。既有 get_cursor/set_cursor 零改动。
-    acceptance: 'pytest tests/test_runtime_state_issue_cursor.py 通过：set 后 get 读回同值；缺省 get 返回 None；issue N 与 PR N 游标互不干扰（写 issue N 不影响 get_cursor(pr_number=N)）；写路径在锁内。ruff clean，注释引用 # Spec-0016/T2。'
+    scope: "Add an issue-comment cursor to RuntimeState, at the same level as the existing PR cursor (the cursors key, indexed by pr_number) but in an independent namespace (such as the issue_cursors key, indexed by issue number), to avoid key collisions between issue N and PR N. get_issue_cursor(*, number) -> str | None / set_issue_cursor(*, number, comment_id), persisted to runtime-state.json; the write path holds RuntimeState._LOCK (as with set_cursor; losing a cursor entry means replying to the same human comment again). Zero changes to the existing get_cursor/set_cursor."
+    acceptance: "pytest tests/test_runtime_state_issue_cursor.py passes: get reads back the same value after set; get returns None by default; the cursors for issue N and PR N do not interfere with each other (writing issue N does not affect get_cursor(pr_number=N)); the write path runs under the lock. ruff clean; comments reference # Spec-0016/T2."
   - id: T3
-    title: replier issue 提示词 + context issue 回复占位符（只答疑、不改代码）
+    title: "replier issue prompt + context issue-reply placeholders (answer questions only, without changing code)"
     status: done
     priority: P1
     tags: []
@@ -47,10 +47,10 @@ tasks:
       - openagents/runtime/context.py
       - tests/test_agents_replier_issue.py
       - tests/test_runtime_context_issue_reply.py
-    scope: '给 replier 加 issue 语境提示词、给 context 加 issue 回复占位符组装，与既有 PR 版并存零改动。replier.ISSUE_PROMPT（string.Template，占位符 $issue_number / $comment_body，**无** $branch、**无**「若需要改代码就改」分支——只答疑、不触发交付协议，对齐 issue #149「只要回复、不要解决」），复用既有 replier.OUTPUT_SCHEMA={reply:str, resolved:bool}（resolved 表这条评论诉求是否已被本轮答复充分解决）。context.for_issue_reply(*, work_dir, issue_number, comment) -> dict 组 {issue_number, comment_body, context} 占位符（对齐 for_reply 风格，issue 键，读侧惰性注入）。既有 replier.PROMPT / context.for_reply 不动。'
-    acceptance: 'pytest tests/test_agents_replier_issue.py + tests/test_runtime_context_issue_reply.py 通过：ISSUE_PROMPT.substitute 能填入 issue_number/comment_body 且渲染文本不含 branch/改代码字样、含「只回复不改代码」意图；for_issue_reply 产出含 issue_number/comment_body/context 键的占位符 dict（monkeypatch github 读侧 hermetic）；既有 PR 版 PROMPT/for_reply 行为不变。ruff clean，注释引用 # Spec-0016/T3。'
+    scope: "Add an issue-context prompt to replier and issue-reply placeholder assembly to context, coexisting with the existing PR versions with zero changes to them. replier.ISSUE_PROMPT (string.Template, with placeholders $issue_number / $comment_body, **no** $branch, and **no** “change the code if needed” branch—answer questions only, without triggering the delivery protocol, aligned with issue #149's “reply only, do not solve”), reusing the existing replier.OUTPUT_SCHEMA={reply:str, resolved:bool} (resolved indicates whether this round's reply has adequately addressed the request in this comment). context.for_issue_reply(*, work_dir, issue_number, comment) -> dict assembles the {issue_number, comment_body, context} placeholders (following the style of for_reply, using the issue key, with lazy injection on the read side). Leave the existing replier.PROMPT / context.for_reply unchanged."
+    acceptance: "pytest tests/test_agents_replier_issue.py + tests/test_runtime_context_issue_reply.py pass: ISSUE_PROMPT.substitute can fill in issue_number/comment_body, and the rendered text contains no branch/code-change wording and conveys the intent “reply only without changing code”; for_issue_reply produces a placeholder dict containing the issue_number/comment_body/context keys (monkeypatch the github read side to keep it hermetic); the behavior of the existing PR versions, PROMPT/for_reply, remains unchanged. ruff clean; comments reference # Spec-0016/T3."
   - id: T4
-    title: vigil 接线：_sense 填 issue latest_comment_is_ours（限 ready 无-PR）+ _do_reply issue 分派 + 离线 e2e
+    title: "vigil wiring: _sense populates issue latest_comment_is_ours (only for ready issues without a PR) + _do_reply issue dispatch + offline e2e"
     status: done
     priority: P1
     tags: []
@@ -64,10 +64,10 @@ tasks:
       - openagents/recipes/vigil.py
       - tests/test_recipe_vigil_issue_reply.py
       - scripts/e2e-spec-0016-issue-comment-agent-reply.sh
-    scope: 把 issue 页回复接进 vigil reconcile，改动面最小、与 PR 侧同构。_sense：当 kind==_KIND_ISSUE and pr_number is None and _LABEL_READY in labels 时，读 github.list_issue_comments(number) → latest_comment_is_ours=_latest_is_ours(comments)（复用既有纯函数）；否则维持现状（未 ready 归 admitter、有 PR 走 PR 流）。不新增携 comment id 的 _Facts 字段——只改既有 latest_comment_is_ours 的取值来源，_fingerprint 全集与「盖 attempt 戳不改 fp」不变式不动（护栏一不自毁）。_do_reply：pr_number is None（且 kind issue）分支——new_human_comments_on_issue(number, since=state.get_issue_cursor) → context.for_issue_reply → engine.run_agent(replier, ISSUE_PROMPT 占位符) → identity.post_signed_comment_on_issue → state.set_issue_cursor；拼 _NEEDS_HUMAN_CONTRACT 一等出口。分支②(_classify:738)/看门狗/优先级白送不改。附离线 e2e 脚本（见 frontmatter e2e.method）。
-    acceptance: 'pytest tests/test_recipe_vigil_issue_reply.py 通过：ready 无-PR issue 最新评论是无签名人类 → _sense 置 latest_comment_is_ours=False → _classify 判 ACTIONABLE:reply（非 solve）；未 ready 的无-PR issue / 有 PR 的 issue → latest_comment_is_ours 维持现状（不误激活）；_do_reply issue 分支经 post_signed_comment_on_issue 落 issue 并推 issue 游标；回帖后最新评论我方签名 → 下一 tick _latest_is_ours True → 不重复回帖；_fingerprint 字段集仍 == dataclasses.fields(_Facts) 全集、不含 comment id。bash scripts/e2e-spec-0016-issue-comment-agent-reply.sh 绿。ruff clean，注释引用 # Spec-0016/T4。'
+    scope: "Wire issue-page replies into vigil reconcile, keeping the scope of changes minimal and the structure parallel to the PR side. _sense: when kind==_KIND_ISSUE and pr_number is None and _LABEL_READY in labels, read github.list_issue_comments(number) → latest_comment_is_ours=_latest_is_ours(comments) (reuse the existing pure function); otherwise preserve the current behavior (issues that are not ready belong to admitter; issues with a PR follow the PR flow). Do not add a _Facts field carrying a comment id—change only the source of the existing latest_comment_is_ours value, leaving the complete _fingerprint field set and the “applying an attempt stamp does not change fp” invariant unchanged (guardrail one must not undermine itself). _do_reply: the pr_number is None (and kind is issue) branch—new_human_comments_on_issue(number, since=state.get_issue_cursor) → context.for_issue_reply → engine.run_agent(replier, ISSUE_PROMPT placeholders) → identity.post_signed_comment_on_issue → state.set_issue_cursor; incorporate _NEEDS_HUMAN_CONTRACT as a first-class exit path. Branch ② (_classify:738), the watchdog, and priority handling work as-is without changes. Include an offline e2e script (see frontmatter e2e.method)."
+    acceptance: "pytest tests/test_recipe_vigil_issue_reply.py passes: the latest comment on a ready issue without a PR is from an unsigned human → _sense sets latest_comment_is_ours=False → _classify returns ACTIONABLE:reply (rather than solve); for an issue without a PR that is not ready / an issue with a PR → latest_comment_is_ours retains its current behavior (no unintended activation); the _do_reply issue branch posts to the issue through post_signed_comment_on_issue and advances the issue cursor; after the reply, the latest comment bears our signature → on the next tick, _latest_is_ours is True → no duplicate reply; the _fingerprint field set still == the complete set of dataclasses.fields(_Facts), with no comment id. bash scripts/e2e-spec-0016-issue-comment-agent-reply.sh passes. ruff clean; comments reference # Spec-0016/T4."
   - id: T5
-    title: reply-comment --issue 手动出口（与 --pr 互斥二选一）
+    title: "reply-comment --issue manual interface (mutually exclusive with --pr; exactly one required)"
     status: done
     priority: P2
     tags: []
@@ -78,123 +78,122 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli_issue_reply.py
-    scope: 给隐藏内部命令 reply-comment 加 --issue N，与既有 --pr N 组成互斥参数组（二选一、至少一个）。--issue 路由到 identity.post_signed_comment_on_issue(number=…, body=…, agent_id=…)，--pr 维持既有 post_signed_comment。仍不传 help=（隐藏命令，Spec-0064/T5 定位不变）。既有 --pr 路径零改动。
-    acceptance: 'pytest tests/test_cli_issue_reply.py 通过：oa reply-comment --issue N --body X 经 post_signed_comment_on_issue 落 issue（monkeypatch）；--pr 与 --issue 同给报错、都不给报错（argparse 互斥必选组）；--pr N --body X 仍走既有 post_signed_comment（零回归）。ruff clean，注释引用 # Spec-0016/T5。'
+    scope: "Add --issue N to the hidden internal command reply-comment, forming a mutually exclusive argument group with the existing --pr N (exactly one must be supplied). --issue routes to identity.post_signed_comment_on_issue(number=…, body=…, agent_id=…); --pr retains the existing post_signed_comment. Continue to omit help= (a hidden command; its role under Spec-0064/T5 remains unchanged). Zero changes to the existing --pr path."
+    acceptance: "pytest tests/test_cli_issue_reply.py passes: oa reply-comment --issue N --body X posts to the issue through post_signed_comment_on_issue (monkeypatch); supplying both --pr and --issue produces an error, and supplying neither produces an error (an argparse required mutually exclusive group); --pr N --body X still uses the existing post_signed_comment (zero regressions). ruff clean; comments reference # Spec-0016/T5."
 ---
 
-# 0016 · issue 页面新增评论 agent 自动回复（把评论回复从 PR 扩展到 issue）
+# 0016 · Automatic agent replies to new comments on issue pages (extending comment replies from PRs to issues)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-把 OpenAgents 已有的「**新人类评论 → agent 带签名回复**」闭环从 **PR** 扩展到 **issue 页面**。今天这个闭环只在 PR 上成立：vigil 的 reconcile 分支表里，`_classify` 分支②（`not facts.latest_comment_is_ours` → `ACTIONABLE:reply`）→ `_do_reply` 读 PR 评论、派 `replier` agent、经 `identity.post_signed_comment`（PR 版）签名回帖。issue 页面上的人类评论没有回复出口：`_sense` 对**尚无 PR 的 issue** 刻意**不**设 `latest_comment_is_ours`（`vigil.py:654-655`「无-PR issue 的人机对话归准入面 admitter，reply 分支②要 PR 语境，此处不激活」），reply-comment CLI 只接 `--pr`。
+Extend OpenAgents' existing "**new human comment → signed agent reply**" loop from **PRs** to **issue pages**. Today, this loop works only on PRs: in vigil's reconcile branch table, `_classify` branch ② (`not facts.latest_comment_is_ours` → `ACTIONABLE:reply`) → `_do_reply` reads PR comments, dispatches the `replier` agent, and posts a signed reply through `identity.post_signed_comment` (the PR version). Human comments on issue pages have no reply path: for **issues without a PR yet**, `_sense` deliberately does **not** set `latest_comment_is_ours` (`vigil.py:654-655`: "Human–agent conversations on issues without a PR belong to the admission-side admitter; reply branch ② requires PR context, so it is not activated here"), and the reply-comment CLI accepts only `--pr`.
 
-本 spec 定向解除这条限制：让 vigil 对**已准入（`ready`）、尚无 PR** 的 issue subject 也读 issue 页评论、按签名滤出新人类评论、派 `replier`（issue 语境提示词——只答疑、**不改代码**，对齐 issue #149「只要回复、不要解决」）经 **issue 级签名出口**回帖。底层 gh 读/写原语（`github.list_issue_comments` / `github.issue_comment`）**已存在**，缺的是它们之上的三层：签名读/写 issue 版（identity）、issue 评论游标（state）、issue 回复上下文与提示词（context/replier）、以及 vigil 的分支接线与 reply-comment 的 `--issue` 手动出口（cli）。
+This spec specifically removes that restriction: for issue subjects that **have been admitted (`ready`) and do not yet have a PR**, vigil will also read issue-page comments, use signatures to filter for new human comments, dispatch `replier` (with an issue-context prompt—answer questions only, **do not change code**, aligned with issue #149's "reply only, do not solve"), and post replies through an **issue-level signed posting path**. The underlying gh read/write primitives (`github.list_issue_comments` / `github.issue_comment`) **already exist**. What is missing is the three layers above them: issue versions of signed reads/writes (identity), issue comment cursors (state), issue reply context and prompts (context/replier), plus vigil's branch wiring and the manual `--issue` path in reply-comment (cli).
 
 ## Motivation
 
-**现状（就地复述，证据驱动 · 理念 8）。** 评论即消息、每条新评论 agent 收到一条并回应，是 CLAUDE.md 理念 2 的核心闭环。这个闭环今天的落点是 `openagents/recipes/vigil.py` 的 level-triggered reconcile 循环（**不是** issue 正文里提到的 `messages.poll`——`messages` 模块已在 Spec-0062/0064 的两栈合一里**整体删除**，`messages.poll` 只在历史注释里残留；这是 issue #149 正文基于旧心智模型的过时表述，本 spec 据实更正）。具体链路：
+**Current state (restated in place, evidence-driven · Principle 8).** Comments are messages, and an agent receiving and responding to each new comment is the core loop of CLAUDE.md Principle 2. Today, this loop is implemented in the level-triggered reconcile loop in `openagents/recipes/vigil.py` (**not** in the `messages.poll` mentioned in the issue body—the `messages` module was **removed entirely** during the unification of the two stacks in Spec-0062/0064, and `messages.poll` remains only in historical comments; the wording in issue #149's body is outdated and based on an old mental model, which this spec corrects to reflect the facts). The concrete chain is:
 
-- **感知**：`_sense`（`vigil.py:598`）每 tick 对每个 subject 读一次 GitHub 现态。对有 PR 的 subject，读 `github.list_comments(pr_number=…)`（PR 版，走 `gh pr view --json comments`）→ `_latest_is_ours`（`vigil.py:858`：最新一条带我方签名？无评论视作 True）→ 落到不可变的 `facts.latest_comment_is_ours`。
-- **分类**：`_classify`（`vigil.py:686`）是纯函数分支表；分支②（`vigil.py:738`）`if not facts.latest_comment_is_ours: return _Verdict(ACTIONABLE, action=reply)`——**这一支本身是 subject 无关的**，只要 `facts.latest_comment_is_ours` 被填成 issue 语义即可复用。它排在 solve/rebase/ci/… 之前（人在等，优先级最高）。
-- **执行**：`_do_reply`（`vigil.py:2548`）`if pr_number is None: return ""`（无 PR 直接空返回）→ `identity.new_human_comments(pr_number, since=游标)` 拉新人类评论 → `context.for_reply(pr_number, branch, comment)` 组占位符 → `engine.run_agent(replier, …)` → `identity.post_signed_comment(pr_number, …)` 签名回帖 → `state.set_cursor(pr_number, …)` 推游标。全链**每一环都以 `pr_number` 为键**。
-- **防自触发**：`identity.sign` 在正文尾追加隐藏 HTML 签名 `<!-- openagents:agent=<id> -->`；`identity.new_human_comments`（`identity.py:94`）滤掉 `parse_agent_id(body) is not None` 的评论（一切机器评论），只留 `created_at > since` 的无签名人类评论。两道约束（仅新 + 仅人类）使 agent 永远读不到自己的回复自问自答。
+- **Sense**: `_sense` (`vigil.py:598`) reads the current GitHub state once per tick for each subject. For subjects with a PR, it reads `github.list_comments(pr_number=…)` (the PR version, using `gh pr view --json comments`) → `_latest_is_ours` (`vigil.py:858`: does the latest comment carry our signature? No comments counts as True) → stores the result in the immutable `facts.latest_comment_is_ours`.
+- **Classify**: `_classify` (`vigil.py:686`) is a pure-function branch table; branch ② (`vigil.py:738`) is `if not facts.latest_comment_is_ours: return _Verdict(ACTIONABLE, action=reply)`—**this branch itself is subject-independent** and can be reused as long as `facts.latest_comment_is_ours` is populated with issue semantics. It precedes solve/rebase/ci/… (a person is waiting, so it has the highest priority).
+- **Execute**: `_do_reply` (`vigil.py:2548`) runs `if pr_number is None: return ""` (returns an empty string immediately when there is no PR) → `identity.new_human_comments(pr_number, since=cursor)` fetches new human comments → `context.for_reply(pr_number, branch, comment)` assembles placeholders → `engine.run_agent(replier, …)` → `identity.post_signed_comment(pr_number, …)` posts a signed reply → `state.set_cursor(pr_number, …)` advances the cursor. **Every step in the chain is keyed by `pr_number`.**
+- **Prevent self-triggering**: `identity.sign` appends the hidden HTML signature `<!-- openagents:agent=<id> -->` to the end of the body; `identity.new_human_comments` (`identity.py:94`) filters out comments where `parse_agent_id(body) is not None` (all machine comments), retaining only unsigned human comments with `created_at > since`. These two constraints (new only + human only) ensure that the agent never reads its own replies and starts talking to itself.
 
-**缺口。** 三处把上述能力**焊死在 PR** 上：
-1. `_sense` 对无-PR issue **不激活** `latest_comment_is_ours`（`vigil.py:647-656`，只把 issue 评论时间戳喂进度时钟给看门狗，`latest_comment_is_ours` 留默认 True）→ 分支②对 issue 永不触发。
-2. issue 页面无 agent 回复出口：`identity.new_human_comments` / `post_signed_comment` / `_verify_signature_or_fix` 全部只接 `pr_number` 且调 `gh pr view` / `gh pr comment`；`context.for_reply` 也是 PR 键；`replier` 提示词是 **PR 语境**（`$pr_number` / `$branch` / 「若需要改代码就改」）。
-3. `reply-comment` CLI（`cli.py:149`）只接 `--pr`。
+**Gaps.** Three places **hardwire the capability to PRs**:
+1. `_sense` **does not activate** `latest_comment_is_ours` for issues without a PR (`vigil.py:647-656`; it only feeds issue comment timestamps into the progress clock for the watchdog, leaving `latest_comment_is_ours` at its default True) → branch ② never triggers for issues.
+2. Issue pages have no agent reply path: `identity.new_human_comments` / `post_signed_comment` / `_verify_signature_or_fix` all accept only `pr_number` and call `gh pr view` / `gh pr comment`; `context.for_reply` is also keyed by PR; the `replier` prompt uses **PR context** (`$pr_number` / `$branch` / "change code if needed").
+3. The `reply-comment` CLI (`cli.py:149`) accepts only `--pr`.
 
-结果：issue 提出后人在 issue 页追加评论（补需求、提问、纠偏），当前流程**完全不响应**，issue 层的对齐/澄清全靠人手动搬运——与理念 2 不一致。**这正是 issue #149 要补的洞。**
+The result: after an issue is opened, when a person adds comments on the issue page (additional requirements, questions, corrections), the current workflow **does not respond at all**. Alignment and clarification at the issue level depend entirely on people manually relaying information—inconsistent with Principle 2. **This is precisely the gap issue #149 aims to fill.**
 
-**为什么现在做、为什么值得。** issue 是自主环的入口（vigil 发现 issue → 派 agent 解决）。issue 页评论是 issue 提出到第一个 PR 落地之间**唯一的人机对齐通道**；这段窗口今天是哑的。补上它，人对 issue 的追问/纠偏能被 agent 当场接住（哪怕只是「收到、我理解成 X，对吗」或「这点超出我能定的，交人」），把宏观把控真正搬到 issue 层（理念 2「人负责宏观、不负责细节」）。
+**Why now, and why it is worthwhile.** Issues are the entry point to the autonomous loop (vigil discovers an issue → dispatches an agent to solve it). Issue-page comments are the **only human–agent alignment channel** between the issue being opened and the first PR being delivered; today, that window is silent. Filling this gap lets an agent respond immediately to a person's follow-up questions or corrections on an issue (even if only with "Understood; I take this to mean X—is that right?" or "This is beyond what I can decide; handing it to a human"), truly moving high-level oversight to the issue layer (Principle 2: "People handle the big picture, not the details").
 
 ## Guide-level explanation
 
-从使用者视角，本 feature 加一条自然行为：**你在一个 OpenAgents 正在管理的 issue 页面留一条评论，稍后会收到一条署名的 agent 回复。**
+From the user's perspective, this feature adds one natural behavior: **leave a comment on an issue page managed by OpenAgents, and receive a signed agent reply shortly afterward.**
 
-- **谁会被回复**：一个**已准入**（带 `ready` label，已过三态入闸）、**尚无 PR** 的 issue，其评论流里最新一条是**人类**（无 OpenAgents 隐藏签名）评论。
-- **回复什么**：replier（issue 语境）读懂你这条评论想要什么（追问？补充需求？纠偏？），**只答疑、不改代码**（issue #149 明确「只要回复、不要解决」——改代码/开 PR 是 solve 分支的事，不在本 issue 范围）。答不了/超出授权/需求有歧义 → 走一等出口：打 `needs-human` + 留理由，守夜当场判终态、停轮询交人。
-- **回复长这样**：一条落在 issue 页的评论，尾部带隐藏签名 `<!-- openagents:agent=… -->`（GitHub 不渲染、对人零干扰）。这个签名是防自触发的关键：下一 tick vigil 读到最新评论是自己签的 → `_latest_is_ours` True → 不再重复回帖。
-- **手动出口**：被派的子 agent（或运维）可 `oa reply-comment --issue N --body "…"` 手动往 issue 回一条签名评论，与既有 `--pr` 出口对称（二选一，互斥）。
+- **Who receives a reply**: an issue that **has been admitted** (has the `ready` label and has passed the three-state admission gate), **does not yet have a PR**, and whose latest comment is a **human** comment (without an OpenAgents hidden signature).
+- **What the reply covers**: replier (in issue context) understands what your comment is asking for (a follow-up question? additional requirements? a correction?) and **answers questions only, without changing code** (issue #149 explicitly says "reply only, do not solve"—changing code/opening a PR belongs to the solve branch and is outside the scope of this issue). If it cannot answer, lacks authorization, or encounters ambiguous requirements → use the first-class exit path: apply `needs-human` + leave a reason; Vigil immediately classifies the subject as terminal, stops polling, and hands it to a human.
+- **What the reply looks like**: a comment posted on the issue page, ending with the hidden signature `<!-- openagents:agent=… -->` (not rendered by GitHub, with no impact on people). This signature is key to preventing self-triggering: on the next tick, vigil sees that the latest comment has its own signature → `_latest_is_ours` is True → no repeated reply.
+- **Manual path**: a dispatched sub-agent (or an operator) can use `oa reply-comment --issue N --body "…"` to manually post a signed comment to an issue, symmetric with the existing `--pr` path (choose one; mutually exclusive).
 
-**准入面 vs 回复面（关键边界，读者最容易混）。** 今天 vigil 已经会在 issue 评论里跟人对话——但那是**准入面** admitter（`_ask_human`，处理 `triage: human` 态：一次性回答「这 issue 到底该不该做」的入闸问题）。本 feature 是**回复面**：issue **已准入之后**、对人后续追加评论的**持续答疑**。两者天然切开、互不打架，因为：admitter 只在 `_intake`（生产者的准入段）里对 `triage:human`（**未 ready**）的 issue 跑；一旦 issue 打上 `ready`，它就离开准入段、进入 reconcile 前沿，此后的人类评论归本 feature 的 reply 分支。准入态（有没有 `ready`）就是这条边界的单一判据，不需要新增协调机关。
+**Admission side vs. reply side (a key boundary that readers can easily confuse).** Today, vigil already converses with people in issue comments—but that is the **admission-side** admitter (`_ask_human`, handling the `triage: human` state: a one-time answer to the admission question "Should this issue be worked on at all?"). This feature is the **reply side**: **ongoing answers** to subsequent human comments **after the issue has been admitted**. The two are naturally separate and do not conflict, because admitter runs only in `_intake` (the producer's admission stage) for issues in `triage:human` (**not ready**). Once an issue receives `ready`, it leaves the admission stage and enters the reconcile frontier; subsequent human comments then belong to this feature's reply branch. Admission state (whether `ready` is present) is the sole criterion for this boundary; no new coordination mechanism is needed.
 
 ## Reference-level explanation
 
-### 总体方案
+### Overall approach
 
-复用「分支②本身 subject 无关」这个事实：**只要把 `facts.latest_comment_is_ours` 对已准入无-PR issue 填成 issue 语义，分支②与看门狗全部白送**；`_do_reply` 补一条 issue 分派路径；底层原语补 issue 签名版。范围严格限定在**已准入、尚无 PR** 的 issue——有 PR 的 subject 走既有 PR 评论路径不变（issue 页 + PR 页双流合并是 Future，见下）。
+Reuse the fact that "branch ② itself is subject-independent": **populate `facts.latest_comment_is_ours` with issue semantics for admitted issues without a PR, and branch ② and the watchdog come for free**; add an issue dispatch path to `_do_reply`; add issue-specific signed versions of the underlying primitives. Scope is strictly limited to issues that **have been admitted and do not yet have a PR**—subjects with a PR continue using the existing PR-comment path unchanged (merging the issue-page and PR-page streams is Future work; see below).
 
-### 关键契约与不变式
+### Key contracts and invariants
 
-- **fp 安全（护栏一不自毁）**：`_Facts.latest_comment_is_ours` 是既有 bool 字段、已在 `_fingerprint` 全集内；本 feature **只改它的取值来源**（无-PR issue 从 issue 评论算），**不新增携 comment id 的字段**。我方回帖后最新评论变我方签名 → 该 bool 翻 True → fp 变化 = 合法进展（人被答复了），分支②停火；这与 PR 侧语义完全同构，`_Facts` 仍不含 comment id（盖 attempt 戳不改 fp 的不变式不动）。
-- **防自触发**：issue 版读侧 `new_human_comments_on_issue` 沿用「`created_at > since` **且** `parse_agent_id is None`」双约束；issue 版写侧 `post_signed_comment_on_issue` 沿用「签名后 post + 回读校验漏签则补签」闭环（Spec-0064 约束③，非只 warn），只是读经 `list_issue_comments`、写经 `issue_comment`。
-- **准入/回复边界硬化**：reply 分支②对 issue subject 只在 `ready in facts.labels` 时激活（无 `ready` 的 issue 仍归 admitter）。把「准入前归 admitter、准入后归 replier」从注释软约定变成 `_sense`/`_classify` 里的显式条件（理念：软约定硬化）。
-- **只答疑不改代码**：issue replier 提示词**不含**「改代码就改」分支、**不**触发交付协议；输出 schema 收敛为 `{"reply": str, "resolved": bool}`（与 PR replier 同 schema，`resolved` 表「这条评论诉求是否已被本轮答复充分解决」）。
+- **fp safety (do not undermine guardrail one)**: `_Facts.latest_comment_is_ours` is an existing bool field already included in the complete set used by `_fingerprint`; this feature **only changes the source of its value** (computed from issue comments for issues without a PR) and **does not add a field carrying a comment id**. After we post a reply, the latest comment carries our signature → the bool flips to True → fp changes = legitimate progress (the person has received an answer), and branch ② stops firing. This is exactly isomorphic to the PR-side semantics; `_Facts` still contains no comment id (the invariant that recording an attempt stamp does not change fp remains intact).
+- **Prevent self-triggering**: the issue read-side `new_human_comments_on_issue` retains the two constraints "`created_at > since` **and** `parse_agent_id is None`"; the issue write-side `post_signed_comment_on_issue` retains the "sign, then post + read back to verify, and add the signature if missing" loop (Spec-0064 constraint ③, not merely a warning), with reads through `list_issue_comments` and writes through `issue_comment`.
+- **Enforce the admission/reply boundary**: for issue subjects, reply branch ② activates only when `ready in facts.labels` (issues without `ready` still belong to admitter). Turn "admitter before admission, replier after admission" from a soft convention in comments into explicit conditions in `_sense`/`_classify` (principle: turn soft conventions into enforced constraints).
+- **Answer questions only, without changing code**: the issue replier prompt **does not contain** the "change code if needed" branch and **does not** trigger the delivery protocol; the output schema is restricted to `{"reply": str, "resolved": bool}` (the same schema as PR replier, where `resolved` means "whether this comment's request has been adequately addressed by this round's reply").
 
-### DAG + 文件分配
+### DAG + file assignments
 
-| Task | 内容 | files（互斥单一 writer） | depends-on |
+| Task | Content | files (exclusive single writer) | depends-on |
 |---|---|---|---|
-| T1 | identity issue 签名读/写原语 | `openagents/utils/identity.py`, `tests/test_identity_issue_reply.py` | — |
-| T2 | state issue 评论游标 | `openagents/runtime/state.py`, `tests/test_runtime_state_issue_cursor.py` | — |
-| T3 | replier issue 提示词 + context issue 回复占位符 | `openagents/agents/replier.py`, `openagents/runtime/context.py`, `tests/test_agents_replier_issue.py`, `tests/test_runtime_context_issue_reply.py` | — |
-| T4 | vigil 接线：`_sense` 填 issue `latest_comment_is_ours`（限 ready 无-PR）+ `_do_reply` issue 分派 + 离线 e2e | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil_issue_reply.py`, `scripts/e2e-spec-0016-issue-comment-agent-reply.sh` | T1, T2, T3 |
-| T5 | `reply-comment --issue` 手动出口 | `openagents/cli.py`, `tests/test_cli_issue_reply.py` | T1 |
+| T1 | identity issue signed read/write primitives | `openagents/utils/identity.py`, `tests/test_identity_issue_reply.py` | — |
+| T2 | state issue comment cursor | `openagents/runtime/state.py`, `tests/test_runtime_state_issue_cursor.py` | — |
+| T3 | replier issue prompt + context issue reply placeholders | `openagents/agents/replier.py`, `openagents/runtime/context.py`, `tests/test_agents_replier_issue.py`, `tests/test_runtime_context_issue_reply.py` | — |
+| T4 | vigil wiring: `_sense` populates issue `latest_comment_is_ours` (only ready issues without a PR) + `_do_reply` issue dispatch + offline e2e | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil_issue_reply.py`, `scripts/e2e-spec-0016-issue-comment-agent-reply.sh` | T1, T2, T3 |
+| T5 | `reply-comment --issue` manual path | `openagents/cli.py`, `tests/test_cli_issue_reply.py` | T1 |
 
-- T1/T2/T3 三者文件两两不相交，**可并行**（无 mutual dependency）。
-- T4 是汇聚点，依赖 T1（读/写原语）+ T2（游标）+ T3（提示词/占位符）。
-- T5 依赖 T1（`post_signed_comment_on_issue`）；与 T4 文件不相交，可与 T4 并行。
-- `github.py` **不在任何 Task 的 files 里**——`list_issue_comments`（`github.py:447`）/ `issue_comment`（`github.py:432`）已存在、直接复用，零改动（零回归）。
+- T1/T2/T3 have pairwise disjoint files and **can run in parallel** (no mutual dependency).
+- T4 is the convergence point, depending on T1 (read/write primitives) + T2 (cursor) + T3 (prompts/placeholders).
+- T5 depends on T1 (`post_signed_comment_on_issue`); its files do not overlap with T4, so it can run in parallel with T4.
+- `github.py` **is not in any Task's files**—`list_issue_comments` (`github.py:447`) / `issue_comment` (`github.py:432`) already exist and are reused directly, with zero changes (zero regressions).
 
-### 各 Task 的接口契约
+### Interface contracts for each Task
 
-- **T1**：`identity.new_human_comments_on_issue(*, number: int, since: str) -> list[github.Comment]`（镜像 `new_human_comments`，改调 `github.list_issue_comments(number=…)`）；`identity.post_signed_comment_on_issue(*, number: int, body: str, agent_id: str) -> None`（签名 → `github.issue_comment(number=…, body=…)` → issue 版 `_verify_signature_or_fix`，回读经 `list_issue_comments`、补签经 `issue_comment`）。既有 PR 版函数**不动**（零回归）。
-- **T2**：`state.get_issue_cursor(*, number: int) -> str | None` / `state.set_issue_cursor(*, number: int, comment_id: str)`，落 `runtime-state.json` 的独立命名空间键（如 `issue_cursors`，与 `cursors` 平级，避免 issue N 与 PR N 撞键）；写路径持 `RuntimeState._LOCK`（同 `set_cursor`）。
-- **T3**：`replier.ISSUE_PROMPT`（Template，占位符 `$issue_number` / `$comment_body`，**无** `$branch`、**无**「改代码」分支，只答疑）+ 复用 `replier.OUTPUT_SCHEMA`；`context.for_issue_reply(*, work_dir, issue_number, comment) -> dict` 组 `{issue_number, comment_body, context}` 占位符（对齐 `for_reply` 风格，issue 键）。
-- **T4**：`_sense`——`kind == _KIND_ISSUE and pr_number is None and _LABEL_READY in labels` 时，读 `github.list_issue_comments(number)` → `latest_comment_is_ours = _latest_is_ours(comments)`（复用既有纯函数）；否则维持现状。`_do_reply`——`pr_number is None`（且 kind issue）分支：`new_human_comments_on_issue(number, since=get_issue_cursor)` → `context.for_issue_reply` → `run_agent(replier, ISSUE_PROMPT…)` → `post_signed_comment_on_issue` → `set_issue_cursor`；拼 `_NEEDS_HUMAN_CONTRACT` 一等出口。
-- **T5**：`reply-comment` 加互斥参数组 `--pr N | --issue N`（二选一、至少一个）；`--issue` 路由到 `post_signed_comment_on_issue`，`--pr` 维持既有 `post_signed_comment`。
+- **T1**: `identity.new_human_comments_on_issue(*, number: int, since: str) -> list[github.Comment]` (mirrors `new_human_comments`, switching the call to `github.list_issue_comments(number=…)`); `identity.post_signed_comment_on_issue(*, number: int, body: str, agent_id: str) -> None` (sign → `github.issue_comment(number=…, body=…)` → issue version of `_verify_signature_or_fix`, reading back through `list_issue_comments` and adding a missing signature through `issue_comment`). Existing PR functions **remain unchanged** (zero regressions).
+- **T2**: `state.get_issue_cursor(*, number: int) -> str | None` / `state.set_issue_cursor(*, number: int, comment_id: str)`, stored under a separate namespace key in `runtime-state.json` (such as `issue_cursors`, alongside `cursors`, to avoid key collisions between issue N and PR N); the write path holds `RuntimeState._LOCK` (as `set_cursor` does).
+- **T3**: `replier.ISSUE_PROMPT` (Template, with placeholders `$issue_number` / `$comment_body`, **no** `$branch`, and **no** “modify code” branch; answers questions only) + reuse `replier.OUTPUT_SCHEMA`; `context.for_issue_reply(*, work_dir, issue_number, comment) -> dict` assembles the `{issue_number, comment_body, context}` placeholders (following the style of `for_reply`, with an issue key).
+- **T4**: `_sense`—when `kind == _KIND_ISSUE and pr_number is None and _LABEL_READY in labels`, read `github.list_issue_comments(number)` → `latest_comment_is_ours = _latest_is_ours(comments)` (reuse the existing pure function); otherwise retain current behavior. `_do_reply`—the `pr_number is None` (and kind issue) branch: `new_human_comments_on_issue(number, since=get_issue_cursor)` → `context.for_issue_reply` → `run_agent(replier, ISSUE_PROMPT…)` → `post_signed_comment_on_issue` → `set_issue_cursor`; append `_NEEDS_HUMAN_CONTRACT` as a first-class exit path.
+- **T5**: Add a mutually exclusive argument group `--pr N | --issue N` to `reply-comment` (exactly one is required); `--issue` routes to `post_signed_comment_on_issue`, while `--pr` retains the existing `post_signed_comment`.
 
-### e2e 脚本
+### e2e script
 
-`scripts/e2e-spec-0016-issue-comment-agent-reply.sh`（离线、fake-github + fake-backend，承 Spec-0061/0065 风格）——详见 frontmatter `e2e.method`。
+`scripts/e2e-spec-0016-issue-comment-agent-reply.sh` (offline, fake-github + fake-backend, following the Spec-0061/0065 style)—see frontmatter `e2e.method` for details.
 
 ## Drawbacks
 
-- **多一条读请求**：对每个已准入无-PR issue，`_sense` 每 tick 多一次 `gh issue view --json comments`。GitHub 认证配额 5000 req/h，上百 issue 时叠加进 Spec-0065 已记的批量化 Future（GraphQL 一条 query 拉多 subject）。
-- **轮询延迟**：沿用轮询（不做 webhook），回复延迟下限 = vigil tick interval，与 PR 侧同构（issue #149 明确「先沿用轮询」）。
-- **准入/回复边界依赖 `ready` label 的正确性**：若某 issue 该准入却没打上 `ready`，其评论会继续归 admitter 而非 replier。这把边界押在既有准入闸的正确性上（可接受：`ready` 本就是准入的单一令牌）。
-- **单流限制**：本期只覆盖 issue 页评论**在该 issue 尚无 PR 时**；issue 有了 PR 后，issue 页新评论不再被回复（改走 PR 流）。见 Future。
+- **One additional read request**: For each admitted issue without a PR, `_sense` makes one additional `gh issue view --json comments` call per tick. GitHub's authenticated quota is 5000 req/h; with hundreds of issues, this adds to the need for batching already recorded in Spec-0065's Future section (fetching multiple subjects with a single GraphQL query).
+- **Polling latency**: Retains polling (no webhook); the lower bound on reply latency = vigil tick interval, structurally identical to the PR side (issue #149 explicitly says “retain polling for now”).
+- **The admission/reply boundary depends on the correctness of the `ready` label**: If an issue should be admitted but has not been labeled `ready`, its comments will continue to be handled by the admitter rather than the replier. This makes the boundary depend on the correctness of the existing admission gate (acceptable: `ready` is already the sole token for admission).
+- **Single-stream limitation**: This iteration covers comments on an issue page **only while that issue has no PR**; once the issue has a PR, new comments on the issue page no longer receive replies (handling switches to the PR flow). See Future.
 
 ## Rationale and alternatives
 
-**选定方案：扩 `latest_comment_is_ours` 语义 + 复用分支②（限 ready 无-PR issue）。** 因为分支②与看门狗已是 subject 无关的纯逻辑，只需把 issue 评论喂进既有 fact 就白送分类/优先级/护栏，改动面最小（理念 1 奥卡姆），且与 PR 侧防自触发/游标/签名机制**完全同构**——一套心智模型两处落地，无第二套并行机制要对账。
+**Selected approach: Extend the semantics of `latest_comment_is_ours` + reuse branch ② (limited to ready issues without a PR).** Because branch ② and the watchdog are already subject-independent pure logic, feeding issue comments into the existing fact provides classification, priority, and guardrails with no additional logic, minimizing the scope of changes (Principle 1, Occam). It is also **fully structurally identical** to the PR side's mechanisms for preventing self-triggering, tracking cursors, and signing—one mental model applied in two places, with no second parallel mechanism to keep consistent.
 
-**备选 1：复活独立的 `messages.poll` 式 issue 评论轮询器（新模块）。** 贴合 issue #149 正文的原始描述，但 `messages` 栈已被两栈合一整体删除；重开一个平行轮询循环 = 造第二套「读评论→滤签名→回帖→推游标」，与 vigil 的 reconcile 重复、且要另立并发/认领/看门狗，违背 0062-0065 的收敛弧线（recipes 守恒为 3）。**否决。**
+**Alternative 1: Revive a separate issue-comment poller in the style of `messages.poll` (new module).** This matches the original description in the body of issue #149, but the `messages` stack was removed entirely when the two stacks were unified; reopening a parallel polling loop means building a second “read comments → filter signatures → reply → advance cursor” pipeline, duplicating vigil's reconcile and requiring separate concurrency/claim/watchdog mechanisms. This goes against the convergence trajectory of 0062-0065 (the number of recipes remains 3). **Rejected.**
 
-**备选 2：直接复用 PR replier 提示词 + 让它可改代码。** 省掉 T3 的 issue 提示词。但 issue #149 范围明确「只要回复、不要解决」；PR replier 的「若需要改代码就改 + 交付协议」会诱导 agent 在只该答疑的场景下开改，越界。且 issue 无 `$branch` 语境，PR 提示词占位符对不上。**否决**（保留「issue 只答疑」的清晰语义边界）。
+**Alternative 2: Directly reuse the PR replier prompt + allow it to modify code.** This eliminates T3's issue prompt. However, issue #149 explicitly scopes the work to “reply only, do not solve”; the PR replier's “modify code if needed + delivery protocol” would prompt the agent to start making changes in situations that call only for answering questions, exceeding the scope. In addition, issues have no `$branch` context, so the PR prompt's placeholders do not match. **Rejected** (preserve the clear semantic boundary that “issues are for answering questions only”).
 
-**备选 3：把 issue 回复并进 admitter（让 admitter 既管入闸又管后续答疑）。** 省掉分支接线。但 admitter 是 **fail-closed 人闸**（判「人到底点头没有」），职责是准入裁决；把持续答疑塞进去会污染它的单一职责、且它的输出 schema/提示词是准入语义。**否决**（准入面/回复面按 `ready` 态切开更干净）。
+**Alternative 3: Fold issue replies into the admitter (have the admitter handle both admission and subsequent questions).** This eliminates the branch wiring. But the admitter is a **fail-closed human-approval gate** (determining “whether the human has actually approved”), responsible for admission decisions; adding ongoing question answering would compromise its single responsibility, and its output schema/prompt have admission semantics. **Rejected** (separating admission from replies based on the `ready` state is cleaner).
 
 ## Prior art
 
-- **本仓 PR 评论回复闭环**（RFC-0011 签名 / Spec-0032 读侧定向复活 / Spec-0061 replier+poll_comments / Spec-0065 vigil reconcile 分支②）——本 spec 是它到 issue 面的同构延伸，读/写/防自触发全部沿用既有原语与不变式。
-- **本仓 issue 评论既有用法**：Spec-0043 `issue_comment`（issue 级写）、Spec-0049 `list_issue_comments` + 署名认领便签、Spec-0065 admitter `_ask_human`（issue 评论入闸对话）——证明 issue 评论读/写原语与 gh 路径已跑通，本 spec 复用而非新造。
-- **GitHub 评论模型**：REST 层 PR 评论本质是 issue 评论（同一 endpoint），但本仓刻意走 `gh pr view` / `gh issue view` 两条子命令路径（薄封装 gh，不碰 REST），故 PR 版与 issue 版是两个对称函数而非一个。
+- **This repository's complete PR-comment reply loop** (RFC-0011 signatures / Spec-0032 targeted restoration of the read side / Spec-0061 replier+poll_comments / Spec-0065 vigil reconcile branch ②)—this spec extends the same structure to issues, reusing all existing primitives and invariants for reading, writing, and preventing self-triggering.
+- **Existing uses of issue comments in this repository**: Spec-0043 `issue_comment` (issue-level writes), Spec-0049 `list_issue_comments` + signed claim notes, Spec-0065 admitter `_ask_human` (admission conversations through issue comments)—these demonstrate that the issue-comment read/write primitives and gh paths already work; this spec reuses them rather than creating new ones.
+- **GitHub's comment model**: At the REST layer, PR comments are essentially issue comments (the same endpoint), but this repository deliberately uses two subcommand paths, `gh pr view` / `gh issue view` (a thin wrapper around gh, without touching REST), so the PR and issue versions are two symmetric functions rather than one.
 
 ## Unresolved questions
 
-> 待与用户在评审阶段确认（只记用户选择保留的问题）：
-- 有 PR 后的 issue 页新评论要不要也回？本期定为**不回**（改走 PR 流），若团队希望 issue 页始终可答疑，则需双流合并（见 Future）——是否本期就要？
-- `ready` 作为准入/回复边界是否够？若存在「未 ready 但需持续答疑」的 issue，是否要放宽激活条件？
+> To be confirmed with the user during review (record only questions the user chooses to retain):
+- Should new comments on the issue page also receive replies after a PR exists? This iteration specifies **no replies** (handling switches to the PR flow). If the team wants questions to remain answerable on the issue page at all times, the two streams must be merged (see Future)—is that needed in this iteration?
+- Is `ready` sufficient as the admission/reply boundary? If there are issues that are “not ready but require ongoing question answering,” should the activation conditions be broadened?
 
 ## Future possibilities
 
-- **双流合并**：issue 有 PR 后，issue 页 + PR 页评论合并成一条时间线，`_sense` 取两流最新的人类评论决定回复目标（`reply_target` fact）。
-- **webhook 实时推送**：替换轮询，回复延迟从 tick interval 降到近实时（issue #149 明确本期不做）。
-- **issue 评论触发解决**：把「回复」升级为「回复 + 按评论诉求改代码/开 PR」（本期明确不做，属 solve 分支的扩展）。
-- **批量化读**：并进 Spec-0065 记的 GraphQL 一条 query 拉多 subject 评论，缓解 `_sense` 每 subject 一次读的配额压力。
-- **跨仓库 issue 聚合**（issue #149 明确不做）。
-
+- **Merge the two streams**: Once an issue has a PR, merge comments from the issue page + PR page into a single timeline; `_sense` uses the latest human comment across the two streams to determine the reply target (`reply_target` fact).
+- **Real-time delivery through webhooks**: Replace polling, reducing reply latency from the tick interval to near real time (issue #149 explicitly excludes this from the current iteration).
+- **Trigger solving through issue comments**: Upgrade “reply” to “reply + modify code/open a PR according to requests in comments” (explicitly excluded from this iteration; an extension of the solve branch).
+- **Batched reads**: Incorporate this into the single GraphQL query for fetching comments across multiple subjects recorded in Spec-0065, easing the quota pressure from one `_sense` read per subject.
+- **Cross-repository issue aggregation** (explicitly excluded by issue #149).

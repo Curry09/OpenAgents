@@ -1,8 +1,8 @@
-"""spec 数据层（model + schema）单元测试 —— rust-RFC 形态（issue #69）。
+"""Spec Data Layer (model + schema) module test - rust-RFC form (issue #69).
 
-覆盖：组级 Overview 9 段 + frontmatter tasks（scope/acceptance）的 render_group→load_group
-round-trip、可选字段默认、load_all 聚合多组并忽略生成物/dated 文档、组文件辨识、
-qualified_id、schema 合法。
+Overwrite: Group Overview 9 + frontmatr matter tasks (scope/acceptance) render_group load_group
+round-trip, default for optional fields, load_all grouping and ignoring the generator/daded document, group file identification,
+qualified_id, schema is legal.
 """
 
 from __future__ import annotations
@@ -31,22 +31,22 @@ from openagents.spec.model import (
 
 def _sample_overview() -> Overview:
     return Overview(
-        summary="一句话讲清这个 feature 是什么。",
-        motivation="现状 X，问题 Y，所以要改（背景就地复述，不甩跨 spec 引用）。",
-        guide_level="当它已存在，这样向人讲解：示例……",
-        reference_level="技术方案细节。\n\nTask 分解：T3 改 render.py。\n```mermaid\ngraph TD\n```",
-        drawbacks="为什么不该做：成本 Z。",
-        rationale_alternatives="备选 A 被否决，因为……",
-        prior_art="rust-lang/rfcs 的 0000-template.md。",
-        unresolved_questions="仍待解决：W。",
-        future_possibilities="后续可扩展到运行期 owner 强制（issue #71）。",
+        summary="One word to explain what this feature is.",
+        motivation="Status X, question Y, so change (backgrounds are repeated in place, without spec references).",
+        guide_level="When it already exists, so tell people: Example...",
+        reference_level="Technical programme details.\n\nTask breakdown: T3 to render.py.\n```mermaid\ngraph TD\n```",
+        drawbacks="Why not do it: cost Z.",
+        rationale_alternatives="Option A was rejected because ...",
+        prior_art="rust-lang/rfcs ’000-template.md.",
+        unresolved_questions="Still to be resolved: W.",
+        future_possibilities="Follow-up can extend to run-time owner enforcement (issue #71).",
     )
 
 
 def _sample_task() -> Task:
     return Task(
         id="T3",
-        title="渲染 OVERVIEW",
+        title="Render Oferview",
         status="in-progress",
         priority="P1",
         tags=["cli", "render"],
@@ -54,15 +54,20 @@ def _sample_task() -> Task:
         relates_to=[RelatesTo(ref="0012/T2", type="extends")],
         parallel=True,
         files=["openagents/spec/render.py"],
-        scope="把源数据派生成 OVERVIEW.md。",
-        acceptance="渲染幂等。",
+        scope="Dissociate source data into OVERVIEW.md.",
+        acceptance="Rendering the tatters and so on.",
     )
 
 
 def _sample_group() -> Group:
     return Group(
         number="0014",
-        metadata=Metadata(title="spec 快照", issue=35, slug="spec-snapshot", summary="一句话人话"),
+        metadata=Metadata(
+            title="Spec, come on.",
+            issue=35,
+            slug="spec-snapshot",
+            summary="A word of a man’s word.",
+        ),
         tasks=[_sample_task()],
         overview=_sample_overview(),
         history={},
@@ -76,7 +81,7 @@ def _write_group(*, root: Path, group: Group) -> Path:
 
 
 def test_round_trip_preserves_overview_and_tasks(tmp_path: Path) -> None:
-    """render_group→load_group：组级 9 段 Overview + task 结构化字段全部保真。"""
+    """render_group→load_group: Group 9 Paragraph Overview + task Structured fields to be fully authentic."""
     group = _sample_group()
     path = _write_group(root=tmp_path, group=group)
     reloaded = model.load_group(path=path)
@@ -100,29 +105,33 @@ def test_round_trip_preserves_overview_and_tasks(tmp_path: Path) -> None:
         "acceptance",
     ):
         assert getattr(task, attr) == getattr(original, attr), attr
-    # 二次序列化字节级一致（确定性）。
+    # (b) Consistency of the secondary serial byte level (certainty).
     assert model.render_group(group=group) == model.render_group(group=reloaded)
 
 
 def test_oversized_rationale_round_trips_and_defaults_empty(tmp_path: Path) -> None:
-    """Spec-0072/T1：oversized-rationale 声明时 round-trip 保真、写入 frontmatter；未声明默认空串且整键不出现。"""
-    # 声明 → 保真 + 写入 frontmatter（夹在 summary 后、tasks 前）。
+    """Spec-0072/T1：oversized-rationale On declaration round-trip Pouch, Write frontmatter;no default empty string declared and no whole key appears."""
+    # Declare  →  Write Frontmatter (plugged in after summy, before tasks).
     declared = Group(
         number="0072",
         metadata=Metadata(
-            title="big", issue=156, slug="big", summary="TL;DR", oversized_rationale="一次原子交付"
+            title="big",
+            issue=156,
+            slug="big",
+            summary="TL;DR",
+            oversized_rationale="One atomic delivery",
         ),
         tasks=[Task(id="T1", title="x", status="pending", priority="P1")],
         overview=_sample_overview(),
     )
     path = _write_group(root=tmp_path, group=declared)
     reloaded = model.load_group(path=path)
-    assert reloaded.metadata.oversized_rationale == "一次原子交付"
+    assert reloaded.metadata.oversized_rationale == "One atomic delivery"
     head = path.read_text(encoding="utf-8").split("\n---\n", 1)[0]
     assert "oversized-rationale:" in head
     assert model.render_group(group=declared) == model.render_group(group=reloaded)
 
-    # 未声明 → 默认空串，且 frontmatter 整键不出现（既有 spec 零回归、逐字节不变）。
+    # No default empty string declared and frontmatter is not shown (spec no behavior change, bytes unchanged).
     plain = Group(
         number="0001",
         metadata=Metadata(title="m", issue=1, slug="min"),
@@ -134,7 +143,7 @@ def test_oversized_rationale_round_trips_and_defaults_empty(tmp_path: Path) -> N
 
 
 def test_body_holds_overview_frontmatter_holds_scope(tmp_path: Path) -> None:
-    """正文放 rust 9 段组级 prose；scope/acceptance 进 frontmatter；正文无 Task 小节。"""
+    """Text places the rust 9-part group level prose; scope/acceptance into frontmatter; text without Task subsections."""
     path = _write_group(root=tmp_path, group=_sample_group())
     text = path.read_text(encoding="utf-8")
     head, body = text.split("\n---\n", 1)
@@ -142,20 +151,20 @@ def test_body_holds_overview_frontmatter_holds_scope(tmp_path: Path) -> None:
     assert "## Reference-level explanation" in body
     assert "## Future possibilities" in body
     assert "mermaid" in body
-    # scope/acceptance 现在是 frontmatter 结构化字段。
+    # scope/acceptance is now a frontmatter structured field.
     assert "scope:" in head and "acceptance:" in head
-    # 不再有 per-Task 正文小节。
+    # There are no more per-Task body subsections.
     assert "## T3" not in body
-    # 组级 prose 不应出现在 frontmatter。
-    assert "背景就地复述" not in head
+    # Group prose should not appear in frontmatter.
+    assert "We’ll repeat it in the background." not in head
 
 
 def test_optional_fields_default(tmp_path: Path) -> None:
-    """仅必填字段的 Task / 空 Overview 加载后取合理默认。"""
+    """Only fill field with a Task / empty Overview load to get a reasonable default."""
     group = Group(
         number="0001",
         metadata=Metadata(title="m", issue=1, slug="min"),
-        tasks=[Task(id="T9", title="最小", status="pending", priority="P2")],
+        tasks=[Task(id="T9", title="Min", status="pending", priority="P2")],
     )
     path = _write_group(root=tmp_path, group=group)
     reloaded = model.load_group(path=path)
@@ -166,12 +175,12 @@ def test_optional_fields_default(tmp_path: Path) -> None:
     assert task.parallel is False
     assert task.scope == ""
     assert task.acceptance == ""
-    # 空组的 Overview 9 段全为空串（占位被归一）。
+    # The Overview 9 segment of the empty group is all empty (the place is one).
     assert reloaded.overview == Overview()
 
 
 def test_load_all_aggregates_groups(tmp_path: Path) -> None:
-    """load_all 聚合多组并按编号排序；生成物 / README / dated 文档被忽略。"""
+    """load_all grouping and sorting by number; the generator/ README/ daded document is ignored."""
     _write_group(root=tmp_path, group=_sample_group())
     _write_group(
         root=tmp_path,
@@ -181,7 +190,7 @@ def test_load_all_aggregates_groups(tmp_path: Path) -> None:
             tasks=[Task(id="T1", title="x", status="done", priority="P1")],
         ),
     )
-    # 干扰项：均不应被当成组文件。
+    # Interference items: None should be treated as group documents.
     (tmp_path / "OVERVIEW.md").write_text("x", encoding="utf-8")
     (tmp_path / "ARCHITECTURE.md").write_text("x", encoding="utf-8")
     (tmp_path / "README.md").write_text("x", encoding="utf-8")
@@ -192,13 +201,13 @@ def test_load_all_aggregates_groups(tmp_path: Path) -> None:
 
 
 def test_load_all_empty_root(tmp_path: Path) -> None:
-    """空 / 不存在的 specs 根返回空列表，不报错。"""
+    """Empty/ non-existent root returns empty list, no error."""
     assert model.load_all(specs_root=tmp_path / "nope") == []
     assert model.load_all(specs_root=tmp_path) == []
 
 
 def test_is_group_file() -> None:
-    """组文件辨识：NNNN-slug.md 是组；dated / 生成物 / README 不是。"""
+    """Group file identification: NNNN-slug.md is group; deded / generator / README is not."""
     assert model._is_group_file(name="0014-spec-snapshot.md")
     assert not model._is_group_file(name="2026-06-24-design.md")
     assert not model._is_group_file(name="OVERVIEW.md")
@@ -211,17 +220,17 @@ def test_qualified_id() -> None:
 
 @pytest.mark.parametrize("doc", [schema.TASK_SCHEMA, schema.GROUP_FRONTMATTER_SCHEMA])
 def test_schemas_are_valid_jsonschema(doc: dict) -> None:
-    """schema 本身是合法 JSON Schema（draft 2020-12 可编译）。"""
+    """Schema is itself legal JSON Schema (draft 2020-12 circulated)."""
     jsonschema.Draft202012Validator.check_schema(doc)
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0040/T1: 组级 e2e 粗规划字段 round-trip / 可选 / 归一化
+# Spec-0040/T1: Group e2e rough plan field round-trip/ optional/ unified
 # --------------------------------------------------------------------------- #
 
 
 def test_e2e_plan_round_trip(tmp_path: Path) -> None:
-    """Spec-0055/T2：声明 e2e 测法的组：render_group→load_group 保真 intent/method。"""
+    """Spec-0055/T2: Group for declaration of e2e measurement: render_group  →  load_group Pertify intent/method."""
     group = _sample_group()
     group = Group(
         number=group.number,
@@ -231,8 +240,8 @@ def test_e2e_plan_round_trip(tmp_path: Path) -> None:
             slug=group.metadata.slug,
             summary=group.metadata.summary,
             e2e=E2EPlan(
-                intent="init 无 origin 必须显式失败。",
-                method="1. 无 origin 跑 init → 断言非零退出\n2. 补 origin 再跑 → 断言成功",
+                intent="Init no origin must be visible failure.",
+                method="1. None origin Run! init → The claim is not zero.\n2. Fill origin Run again. → We're gonna be successful.",
             ),
         ),
         tasks=group.tasks,
@@ -241,15 +250,15 @@ def test_e2e_plan_round_trip(tmp_path: Path) -> None:
     path = _write_group(root=tmp_path, group=group)
     reloaded = model.load_group(path=path)
     assert reloaded.metadata.e2e == group.metadata.e2e
-    # frontmatter 落了 e2e 块（intent/method），正文不含它。
+    # Frontmatter dropped e2e (intent/method), which is not included in the body.
     head, _body = path.read_text(encoding="utf-8").split("\n---\n", 1)
     assert "e2e:" in head and "intent:" in head and "method:" in head
-    # 字节级确定性。
+    # Byte level certainty.
     assert model.render_group(group=group) == model.render_group(group=reloaded)
 
 
 def test_e2e_absent_defaults_none_and_omitted(tmp_path: Path) -> None:
-    """未声明 e2e 的组：metadata.e2e 为 None，且 frontmatter 不出现 e2e 键（零回归）。"""
+    """Undeclared group: metadata.e2e is None and frontmotter does not appear e2e (zero returns)."""
     path = _write_group(root=tmp_path, group=_sample_group())
     reloaded = model.load_group(path=path)
     assert reloaded.metadata.e2e is None
@@ -258,8 +267,8 @@ def test_e2e_absent_defaults_none_and_omitted(tmp_path: Path) -> None:
 
 def test_e2e_from_mapping_none_returns_none() -> None:
     assert model.e2e_from_mapping(data=None) is None
-    plan = model.e2e_from_mapping(data={"intent": "x", "method": "跑一下看结果"})
-    assert plan == E2EPlan(intent="x", method="跑一下看结果")
+    plan = model.e2e_from_mapping(data={"intent": "x", "method": "Run and see the results."})
+    assert plan == E2EPlan(intent="x", method="Run and see the results.")
 
 
 def test_architecture_round_trip_and_design_digest_ignore_status(tmp_path: Path) -> None:

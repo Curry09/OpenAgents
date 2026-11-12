@@ -1,12 +1,12 @@
 ---
 number: "0012"
-title: test 分支门控流程 —— 人只在「提 issue」与「promote」介入
+title: "test branch gating workflow — humans intervene only when filing an issue and during promote"
 issue: 32
 slug: test-branch-gated-flow
-summary: 改成 test 分支门控流程，人只在「提 issue」和「promote 上线」两处介入：N 个 reviewer 并行评审聚合裁决，promote 模块预检后快进 main，中间全自动。
+summary: "Switch to a test branch gating workflow, with humans intervening only when filing an issue and during promote to production: N reviewers review in parallel and their decisions are aggregated; the promote module runs preflight checks and then fast-forwards main. All intermediate steps are fully automated."
 tasks:
   - id: T1
-    title: reviewer 编排模块（N 并行 + 裁决聚合）
+    title: "reviewer orchestration module (N parallel reviewers + decision aggregation)"
     status: done
     priority: P1
     tags:
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer.py
-    scope: 新建 reviewer.py：ReviewDecision 数据模型、review() 函数（线程池并行派 N 个 backend.run、解析每个 AgentResult.summary 的裁决 token、聚合「全票 PASS」）；内置 rfc/code 两套 review 任务模板（移植 vigil-reviewer 的 PASS/REWORK/RETHINK rubric）；N 从 OPENAGENTS_REVIEWERS(默认1) 读取。
-    acceptance: 单测打桩 AgentBackend，覆盖：N=1 PASS→passed=True；N=3 含一个 REWORK→passed=False 且 feedback 含该反馈；RETHINK 同 REWORK 归为非 PASS；裁决 token 解析鲁棒（大小写/前后缀）。
+    scope: "Create reviewer.py: the ReviewDecision data model and the review() function (use a thread pool to dispatch N backend.run calls in parallel, parse the decision token in each AgentResult.summary, and aggregate the results using a unanimous PASS requirement); include two built-in review task templates, rfc/code (port the PASS/REWORK/RETHINK rubric from vigil-reviewer); read N from OPENAGENTS_REVIEWERS (default: 1)."
+    acceptance: "Unit tests with a stubbed AgentBackend, covering: N=1 PASS→passed=True; N=3 with one REWORK→passed=False and feedback includes that review's feedback; RETHINK is classified as non-PASS, like REWORK; robust decision token parsing (case/prefixes/suffixes)."
   - id: T2
-    title: github 扩展（base/merge/label/branch）
+    title: "github extensions (base/merge/label/branch)"
     status: done
     priority: P1
     tags:
@@ -35,10 +35,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github.py
-    scope: create_pr 增 base 形参（→ --base）；新增 merge_pr、add_label、ensure_branch（幂等）、branch_ci_green。复用 _run_gh/_gh_json（RFC-0010 重试）与既有 _classify_checks。
-    acceptance: 单测打桩子进程，验证各函数拼出正确 gh 参数；ensure_branch 在分支已存在时不报错（幂等）；branch_ci_green 全绿→True、有失败→False；create_pr(base=...) 透传 --base。
+    scope: "Add a base parameter to create_pr (→ --base); add merge_pr, add_label, ensure_branch (idempotent), and branch_ci_green. Reuse _run_gh/_gh_json (RFC-0010 retries) and the existing _classify_checks."
+    acceptance: "Unit tests with stubbed subprocesses to verify that each function constructs the correct gh arguments; ensure_branch does not raise an error when the branch already exists (idempotent); branch_ci_green returns True when all checks are green and False when any check fails; create_pr(base=...) passes through --base."
   - id: T3
-    title: state 扩展（rounds + STATUS_BLOCKED）
+    title: "state extensions (rounds + STATUS_BLOCKED)"
     status: done
     priority: P1
     tags:
@@ -51,10 +51,10 @@ tasks:
     files:
       - openagents/state.py
       - tests/test_state.py
-    scope: 新增 STATUS_BLOCKED 常量；RunRecord 加 rounds:int=0（默认值保证 RunRecord(**旧记录) 不报错）；新增 increment_rounds/reset_rounds。
-    acceptance: 单测：加载缺 rounds 键的旧 state.json 不抛错且 rounds=0；increment_rounds 返回递增值并落盘；reset_rounds 归零；STATUS_BLOCKED 不被 all_runs 误改。
+    scope: "Add the STATUS_BLOCKED constant; add rounds:int=0 to RunRecord (the default ensures that RunRecord(**old_record) does not raise an error for old records); add increment_rounds/reset_rounds."
+    acceptance: "Unit tests: loading an old state.json without the rounds key does not raise an exception and yields rounds=0; increment_rounds returns the incremented value and persists it to disk; reset_rounds resets it to zero; all_runs does not inadvertently change STATUS_BLOCKED."
   - id: T4
-    title: promote 模块（预检 + 快进 main）
+    title: "promote module (preflight checks + fast-forward main)"
     status: done
     priority: P1
     tags:
@@ -69,10 +69,10 @@ tasks:
     files:
       - openagents/promote.py
       - tests/test_promote.py
-    scope: 新建 promote.py：PromoteResult + promote()，执行预检（无 STATUS_BLOCKED run ∧ 无 needs-human open PR ∧ branch_ci_green(test)），通过则 ensure_branch 兜底 + git push origin test:main。
-    acceptance: 单测打桩 github/state/子进程：有 BLOCKED run→promoted=False 且 reason 指明；有 needs-human PR→False；CI 非绿→False；全通过→执行 push 并 promoted=True。
+    scope: "Create promote.py: PromoteResult + promote(), running preflight checks (no STATUS_BLOCKED run ∧ no open PR with needs-human ∧ branch_ci_green(test)); if they pass, call ensure_branch as a fallback safeguard + git push origin test:main."
+    acceptance: "Unit tests with stubbed github/state/subprocesses: a BLOCKED run→promoted=False with reason identifying the cause; a needs-human PR→False; CI not green→False; all checks pass→execute push and promoted=True."
   - id: T5
-    title: 闸接入（messages 路由 + orchestrator 评审/base）
+    title: "Gate integration (messages routing + orchestrator review/base)"
     status: done
     priority: P1
     tags:
@@ -90,10 +90,10 @@ tasks:
       - openagents/orchestrator.py
       - tests/test_messages.py
       - tests/test_orchestrator.py
-    scope: orchestrator：DEFAULT_BASE="test"、start_rfc 透传 base 给 create_pr、新增 review_rfc/review_code、implement 末尾 reset_rounds。messages：_process_rfc_review/_process_coding 接入评审闸（PASS→加标签/merge、非 PASS→rounds++ 后 refine/iterate、超 K→BLOCKED+needs-human），新增 MAX_ROUNDS/BLOCKED_LABEL。
-    acceptance: 单测打桩 reviewer/github/state：rfc 闸 PASS→打 rfc-approved 并 implement；rfc 闸非 PASS 且 rounds<K→refine 且 rounds++；coding 闸 CI 绿+PASS→merge_pr+DONE+rebase；coding 闸非 PASS 超 K→STATUS_BLOCKED+needs-human 且 PR 不关；CI fail/pending 行为保持。
+    scope: "orchestrator: DEFAULT_BASE=\"test\", pass base through from start_rfc to create_pr, add review_rfc/review_code, and call reset_rounds at the end of implement. messages: integrate review gates into _process_rfc_review/_process_coding (PASS→add label/merge; non-PASS→rounds++ followed by refine/iterate; exceeding K→BLOCKED+needs-human), and add MAX_ROUNDS/BLOCKED_LABEL."
+    acceptance: "Unit tests with stubbed reviewer/github/state: rfc gate PASS→apply rfc-approved and call implement; rfc gate non-PASS with rounds<K→refine and rounds++; coding gate CI green+PASS→merge_pr+DONE+rebase; coding gate non-PASS exceeding K→STATUS_BLOCKED+needs-human while leaving the PR open; preserve CI fail/pending behavior."
   - id: T6
-    title: CLI/vigil 接线（promote 命令 + base 默认 + init 兜底）
+    title: "CLI/vigil wiring (promote command + base default + init fallback safeguard)"
     status: done
     priority: P1
     tags:
@@ -110,93 +110,92 @@ tasks:
       - openagents/vigil.py
       - tests/test_cli.py
       - scripts/e2e-rfc-0012-gated-flow.sh
-    scope: cli：rfc/vigil 的 --base 默认改 test；_cmd_init 调 ensure_branch；注册 promote 子命令 + _cmd_promote。vigil：默认基线随之为 test。补 e2e 脚本。
-    acceptance: 单测：promote 子命令路由到 promote.promote 并按结果设退出码；--base 默认值为 test；init 触发 ensure_branch。e2e 脚本可独立运行（见测试方案）。
+    scope: "cli: change the --base default for rfc/vigil to test; call ensure_branch from _cmd_init; register the promote subcommand + _cmd_promote. vigil: change the default base to test accordingly. Add an e2e script."
+    acceptance: "Unit tests: the promote subcommand routes to promote.promote and sets the exit code according to the result; the --base default is test; init triggers ensure_branch. The e2e script can run independently (see the test plan)."
 ---
 
-# 0012 · test 分支门控流程 —— 人只在「提 issue」与「promote」介入
+# 0012 · test Branch Gated Workflow — Humans Intervene Only to “File Issues” and “promote”
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-> **⚠️ 本 spec 已被 Spec-0023 取代（test 分支退役）。** 本文件是「test 分支门控流程」时代的历史
-> 设计快照：彼时 `test` 是长期体验服、issue→PR 全程以 test 为 base 自动合回 test，`main` 只被
-> `openagents promote` 快进。Spec-0023 将此模型反转——`main` 成为日常自动流转分支并持续推进，
-> 发版改走 `release/vX.Y.Z` 分支 + tag（`openagents release` 取代 promote）。其 T2/T4/T5/T6 经
-> `supersedes` 分别取代本 spec 的 T2（github base）、T4（promote 模块）、T5（orchestrator base）、
-> T6（CLI/base）。本文件保留作历史参照，不再反映现状代码。
+> **⚠️ This spec has been superseded by Spec-0023 (retirement of the test branch).** This file is a historical
+> design snapshot from the “test branch gated workflow” era: at that time, `test` was the long-lived staging branch, the entire issue→PR flow used test as its base and automatically merged back into test, and `main` was
+> only fast-forwarded by `openagents promote`. Spec-0023 reversed this model—`main` became the branch for routine automated workflows and advances continuously,
+> while releases moved to `release/vX.Y.Z` branches + tags (`openagents release` replaced promote). Through
+> `supersedes`, its T2/T4/T5/T6 respectively supersede this spec’s T2 (github base), T4 (promote module), T5 (orchestrator base),
+> and T6 (CLI/base). This file is retained as a historical reference and no longer reflects the current code.
 
-把 OpenAgents 的交付流程改造为「test 分支门控流程」，让人只在两个触点介入：**「提 issue」** 与 **「promote 上线」**。`test` 是一条长期存在的体验服分支；issue→PR→评审→合回 test 中间全自动。每个 PR 由 N 个 reviewer 并行评审、裁决聚合为「全票 PASS」后才放行；reviewer/CI 闸全过即自动合回 `test`，非 PASS 则自动迭代，超过轮数上限则挂起并打 `needs-human`。`main` 平时冻结，仅在人执行 `openagents promote`（预检三条全过）时被从 `test` 快进一次。
+Restructure the OpenAgents delivery workflow into a “test branch gated workflow,” with humans intervening at only two touchpoints: **“filing issues”** and **“promoting to production.”** `test` is a long-lived staging branch; issue→PR→review→merge back into test is fully automated. Each PR is reviewed by N reviewers in parallel and proceeds only after their decisions aggregate to “unanimous PASS”; once all reviewer/CI gates pass, it automatically merges back into `test`. A non-PASS result triggers automatic iteration; exceeding the round limit suspends the run and applies `needs-human`. `main` normally remains frozen and is fast-forwarded from `test` only when a human runs `openagents promote` (after all three preflight checks pass).
 
 ## Motivation
 
-在本 feature 之前，人需要在代码细节层面反复介入：逐个 PR 判断要不要合、什么时候上线。目标是把人的触点收敛到 **宏观把控** 两点——决定「做什么」（提 issue）和「上不上线」（promote），中间的评审/合并/迭代全部自动化（符合 OpenAgents「人做宏观把控、不再负责细节」的目标）。
+Before this feature, humans had to intervene repeatedly at the level of code details: deciding, for each PR, whether to merge it and when to deploy. The goal is to reduce human involvement to two points of **high-level oversight**—deciding “what to do” (filing issues) and “whether to deploy” (promote)—while automating all intermediate review/merge/iteration steps (consistent with the OpenAgents goal that “humans provide high-level oversight and are no longer responsible for details”).
 
-为达成此目标，本组确立并固化以下决策（被其它 spec 以「见 Spec-0012 决策 N」引用，故此处完整复述，使其自包含）：
+To achieve this goal, this group establishes and codifies the following decisions (other specs reference them as “see Spec-0012 Decision N,” so they are restated in full here to make this document self-contained):
 
-- **决策 1（双触点门控模型）**：人只在「提 issue」与「promote」两处介入。issue 被领取后从 `test` 切出工作树、起草改动、开 PR；PR base 锁定 `test`。评审+CI 全过自动合回 `test`，于是 `test` 持续累加为「最新可体验」版本。
-- **决策 2（N 并行评审 + 全票 PASS 聚合）**：每个 PR 派 N 个 reviewer（线程池并行 `backend.run`），各自产出 PASS/REWORK/RETHINK 裁决；聚合规则是「全票 PASS 才算通过」，任一 REWORK/RETHINK 即非 PASS 并回收其 feedback。N 由环境变量 `OPENAGENTS_REVIEWERS`（默认 1）控制。rfc 评审与 code 评审各有一套 review 任务模板（移植自 vigil-reviewer 的 rubric）。
-- **决策 3（轮次上限 + 自动挂起）**：非 PASS 时不立即放弃，而是 `rounds++` 后自动 refine（rfc 阶段）/iterate（coding 阶段）；超过上限 `MAX_ROUNDS`（K）则把 run 置 `STATUS_BLOCKED` 并给 PR 打 `needs-human` 标签、**不关闭 PR**，交人接手。`rounds` 计数随 `implement` 成功而 `reset_rounds` 归零。
-- **决策 4（promote 三条预检 + 快进语义）**：`promote` 前跑三条预检，全过才扬升——① 没有挂起（`STATUS_BLOCKED`）的 run；② 没有打了 `needs-human` 标签的 open PR；③ `test` 分支 HEAD 的 CI 全绿。通过后以 `git push origin test:main` 把 `main` **快进**（fast-forward）到 `test`，`main` 平时冻结、只此一处前进。
-- **决策 5（全链路 base 默认 test + test 分支自举）**：全链路 base 默认值（`orchestrator.DEFAULT_BASE`、`cli` 的 `--base`、`github.create_pr` 的 `base`）统一为 `"test"`；冷启动时 `init`/`ensure_prerequisites` 通过幂等的 `ensure_branch` 兜底创建 `test` 分支，避免全新仓库缺 `test` 导致 prepare 永久失败。
+- **Decision 1 (two-touchpoint gating model)**: Humans intervene only to “file issues” and “promote.” After an issue is claimed, a worktree is created from `test`, changes are drafted, and a PR is opened; the PR base is fixed to `test`. Once review + CI all pass, the PR automatically merges back into `test`, so `test` continuously accumulates changes as the “latest version available to try.”
+- **Decision 2 (N parallel reviews + unanimous PASS aggregation)**: Each PR is assigned N reviewers (`backend.run` calls run in parallel in a thread pool), each producing a PASS/REWORK/RETHINK decision. The aggregation rule is “only unanimous PASS counts as passing”; any REWORK/RETHINK means non-PASS, and the corresponding feedback is collected. N is controlled by the environment variable `OPENAGENTS_REVIEWERS` (default 1). rfc review and code review each have their own review task template (ported from the vigil-reviewer rubric).
+- **Decision 3 (round limit + automatic suspension)**: A non-PASS result does not cause immediate abandonment; instead, `rounds++` is followed by automatic refine (rfc phase)/iterate (coding phase). If the limit `MAX_ROUNDS` (K) is exceeded, the run is set to `STATUS_BLOCKED` and the PR is labeled `needs-human`, **without closing the PR**, for a human to take over. The `rounds` counter is reset to zero by `reset_rounds` when `implement` succeeds.
+- **Decision 4 (three promote preflight checks + fast-forward semantics)**: Before `promote`, run three preflight checks and promote only if all pass: ① no suspended (`STATUS_BLOCKED`) runs; ② no open PRs labeled `needs-human`; ③ all CI checks for the `test` branch HEAD are green. After they pass, use `git push origin test:main` to **fast-forward** `main` to `test`; `main` normally remains frozen and advances only here.
+- **Decision 5 (test as the default base throughout + test branch bootstrapping)**: Unify the default base throughout the workflow (`orchestrator.DEFAULT_BASE`, `cli`’s `--base`, and `github.create_pr`’s `base`) as `"test"`. During a cold start, `init`/`ensure_prerequisites` use the idempotent `ensure_branch` to ensure that the `test` branch exists, preventing prepare from failing indefinitely because a new repository lacks `test`.
 
-> 注：上述决策中与 base/promote/自举相关的部分（决策 4、决策 5）已被 Spec-0023 反转——`main` 改为日常自动流转分支、发版改走 `release/vX.Y.Z` + tag。此处复述仅为保留历史语义供回溯引用。
+> Note: The parts of these decisions concerning base/promote/bootstrapping (Decision 4 and Decision 5) have been reversed by Spec-0023—`main` became the branch for routine automated workflows, and releases moved to `release/vX.Y.Z` + tags. They are restated here solely to preserve their historical semantics for retrospective references.
 
 ## Guide-level explanation
 
-三个角色的分工如下表（这是 Spec-0023 后来反转的对象）：
+The division of responsibilities among the three roles is shown below (this is what Spec-0023 later reversed):
 
-| 角色 | 本 spec（test 门控时代） |
+| Role | This spec (the test gating era) |
 |------|------|
-| 日常自动流转分支（issue→PR 的 base、自动合入目标） | `test`（体验服） |
-| 人工门控的发布目标 | `main`（被 promote 快进） |
-| 人的门控触点 | 提 issue + `promote` |
+| Branch for routine automated workflows (issue→PR base and automatic merge target) | `test` (staging) |
+| Human-gated release target | `main` (fast-forwarded by promote) |
+| Human gating touchpoints | File issues + `promote` |
 
-对使用者：平时提 issue，agent 自动从 `test` 切出、起草、开 PR、跑 N 路评审，PASS+CI 绿就自动合回 `test`；遇到反复改不好的会挂起并打 `needs-human` 等人。想上线时跑一次 `openagents promote`，它预检三条全过后把 `main` 快进到 `test`。
+For users: file issues as usual, and the agent automatically branches from `test`, drafts changes, opens a PR, and runs N parallel reviews. With PASS + green CI, it automatically merges back into `test`; if repeated attempts fail to resolve the problems, it suspends the run and applies `needs-human` to await a human. When ready to deploy, run `openagents promote` once; after all three preflight checks pass, it fast-forwards `main` to `test`.
 
 ## Reference-level explanation
 
-落到改动，分解为 6 个 Task（DAG 见下；`files` 互斥，各 Task 单一 writer）：
+The changes are divided into 6 Tasks (see the DAG below; `files` are mutually exclusive, with a single writer per Task):
 
-1. **T1 reviewer 编排模块**（无依赖） — 新建 `reviewer.py`：`ReviewDecision` 模型 + `review()`（线程池并行派 N 个 `backend.run`、解析每个 `AgentResult.summary` 的裁决 token、聚合「全票 PASS」），内置 rfc/code 两套模板（移植 vigil-reviewer 的 PASS/REWORK/RETHINK rubric），N 读 `OPENAGENTS_REVIEWERS`（默认 1）。落实决策 2。
-2. **T2 github 扩展**（无依赖） — `create_pr` 增 `base` 形参（→`--base`）；新增 `merge_pr`、`add_label`、`ensure_branch`（幂等）、`branch_ci_green`；复用 `_run_gh`/`_gh_json`（RFC-0010 重试）与 `_classify_checks`。是决策 4/5 的能力底座。
-3. **T3 state 扩展**（无依赖） — 新增 `STATUS_BLOCKED` 常量；`RunRecord` 加 `rounds:int=0`（默认值保证 `RunRecord(**旧记录)` 向后兼容）；新增 `increment_rounds`/`reset_rounds`。支撑决策 3 的轮次计数与挂起态。
-4. **T4 promote 模块**（依赖 T2、T3） — 新建 `promote.py`：`PromoteResult` + `promote()`，预检三条（无 `STATUS_BLOCKED` run ∧ 无 `needs-human` open PR ∧ `branch_ci_green(test)`）全过则 `ensure_branch` 兜底 + `git push origin test:main`。实现决策 4。
-5. **T5 闸接入**（依赖 T1、T2、T3） — `orchestrator`：`DEFAULT_BASE="test"`、`start_rfc` 透传 base 给 `create_pr`、新增 `review_rfc`/`review_code`、`implement` 末尾 `reset_rounds`；`messages`：`_process_rfc_review`/`_process_coding` 接入评审闸（PASS→加标签/merge、非 PASS→`rounds++` 后 refine/iterate、超 K→`STATUS_BLOCKED`+`needs-human`），新增 `MAX_ROUNDS`/`BLOCKED_LABEL`。把决策 1/2/3 接成自动闭环。
-6. **T6 CLI/vigil 接线**（依赖 T4、T5） — `cli`：`rfc`/`vigil` 的 `--base` 默认改 `test`、`_cmd_init` 调 `ensure_branch` 兜底、注册 `promote` 子命令 + `_cmd_promote`；`vigil` 默认基线随之为 test；补 e2e 脚本。收口决策 5 的 base 默认与 test 自举，并把 promote 暴露为人的触点。
+1. **T1 reviewer orchestration module** (no dependencies) — Create `reviewer.py`: the `ReviewDecision` model + `review()` (dispatch N `backend.run` calls in parallel through a thread pool, parse the decision token in each `AgentResult.summary`, and aggregate using “unanimous PASS”), with two built-in templates for rfc/code (porting the vigil-reviewer PASS/REWORK/RETHINK rubric). Read N from `OPENAGENTS_REVIEWERS` (default 1). Implements Decision 2.
+2. **T2 github extensions** (no dependencies) — Add a `base` parameter to `create_pr` (→`--base`); add `merge_pr`, `add_label`, `ensure_branch` (idempotent), and `branch_ci_green`; reuse `_run_gh`/`_gh_json` (RFC-0010 retries) and `_classify_checks`. Provides the underlying capabilities for Decisions 4/5.
+3. **T3 state extensions** (no dependencies) — Add the `STATUS_BLOCKED` constant; add `rounds:int=0` to `RunRecord` (the default ensures backward compatibility when constructing `RunRecord(**old_record)`); add `increment_rounds`/`reset_rounds`. Supports the round counter and suspended state in Decision 3.
+4. **T4 promote module** (depends on T2, T3) — Create `promote.py`: `PromoteResult` + `promote()`. If all three preflight checks pass (no `STATUS_BLOCKED` runs ∧ no `needs-human` open PRs ∧ `branch_ci_green(test)`), use `ensure_branch` as a fallback + `git push origin test:main`. Implements Decision 4.
+5. **T5 gate integration** (depends on T1, T2, T3) — `orchestrator`: `DEFAULT_BASE="test"`, pass base through from `start_rfc` to `create_pr`, add `review_rfc`/`review_code`, and call `reset_rounds` at the end of `implement`; `messages`: integrate the review gate into `_process_rfc_review`/`_process_coding` (PASS→label/merge, non-PASS→`rounds++` then refine/iterate, exceeding K→`STATUS_BLOCKED`+`needs-human`), and add `MAX_ROUNDS`/`BLOCKED_LABEL`. Connects Decisions 1/2/3 into an automated loop.
+6. **T6 CLI/vigil wiring** (depends on T4, T5) — `cli`: change the default `--base` for `rfc`/`vigil` to `test`, call `ensure_branch` from `_cmd_init` as a fallback, and register the `promote` subcommand + `_cmd_promote`; the default base for `vigil` consequently becomes test; add an e2e script. Completes the default base and test bootstrapping in Decision 5 and exposes promote as a human touchpoint.
 
-**端到端验证**：`bash scripts/e2e-rfc-0012-gated-flow.sh`（离线跑 ruff + pytest，演示 base=test 门控流 + promote 快进 main）。
+**End-to-end validation**: `bash scripts/e2e-rfc-0012-gated-flow.sh` (runs ruff + pytest offline and demonstrates the base=test gated workflow + promote fast-forwarding main).
 
-依赖 DAG：`T2 → T4`，`T3 → T4`，`T1 → T5`，`T2 → T5`，`T3 → T5`，`T4 → T6`，`T5 → T6`。T1/T2/T3 无依赖、可并行起步。
+Dependency DAG: `T2 → T4`, `T3 → T4`, `T1 → T5`, `T2 → T5`, `T3 → T5`, `T4 → T6`, `T5 → T6`. T1/T2/T3 have no dependencies and can start in parallel.
 
 ## Drawbacks
 
-- `main` 长期冻结、只靠人 `promote` 前进，人被绑在「每次上线」这个细节决策上（这正是 Spec-0023 反转此模型的动因）。
-- 多了一条长期 `test` 分支与其自举逻辑（`ensure_branch` 兜底），冷启动路径上多一层概念。
-- N 并行评审会放大每个 PR 的 backend 调用成本（N 倍 `backend.run`）。
+- `main` remains frozen for long periods and advances only through a human running `promote`, tying humans to the detailed decision of “every deployment” (which is precisely what motivated Spec-0023 to reverse this model).
+- Adds a long-lived `test` branch and its bootstrapping logic (`ensure_branch` as a fallback), introducing another concept into the cold-start path.
+- N parallel reviews multiply the backend invocation cost per PR (N times as many `backend.run` calls).
 
 ## Rationale and alternatives
 
-- **为什么用 test 体验服而非直接合 main**：当时希望 `main` 保持「已上线」语义、由人显式 promote 把关，`test` 充当「最新可体验」缓冲带。（后被 Spec-0023 判定为多余的中介而反转。）
-- **为什么全票 PASS 聚合而非多数票**：评审是质量门，宁可保守——任一 reviewer 给出 REWORK/RETHINK 都触发迭代，避免「多数通过但少数发现真问题」被淹没。
-- **为什么 promote 用 fast-forward push 而非 merge**：`main` 只追 `test`、不产生独立提交，保证 `main` 是 `test` 的子集、历史线性、可直接回退。
-- **备选：人逐 PR 手动 merge**。否决：与「人只做宏观把控」的目标相悖，中间环节应自动化。
-- **轮次上限 + 挂起而非无限重试**：避免 agent 在改不好的 PR 上空转，超 K 轮即交人（`needs-human`），把人的注意力导向真正卡住的少数 PR。
+- **Why use test for staging instead of merging directly into main**: At the time, the intent was for `main` to retain the meaning of “deployed,” with a human explicitly gating deployment through promote, while `test` served as a buffer for the “latest version available to try.” (Spec-0023 later deemed this intermediary unnecessary and reversed the model.)
+- **Why aggregate with unanimous PASS instead of a majority vote**: Review is a quality gate, so conservatism is preferable—any reviewer returning REWORK/RETHINK triggers iteration, preventing “the majority passes it, but a minority finds a real problem” from being drowned out.
+- **Why promote uses a fast-forward push instead of a merge**: `main` only follows `test` and produces no independent commits, ensuring that `main` is a subset of `test`, history remains linear, and rollback is straightforward.
+- **Alternative: humans manually merge each PR**. Rejected: this conflicts with the goal that “humans provide only high-level oversight”; intermediate steps should be automated.
+- **Round limit + suspension instead of unlimited retries**: Prevents agents from spinning on PRs they cannot fix. After K rounds are exceeded, hand over to a human (`needs-human`), directing human attention to the few PRs that are truly stuck.
 
 ## Prior art
 
-- 「体验服/staging 分支 + 人工 promote 到生产」是常见的分支发布模型。
-- N 并行评审 + 裁决聚合移植自 vigil-reviewer 的 PASS/REWORK/RETHINK rubric。
-- `gh` 调用的重试封装沿用 RFC-0010 既有 `_run_gh`/`_gh_json`。
+- “Staging branch + manual promote to production” is a common branching and release model.
+- N parallel reviews + decision aggregation are ported from the vigil-reviewer PASS/REWORK/RETHINK rubric.
+- Retry wrappers for `gh` invocations reuse the existing `_run_gh`/`_gh_json` from RFC-0010.
 
 ## Unresolved questions
 
-无。评审聚合规则、轮次上限语义、promote 三条预检均已在本组确定（后续的 base/发布模型变更见 Spec-0023）。
+None. The review aggregation rule, round-limit semantics, and three promote preflight checks have all been settled within this group (see Spec-0023 for subsequent changes to the base/release model).
 
 ## Future possibilities
 
-- 评审 reviewer 数 N 与轮次上限 K 可扩展为按仓库/按 spec 可配置策略。
-- promote 预检可加入更多门槛（如最低覆盖率）。
-- （已实现于 Spec-0023）把「test 体验服 + promote 快进」反转为「main 持续推进 + release 版本分支」。
-
+- The number of reviewers N and round limit K could be extended into policies configurable per repository/per spec.
+- Promote preflight checks could include additional thresholds (such as minimum coverage).
+- (Already implemented in Spec-0023) Reverse “test staging + promote fast-forward” into “main advancing continuously + versioned release branches.”

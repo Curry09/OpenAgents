@@ -1,19 +1,19 @@
 ---
 number: "0077"
-title: 跨角色可传递仓库证据
+title: "Repository evidence transferable across roles"
 issue: 0
 slug: transferable-repository-evidence
-summary: 将角色已核实的客观仓库事实保存为有界证据包并沿交付链传递，使后续角色按差异渐进取证，减少重复扫描而不复用判断结论。
+summary: "Save objective repository facts verified by a role as a bounded evidence pack and pass it along the delivery chain, enabling subsequent roles to gather evidence incrementally based on differences, reducing repeated scans without reusing judgments or conclusions."
 architecture:
-  objective: 在保持各角色独立判断的同时复用已经核实的仓库事实，缩短实现与复审前的重复调查。
+  objective: "Reuse verified repository facts while preserving each role's independent judgment, reducing repeated investigation before implementation and review."
   constraints:
-    - 证据包只包含客观事实，不携带架构裁决或候选评价
-    - 内容和条目数必须有确定性上限
-    - 旧运行状态与未提供证据包的调用方保持兼容
+    - "The evidence package contains only objective facts, with no architectural decisions or candidate evaluations"
+    - "The content and number of entries must have deterministic upper bounds"
+    - "Maintain compatibility with legacy run state and callers that do not provide an evidence package"
   non-goals:
-    - 跳过实现者或评审者的职责判断
-    - 将模型上下文或完整命令输出持久化
-    - 用固定读取次数阻止必要调查
+    - "Bypass the judgments that are the responsibility of the implementer or reviewer"
+    - "Persist model context or complete command output"
+    - "Prevent necessary investigation by imposing a fixed number of reads"
   candidates:
     - id: prompt-only
       layer: agent-prompts
@@ -21,8 +21,8 @@ architecture:
         - Drafter
         - Implementer
       evidence:
-        - 角色提示可以要求减少重复读取但无法传递前序角色已经掌握的事实
-      tradeoffs: 改动较小，但后续角色仍需从头重建仓库上下文。
+        - "Role prompts can request fewer repeated reads but cannot convey facts already known to preceding roles"
+      tradeoffs: "The change is small, but subsequent roles still need to reconstruct the repository context from scratch."
     - id: bounded-evidence-pack
       layer: role-protocol-runtime-state
       boundary:
@@ -30,8 +30,8 @@ architecture:
         - Runtime state
         - Implementer and Reviewer context
       evidence:
-        - 当前角色间只传递摘要，缺少路径、符号、验证方式和源版本等可复用定位信息
-      tradeoffs: 增加一个小型持久化协议，但能确定性限制上下文并按版本判断证据是否仍有效。
+        - "Currently, only summaries are passed between roles, without reusable location information such as paths, symbols, verification methods, and source revisions"
+      tradeoffs: "Introduce a small persistence protocol that can deterministically bound context and determine whether evidence remains valid based on its version."
   selected: bounded-evidence-pack
   affected-components:
     - openagents.agents
@@ -39,29 +39,29 @@ architecture:
     - openagents.recipes.vigil
     - openagents.runtime.state
   failure-modes:
-    - 把设计判断包装成事实导致后续角色机械接受
-    - 证据对应旧版本但未标识来源而被错误复用
-    - 无界证据包反而扩大上下文和 token 消耗
+    - "Presenting design judgments as facts causes subsequent roles to accept them mechanically"
+    - "Evidence from an older revision is incorrectly reused because its source is not identified"
+    - "An unbounded evidence package instead increases context size and token consumption"
 verification:
   behavior-cases:
     - id: reuse-current-evidence
       polarity: positive
-      stimulus: 前序角色提供含路径、符号、验证方式和当前 source revision 的证据
-      expected: 后续角色收到规范化证据包并仅对缺口或变化补充取证
-      observation: scripted stage 调用上下文和状态往返测试
+      stimulus: "A preceding role provides evidence containing paths, symbols, verification methods, and the current source revision"
+      expected: "Subsequent roles receive a normalized evidence package and gather additional evidence only for gaps or changes"
+      observation: "Tests of scripted stage invocation context and state round trips"
     - id: reject-subjective-or-malformed-data
       polarity: negative
-      stimulus: 输入包含无路径事实、非对象条目、超长字段或超过条目上限
-      expected: 规范化层丢弃无效条目并确定性截断其余内容
-      observation: runtime research 单元测试
+      stimulus: "Input contains facts without paths, non-object entries, excessively long fields, or more entries than the limit"
+      expected: "The normalization layer discards invalid entries and deterministically truncates the remaining content"
+      observation: "runtime research unit tests"
   repository-invariants:
-    - 证据包最多包含 24 条记录
-    - 持久化字段仅来自公开白名单且不包含候选评价或审核结论
-    - 不提供证据包时既有角色调用行为不变
+    - "The evidence package contains at most 24 records"
+    - "Persisted fields come only from a public allowlist and contain no candidate evaluations or review conclusions"
+    - "Existing role invocation behavior remains unchanged when no evidence package is provided"
   exemptions: []
 tasks:
   - id: T1
-    title: 有界客观证据包模型
+    title: "Bounded objective evidence pack model"
     status: done
     priority: P0
     tags: []
@@ -71,10 +71,10 @@ tasks:
     files:
       - openagents/runtime/research.py
       - tests/test_runtime_research.py
-    scope: 定义证据字段白名单、条目与字段上限、规范化、确定性合并和紧凑渲染；仅接受可定位且可验证的客观事实。
-    acceptance: 单元测试覆盖非法条目丢弃、字段截断、24 条上限、相同路径与符号的后到记录刷新，以及 Unicode 紧凑渲染。
+    scope: "Define an allowlist of evidence fields, limits on entries and fields, normalization, deterministic merging, and compact rendering; accept only objective facts that can be located and verified."
+    acceptance: "Unit tests cover discarding invalid entries, field truncation, the 24-entry limit, refreshing records with later arrivals for the same path and symbol, and compact Unicode rendering."
   - id: T2
-    title: 角色协议与渐进取证契约
+    title: "Role protocols and incremental evidence-gathering contract"
     status: done
     priority: P0
     tags: []
@@ -86,10 +86,10 @@ tasks:
       - openagents/agents/drafter.py
       - openagents/agents/implementer.py
       - tests/test_agents_prompts.py
-    scope: Drafter 输出客观 evidence_pack；Implementer 优先按任务、接口和版本定位，只在证据缺失、过期或冲突时补充调查并说明超预算原因。
-    acceptance: Prompt 契约测试证明 evidence_pack 字段、客观性边界、六次首次编辑前补充取证预算及例外理由均存在，且获批 Spec 仍是实现权威输入。
+    scope: "Drafter outputs an objective evidence_pack; Implementer prioritizes locating relevant information by task, interface, and version, conducts additional investigation only when evidence is missing, stale, or conflicting, and explains why the budget was exceeded."
+    acceptance: "Prompt contract tests demonstrate that the evidence_pack field, objectivity boundaries, a budget of six supplementary evidence-gathering operations before the first edit, and justifications for exceptions are all present, and that the approved Spec remains the authoritative input for implementation."
   - id: T3
-    title: 证据状态传递与角色接线
+    title: "Evidence state propagation and role wiring"
     status: done
     priority: P0
     tags: []
@@ -105,77 +105,77 @@ tasks:
       - tests/test_runtime_state.py
       - tests/test_recipe_stages.py
       - tests/test_recipe_vigil_act.py
-    scope: 将规范化证据包保存到 issue run，沿 draft、architecture、implement 和 review 传递；refine 只合并新增或变化的事实，缺省调用保持兼容。
-    acceptance: scripted 测试证明证据在状态往返后不丢失、refine 合并结果传给实现与评审、缺省空包不改变上下文，并且旧状态文件可读取。
+    scope: "Save the normalized evidence pack to the issue run and pass it through draft, architecture, implement, and review; refine merges only new or changed facts, and calls that omit the evidence pack remain compatible."
+    acceptance: "Scripted tests demonstrate that evidence is preserved through state round trips, refine merge results are passed to implementation and review, the default empty pack does not alter the context, and old state files remain readable."
 ---
 
-# 0077 · 跨角色可传递仓库证据
+# 0077 · Repository Evidence Transferable Across Roles
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-OpenAgents 将前序角色已经核实的仓库事实整理成有界 `evidence_pack`，随同 issue 的运行状态传给后续角色。
-证据记录提供路径、符号、验证方式和可选源版本等定位信息，但不携带设计选择、质量评价或审核裁决。后续角色
-继续独立判断，只对版本变化、证据缺口或现场矛盾进行渐进式补充调查。
+OpenAgents organizes repository facts already verified by preceding roles into a bounded `evidence_pack` and passes it to subsequent roles along with the issue's runtime state.
+Evidence records provide location information such as paths, symbols, verification methods, and optional source revisions, but do not carry design choices, quality assessments, or review verdicts. Subsequent roles
+continue to exercise independent judgment, conducting incremental supplementary investigation only for version changes, gaps in evidence, or contradictions with the current repository.
 
 ## Motivation
 
-现有链路在 Drafter、Implementer、Tester 和 Reviewer 之间主要传递 Spec、issue 正文和自然语言摘要。即使
-Drafter 已经查明实际入口、关键接口和验证方法，Implementer 仍需重新扫描仓库才能重建相同事实；进入迭代后，
-后续角色又重复这一过程。实验中的主要耗时并非修改本身，而是多个角色从头取得同一组仓库事实。
+The existing workflow primarily passes the Spec, issue body, and natural-language summaries between Drafter, Implementer, Tester, and Reviewer. Even when
+Drafter has identified the actual entry points, key interfaces, and verification methods, Implementer still needs to scan the repository again to reconstruct the same facts; once iteration begins,
+subsequent roles repeat this process. In experiments, the main time cost was not the changes themselves, but multiple roles obtaining the same set of repository facts from scratch.
 
-单纯要求“少读取”不能解决信息缺失，也可能迫使角色在证据不足时猜测。需要传递的是可核实事实而非前序角色
-的判断，并允许接收方根据当前 revision 判断是否仍可复用。
+Simply requiring “fewer reads” cannot resolve missing information and may force roles to guess with insufficient evidence. What needs to be transferred is verifiable facts rather than the preceding role's
+judgments, while allowing recipients to determine whether those facts remain reusable based on the current revision.
 
 ## Guide-level explanation
 
-Drafter 完成仓库调查后，可以记录“入口函数位于某路径和符号、接口接受哪些输入、用哪项测试核实、调查时的
-Git SHA”。编排层对这些记录做规范化和限长后保存。Implementer 首先使用任务、接口和行范围定位实现点；如果
-当前源码与证据版本一致，就无需再次遍历同一目录。如果文件已经变化、记录缺少验证方法或接口与现场矛盾，
-Implementer 正常补充调查，并在超出默认预算时说明具体缺口。
+After completing its repository investigation, Drafter can record “the path and symbol of the entry function, the inputs an interface accepts, the test used to verify it, and the
+Git SHA at the time of investigation.” The orchestration layer normalizes these records and applies length limits before saving them. Implementer first uses tasks, interfaces, and line ranges to locate implementation points; if
+the current source matches the evidence's revision, it does not need to traverse the same directory again. If files have changed, records lack verification methods, or interfaces contradict the current repository,
+Implementer conducts supplementary investigation as usual and explains the specific gaps when exceeding the default budget.
 
-证据包不是批准凭证。Architect 仍对技术架构做独立判断，Reviewer 仍需核对实现和行为证据；任何“方案优秀”
-“应该通过”之类评价都不属于可传递字段。
+An evidence pack is not proof of approval. Architect still makes independent judgments about the technical architecture, and Reviewer must still check the implementation and behavioral evidence; assessments such as “the solution is excellent”
+or “this should pass” are not transferable fields.
 
 ## Reference-level explanation
 
-`runtime.research` 提供 `normalize`、`merge` 和 `render`。每条记录以 `fact/path/symbol/verification` 为核心，
-可附 `source_revision/line_range/interface/tasks`。规范化层限制为 24 条，并逐字段限长；没有事实或路径的记录被
-丢弃。合并键为路径加符号（无符号时使用事实），后到记录只用非空字段刷新已有记录。
+`runtime.research` provides `normalize`, `merge`, and `render`. Each record has `fact/path/symbol/verification` at its core,
+with optional `source_revision/line_range/interface/tasks`. The normalization layer limits the pack to 24 records and applies length limits to each field; records without a fact or a path are
+discarded. The merge key is the path plus the symbol (using the fact when there is no symbol), and incoming records update existing records using only nonempty fields.
 
-Drafter 的结构化输出新增 `evidence_pack`。`RuntimeState` 将规范化结果保存在相应 issue run 中；refine 返回
-的增量证据与旧包确定性合并。`stages` 只在非空时把紧凑 JSON 附加到上下文，依次供 architecture、implement
-和 review 使用。旧后端没有该字段、旧状态没有该字段或直接调用 stage 未传该参数时均视为空包。
+Drafter's structured output gains `evidence_pack`. `RuntimeState` stores the normalized result in the corresponding issue run; incremental evidence returned by refine
+is merged deterministically with the existing pack. `stages` appends compact JSON to the context only when the pack is nonempty, making it available in sequence to architecture, implement,
+and review. An older backend without this field, an older state without this field, or a direct stage call that omits this parameter is treated as having an empty pack.
 
-Implementer 的首次编辑前补充读取/检索默认预算为六次。预算是可观测的调查基线而非终止器：证据缺失、版本
-不匹配或代码矛盾时允许继续，并返回 `lookup_exception_reason`。本组不负责统计工具事件；统计属于独立的调用
-遥测能力。
+Implementer's default budget for supplementary reads/searches before the first edit is six calls. The budget is an observable investigation baseline rather than a cutoff: when evidence is missing, versions
+do not match, or code presents contradictions, investigation may continue, with `lookup_exception_reason` returned. This group is not responsible for counting tool events; that counting belongs to a separate invocation
+telemetry capability.
 
-任务依赖为 `T1 → T2 → T3`。离线验收由相关 runtime、agent prompt、stage 和 Vigil scripted tests 完成，
-不调用模型、forge 或外网。
+Task dependencies are `T1 → T2 → T3`. Offline acceptance testing is performed by the relevant runtime, agent prompt, stage, and Vigil scripted tests,
+without invoking models, forge, or the external network.
 
 ## Drawbacks
 
-状态文件与 Prompt 增加少量数据；路径或行范围可能随重构过期。字段上限会舍弃较低优先级事实，过度依赖旧
-证据也可能遗漏现场变化，因此接收方仍需核对 revision 和矛盾信号。
+State files and prompts gain a small amount of data; paths or line ranges may become outdated after refactoring. Field limits discard lower-priority facts, and excessive reliance on old
+evidence may also miss changes in the current repository, so recipients must still check revisions and signals of contradictions.
 
 ## Rationale and alternatives
 
-选择有界客观证据包，是因为它同时保留角色独立性与可复用定位信息。备选一是只修改 Prompt，要求每个角色
-减少调查；但角色不知道前序角色发现了什么，只能少查或重查。备选二是传递完整 transcript；它包含命令、
-推理和评价，体积不可控且会把前序偏差直接注入后续角色。白名单事实协议更小，也更易验证和失效。
+A bounded pack of objective evidence was chosen because it preserves both role independence and reusable location information. The first alternative is to modify only the prompts to require each role
+to investigate less; however, roles do not know what preceding roles discovered, so they can only investigate less or investigate again. The second alternative is to pass the full transcript; it contains commands,
+reasoning, and assessments, has an uncontrolled size, and would inject preceding biases directly into subsequent roles. An allowlisted fact protocol is smaller and easier to verify and invalidate.
 
 ## Prior art
 
-构建系统的依赖清单、编译缓存的内容寻址和数据管道的 provenance 都把产物与来源版本绑定后复用。本设计只
-借用“事实加来源”的原则，不把模型判断视为可缓存真值。
+Dependency manifests in build systems, content addressing in compilation caches, and provenance in data pipelines all bind artifacts to source revisions for reuse. This design
+borrows only the principle of “facts plus sources” and does not treat model judgments as cacheable truth.
 
 ## Unresolved questions
 
-证据条目是否需要未来升级为内容哈希，以及不同语言的符号定位器是否需要类型化，留待积累实际失效数据后决定。
+Whether evidence entries should eventually be upgraded to content hashes, and whether symbol locators for different languages need to be typed, remain to be decided after data on actual invalidation has accumulated.
 
 ## Future possibilities
 
-后续可根据 source revision 自动标记可疑记录，或由确定性索引生成部分接口事实；也可统计各角色复用率，但
-不能据此自动跳过角色判断。
+In the future, suspect records could be marked automatically based on the source revision, or some interface facts could be generated by a deterministic index; reuse rates for each role could also be measured, but
+must not be used to automatically skip role judgments.

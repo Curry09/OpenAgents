@@ -319,11 +319,11 @@ class Campaign:
             (
                 name
                 for marker, name in (
-                    ("你是实现 agent", "implementer"),
-                    ("你是交付 agent", "deliver"),
-                    ("你是评审 agent", "reviewer"),
-                    ("你是合并 agent", "merger"),
-                    ("你是独立测试 agent", "tester"),
+                    ("You implement the approved Spec", "implementer"),
+                    ("You deliver changes", "deliver"),
+                    ("You review PR", "reviewer"),
+                    ("You merge PR", "merger"),
+                    ("You test independently", "tester"),
                 )
                 if marker in task
             ),

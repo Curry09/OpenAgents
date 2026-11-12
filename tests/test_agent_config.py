@@ -1,7 +1,7 @@
-# Spec-0064/T1: agent_config 配置加载（YAML 解析 + jsonschema 校验 + 三态每闸取值 + 不许零闸守卫 +
-# rfc:skip 告警 + 每仓 override 合并）契约测试。
+# Spec-0064/T1: agent_config configuration load (YAML parsing + jsonschema verify + tri-state value per gate + no zero gate guard +
+# rifc:skip alert + override combined per warehouse) contract test.
 #
-# hermetic：用 tmp_path 写临时 YAML 串断言解析结果 / 校验错误 / 告警，不触真实仓库/网络。
+# Hermetic: Write a temporary YaML with tmp_path to assert the resolution results/ error/ alarm, without touching the real warehouse/network.
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def _write(tmp_path: Path, text: str) -> Path:
 
 
 def test_missing_file_falls_back_to_builtin_defaults(tmp_path):
-    # 整份可省——文件不存在 → 全默认（全 agent stages / claude_code / manual release / 单仓）。
+    # The whole saver - The file does not exist  →  all defaults (all parties STAGEs/ claude_code/ humanitarian rebase/ single warehouse).
     cfg = load_agent_config(path=tmp_path / "nope.yml")
     assert isinstance(cfg, AgentConfig)
     for stage in ("triage", "rfc", "architecture", "conflict", "ci", "e2e", "review", "merge"):
@@ -95,7 +95,7 @@ stages:
     )
     conf = load_agent_config(path=cfg)
     assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
-    # 未覆盖的阶段仍回落内建默认 agent。
+    # Uncovered phases still fall back to build the default agent.
     assert conf.stages.owner_of(stage="ci") == OWNER_AGENT
     assert conf.stages.owner_of(stage="review") == OWNER_AGENT
 
@@ -124,7 +124,7 @@ defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
     conf = load_agent_config(path=cfg)
     assert conf.agents.backend_for(role="implementer") == "codex"
     assert conf.agents.backend_for(role="reviewer") == "claude_code"
-    # 未声明角色回落默认。
+    # Do not declare a role fall default.
     assert conf.agents.backend_for(role="replier") == "claude_code"
     assert conf.stages.owner_of(stage="e2e") == OWNER_SKIP
     assert conf.stages.owner_of(stage="review") == OWNER_AGENT
@@ -136,7 +136,7 @@ defaults: { interval: 120, base: develop, labels: [openagents, urgent] }
 
 
 def test_review_skip_merge_agent_rejected(tmp_path):
-    # 「不许零闸」守卫：未审直接自动盲合进 main → reject。
+    # No Zero Gate Guard: Unheard direct automatic blinding entry main reject.
     cfg = _write(
         tmp_path,
         """
@@ -145,7 +145,7 @@ stages:
   merge:  agent
 """,
     )
-    with pytest.raises(AgentConfigError, match="不许零闸"):
+    with pytest.raises(AgentConfigError, match="Automatic merge requires agent review"):
         load_agent_config(path=cfg)
 
 
@@ -158,7 +158,7 @@ stages:
   merge:  human
 """,
     )
-    with pytest.raises(AgentConfigError, match="stages/merge.*已退役"):
+    with pytest.raises(AgentConfigError, match="stages/merge.*retired"):
         load_agent_config(path=cfg)
 
 
@@ -176,19 +176,19 @@ def test_merge_skip_rejected(tmp_path):
 
 def test_rfc_human_rejected(tmp_path):
     cfg = _write(tmp_path, "stages:\n  rfc: human\n")
-    with pytest.raises(AgentConfigError, match="stages/rfc.*已退役"):
+    with pytest.raises(AgentConfigError, match="stages/rfc.*retired"):
         load_agent_config(path=cfg)
 
 
 def test_hardgate_name_in_stages_rejected(tmp_path):
     cfg = _write(tmp_path, "stages:\n  round-cap: skip\n")
-    with pytest.raises(AgentConfigError, match="硬闸"):
+    with pytest.raises(AgentConfigError, match="Hard gate names"):
         load_agent_config(path=cfg)
 
 
 def test_always_agent_stage_in_stages_rejected(tmp_path):
     cfg = _write(tmp_path, "stages:\n  implement: skip\n")
-    with pytest.raises(AgentConfigError, match="恒派 agent"):
+    with pytest.raises(AgentConfigError, match="Constant"):
         load_agent_config(path=cfg)
 
 
@@ -215,10 +215,10 @@ repos:
     conf = load_agent_config(path=cfg)
     a, b = conf.repos
     assert a.name == tmp_path.resolve().name
-    # repo-a 继承顶层 e2e:skip。
+    # Repo-a inheritance top level e2e:skip.
     assert a.stages.owner_of(stage="e2e") == OWNER_SKIP
     assert a.base == "main"
-    # repo-b 覆盖 e2e:agent + base develop；其余阶段仍继承顶层/默认。
+    # repo-b over e2e: agent + base develop; the rest of the period is still the top/default.
     assert b.stages.owner_of(stage="e2e") == OWNER_AGENT
     assert b.stages.owner_of(stage="ci") == OWNER_AGENT
     assert b.base == "develop"
@@ -226,7 +226,7 @@ repos:
 
 
 def test_per_repo_override_still_guarded(tmp_path):
-    # 每仓 override 后仍不许零闸——顶层合法但某仓覆出零闸组合 → reject。
+    # No zeros are allowed after each warehouse - a legal top floor but a single warehouse has a zerostack set of projects.
     cfg = _write(
         tmp_path,
         """
@@ -235,7 +235,7 @@ repos:
     stages: { review: skip }
 """,
     )
-    with pytest.raises(AgentConfigError, match="不许零闸"):
+    with pytest.raises(AgentConfigError, match="Automatic merge requires agent review"):
         load_agent_config(path=cfg)
 
 
@@ -264,16 +264,16 @@ def test_top_level_non_mapping_rejected(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# Spec-0067/T1: 打包默认配置模板 + scaffold_default_config（防漂移 / 幂等 / 可回读）契约测试。
+# Spec-0067/T1: Pack the default configuration template +scaffold_default_config (defluent/ Zipple etc./ readable) contract test.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_packaged_template_matches_builtin_defaults(tmp_path):
-    # 防漂移硬闸：打包模板经 load_agent_config 解析后，必须语义等价内建默认 default_config()。
-    # 模板里写死的默认（stages 全 agent / claude_code / manual / interval 60 / base main /
-    # labels [openagents]）与 agent_config._DEFAULT_* 是两处表述同一事实——改一方不同步另一方，
-    # 这条 CI 就红（Spec-0067 Drawbacks）。逐字段比而非整对象等值：repos 路径依赖配置文件落点，
-    # 与 default_config() 的 cwd 基准不同，比 stages/agents/release/defaults 语义即可。
+    # Floatproof hard gates: After load_agent_config has been deciphered, the default default_config() must be built at a semantic equivalent.
+    # Defaults written in templates for dying (stagets all / claude_code / legal / intelval 60 / basemain /
+    # labels [openagents]）with agent_config._DEFAULT_* It's the same thing in two.——The other side is not synchronized with the other.
+    # This CI is red (Spec-0067 Drawbacks). Field by field and not whole-object equivalent: repos path relies on configuration drop point, and the  Drawbacks are not the only ones who can use the Zodiac Quotient.
+    # Unlike the cwd benchmark for default_config() is more than the syntax stages/agents/release/defaults.
     cfg_path = tmp_path / ".openagents" / "openagents.yml"
     assert scaffold_default_config(path=cfg_path, force=False) is True
     cfg = load_agent_config(path=cfg_path)
@@ -291,7 +291,7 @@ def test_packaged_template_matches_builtin_defaults(tmp_path):
 
 
 def test_scaffold_writes_when_absent(tmp_path):
-    # 目标不存在 → 建好父目录、写入模板文本、返回 True；内容逐字等于打包模板。
+    # Target does not exist  →  Father directory, text template, return True; content is typed to the type.
     cfg_path = tmp_path / ".openagents" / "openagents.yml"
     assert not cfg_path.exists()
     assert scaffold_default_config(path=cfg_path, force=False) is True
@@ -300,7 +300,7 @@ def test_scaffold_writes_when_absent(tmp_path):
 
 
 def test_scaffold_is_idempotent_without_force(tmp_path):
-    # 已存在且 force=False → 返回 False、绝不覆盖用户改动。
+    # Existing and force=False  →  returns False, never overwrites user changes.
     cfg_path = tmp_path / ".openagents" / "openagents.yml"
     scaffold_default_config(path=cfg_path, force=False)
     cfg_path.write_text("stages:\n  review: human\n", encoding="utf-8")
@@ -309,7 +309,7 @@ def test_scaffold_is_idempotent_without_force(tmp_path):
 
 
 def test_scaffold_force_overwrites(tmp_path):
-    # force=True → 覆盖既有、返回 True，内容重置回打包模板。
+    # Force =True  →  Overwrites existing, returns True, resets the package template.
     cfg_path = tmp_path / ".openagents" / "openagents.yml"
     cfg_path.parent.mkdir(parents=True)
     cfg_path.write_text("stages:\n  review: human\n", encoding="utf-8")
@@ -318,7 +318,7 @@ def test_scaffold_force_overwrites(tmp_path):
 
 
 def test_scaffolded_file_loads_cleanly(tmp_path):
-    # 生成物必须能被既有加载器无错解析（round-trip：scaffold → load）。
+    # The generator must be capable of being deciphered by an existing loader (round-trip: scaffold thad).
     cfg_path = tmp_path / ".openagents" / "openagents.yml"
     scaffold_default_config(path=cfg_path, force=False)
     cfg = load_agent_config(path=cfg_path)

@@ -1,10 +1,10 @@
-"""RFC-0001 T6: 成果看板渲染与本地启动（决策 9）的单元测试。
+"""RFC-0001 T6: The result viewer rendering and local start (decision 9) module testing.
 
-# Spec-0063/T3: 消费 RuntimeState 的 dict run 记录（issue_number/status/branch/pr_number/
-# closed_at），退役旧栈专属列（summary/pr_url/rounds/fingerprint）。
-覆盖：render 把 dict 记录列表渲染为单页 HTML（含 issue 号 / 状态 / PR 号占位），
-并对文本做 HTML 转义防注入；空 runs 渲染「暂无成果记录」空行；board 生成文件、
-调用 webbrowser.open（被 monkeypatch，不真开浏览器）并返回文件路径。
+# Spec-0063/T3: Consumption of diagram run record (issue_number/status/branch/pr_number/)
+# closed_at, retired old cage column (summary/pr_url/rounds/fingerprint).
+Overwrite: Render renders the dict log list to be recast as a single page HTML (with issue/ status/ PR in place),
+And do HTML conversion injection; empty runs render ”No different records yet” empty lines; board generate files,
+Call webbrowser.open (not really on a browser by a Monkeywatch) and return the file path.
 """
 
 import openagents.utils.results as results
@@ -12,7 +12,7 @@ from openagents.runtime.state import RuntimeState
 
 
 def _record(*, issue_number, status, pr_number=None):
-    """构造一条用于渲染断言的 RuntimeState dict run 记录。"""
+    """Construct a Runtime State dict run record to render assertions."""
     return {
         "issue_number": issue_number,
         "status": status,
@@ -30,7 +30,7 @@ def test_render_returns_html_document():
 
 def test_render_empty_runs_shows_placeholder_row():
     html = results.render(runs=[])
-    assert "暂无成果记录" in html
+    assert "No delivery records yet" in html
 
 
 def test_render_includes_issue_number_and_status_and_pr_number():
@@ -39,14 +39,14 @@ def test_render_includes_issue_number_and_status_and_pr_number():
 
     assert "#3" in html
     assert "pr-open" in html
-    assert "#30" in html  # PR 号占位（RuntimeState 无 pr_url，只显示 pr_number）
+    assert "#30" in html  # Pr-hatting (Runtestate no pr_url, only pr_number)
 
 
 def test_render_missing_pr_number_shows_dash():
     record = _record(issue_number=7, status="solving", pr_number=0)
     html = results.render(runs=[record])
-    # pr_number 为 0/None → PR 列占位「—」，不渲染 #0（`>#0<` 精确匹配单元格内容，
-    # 避开模板 CSS 里的 #0f1117 等色值）。
+    # pr_number Yes 0/None → PR "Stand in the table."—」No rendering #0（`>#0<` The precise match of cell contents,
+    # Avoid #0f1117 equal colour from the CSS template.
     assert "#7" in html
     assert ">#0<" not in html
 
@@ -98,6 +98,6 @@ def test_board_does_not_open_real_browser(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     path = results.board(state=state)
 
-    # 打开的 url 应指向刚写出的看板文件。
+    # Open url should point to the board file just written.
     assert calls
     assert str(path) in calls[0]

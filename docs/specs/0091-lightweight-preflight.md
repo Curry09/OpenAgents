@@ -102,51 +102,51 @@ tasks:
 
 # 0091 · Lightweight advisory coordination
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in nine rust-RFC sections. -->
 
 ## Summary
 
-本组给 Vigil 增加一个有界、非阻塞的 advisory preflight：它可以对 ready issue 做轻量聚类、顺序建议和复用提示，
-但原始 issue、验收条件、依赖和交付门禁始终是权威。规划失败、超时或重启不会把正常 worker 变成失败。
+This group adds a bounded, non-blocking advisory preflight to Vigil: it can perform lightweight clustering of ready issues and suggest ordering and reuse opportunities,
+but the original issues, acceptance criteria, dependencies, and delivery gates always remain authoritative. Planning failures, timeouts, or restarts do not cause otherwise healthy workers to fail.
 
 ## Motivation
 
-当 ready issue 较多时，完全 FIFO 会丢失已有的相似性和复用线索；另一方面，把规划调用变成执行波次屏障会把模型延迟和临时故障扩大成整轮阻塞。
-因此需要一个可禁用、可缓存、可恢复的 advisory 层，只影响优先级相同任务的排序，不改变资格判断和交付结果。
+When there are many ready issues, strict FIFO misses existing clues about similarity and reuse; on the other hand, turning planning calls into execution-wave barriers amplifies model latency and transient failures into blockage of the entire round.
+An advisory layer is therefore needed that can be disabled, cached, and recovered, and that affects only the ordering of tasks with the same priority without changing eligibility decisions or delivery outcomes.
 
 ## Guide-level explanation
 
-`coordination: soft` 启用 advisory planner；兼容默认值为 `dependencies`，`off` 同时跳过 planner。每次 intake 最多观察 64 个 ready issue，
-单次输出最多 8 个 cluster、8 个顺序建议和 8 个复用说明。Claude/NexAU 使用无工具单轮调用，输出上限 8,192 tokens，墙钟上限 90 秒，且不做协议修复。
-planner 在新 work 入队前运行，但不是执行波次屏障；已有 worker 继续工作。
+`coordination: soft` enables the advisory planner; the compatibility default is `dependencies`, and `off` also skips the planner. Each intake observes at most 64 ready issues,
+and a single output contains at most 8 clusters, 8 ordering suggestions, and 8 reuse notes. Claude/NexAU use a single-turn call without tools, with an output limit of 8,192 tokens, a wall-clock limit of 90 seconds, and no protocol repair.
+The planner runs before new work is enqueued, but it is not an execution-wave barrier; existing workers continue working.
 
-提示只在最高优先级的 priority-1 issue 内影响 claim 顺序：优先减少活跃 cluster 重叠和建议前置依赖，再按建议首项排序，900 秒后恢复 FIFO。即使提示成环或所有 issue 落入同一 cluster，所有候选仍可 claim。
+Hints affect claim order only among the highest-priority priority-1 issues: first minimize overlap with active clusters and suggested prerequisite dependencies, then sort by the first suggested item, reverting to FIFO after 900 seconds. Even if the hints form a cycle or all issues fall into the same cluster, all candidates remain eligible for claim.
 
 ## Reference-level explanation
 
-输入 fingerprint、清理后的输出、耗时和状态持久化到 `.openagents/preflight.json`；token usage 继续写入已有 ledger。fingerprint 可防止相同输入重复调用，
-包括失败和进程重启；120 秒 cooldown 合并增量 admission，输入变化后再尝试。删除已完成 issue 本身不会触发 planner。关闭 soft coordination 时启动过程清除该 cache。
+The input fingerprint, sanitized output, elapsed time, and status are persisted to `.openagents/preflight.json`; token usage continues to be written to the existing ledger. The fingerprint prevents repeated calls for identical inputs,
+including after failures and process restarts; a 120-second cooldown consolidates incremental admission, with another attempt made after the input changes. Removing completed issues alone does not trigger the planner. When soft coordination is disabled, startup clears this cache.
 
-调用使用临时工作目录，planner 异常只作为 advisory failure 记录，绝不写 automation-failed label。原始 issue 文本始终随 developer advice 传递，修改 issue 会使 advice 失效。
-Claims 继续使用 SQLite `BEGIN IMMEDIATE` 与 flock。验证覆盖 invalid output、timeout、cache/restart/edit、partial admission、stage priority、aging、advisory cycle、lock contention 和 concurrent claims，
-并用既有报告记录 30/300/3000 queued issue 的调度成本；这些指标不等同于开发语义正确率。
+Calls use a temporary working directory, and planner exceptions are recorded only as advisory failures; they never apply the automation-failed label. The original issue text is always passed along with developer advice, and editing an issue invalidates the advice.
+Claims continue to use SQLite `BEGIN IMMEDIATE` and flock. Validation covers invalid output, timeout, cache/restart/edit, partial admission, stage priority, aging, advisory cycle, lock contention, and concurrent claims,
+and uses existing reports to record scheduling costs for 30/300/3000 queued issues; these metrics are not equivalent to correctness in development semantics.
 
 ## Drawbacks
 
-系统增加了一次可选模型调用、一个本地 cache 和更多排序分支；即使 planner 完全不提供收益，也需要维护其超时、重启和损坏恢复路径。advisory 提示还可能让观察者误以为它是硬依赖，因此输出和日志必须明确标记为 advisory。
+The system adds an optional model call, a local cache, and more ordering branches; even if the planner provides no benefit at all, its timeout, restart, and corruption recovery paths must still be maintained. Advisory hints may also lead observers to mistake them for hard dependencies, so output and logs must explicitly mark them as advisory.
 
 ## Rationale and alternatives
 
-选择有界 advisory planner，而不是强制规划屏障或无界重试。强制屏障会延迟已有 worker，并把规划故障扩大成调度故障；无界重试会在外部模型不可用时持续占用入口。保留现有 claim eligibility、SQLite/flock 和交付门禁，可以把收益限制在排序层，避免改变系统的事实边界。
+A bounded advisory planner is chosen over a mandatory planning barrier or unbounded retries. A mandatory barrier would delay existing workers and amplify planning failures into scheduling failures; unbounded retries would keep occupying the intake when the external model is unavailable. Retaining existing claim eligibility, SQLite/flock, and delivery gates confines the benefits to the ordering layer and avoids changing the system's boundaries of authority.
 
 ## Prior art
 
-实现复用现有 Vigil queue、SQLite claim 和 token ledger；没有引入新的调度器或持久化服务。验证报告保留在 [Git 历史](https://github.com/Curry09/OpenAgents/blob/e5b66cef17452513373e5f1d4da192c824b288fb/docs/e2e-results/preflight-20260911/REPORT.md)中。
+The implementation reuses the existing Vigil queue, SQLite claims, and token ledger; it introduces no new scheduler or persistence service. The validation report is retained in [Git history](https://github.com/Curry09/OpenAgents/blob/e5b66cef17452513373e5f1d4da192c824b288fb/docs/e2e-results/preflight-20260911/REPORT.md).
 
 ## Unresolved questions
 
-调度成本和建议命中率尚不足以证明对真实开发吞吐有稳定收益；真实模型、forge 和部署环境仍需单独闭环验证。planner 的建议也不应被用作需求理解或验收正确性的证据。
+Scheduling costs and suggestion hit rates are not yet sufficient to demonstrate consistent gains in real development throughput; real models, forges, and deployment environments still require separate end-to-end validation. The planner's suggestions should also not be used as evidence of correct requirements understanding or acceptance decisions.
 
 ## Future possibilities
 
-未来可以在不改变资格和交付门禁的前提下，比较不同 advisory 排序策略的长期收益；如需改变依赖语义、引入新持久化状态或形成执行屏障，应另立 spec。
+In the future, the long-term benefits of different advisory ordering strategies can be compared without changing eligibility or delivery gates; changes to dependency semantics, the introduction of new persistent state, or the creation of an execution barrier should be covered by a separate spec.

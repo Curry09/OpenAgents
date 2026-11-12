@@ -1,15 +1,15 @@
 ---
 number: "0070"
-title: openagents 自更新预检：每次命令前检测并拉取最新版（快照重装 + 重执行）
+title: "openagents self-update precheck: check for and pull the latest version before every command (snapshot reinstall + re-execution)"
 issue: 146
 slug: self-update-precheck
-summary: 在 openagents 入口每次执行前插一段自更新预检：检测记录分支是否落后源仓库远端(git fetch 比对本地 ref 与 remote/branch)，落后且可安全更新(当前分支==记录分支且工作区干净)则 git pull --ff-only → uv tool install --force → os.execvp 重执行原命令；拉取失败/不可安全更新则打印可操作提示并 fail-open 继续，绝不阻断日常命令、绝不切分支动脏工作区；源仓库路径记于 ~/.openagents/source.json(默认 origin/main，OPENAGENTS_HOME 可覆盖)，在源仓库内运行任一命令时自动侦测落盘；OPENAGENTS_SELFUPDATE_DONE=1 重执行守卫防循环，OPENAGENTS_NO_SELF_UPDATE=1 硬开关整段关闭(供 CI/测试)；核心逻辑纯函数可注入，测试 hermetic 打桩 subprocess/execvp 不触真实 git/uv/网络。
+summary: "Insert a self-update precheck before every execution of the openagents entry point: check whether the recorded branch is behind the source repository's remote (use git fetch to compare the local ref with remote/branch). If it is behind and an update is safe (current branch == recorded branch and the working tree is clean), run git pull --ff-only → uv tool install --force → os.execvp to re-execute the original command; if pulling fails or updating is unsafe, print actionable guidance and fail open to continue. Never block routine commands, switch branches, or modify a dirty working tree. Record the source repository path in ~/.openagents/source.json (default origin/main; OPENAGENTS_HOME can override the home directory); automatically detect and persist it when any command runs inside the source repository. Use OPENAGENTS_SELFUPDATE_DONE=1 as a re-execution guard to prevent loops, and OPENAGENTS_NO_SELF_UPDATE=1 as a hard switch to disable the entire precheck (for CI/tests). Implement the core logic as pure functions with injectable dependencies; keep tests hermetic by stubbing subprocess/execvp without accessing real git/uv/the network."
 e2e:
-  intent: 证明「openagents 入口每次命令前的自更新预检」这一接线在离线确定性链路上成立且零回归——precheck 纯函数可注入（run/execvp/environ/stderr 全部外部注入），DISABLE/DONE 两把守卫短路、无 source.json 短路、落后+安全走完整闭环(pull --ff-only → uv tool install --force → execvp 置 DONE=1)、不安全或任何异常一律 fail-open 打印提示继续；cli.main() 在 parse_args 前调 precheck 且正常调用行为逐字不变。
-  method: "形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067/0069 同款）：\n1. selfupdate 针对性 pytest（注入 fake run/execvp，hermetic 不触真实 git/uv/网络/shell）：DISABLE/DONE 下 precheck 完全 no-op；无 source.json no-op；落后+安全→依次记录 pull --ff-only / uv tool install --force / execvp 且 execvp 环境含 OPENAGENTS_SELFUPDATE_DONE=1；落后但当前分支≠记录分支 / 工作区脏 / fetch 抛错 → 打印提示且不 exec（fail-open）；detect_source_repo 源仓库内落盘、目标项目内不落盘；OPENAGENTS_HOME 覆盖 home。\n2. CLI 接线 pytest：main() 在 parse_args 前调 selfupdate.precheck 恰一次；打桩 precheck 为 no-op 时 main([]) 仍返回 2（正常行为不变）。\n3. grep 锚点（e2e 脚本）：cli.py 存在 selfupdate.precheck 调用；selfupdate.py 存在 OPENAGENTS_NO_SELF_UPDATE / OPENAGENTS_SELFUPDATE_DONE / --ff-only / execvp；tests/conftest.py 存在 OPENAGENTS_NO_SELF_UPDATE。\n脚本：scripts/e2e-spec-0070-self-update-precheck.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。\n"
+  intent: "Prove that the wiring for the “self-update precheck before every command at the openagents entry point” works through an offline, deterministic verification path with zero regressions—the precheck is a pure function with injectable dependencies (run/execvp/environ/stderr are all injected externally); the DISABLE/DONE guards short-circuit, as does the absence of source.json; when behind and safe, it completes the full cycle (pull --ff-only → uv tool install --force → execvp with DONE=1 set); unsafe conditions or any exception always fail open, printing a notice and continuing; cli.main() calls precheck before parse_args, and normal invocation behavior remains unchanged verbatim."
+  method: "Form: pure CLI/backend wiring, with no navigable product-facing frontend; the available self-check tools do not include Playwright / Chrome DevTools MCP, so no browser e2e is defined. Offline deterministic testing is used instead (following the same approach as Spec-0064/0066/0067/0069):\n1. Targeted selfupdate pytest tests (inject fake run/execvp; hermetic, without touching real git/uv/network/shell): precheck is a complete no-op under DISABLE/DONE; no-op when source.json is absent; behind + safe → record pull --ff-only / uv tool install --force / execvp in order, with OPENAGENTS_SELFUPDATE_DONE=1 in the execvp environment; behind but current branch ≠ recorded branch / dirty working tree / fetch raises an error → print a notice and do not exec (fail-open); detect_source_repo writes to disk inside the source repository, but does not write to disk inside the target project; OPENAGENTS_HOME overrides home.\n2. CLI wiring pytest tests: main() calls selfupdate.precheck exactly once before parse_args; when precheck is stubbed as a no-op, main([]) still returns 2 (normal behavior unchanged).\n3. grep anchors (e2e script): cli.py contains a selfupdate.precheck call; selfupdate.py contains OPENAGENTS_NO_SELF_UPDATE / OPENAGENTS_SELFUPDATE_DONE / --ff-only / execvp; tests/conftest.py contains OPENAGENTS_NO_SELF_UPDATE.\nScript: scripts/e2e-spec-0070-self-update-precheck.sh (ruff check + ruff format --check + targeted pytest tests + grep anchors), collected by the PR e2e signpost.\n"
 tasks:
   - id: T1
-    title: 自更新预检模块 + main() 接线 + 测试离网硬闸
+    title: "Self-update precheck module + main() wiring + hard network isolation for tests"
     status: done
     priority: P1
     tags: []
@@ -21,101 +21,102 @@ tasks:
       - openagents/cli.py
       - tests/conftest.py
       - tests/test_selfupdate.py
-    scope: 新增 openagents/utils/selfupdate.py（纯函数 + 可注入 run/execvp seam）：home_dir/source_config_path(尊重 OPENAGENTS_HOME)、SourceConfig(repo_path/remote=origin/branch=main)、load/save_source_config、detect_source_repo(cwd 在 OpenAgents 源仓库→落盘)、precheck(argv,environ,run,execvp,stderr) 编排：DISABLE/DONE 短路 → 自侦测落盘 → 无 source.json 短路 → git fetch(超时 fail-open) → 比对落后 → 安全(当前分支==记录分支且工作区干净)则 pull --ff-only + uv tool install --force + execvp 重执行(置 DONE=1) / 不安全则打印可操作提示 fail-open 继续；任何异常一律 fail-open 绝不阻断。cli.main() 在 parse_args 前调 selfupdate.precheck(argv=...)（仅 openagents 入口，spec 独立命令不接）。tests/conftest.py 全局 autouse 置 OPENAGENTS_NO_SELF_UPDATE=1 保证既有测试零回归不触网。
-    acceptance: uv run pytest tests/test_selfupdate.py 通过：DISABLE/DONE 环境变量下 precheck 完全 no-op（不 fetch 不 exec）；无 source.json 时 no-op；落后+安全→依次 pull --ff-only/uv tool install --force/execvp 且置 OPENAGENTS_SELFUPDATE_DONE=1；落后但当前分支≠记录分支或工作区脏→打印提示且不 exec 继续（fail-open）；git fetch/子进程抛错→打印提示且不 exec 继续（fail-open，不上抛）；detect_source_repo 在源仓库内落盘 source.json、在目标项目内不落盘；OPENAGENTS_HOME 覆盖 home 路径。tests/conftest.py autouse 置 DISABLE=1，既有全套 pytest 仍绿。ruff check/format 干净。
+    scope: "Add openagents/utils/selfupdate.py (pure functions + injectable run/execvp seam): home_dir/source_config_path (respecting OPENAGENTS_HOME), SourceConfig(repo_path/remote=origin/branch=main), load/save_source_config, detect_source_repo (cwd is inside the OpenAgents source repository → persist to disk), and precheck(argv,environ,run,execvp,stderr) orchestration: short-circuit on DISABLE/DONE → automatically detect and persist → short-circuit if source.json is absent → git fetch (fail open on timeout) → compare to determine whether the branch is behind → if safe (current branch == recorded branch and the working tree is clean), run pull --ff-only + uv tool install --force + execvp to re-execute (set DONE=1) / if unsafe, print actionable guidance and fail open to continue; fail open on any exception without ever blocking execution. Call selfupdate.precheck(argv=...) in cli.main() before parse_args (only for the openagents entry point; do not wire it into the standalone spec command). In tests/conftest.py, globally set OPENAGENTS_NO_SELF_UPDATE=1 in an autouse fixture to ensure zero regressions in existing tests and no network access."
+    acceptance: "uv run pytest tests/test_selfupdate.py passes: with the DISABLE/DONE environment variables set, precheck is a complete no-op (no fetch, no exec); without source.json, it is a no-op; behind + safe → run pull --ff-only/uv tool install --force/execvp in order and set OPENAGENTS_SELFUPDATE_DONE=1; behind but current branch ≠ recorded branch or working tree is dirty → print guidance and continue without exec (fail open); git fetch/subprocess raises an exception → print guidance and continue without exec (fail open, do not propagate the exception); detect_source_repo persists source.json inside the source repository but does not persist it inside the target project; OPENAGENTS_HOME overrides the home path. The autouse fixture in tests/conftest.py sets DISABLE=1, and the full existing pytest suite still passes. ruff check/format are clean."
 ---
 
-# 0070 · openagents 自更新预检：每次命令前检测并拉取最新版（快照重装 + 重执行）
+# 0070 · openagents Self-Update Precheck: Detect and Pull the Latest Version Before Every Command (Snapshot Reinstallation + Re-execution)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-`openagents` 通过 `uv tool install --from . openagents` 安装，跑的是一份 **uv tool 快照**
-（`~/.local/bin/openagents`），**不是** git 工作区的实时代码。源码 `git pull` 之后，快照仍跑旧代码，
-必须 `uv tool install --force` 重装才更新。OpenAgents 自身是被 dogfood 的产品、持续自迭代，用户极易在
-不知情下用着落后好几个提交的旧版本。
+`openagents` is installed via `uv tool install --from . openagents` and runs a **uv tool snapshot**
+(`~/.local/bin/openagents`), **not** the live code in the git worktree. After a `git pull` of the source, the snapshot still runs old code;
+it must be reinstalled with `uv tool install --force` to update. OpenAgents itself is a product being dogfooded and continuously iterated on, so users can easily
+run an old version that is several commits behind without realizing it.
 
-本 spec 在 **`openagents` 入口每次命令执行前**插一段**自更新预检**（新模块 `openagents/utils/selfupdate.py`
-的纯函数 `precheck`，由 `cli.main()` 在 `parse_args` 之前调用）：
+This spec inserts a **self-update precheck before every command execution at the `openagents` entry point**
+(the pure function `precheck` in the new module `openagents/utils/selfupdate.py`,
+called by `cli.main()` before `parse_args`):
 
-1. **检测**记录分支是否落后源仓库远端（`git fetch` 后比对本地 `<branch>` 的 ref 与 `<remote>/<branch>`）。
-2. 落后且**可安全更新**时走完整闭环：`git pull --ff-only` → `uv tool install --force` → `os.execvp`
-   **重执行**原命令，用户当次即刻跑在最新代码上。
-3. 拉取失败 / 不可安全更新时打印**可操作报错提示**引导手动更新，随后 **fail-open 继续执行**当前命令。
+1. **Detect** whether the recorded branch is behind the source repository's remote (after `git fetch`, compare the local `<branch>` ref with `<remote>/<branch>`).
+2. When it is behind and **safe to update**, complete the full cycle: `git pull --ff-only` → `uv tool install --force` → `os.execvp`
+   to **re-execute** the original command, so the user's current invocation immediately runs the latest code.
+3. If pulling fails or updating is unsafe, print an **actionable error message** directing the user to update manually, then **fail open and continue executing** the current command.
 
-源仓库路径记于 `~/.openagents/source.json`（默认 `origin` / `main`，`OPENAGENTS_HOME` 可覆盖），在源仓库内
-运行任一命令时自动侦测落盘；`OPENAGENTS_SELFUPDATE_DONE=1` 是重执行防循环守卫，`OPENAGENTS_NO_SELF_UPDATE=1`
-是硬开关整段关闭（供 CI / 测试 / hermetic）。核心逻辑纯函数、`run` / `execvp` seam 可注入，测试全 hermetic。
+The source repository path is recorded in `~/.openagents/source.json` (defaults: `origin` / `main`; `OPENAGENTS_HOME` can override the location)
+and is automatically detected and persisted when any command is run inside the source repository. `OPENAGENTS_SELFUPDATE_DONE=1` is the loop guard for re-execution, and `OPENAGENTS_NO_SELF_UPDATE=1`
+is the hard switch that disables the entire precheck (for CI / tests / hermetic environments). The core logic consists of pure functions, the `run` / `execvp` seams are injectable, and all tests are hermetic.
 
 ## Motivation
 
-### 现状核实
+### Verification of the Current State
 
-- `pyproject.toml` 的 `[project.scripts]` 把 `openagents = "openagents.cli:main"` 装成 console_script；
-  实际分发用 `uv tool install`，跑的是**安装时的快照**，与源码工作区解耦。
-- `openagents/cli.py` 的 `main()` 现为 `parser = build_parser(); argcomplete...; args = parser.parse_args(argv)`
-  （Spec-0069 已在 `parse_args` 前插过一次 argcomplete 钩子），**没有任何自更新检查**。
-- `openagents/utils/` 下无 `selfupdate.py`；`~/.openagents/` 命名空间已被 `agent_config` /
-  `fleet_config`（`Path(raw_path).expanduser()`）等使用，但没有「源仓库定位」这一份记录。
+- `[project.scripts]` in `pyproject.toml` installs `openagents = "openagents.cli:main"` as a console_script;
+  actual distribution uses `uv tool install`, which runs a **snapshot taken at installation time**, decoupled from the source worktree.
+- `main()` in `openagents/cli.py` currently consists of `parser = build_parser(); argcomplete...; args = parser.parse_args(argv)`
+  (Spec-0069 already inserted an argcomplete hook before `parse_args`), with **no self-update check at all**.
+- There is no `selfupdate.py` under `openagents/utils/`; the `~/.openagents/` namespace is already used by `agent_config` /
+  `fleet_config` (`Path(raw_path).expanduser()`) and others, but there is no record for locating the source repository.
 
-### 为什么要做
+### Why This Is Needed
 
-OpenAgents 持续自迭代、被自己 dogfood。快照与源码解耦这个**隐蔽陷阱**导致：源码 `git pull` 后，`openagents`
-命令仍安静地跑旧快照，用户往往落后好几个提交而不自知——bug 早修好了却仍复现，新命令已合入却「不存在」。
-缺一个「每次用命令时自动保证跑在最新版」的预检。这正是对标 cursor/windsurf 的交互顺滑（自动保持最新）
-所要求的，也契合本仓「以成果为中心、人做宏观把控」的取向：版本新鲜度不该是用户的心智负担。
+OpenAgents is continuously iterated on and dogfooded by itself. The **hidden trap** of decoupling the snapshot from the source means that after a source `git pull`, the `openagents`
+command still silently runs the old snapshot. Users are often several commits behind without knowing it—bugs that have already been fixed still reproduce, and newly merged commands “do not exist.”
+What is missing is a precheck that “automatically ensures the latest version runs every time a command is used.” This is precisely what is required to match
+the smooth interaction of cursor/windsurf (automatically staying up to date), and it also fits this repository's orientation toward “focusing on outcomes, with humans providing high-level oversight”: keeping the version current should not be a cognitive burden on users.
 
-### 约束（issue #146 原文，就地复述）
+### Constraints (Restated Here from the Original Text of Issue #146)
 
-- **源仓库定位**：运行的快照不知道源码在哪（cwd 通常是*目标*项目而非 OpenAgents 源仓库）。在
-  `~/.openagents/source.json` 记录源仓库路径 / remote / branch（默认 `origin` / `main`）；在 OpenAgents 源
-  仓库内运行任一命令时自动侦测并落盘（自配置），支持 `OPENAGENTS_HOME` 显式覆盖。
-- **cadence = 每次，fail-open**：每次调用都检测；任何 `git fetch` / 网络 / 子进程失败只打软提示并继续，
-  **绝不阻断**真实命令（离线可用）。
-- **保护开发者 WIP**：源仓库常处于 feature 分支 / 有未提交改动。仅当「当前分支 == 记录分支」且「工作区
-  干净」才自动 `pull --ff-only`；否则视为不可安全更新，走「提示 + 继续」，**绝不切分支、绝不动脏工作区**。
-- **重执行防循环**：重装后重执行时置 `OPENAGENTS_SELFUPDATE_DONE=1`，子进程跳过预检，杜绝无限自更新循环。
-- **可关**：`OPENAGENTS_NO_SELF_UPDATE=1` 硬开关关闭整段预检（供 CI / 测试 / hermetic）；预检仅作用于
-  `openagents` 入口，对 `spec` 独立命令不生效。
-- **奥卡姆**：不引入配置框架、不加网络库；git / uv 全走子进程；核心逻辑纯函数可注入，测试 hermetic。
-- **零回归**：默认路径（已是最新 / 无 source.json）行为不变；新增 `tests/conftest.py` 全局置
-  `OPENAGENTS_NO_SELF_UPDATE=1` 保证既有测试不触网。
+- **Source repository location**: The running snapshot does not know where the source is (cwd is usually the *target* project rather than the OpenAgents source repository). Record
+  the source repository path / remote / branch in `~/.openagents/source.json` (defaults: `origin` / `main`); automatically detect and persist them
+  when any command is run inside the OpenAgents source repository (self-configuration), with an explicit override supported via `OPENAGENTS_HOME`.
+- **cadence = every invocation, fail-open**: Check on every invocation; any `git fetch` / network / subprocess failure only produces a non-blocking message and execution continues,
+  **never blocking** the actual command (usable offline).
+- **Protect developers' WIP**: The source repository is often on a feature branch / has uncommitted changes. Automatically run `pull --ff-only` only when “current branch == recorded branch” and “the worktree
+  is clean”; otherwise, treat updating as unsafe and use “message + continue,” **never switching branches or touching a dirty worktree**.
+- **Loop prevention for re-execution**: Set `OPENAGENTS_SELFUPDATE_DONE=1` when re-executing after reinstallation, so the child process skips the precheck and infinite self-update loops are prevented.
+- **Can be disabled**: The hard switch `OPENAGENTS_NO_SELF_UPDATE=1` disables the entire precheck (for CI / tests / hermetic environments); the precheck applies only to
+  the `openagents` entry point and does not affect the standalone `spec` command.
+- **Occam's razor**: Do not introduce a configuration framework or add a networking library; run git / uv entirely through subprocesses; keep the core logic as injectable pure functions and the tests hermetic.
+- **Zero regressions**: Behavior on the default path (already up to date / no source.json) remains unchanged; add `tests/conftest.py` to globally set
+  `OPENAGENTS_NO_SELF_UPDATE=1` so existing tests do not access the network.
 
 ## Guide-level explanation
 
-**普通用户视角**：在 OpenAgents 源仓库里第一次跑任一 `openagents` 命令时，预检自动把源仓库路径记进
-`~/.openagents/source.json`。此后在**任何目录**（通常是你的目标项目）跑 `openagents <命令>`，预检会：
+**From an ordinary user's perspective**: The first time you run any `openagents` command inside the OpenAgents source repository, the precheck automatically records the source repository path in
+`~/.openagents/source.json`. After that, when you run `openagents <command>` in **any directory** (usually your target project), the precheck will:
 
-- 若你已是最新 → 完全无感，命令照常跑。
-- 若你落后了、且源仓库正停在干净的 `main` 上 → 自动 `git pull --ff-only` + `uv tool install --force`，
-  然后**当次命令立刻用新版重跑**，你只会多看到两行「检测到新版本，正在更新…」的提示。
-- 若你落后、但源仓库停在 feature 分支或有未提交改动 → 预检**绝不碰你的工作区**，只打印一行可操作提示：
+- If you are already up to date → remain completely unobtrusive; the command runs as usual.
+- If you are behind and the source repository is on a clean `main` → automatically run `git pull --ff-only` + `uv tool install --force`,
+  then **immediately rerun the current command with the new version**; you will only see two additional lines indicating “New version detected, updating…”.
+- If you are behind but the source repository is on a feature branch or has uncommitted changes → the precheck **never touches your worktree** and only prints an actionable message:
 
   ```
-  ⚠ openagents 已落后源仓库远端，但当前不可安全自动更新（分支/工作区）。
-    手动更新：git -C <src> pull --ff-only && uv tool install --force --from <src> openagents
+  ⚠ openagents is behind the source repository's remote, but automatic updating is currently unsafe (branch/worktree).
+    Update manually: git -C <src> pull --ff-only && uv tool install --force --from <src> openagents
   ```
-  然后 **fail-open 继续**跑你原本的命令。
+  Then it **fails open and continues** running your original command.
 
-- 离线 / `git fetch` 失败 → 同样只打软提示并继续，绝不阻断。
+- Offline / `git fetch` fails → likewise, only print a non-blocking message and continue, never blocking execution.
 
-**关掉它**：`export OPENAGENTS_NO_SELF_UPDATE=1`（CI / 测试 / 不想每次 fetch 的场景）。
+**Turn it off**: `export OPENAGENTS_NO_SELF_UPDATE=1` (CI / tests / situations where you do not want to fetch every time).
 
-**只作用于 `openagents` 入口**：`spec` 那个独立 console_script 不接预检（它是纯本地工具，无自更新语义）。
+**Applies only to the `openagents` entry point**: The standalone `spec` console_script does not invoke the precheck (it is a purely local tool with no self-update semantics).
 
 ## Reference-level explanation
 
-### 新模块 `openagents/utils/selfupdate.py`
+### New Module `openagents/utils/selfupdate.py`
 
-纯函数 + 可注入 seam（`run` 默认 `subprocess.run`，`execvp` 默认 `os.execvp`，`environ` 默认 `os.environ`，
-`stderr` 默认 `sys.stderr`），使测试 hermetic 不触真实 git / uv / 网络 / shell。关键常量与 API：
+Pure functions + injectable seams (`run` defaults to `subprocess.run`, `execvp` defaults to `os.execvp`, `environ` defaults to `os.environ`,
+and `stderr` defaults to `sys.stderr`) keep tests hermetic, without accessing real git / uv / network / shell. Key constants and APIs:
 
 ```python
-DISABLE_ENV = "OPENAGENTS_NO_SELF_UPDATE"   # 硬开关：置任意非空值 → 整段预检 no-op
-DONE_ENV    = "OPENAGENTS_SELFUPDATE_DONE"  # 重执行守卫：重执行的子进程带上它 → 跳过预检，防循环
-HOME_ENV    = "OPENAGENTS_HOME"             # 覆盖 ~/.openagents 落点
-_GIT_NET_TIMEOUT_SECONDS = 30               # 镜像 utils.git；git fetch 挂死兜底，超时即 fail-open
+DISABLE_ENV = "OPENAGENTS_NO_SELF_UPDATE"   # Hard switch: any nonempty value → the entire precheck is a no-op
+DONE_ENV    = "OPENAGENTS_SELFUPDATE_DONE"  # Re-execution guard: the re-executed child process carries it → skip the precheck to prevent loops
+HOME_ENV    = "OPENAGENTS_HOME"             # Override the ~/.openagents location
+_GIT_NET_TIMEOUT_SECONDS = 30               # Mirror utils.git; safeguard against a hung git fetch, failing open on timeout
 
 @dataclass(frozen=True)
 class SourceConfig:
@@ -123,36 +124,36 @@ class SourceConfig:
     remote: str = "origin"
     branch: str = "main"
 
-def home_dir(*, environ) -> Path          # OPENAGENTS_HOME 或 ~/.openagents
+def home_dir(*, environ) -> Path          # OPENAGENTS_HOME or ~/.openagents
 def source_config_path(*, environ) -> Path
-def load_source_config(*, environ) -> SourceConfig | None   # 缺文件/坏 JSON → None（fail-open）
+def load_source_config(*, environ) -> SourceConfig | None   # Missing file/invalid JSON → None (fail-open)
 def save_source_config(*, config, environ) -> None
-def detect_source_repo(*, cwd, run, environ) -> Path | None # cwd 在 OpenAgents 源仓库 → 落盘并返回 toplevel
-def precheck(*, argv, environ, run, execvp, stderr) -> None # 唯一编排出口；绝不抛（fail-open）
+def detect_source_repo(*, cwd, run, environ) -> Path | None # cwd is inside the OpenAgents source repository → persist and return toplevel
+def precheck(*, argv, environ, run, execvp, stderr) -> None # Sole orchestration entry point; never raises (fail-open)
 ```
 
-**`precheck` 编排（顺序即短路优先级）**：
+**`precheck` orchestration (the order determines short-circuit priority)**:
 
-1. `DISABLE_ENV` 非空 → 直接 return（硬开关）。
-2. `DONE_ENV` 非空 → 直接 return（重执行守卫，防循环）。
-3. `detect_source_repo`：若 cwd 的 git toplevel 是 OpenAgents 源仓库（toplevel 下有 `openagents/cli.py`
-   且 `pyproject.toml` 声明 `openagents` 入口）→ 用它 `save_source_config`（幂等自配置）。
-4. `load_source_config`：无 `source.json` → return（还没在源仓库里跑过、无从检测，静默不打扰）。
-5. `git -C <src> fetch <remote> <branch>`（带 `_GIT_NET_TIMEOUT_SECONDS` 超时）；任何非零/超时/异常 →
-   打软提示、return（fail-open，离线可用）。
-6. 比对：`git rev-parse <branch>` vs `git rev-parse <remote>/<branch>`，并 `git rev-list --count
-   <branch>..<remote>/<branch>`；count == 0（不落后）→ return。
-7. **安全闸**：`git rev-parse --abbrev-ref HEAD == <branch>` 且 `git status --porcelain` 为空。不满足
-   → 打印可操作提示、return（fail-open，**绝不切分支、绝不动脏工作区**）。
-8. `git -C <src> pull --ff-only <remote> <branch>`；失败 → 打提示、return（fail-open）。
-9. `uv tool install --force --from <src> openagents`；失败 → 打提示、return（fail-open）。
-10. `execvp(argv[0], argv)`，环境注入 `DONE_ENV=1`——用最新快照重执行原命令。**任何步骤的异常一律被
-    最外层捕获转为软提示 + return**，`precheck` 对调用方永不抛。
+1. `DISABLE_ENV` is nonempty → return immediately (hard switch).
+2. `DONE_ENV` is nonempty → return immediately (re-execution guard, preventing loops).
+3. `detect_source_repo`: If cwd's git toplevel is the OpenAgents source repository (`openagents/cli.py` exists under toplevel
+   and `pyproject.toml` declares the `openagents` entry point) → use it to call `save_source_config` (idempotent self-configuration).
+4. `load_source_config`: No `source.json` → return (no command has yet been run inside the source repository, so there is no basis for detection; remain silent and unobtrusive).
+5. `git -C <src> fetch <remote> <branch>` (with the `_GIT_NET_TIMEOUT_SECONDS` timeout); any nonzero exit status/timeout/exception →
+   print a non-blocking message and return (fail-open, usable offline).
+6. Compare: `git rev-parse <branch>` vs `git rev-parse <remote>/<branch>`, and run `git rev-list --count
+   <branch>..<remote>/<branch>`; count == 0 (not behind) → return.
+7. **Safety gate**: `git rev-parse --abbrev-ref HEAD == <branch>` and `git status --porcelain` is empty. If these conditions are not met
+   → print an actionable message and return (fail-open, **never switch branches or touch a dirty worktree**).
+8. `git -C <src> pull --ff-only <remote> <branch>`; failure → print a message and return (fail-open).
+9. `uv tool install --force --from <src> openagents`; failure → print a message and return (fail-open).
+10. `execvp(argv[0], argv)`, with `DONE_ENV=1` injected into the environment—re-execute the original command using the latest snapshot. **Exceptions from any step are always
+    caught by the outermost handler and converted into a non-blocking message + return**; `precheck` never raises to its caller.
 
-### `cli.main()` 接线（唯一改动点）
+### `cli.main()` wiring (the only integration point)
 
-`main()` 在 `parse_args` 之前调 `selfupdate.precheck`（放在 argcomplete 钩子之后、`parse_args` 之前——
-补全握手时 argcomplete 已 `exit`，走不到预检；正常运行才做预检）：
+`main()` calls `selfupdate.precheck` before `parse_args` (after the argcomplete hook and before `parse_args`—
+during the completion handshake, argcomplete has already called `exit`, so execution never reaches the precheck; the precheck runs only during normal execution):
 
 ```python
 def main(argv=None) -> int:
@@ -160,80 +161,79 @@ def main(argv=None) -> int:
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
     from openagents.utils import selfupdate
-    selfupdate.precheck(argv=sys.argv)   # 每次命令前自更新预检；fail-open，永不抛
+    selfupdate.precheck(argv=sys.argv)   # Self-update precheck before every command; fail-open, never raises
     args = parser.parse_args(argv)
     ...
 ```
 
-只接 `openagents` 入口；`openagents/spec/cli.py` 的 `spec` 命令**不接**（约束：仅作用于 openagents 入口）。
-`precheck` 传 `sys.argv`（重执行要的是完整进程 argv，不是 `main(argv)` 的可选测试入参）。
+Wire this into the `openagents` entry point only; **do not wire it into** the `spec` command in `openagents/spec/cli.py` (constraint: applies only to the openagents entry point).
+Pass `sys.argv` to `precheck` (re-execution requires the complete process argv, not the optional test argument to `main(argv)`).
 
-### tests/conftest.py 全局离网守卫
+### Global offline guard in tests/conftest.py
 
-现有 `tests/conftest.py` 已有「离网硬闸」autouse fixture（拦真实 `gh`）。本 spec 追加一条 autouse fixture
-（或在既有 fixture 里）`monkeypatch.setenv(selfupdate.DISABLE_ENV, "1")`，保证**既有全套测试**在导入/调用
-`cli.main` 时预检整段 no-op，零回归、不触网。
+The existing `tests/conftest.py` already has an autouse fixture that acts as a “hard offline gate” (blocking real `gh` invocations). This spec adds an autouse fixture
+(or adds to the existing fixture) that calls `monkeypatch.setenv(selfupdate.DISABLE_ENV, "1")`, ensuring that the entire precheck is a no-op
+when **the entire existing test suite** imports/calls `cli.main`, with zero regressions and no network access.
 
-### DAG + 文件分配
+### DAG + file allocation
 
-单 Task（改动内聚、四文件互不重叠、无内部依赖）：
+A single Task (cohesive changes, four non-overlapping files, no internal dependencies):
 
-| Task | 标题 | files | depends-on |
+| Task | Title | files | depends-on |
 | --- | --- | --- | --- |
-| T1 | 自更新预检模块 + main() 接线 + 测试离网硬闸 | `openagents/utils/selfupdate.py`, `openagents/cli.py`, `tests/conftest.py`, `tests/test_selfupdate.py` | — |
+| T1 | Self-update precheck module + main() wiring + hard offline gate for tests | `openagents/utils/selfupdate.py`, `openagents/cli.py`, `tests/conftest.py`, `tests/test_selfupdate.py` | — |
 
-### e2e 脚本
+### e2e script
 
-`scripts/e2e-spec-0070-self-update-precheck.sh`（离线确定性：ruff check + ruff format --check + 针对性
-pytest + grep 锚点），被 PR e2e signpost 采集。形态为纯 CLI/后端接线，无 product-facing 前端可导航，故不设
-浏览器 e2e（见 frontmatter `e2e.method`）。
+`scripts/e2e-spec-0070-self-update-precheck.sh` (offline and deterministic: ruff check + ruff format --check + targeted
+pytest + grep anchors), collected by the PR e2e signpost. This consists entirely of CLI/backend wiring, with no navigable product-facing frontend, so no
+browser e2e is provided (see frontmatter `e2e.method`).
 
 ## Drawbacks
 
-- 每次 `openagents` 命令多一次 `git fetch`（网络往返，源仓库在本地磁盘、fetch 一个分支通常很快；超时兜底
-  + fail-open 保证离线/慢网不阻断，但确实多一次网络调用）。可用 `OPENAGENTS_NO_SELF_UPDATE=1` 关。
-- 自动 `execvp` 重执行对用户有一次「命令跑了两遍」的隐性成本（第一遍只做预检就重执行了）——但仅在真的落后
-  且安全时发生，且重执行的子进程带 `DONE=1` 不再预检，最多一次。
-- 侦测源仓库依赖「在源仓库内至少跑过一次任一命令」来落盘 `source.json`；从没在源仓库里跑过则无从检测
-  （静默不打扰，非缺陷，见 Unresolved）。
+- Every `openagents` command adds one `git fetch` (a network round trip; the source repository is on local disk, and fetching one branch is usually fast; a timeout fallback
+  + fail-open behavior ensure that offline operation/slow networks do not block execution, but this does add a network call). Disable it with `OPENAGENTS_NO_SELF_UPDATE=1`.
+- Automatic re-execution with `execvp` imposes the implicit cost of “running the command twice” on the user (the first run performs only the precheck before re-executing)—but this happens only when the installation is actually behind
+  and updating is safe, and the re-executed child process carries `DONE=1` and skips the precheck, so re-execution occurs at most once.
+- Detecting the source repository depends on “having run any command at least once inside the source repository” to persist `source.json`; if no command has ever been run inside the source repository, there is no way to detect it
+  (silently stays out of the way; this is not a defect; see Unresolved).
 
 ## Rationale and alternatives
 
-- **选「入口纯函数 precheck + 可注入 seam」（本方案）**：逻辑内聚在一个 utils 模块、`cli.main` 只加两行；
-  git/uv 全走子进程（不加网络库、不引配置框架，符合理念 1 奥卡姆）；`run`/`execvp` 注入使测试 100% hermetic。
-- **备选①：包管理器/后台守护自动更新**——引入常驻进程或第三方 auto-updater，重且与「快照跑在本地源仓库」
-  的模型不符，弃用。
-- **备选②：仅打印「有新版」提示、不自动更新**——少了「当次即刻跑最新」的闭环价值（用户仍在旧版上跑完这次），
-  且 issue 明确要求 pull+重装+重执行闭环，弃用（但它正是**不可安全更新**分支的 fail-open 行为）。
-- **备选③：在 shell wrapper / rc 里做更新**——改用户 shell 配置、跨 shell 各异、副作用大，弃用（同 Spec-0069
-  对 argcomplete 自动注入 rc 的取舍）。
-- **安全闸取「当前分支==记录分支 且 工作区干净」而非 `git stash`/切分支自动更新**：绝不动开发者 WIP 是硬
-  约束——宁可不更新（fail-open 提示），也不能因自更新弄丢未提交改动或切走分支。
+- **Choose “a pure precheck function at the entry point + injectable seams” (this proposal)**: the logic is kept together in one utils module, and `cli.main` gains only two lines;
+  git/uv operations all use subprocesses (no added networking library or configuration framework, consistent with principle 1, Occam’s razor); injecting `run`/`execvp` makes tests 100% hermetic.
+- **Alternative ①: automatic updates through a package manager/background daemon**—introduces a persistent process or a third-party auto-updater, is heavyweight, and does not fit the model in which “the snapshot runs against the local source repository”;
+  rejected.
+- **Alternative ②: only print a “new version available” notice, without updating automatically**—loses the value of the complete “run the latest version immediately for this invocation” loop (the user still completes this invocation on the old version),
+  and the issue explicitly requires the complete pull + reinstall + re-execute loop; rejected (but this is precisely the fail-open behavior of the **cannot update safely** branch).
+- **Alternative ③: perform updates in a shell wrapper / rc**—changes the user’s shell configuration, varies across shells, and has substantial side effects; rejected (the same tradeoff as Spec-0069
+  regarding automatic injection of argcomplete into rc).
+- **Use “current branch == recorded branch AND working tree is clean” as the safety gate, rather than automatically updating with `git stash`/branch switching**: never touching a developer’s WIP is a hard
+  constraint—it is preferable to skip the update (with a fail-open notice) than to lose uncommitted changes or switch away from the current branch because of self-updating.
 
 ## Prior art
 
-- **`os.execvp` 重执行**是 CLI 自更新/自重启的标准手法（如 `pyenv`/`rustup` 的 self-update 后重跑，
-  Python 官方文档 `os.execvp` 说明进程镜像被替换、PID 不变）——用它让「更新后当次即刻生效」而不必让用户手动
-  重敲命令。
-- **`uv tool install --force`** 是 astral `uv` 官方文档给出的「重装/更新已安装 tool」方式，本仓 CLAUDE.md
-  与既有实践（memory: openagents CLI 是 uv tool snapshot，改代码后须 `uv tool install --force --editable .`
-  重装）都印证这一快照模型。
-- **`git pull --ff-only`** 是「只在能快进时更新、否则拒绝」的安全更新惯例（git 官方文档），契合「绝不制造
-  合并提交、绝不动分叉工作区」的约束。
-- 本仓已有把网络 git 子进程加超时 + fail-open 的先例（Spec-0035 `_GIT_NET_TIMEOUT_SECONDS=30`），本模块
-  镜像同一常量与 fail-open 取向。
+- **Re-execution with `os.execvp`** is a standard technique for CLI self-updates/self-restarts (such as rerunning after a `pyenv`/`rustup` self-update;
+  the official Python documentation for `os.execvp` explains that the process image is replaced while the PID stays the same)—it makes “the update take effect immediately for this invocation” without requiring the user to
+  manually enter the command again.
+- **`uv tool install --force`** is the method documented by astral `uv` for “reinstalling/updating an installed tool.” This repository’s CLAUDE.md
+  and existing practice (memory: the openagents CLI is a uv tool snapshot; after changing code, reinstall with `uv tool install --force --editable .`)
+  both corroborate this snapshot model.
+- **`git pull --ff-only`** is a conventional safe-update approach that “updates only when a fast-forward is possible, otherwise refusing” (official git documentation), matching the constraints to “never create
+  merge commits and never touch a diverged working tree.”
+- This repository already has a precedent for adding a timeout + fail-open behavior to network git subprocesses (Spec-0035 `_GIT_NET_TIMEOUT_SECONDS=30`); this module
+  mirrors that constant and the same fail-open approach.
 
 ## Unresolved questions
 
-- **从没在源仓库里跑过任一命令**的用户（直接在目标项目里装了 openagents 快照、从未 cd 进源仓库）→ 无
-  `source.json`、预检静默 no-op。是否要额外让 `oa init` 或某处显式落盘源路径？倾向不做（保持奥卡姆、自侦测
-  已覆盖绝大多数 dogfood 路径），留作 future。
-- 是否要节流「每次 fetch」为「每 N 分钟至多一次」（记 `last_check` 时间戳）以省网络往返？本 spec 遵 issue
-  「cadence=每次」不做节流；若实测 fetch 开销明显，future 可加。
+- Users who **have never run any command inside the source repository** (installed an openagents snapshot directly in a target project and never used cd to enter the source repository) → no
+  `source.json`, so the precheck silently does nothing. Should `oa init` or another location explicitly persist the source path as an additional measure? The preference is not to do this (to preserve simplicity under Occam’s razor; self-detection
+  already covers the vast majority of dogfooding workflows), leaving it for the future.
+- Should “fetch on every invocation” be throttled to “at most once every N minutes” (by recording a `last_check` timestamp) to save network round trips? This spec follows the issue’s
+  “cadence=every invocation” requirement and does not throttle; if measurements show significant fetch overhead, throttling can be added in the future.
 
 ## Future possibilities
 
-- 记 `last_check` 时间戳做 fetch 节流（上面 Unresolved 的自然延伸）。
-- 给 `spec` 独立入口也接一个（可选）版本新鲜度提示（本 spec 明确只覆盖 `openagents` 入口）。
-- 更新后在提示里附上 `git log <old>..<new> --oneline` 的变更摘要，让用户知道这次更新带来了什么。
-
+- Record a `last_check` timestamp to throttle fetches (a natural extension of Unresolved above).
+- Also wire an (optional) version freshness notice into the separate `spec` entry point (this spec explicitly covers only the `openagents` entry point).
+- Include a change summary from `git log <old>..<new> --oneline` in the post-update notice so users know what the update brought.

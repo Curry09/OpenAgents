@@ -1,12 +1,12 @@
 ---
 number: "0021"
-title: 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+title: "Fix long reviewer replies being truncated before VERDICT → UNPARSED → false non-PASS results that waste rounds and incorrectly trigger needs-human"
 issue: 63
 slug: reviewer-truncated-verdict-fix
-summary: 修 reviewer 长回复被截断在 VERDICT 行之前、导致解析失败（UNPARSED）被误判成「非 PASS」、白白空耗 vigil rounds 甚至误触 needs-human 的 bug。做法：裁决 token 前置、按首行解析、区分「评审本身无效」与「真 REWORK」、加单次重解析与诚实升级。只改 reviewer 解析与编排层容错，不改裁决标准本身。
+summary: "Fix the bug where long reviewer replies are truncated before the VERDICT line, causing parsing failures (UNPARSED) to be misclassified as \"non-PASS\", needlessly consuming Vigil rounds and even incorrectly triggering needs-human. Approach: put the verdict token first, parse the first line, distinguish \"the review itself is invalid\" from \"genuine REWORK\", and add a single retry of the review and truthful escalation. Change only reviewer parsing and fault tolerance in the orchestration layer; do not change the verdict criteria themselves."
 tasks:
   - id: T1
-    title: reviewer 侧:前置裁决 token + 首行解析 + 区分「评审无效」+ 单次重解析
+    title: "Reviewer side: verdict token first + first-line parsing + distinguish \"invalid reviews\" + a single retry of the review"
     status: done
     priority: P0
     tags:
@@ -18,10 +18,10 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer.py
-    scope: 强化 _RUBRIC_TAIL 要求 VERDICT 置于回复最前面（任何论证之前）;_parse_verdict 首行/首段优先解析、无果再回退全文匹配;review() 对解析为 UNPARSED 的 reviewer 单次重跑 backend.run;ReviewDecision 新增布尔字段 actionable 区分「真 REWORK（解析出 REWORK/RETHINK 且有实质 ISSUES 正文）」与「评审无效（非 PASS 仅因裁决无法解析/无可操作条目）」;render_decision 把「评审无效」与「REWORK」分别渲染。仅关键字参数、private 函数显式传参。
-    acceptance: 单测打桩 AgentBackend——截断好评（无 VERDICT 重跑仍无）→passed=False 且 actionable=False，verdicts 含 UNPARSED 占位且长度=N;带 ISSUES 真 REWORK→passed=False、actionable=True、feedback 含 ISSUES;首行 VERDICT:PASS + 正文裸 REWORK 字样→解析为 PASS;首跑 UNPARSED 重跑 PASS→backend.run 被调两次最终 passed=True，重跑仍 UNPARSED→只重跑一次落「评审无效」;全 PASS→passed=True、actionable=False、feedback="";render_decision 对「评审无效」与「REWORK」渲染不同文案;既有用例回归全绿;ruff check + ruff format --check + pytest 通过。
+    scope: "Strengthen _RUBRIC_TAIL to require VERDICT at the very beginning of the reply (before any reasoning); _parse_verdict prioritizes parsing the first line/paragraph and falls back to matching the full text if unsuccessful; review() reruns backend.run once for a reviewer whose result parses as UNPARSED; add a boolean field actionable to ReviewDecision to distinguish \"genuine REWORK (REWORK/RETHINK was parsed and there is substantive ISSUES body text)\" from \"invalid review (non-PASS solely because the verdict cannot be parsed or there are no actionable items)\"; render_decision renders \"invalid review\" and \"REWORK\" separately. Use keyword-only parameters and pass arguments explicitly to private functions."
+    acceptance: "Unit tests with a stubbed AgentBackend: truncated positive review (no VERDICT, still absent after rerun) → passed=False and actionable=False, with verdicts containing UNPARSED placeholders and length=N; genuine REWORK with ISSUES → passed=False, actionable=True, feedback contains ISSUES; first-line VERDICT:PASS + a bare REWORK word in the body → parses as PASS; first run UNPARSED, rerun PASS → backend.run called twice, final passed=True; rerun still UNPARSED → rerun only once and classify as \"invalid review\"; all PASS → passed=True, actionable=False, feedback=\"\"; render_decision renders different messages for \"invalid review\" and \"REWORK\"; all existing regression tests pass; ruff check + ruff format --check + pytest pass."
   - id: T2
-    title: 编排层:评审无效不吃 round、空反馈不空转、独立重试上限后诚实升级
+    title: "Orchestration layer: invalid reviews do not consume rounds, empty feedback does not cause pointless iterations, and truthful escalation follows a separate retry limit"
     status: done
     priority: P0
     tags:
@@ -36,97 +36,96 @@ tasks:
       - tests/test_messages.py
       - openagents/state.py
       - tests/test_state.py
-    scope: _process_rfc_review / _process_coding 在 not passed 时按 decision.actionable 分流——真 REWORK 照旧 rounds++ + refine_rfc/iterate（行为逐字节不变）;「评审无效」不 rounds++、不 refine/iterate，改用独立小重试计数（env OPENAGENTS_MAX_REVIEW_RETRIES，默认 2），未超则本轮返回 review-invalid 事件等下一轮重评，超过则以「reviewer 输出无法解析」真实理由走 _block 打 needs-human（gate 携带可区分标记）;State/RunRecord 新增独立于 rounds 的 review-invalid 计数字段（默认 0、向后兼容），配套 increment_review_invalid 并在既有 reset_rounds 同点归零。仅关键字参数、private 函数显式传参。
-    acceptance: 单测 monkeypatch github.* + 注入打桩 ReviewDecision——截断好评（passed=False、actionable=False）在 spec/merge 两闸不调 increment_rounds、不调 refine_rfc/iterate，返回 reason="review-invalid";真 REWORK 照旧 increment_rounds + refine_rfc/iterate(detail=feedback);连续达 MAX_REVIEW_RETRIES 次评审无效→_block 打 needs-human 且 gate 标识可区分于真 REWORK 的 block;review-invalid 计数随 implement / reset_rounds 同点清零;env 缺省/非法/<1→回落默认 2;零回归——默认全 PASS→merge→done、真 REWORK→rounds++→iterate、攒满 MAX_ROUNDS→_block 既有用例全绿;ruff check + ruff format --check + pytest 通过。
+    scope: "_process_rfc_review / _process_coding branch on decision.actionable when not passed—genuine REWORK continues to use rounds++ + refine_rfc/iterate as before (behavior remains byte-for-byte unchanged); \"invalid review\" does not perform rounds++ or refine/iterate, and instead uses a separate small retry counter (env OPENAGENTS_MAX_REVIEW_RETRIES, default 2); if the limit has not been exceeded, return a review-invalid event for this cycle and wait for the next cycle to review again; once exceeded, call _block to apply needs-human with the truthful reason \"reviewer output cannot be parsed\" (gate carries a distinguishable marker); add a review-invalid counter field to State/RunRecord independent of rounds (default 0, backward compatible), with a corresponding increment_review_invalid, and reset it to zero at the same points as the existing reset_rounds. Use keyword-only parameters and pass arguments explicitly to private functions."
+    acceptance: "Unit tests monkeypatch github.* + inject stubbed ReviewDecision instances: truncated positive review (passed=False, actionable=False) at both spec/merge gates does not call increment_rounds or refine_rfc/iterate, and returns reason=\"review-invalid\"; genuine REWORK continues to call increment_rounds + refine_rfc/iterate(detail=feedback); MAX_REVIEW_RETRIES consecutive invalid reviews → _block applies needs-human, with a gate identifier distinguishable from a block for genuine REWORK; the review-invalid counter is reset to zero at the same points as implement / reset_rounds; env missing/invalid/<1 → fall back to the default of 2; no regressions—all existing tests for default all PASS → merge → done, genuine REWORK → rounds++ → iterate, and reaching MAX_ROUNDS → _block pass; ruff check + ruff format --check + pytest pass."
 ---
 
-# 0021 · 修复 reviewer 长回复截断在 VERDICT 之前→UNPARSED→假非PASS 空耗 rounds 误触 needs-human
+# 0021 · Fix long reviewer responses truncated before VERDICT → UNPARSED → false non-PASS results wasting rounds and incorrectly triggering needs-human
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-修复一个 reviewer 长回复被截断在 `VERDICT` 行之前、被误判成「非 PASS」的 bug（issue #63，现象 PR #61 / issue #58）。reviewer 是「读 RFC/diff → 给裁决 token」的无状态函数,模型常把一大段论证写在前面、`VERDICT` 拖到末尾,长回复在 token 之前就被截断,`_parse_verdict` 找不到 token 返回 None、按「疑罪从严」归一化为 UNPARSED 并计为非 PASS——于是一篇**全是好评**的回复被当成 REWORK,下游编排层 `rounds++` 并喂回空反馈、空耗 vigil rounds,攒满 `MAX_ROUNDS=3` 后 `_block` 误打 `needs-human`。做法分两层:reviewer 侧把裁决 token 前置 + 首行优先解析 + 单次重解析,并在裁决结果里区分「评审本身无效」与「真 REWORK」;编排层据此分流,评审无效不吃 round、不空转迭代,用独立重试上限兜住、超限后以**真实**理由诚实升级。只改 reviewer 解析与编排层容错,**不改裁决标准本身**。
+Fix a bug where a long reviewer response is truncated before the `VERDICT` line and incorrectly classified as “non-PASS” (issue #63, observed in PR #61 / issue #58). The reviewer is a stateless function that “reads the RFC/diff → returns a verdict token.” The model often puts a lengthy argument first and leaves `VERDICT` until the end. When a long response is truncated before the token, `_parse_verdict` cannot find the token and returns None, which is normalized to UNPARSED under a “when in doubt, treat as failure” policy and counted as non-PASS. As a result, a response containing **nothing but praise** is treated as REWORK. The downstream orchestration layer increments `rounds++` and feeds back empty feedback, wasting Vigil rounds; once `MAX_ROUNDS=3` is reached, `_block` incorrectly applies `needs-human`. The approach has two layers: on the reviewer side, put the verdict token first, prioritize parsing the first line, and retry parsing once, while distinguishing “the review itself is invalid” from “actual REWORK” in the decision result; the orchestration layer branches accordingly, so invalid reviews neither consume a round nor trigger iterations with nothing to act on, are bounded by a separate retry limit, and escalate honestly with the **actual** reason when that limit is reached. Only reviewer parsing and orchestration fault tolerance change; **the verdict criteria themselves do not change**.
 
 ## Motivation
 
-根因在 reviewer 与编排两侧的薄弱点(issue #63):
+The root cause lies in weaknesses on both the reviewer and orchestration sides (issue #63):
 
-1. **裁决 token 容易被截断**:`_RUBRIC_TAIL` 虽写了「回复必须以 VERDICT 开头」,但模型实际把论证写在前面、VERDICT 拖到末尾,长回复在 token 之前就被截断(摘要都断在半句话)。
-2. **解析失败被语义坍缩**:`_parse_verdict` 找不到 token 返回 None,`review()` 按「疑罪从严」归一化成 UNPARSED 并计为非 PASS——全是好评的回复被当成 REWORK。
-3. **误触 needs-human 的发生地在编排层**(messages.py 的非 PASS 处理):非 PASS 一律 `rounds++` + `refine_rfc/iterate(decision.feedback)`。当 feedback 是没有缺陷条目的好评时,写代码 agent 无从下手、改了个寂寞,下一轮 reviewer 又被截断 → 永远收敛不到可解析 PASS → 攒满 `MAX_ROUNDS=3` → `_block` → 误打 `needs-human`(即便内容本可通过)。
+1. **The verdict token is easily truncated**: although `_RUBRIC_TAIL` says “the response must begin with VERDICT,” the model actually puts its argument first and leaves VERDICT until the end, so long responses are truncated before the token (even the summaries end mid-sentence).
+2. **Parsing failure loses its semantic distinction**: when `_parse_verdict` cannot find a token, it returns None; `review()` normalizes this to UNPARSED under a “when in doubt, treat as failure” policy and counts it as non-PASS—a response containing nothing but praise is treated as REWORK.
+3. **The incorrect needs-human trigger occurs in the orchestration layer** (non-PASS handling in messages.py): every non-PASS result triggers `rounds++` + `refine_rfc/iterate(decision.feedback)`. When the feedback is praise with no defect items, the coding agent has nothing to act on and makes changes to no effect; the next reviewer response is truncated again → the process can never converge to a parseable PASS → `MAX_ROUNDS=3` is reached → `_block` → `needs-human` is incorrectly applied (even though the content could have passed).
 
-**为什么要改**:这是一个真实的假阳——好评被当打回、人被无谓地拉进来。要同时根治两类误判:① 评审无效不该消耗「真 REWORK」的 rounds 预算;② 空/无可操作反馈不该驱动 refine/iterate 空转。修复链有源头(reviewer 能如实说出「这是无效评审,不是 REWORK」)和执行端(编排层据此决定是否吃 round、是否迭代、超限如何收口),二者缺一不可,故两个 Task 同列 P0。
+**Why change this**: this is a real false positive—praise is treated as rejection, and a person is needlessly pulled in. Two types of misclassification must be addressed together: ① invalid reviews should not consume the rounds budget for “actual REWORK”; ② empty/non-actionable feedback should not drive fruitless refine/iterate cycles. The fix requires both a source (the reviewer can truthfully report “this is an invalid review, not REWORK”) and an execution endpoint (the orchestration layer uses that distinction to decide whether to consume a round, whether to iterate, and how to conclude after the limit is reached). Neither is sufficient alone, so both Tasks are P0.
 
 ## Guide-level explanation
 
-把修复想成「三道防线 + 一处分流」:
+Think of the fix as “three lines of defense + one branch”:
 
-- **防线一(别被截断)**:rubric 硬性要求**第一行必须是 `VERDICT: <token>`**,论证写在裁决之后——即便被长度截断,丢的是论证尾部而非裁决头部。
-- **防线二(首行解析)**:`_parse_verdict` 先在首行/首段找 `VERDICT:` token,首段无果再回退全文匹配(向后兼容老格式)。首行命中即采信,避免正文里偶现的 "REWORK" 字样(如引用别人的评审)污染裁决。
-- **防线三(单次重解析)**:对解析为 UNPARSED 的那个 reviewer 再跑一次 `backend.run`(仅一次)。截断是随机的,重跑有相当概率拿到可解析裁决。
-- **分流(编排层)**:reviewer 把裁决分成三类——`passed`(全 PASS)、`actionable REWORK`(有带正文的 REWORK/RETHINK,有东西可改)、`评审无效`(非 PASS 仅因裁决无法解析/无可操作条目)。编排层照旧让真 REWORK 吃 round + 喂回反馈,让评审无效**不吃 round、不空转**,用一个独立小重试上限兜住,超限后以「reviewer 输出无法解析」这一真实理由打 needs-human。
+- **Defense one (avoid truncation)**: the rubric strictly requires that **the first line must be `VERDICT: <token>`**, with the argument after the verdict—even if the response is truncated for length, what is lost is the end of the argument, not the verdict at the start.
+- **Defense two (first-line parsing)**: `_parse_verdict` first looks for a `VERDICT:` token in the first line/paragraph, then falls back to matching the full text if the first paragraph yields nothing (backward compatibility with the old format). A first-line match is accepted immediately, preventing incidental occurrences of "REWORK" in the body (such as a quotation of someone else’s review) from contaminating the verdict.
+- **Defense three (one parsing retry)**: run `backend.run` again for the reviewer whose result parsed as UNPARSED (only once). Truncation is random, so a rerun has a substantial chance of producing a parseable verdict.
+- **Branching (orchestration layer)**: the reviewer classifies decisions into three categories—`passed` (all PASS), `actionable REWORK` (REWORK/RETHINK with a nonempty body and something to change), and `invalid review` (non-PASS solely because the verdict cannot be parsed/there are no actionable items). The orchestration layer continues to consume a round and feed back feedback for actual REWORK, while invalid reviews **consume no round and trigger no fruitless iteration**. A separate small retry limit bounds them; once it is reached, needs-human is applied with the actual reason, “reviewer output cannot be parsed.”
 
-对使用者:盯 PR 的人在评论里能一眼区分「⚠️ 评审无效(裁决无法解析,reviewer 输出疑被截断)」与「❌ REWORK」——看到的是「评审坏了,去看 reviewer/截断」,而非「代码被打回 3 轮」。
+For users: someone watching the PR can immediately distinguish “⚠️ Invalid review (verdict cannot be parsed; reviewer output may have been truncated)” from “❌ REWORK” in the comments. What they see is “the review failed; investigate the reviewer/truncation,” rather than “the code was rejected for 3 rounds.”
 
 ## Reference-level explanation
 
-落到改动,分解为 2 个 Task(`files` 互斥,各 Task 单一 writer):
+The changes break down into 2 Tasks (mutually exclusive `files`, a single writer per Task):
 
-1. **T1 reviewer 侧**(无依赖,P0,修复链源头) — `openagents/reviewer.py` / `tests/test_reviewer.py`。三道防线全部落在 reviewer 内:
-   - **前置裁决(rubric 强化)**:`_RUBRIC_TAIL` 的「以 VERDICT 开头」升级为硬性「第一行必须是 `VERDICT: <token>`,在任何 REASON/ISSUES/论证之前」(裁决与论证分离)。
-   - **首行优先解析**:`_parse_verdict(*, summary) -> str | None` 解析顺序改为「首行/首段优先 → 全文 `_VERDICT_RE` / 裸 token 回退」,签名不变。
-   - **单次重解析**:`review(*, backend, work_dir, kind, pr_number, n) -> ReviewDecision` 聚合时,对解析为 UNPARSED 的那个 reviewer 再跑一次 `backend.run`(仅一次);PASS/REWORK/RETHINK 不重跑。
-   - **裁决三分类**:`ReviewDecision` 新增布尔字段(暂名 `actionable`,默认值保证既有构造点向后兼容)。判定 predicate:`actionable := (not passed) and ∃ verdict ∈ {REWORK, RETHINK} 且对应 summary.strip() 非空`;否则若 `not passed` 则为 invalid。passed/feedback/verdicts 三字段既有语义纯增量保持不变。
-   - **render_decision(*, decision, kind) -> str**:对「评审无效」渲染区别于「REWORK」的文案,签名不变。
-2. **T2 编排层**(依赖 T1,P0) — `openagents/messages.py` / `tests/test_messages.py` / `openagents/state.py` / `tests/test_state.py`。两道闸共用的 not-passed 分流(`_process_rfc_review` 的 RFC 评审闸 与 `_process_coding` 的代码评审闸,逻辑同构):
+1. **T1 reviewer side** (no dependencies, P0, source of the fix chain) — `openagents/reviewer.py` / `tests/test_reviewer.py`. All three lines of defense are implemented within the reviewer:
+   - **Put the verdict first (strengthen the rubric)**: upgrade “begin with VERDICT” in `_RUBRIC_TAIL` to the strict requirement “the first line must be `VERDICT: <token>`, before any REASON/ISSUES/argument” (separate the verdict from its argument).
+   - **First-line-priority parsing**: change the parsing order of `_parse_verdict(*, summary) -> str | None` to “first line/paragraph first → full-text `_VERDICT_RE` / bare-token fallback,” without changing the signature.
+   - **One parsing retry**: during aggregation in `review(*, backend, work_dir, kind, pr_number, n) -> ReviewDecision`, run `backend.run` again for the reviewer whose result parsed as UNPARSED (only once); do not rerun PASS/REWORK/RETHINK.
+   - **Three-way decision classification**: add a boolean field to `ReviewDecision` (tentatively named `actionable`, with a default that preserves backward compatibility for existing construction sites). Predicate: `actionable := (not passed) and ∃ verdict ∈ {REWORK, RETHINK}` with a corresponding nonempty `summary.strip()`; otherwise, if `not passed`, the review is invalid. Preserve the existing semantics of the three fields passed/feedback/verdicts; the change is purely additive.
+   - **render_decision(*, decision, kind) -> str**: render “invalid review” with wording distinct from “REWORK,” without changing the signature.
+2. **T2 orchestration layer** (depends on T1, P0) — `openagents/messages.py` / `tests/test_messages.py` / `openagents/state.py` / `tests/test_state.py`. The not-passed branching shared by both gates (the RFC review gate in `_process_rfc_review` and the code review gate in `_process_coding`, with structurally identical logic):
    ```
-   if decision.passed:            # 不变（打标签/implement 或 merge）
+   if decision.passed:            # Unchanged (apply labels/implement or merge)
        ...
-   elif decision.actionable:      # 真 REWORK —— 行为逐字节不变
+   elif decision.actionable:      # Actual REWORK — behavior unchanged byte for byte
        rounds = increment_rounds(...)
        if rounds >= MAX_ROUNDS: _block(gate)
        else: refine_rfc/iterate(detail=decision.feedback)
-   else:                          # 评审无效（裁决无法解析 / 无可操作反馈）
-       invalid = increment_review_invalid(...)      # 独立计数，不碰 rounds
+   else:                          # Invalid review (unparseable verdict / no actionable feedback)
+       invalid = increment_review_invalid(...)      # Separate counter; do not touch rounds
        if invalid >= MAX_REVIEW_RETRIES:
-           _block(gate, reason="review-unparseable") # 诚实升级
+           _block(gate, reason="review-unparseable") # Escalate honestly
        else:
-           return {... "reason": "review-invalid"}   # 不动 rounds、不 refine，等下一轮重评
+           return {... "reason": "review-invalid"}   # Do not change rounds or refine; wait for the next review cycle
    ```
-   关键不变量:评审无效**绝不** `rounds++`、**绝不** refine/iterate;真 REWORK 路径逐字节保留(既有用例即回归护栏)。新增 env 旋钮 `OPENAGENTS_MAX_REVIEW_RETRIES`(默认 2,缺省/非法/<1 回落默认),镜像 `_configured_max_rounds`。`State` 新增 `increment_review_invalid(*, issue_number) -> int`(镜像 `increment_rounds`),并在既有 `reset_rounds` 同点把该计数一并归零;`RunRecord` 新增对应字段(默认 0,向后兼容旧记录),计数独立于 `rounds` 但同生命周期(implement / 解挂时清零)。
+   Key invariants: invalid reviews **never** trigger `rounds++` and **never** trigger refine/iterate; preserve the actual REWORK path byte for byte (existing test cases serve as regression guardrails). Add the env knob `OPENAGENTS_MAX_REVIEW_RETRIES` (default 2; missing/invalid/<1 values fall back to the default), mirroring `_configured_max_rounds`. Add `increment_review_invalid(*, issue_number) -> int` to `State` (mirroring `increment_rounds`), and reset this counter to zero at the same points as the existing `reset_rounds`; add the corresponding field to `RunRecord` (default 0, backward compatible with old records). The counter is independent of `rounds` but shares its lifecycle (reset on implement / unblocking).
 
-**端到端验证**:本组改动属纯单元层(无新增独立 e2e 脚本),验证靠两套单测全绿——`tests/test_reviewer.py`(打桩 AgentBackend,覆盖截断好评 / 真 REWORK / 首行优先 / 单次重解析 / 全 PASS / render 文案)+ `tests/test_messages.py` + `tests/test_state.py`(monkeypatch github.* + 注入打桩 ReviewDecision,覆盖两闸分流 / 计数清零 / env 回落 / 零回归),并跑 `ruff check` + `ruff format --check` + `pytest`。
+**End-to-end validation**: this group of changes is entirely at the unit level (no new standalone e2e script). Validation relies on both sets of unit tests passing—`tests/test_reviewer.py` (stub AgentBackend, covering truncated praise / actual REWORK / first-line priority / one parsing retry / all PASS / render wording) + `tests/test_messages.py` + `tests/test_state.py` (monkeypatch github.* + inject stub ReviewDecision, covering branching at both gates / counter resets / env fallback / zero regressions)—plus running `ruff check` + `ruff format --check` + `pytest`.
 
-依赖 DAG:`T1 → T2`(T2 的输入契约是 T1 提供的 `ReviewDecision.actionable` 与「评审无效」语义)。
+Dependency DAG: `T1 → T2` (T2’s input contract is the `ReviewDecision.actionable` field and “invalid review” semantics supplied by T1).
 
 ## Drawbacks
 
-- `ReviewDecision` 多一个 `actionable` 字段、`State`/`RunRecord` 多一个 review-invalid 计数,概念上比「非 PASS 一律 rounds++」多一层分流。
-- 极端持续截断下,评审无效达独立上限后仍会 `_block` 打 needs-human——没有做到「绝对永不 block」,而是用「真实理由 + 成本可控」换取了不冒充假 REWORK。
+- `ReviewDecision` gains an `actionable` field, and `State`/`RunRecord` gain a review-invalid counter, adding a conceptual branching layer compared with “every non-PASS triggers rounds++.”
+- Under extreme, persistent truncation, invalid reviews will still cause `_block` to apply needs-human after reaching their separate limit. This does not achieve “absolutely never block”; it uses “an actual reason + bounded cost” to avoid misrepresenting the failure as REWORK.
 
 ## Rationale and alternatives
 
-- **裁决前置 vs 硬截断 backend 输出**(选前置):硬截 `AgentResult.summary` 到固定长度看似直接,但若 VERDICT 本在末尾反而**更易丢 token**,且要改动 reviewer 对 backend 输出的契约。把裁决顶到首行 + 首行解析,从根上让「被截断」不再波及裁决。
-- **单次重解析 vs 不重试**(选单次):不重试最简,但单条截断好评仍会落「评审无效」、把压力全压给编排层兜底。一次重跑成本可控(N 默认 1)、能从概率上消解大部分随机截断;不做无限重试——那是编排层的独立重试上限,职责分层。
-- **新增 actionable 字段 vs 复用 `feedback == ""`**(选显式字段):仅凭 feedback 是否为空会和「REWORK 但 reviewer 没写 ISSUES」混淆(那种 feedback 是占位文案、非空但不可操作)。显式布尔字段语义清晰、单测可断言,且让编排层不必重新解析 verdicts。
-- **独立重试计数 vs 复用 MAX_ROUNDS 兜底**(选独立计数):复用 rounds 改动最小,但「评审无效也累加 rounds、攒满仍 _block」与 issue 期望「不吃 round」直接相悖,且继续混淆「reviewer 坏了」与「代码该打回」。独立计数让两类失败各有预算、各有诚实的升级理由。
-- **达上限后 _block vs 永不 block(只重试)**(选 _block):永不 block 最贴近「绝不误判好评」,但极端持续截断会无限轮询、持续烧 backend。给评审无效一个独立小上限,达上限后以真实理由(reviewer 输出无法解析)升级给人,既兜住成本、又不冒充假 REWORK。
-- **本轮返回事件等下一轮 vs 同轮立即重评**(选等下一轮):同轮立即重跑 review 会拉长单次 poll 墙钟,且 T1 已在 reviewer 内做过一次重解析(分层不重复);poll 是周期性的,等下一轮天然、简单,符合 messages「薄路由」定位。
-- **不动裁决标准/CI/messages 内部主逻辑**,只在既有 not-passed 路径上「按 actionable 劈成两支」——把 blast radius 收到最小(解耦,理念 10)。
+- **Put the verdict first vs. hard-truncate backend output** (choose putting it first): hard-truncating `AgentResult.summary` to a fixed length may seem direct, but if VERDICT is at the end, it actually makes the token **more likely to be lost**, and requires changing the reviewer’s contract for backend output. Moving the verdict to the first line + first-line parsing fundamentally prevents truncation from affecting the verdict.
+- **One parsing retry vs. no retry** (choose one retry): no retry is simplest, but a single truncated positive review would still become an “invalid review,” placing all fallback responsibility on the orchestration layer. One rerun has bounded cost (N defaults to 1) and can probabilistically resolve most random truncation; do not retry indefinitely—that belongs to the orchestration layer’s separate retry limit, keeping responsibilities layered.
+- **Add an actionable field vs. reuse `feedback == ""`** (choose an explicit field): relying only on whether feedback is empty would conflate this with “REWORK but the reviewer did not write ISSUES” (that feedback is placeholder wording, nonempty but not actionable). An explicit boolean field has clear semantics and can be asserted in unit tests, while keeping the orchestration layer from having to parse verdicts again.
+- **Separate retry counter vs. reuse MAX_ROUNDS as the fallback** (choose a separate counter): reusing rounds would minimize changes, but “invalid reviews also increment rounds and still trigger _block when the limit is reached” directly contradicts the issue’s expectation that they “consume no round,” and continues to conflate “the reviewer failed” with “the code should be rejected.” A separate counter gives each type of failure its own budget and its own honest escalation reason.
+- **_block after reaching the limit vs. never block (retry only)** (choose _block): never blocking comes closest to “never misclassify praise,” but extreme, persistent truncation would cause endless polling and ongoing backend consumption. Giving invalid reviews a separate small limit and escalating to a person with the actual reason (reviewer output cannot be parsed) when it is reached both bounds cost and avoids misrepresenting the failure as REWORK.
+- **Return an event this cycle and wait for the next cycle vs. immediately review again in the same cycle** (choose waiting for the next cycle): immediately rerunning review in the same cycle would increase the wall-clock duration of a single poll, and T1 already performs one parsing retry inside the reviewer (avoid duplicating work across layers). Polling is periodic, so waiting for the next cycle is natural, simple, and consistent with messages’ role as a “thin router.”
+- **Leave verdict criteria/CI/the main internal logic of messages unchanged**, and only “split the existing not-passed path into two branches based on actionable”—minimize the blast radius (decoupling, principle 10).
 
 ## Prior art
 
-「裁决与论证分离、把机器可解析的结论顶到输出最前面」是 LLM-judge / 结构化输出的常见稳健化手法(避免长输出截断丢结论);「区分『判定器本身失效』与『判定为负』」也是评测系统区分 invalid 与 negative 的通行做法。本 feature 沿用 vigil-reviewer 既有的 PASS/REWORK/RETHINK 三裁决 rubric(RFC-0012)与 `UNPARSED_VERDICT`(RFC-0018),只在其上增加「评审无效」这一可观测分类,不引入新的裁决体系。
+“Separating the verdict from its rationale and placing the machine-parseable conclusion at the very beginning of the output” is a common robustness technique for LLM judges / structured output (to avoid losing the conclusion when long output is truncated); “distinguishing ‘failure of the judge itself’ from ‘a negative judgment’” is also standard practice in evaluation systems for distinguishing invalid from negative. This feature retains vigil-reviewer’s existing three-verdict PASS/REWORK/RETHINK rubric (RFC-0012) and `UNPARSED_VERDICT` (RFC-0018), adding only an observable “invalid review” classification on top, without introducing a new verdict system.
 
 ## Unresolved questions
 
-- 「实质 ISSUES 正文」的阈值:目前按 `summary.strip()` 非空判可操作。若 reviewer 给了 `VERDICT: REWORK` 但正文极短/无 ISSUES 是否也归「评审无效」由人定;本组先采「有裁决 token 的 REWORK/RETHINK 即可操作」的保守口径,极端空 REWORK 留待实跑数据校准。
-- `OPENAGENTS_MAX_REVIEW_RETRIES` 默认值(暂定 2)是否够:2 次重评在多数情况足以拿到可解析裁决;若实跑偏紧/偏松可调该 env 默认,先按 2 上线据 e2e 数据校准。
-- 持续评审无效达上限后的收口选「_block 打 needs-human(reviewer 输出无法解析)」;若团队更希望「永不 block、只无限重评」,需接受极端持续截断下的 backend 成本——本组采前者(成本可控 + 诚实升级),此点留待人确认。
+- The threshold for “substantive ISSUES body text”: currently, a review is considered actionable if `summary.strip()` is nonempty. Whether a reviewer response with `VERDICT: REWORK` but an extremely short body / no ISSUES should also count as an “invalid review” is for a human to decide; this group will initially adopt the conservative interpretation that “REWORK/RETHINK with a verdict token is actionable,” leaving extreme cases of empty REWORK responses to be calibrated against data from actual runs.
+- Whether the default value of `OPENAGENTS_MAX_REVIEW_RETRIES` (provisionally 2) is sufficient: 2 review retries are enough to obtain a parseable verdict in most cases; if actual runs show that this is too restrictive / too permissive, the default for this env variable can be adjusted. Initially, ship with 2 and calibrate against e2e data.
+- The chosen way to close out repeated invalid reviews once the limit is reached is “use _block to mark needs-human (reviewer output cannot be parsed)”; if the team would prefer “never block, only retry reviews indefinitely,” it must accept the backend costs under extreme, persistent truncation—this group chooses the former (controlled costs + honest escalation), leaving this point for human confirmation.
 
 ## Future possibilities
 
-- 把「评审无效率 / 重解析命中率」纳入可观测指标,据真实截断分布动态调 `MAX_REVIEW_RETRIES` 默认与 rubric 措辞。
-- 若后续 backend 支持更长输出或流式裁决,可进一步弱化重解析依赖。
-
+- Include the “invalid review rate / reparsing hit rate” in observability metrics, and dynamically adjust the `MAX_REVIEW_RETRIES` default and rubric wording based on the actual distribution of truncation.
+- If the backend later supports longer output or streaming verdicts, reliance on reparsing can be reduced further.

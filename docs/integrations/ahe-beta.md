@@ -1,6 +1,6 @@
 # AHE-Beta integration
 
-English | [简体中文](ahe-beta.zh-CN.md)
+English | [CREDIT Chinese](ahe-beta.zh-CN.md)
 
 [AHE-Beta](https://github.com/Curry09/AHE-Beta) runs simulated-user experiments, collects feedback, and generates Harness improvement requests. OpenAgents implements those requests in the Harness repository through issues and PRs. The next user round runs the resulting version; OpenAgents does not run the controller's experiment or independent benchmark evaluation.
 

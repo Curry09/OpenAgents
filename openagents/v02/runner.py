@@ -38,10 +38,10 @@ def run_batch(
 ) -> BatchResult:
     """Run one finite batch with no retry loop and no synchronous human wait."""
     if concurrency < 1:
-        raise ValueError("v0.2 concurrency 必须 >= 1")
+        raise ValueError("v0.2 concurrency must be at least 1")
     numbers = [issue.number for issue in issues]
     if len(set(numbers)) != len(numbers):
-        raise ValueError("v0.2 batch 不能重复输入同一 issue")
+        raise ValueError("v0.2 batch must not include duplicate issues")
 
     results: dict[int, NodeResult] = {}
     ready: dict[int, SpecNode] = {}
@@ -92,7 +92,7 @@ def run_batch(
                 results[number] = NodeResult(
                     number,
                     "BLOCKED_BY_DEPENDENCY",
-                    "未通过的前置 issue：" + ", ".join(f"#{item}" for item in failed),
+                    "Prerequisite issues did not pass: " + ", ".join(f"#{item}" for item in failed),
                 )
             else:
                 runnable.append(ready[number])
@@ -134,7 +134,7 @@ def run_batch(
             node, development, acceptance = accepted[number]
             try:
                 if acceptance.head_sha != development.head_sha:
-                    raise RuntimeError("Acceptance PASS 未绑定 Developer 当前 HEAD")
+                    raise RuntimeError("Acceptance PASS is not bound to the current Developer HEAD")
                 adapter.merge(node=node, development=development)
             except Exception as exc:
                 results[number] = NodeResult(

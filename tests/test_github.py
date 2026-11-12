@@ -1,7 +1,7 @@
-"""RFC-0001 T3: GitHub 集成（gh CLI 封装）的契约测试。
+"""RFC-0001 T3: Contract test for GitHub integration (gh CLI seal).
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。
-每个函数覆盖：正常解析路径 + gh 返回非零的错误路径。
+All gh subprocesses are always mock (monkeypact subprocess.run), not called gh.
+Each function overwrites: Normal Resolution Path + gh returns a non-zero error path.
 """
 
 import json
@@ -49,7 +49,7 @@ from openagents.utils.github import (
 
 @dataclass
 class _FakeProc:
-    """伪 subprocess.CompletedProcess。"""
+    """Hypothetical subprocess.CompletedProcess."""
 
     returncode: int = 0
     stdout: str = ""
@@ -57,7 +57,7 @@ class _FakeProc:
 
 
 def _fake_run(*, returncode=0, stdout="", stderr=""):
-    """返回一个 subprocess.run 替身，并记录最后一次调用的参数。"""
+    """Returns a subprocess.run double and records the last call parameters."""
     calls: list[list[str]] = []
 
     def runner(args, **kwargs):
@@ -69,10 +69,10 @@ def _fake_run(*, returncode=0, stdout="", stderr=""):
 
 
 def _fake_run_sequence(results):
-    """subprocess.run 替身：按序返回 results 中每一项，耗尽后重复最后一项。
+    """subprocess.run double: returns every item in sequence in the results, repeats the last item after exhaustion.
 
-    每项为 _FakeProc → 返回该进程；为 BaseException 实例 → 抛出（用于注入
-    subprocess.TimeoutExpired）。记录每次调用的参数到 .calls，供断言重试次数。
+    Each of these is _FakeProc  →  back to the process; throw out for BaseException instance (for injection)
+    subprocess.TimeoutExpired. Records the parameters that are called each time to .calls for an asserted number of re-tests.
     """
     calls: list[list[str]] = []
     seq = list(results)
@@ -192,7 +192,7 @@ def test_create_issue_passes_each_label(monkeypatch):
     create_issue(title="T", body="", labels=["bug", "p1"])
 
     cmd = runner.calls[-1]
-    # 每个 label 都应展开成一对 --label <value>
+    # Each label should be expanded into a pair of --label <value>
     assert cmd.count("--label") == 2
     assert "bug" in cmd
     assert "p1" in cmd
@@ -211,7 +211,7 @@ def test_create_issue_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# ensure_label（RFC-0002 决策 6：提 issue 前确保发现标签存在）
+# ensure_label（RFC-0002 Decision-making 6: Reference issue Ensure that tags are found before they are found)
 # --------------------------------------------------------------------------- #
 
 
@@ -227,13 +227,13 @@ def test_ensure_label_creates_when_missing(monkeypatch):
 
 
 def test_ensure_label_ignores_already_exists(monkeypatch):
-    # gh label create 在标签已存在时以非零退出并报 "already exists" → 视为成功，不抛、不覆盖。
+    # gh label clears and reports "already exists" as success, does not throw, does not overwrite when the label already exists.
     monkeypatch.setattr(
         subprocess,
         "run",
         _fake_run(returncode=1, stderr="label with name openagents already exists; use `--force`"),
     )
-    ensure_label(name="openagents")  # 不应抛异常
+    ensure_label(name="openagents")  # We should not leave the anomaly behind.
 
 
 def test_ensure_label_reraises_other_errors(monkeypatch):
@@ -243,7 +243,7 @@ def test_ensure_label_reraises_other_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# close_issue（RFC-0017 T1：合进 test 后框架显式关 issue + 幂等容错）
+# close_issue (RFC-0017 T1: fit test frame visible level issue + QEQ)
 # --------------------------------------------------------------------------- #
 
 
@@ -258,17 +258,17 @@ def test_close_issue_invokes_gh(monkeypatch):
 
 
 def test_close_issue_ignores_already_closed(monkeypatch):
-    # gh issue close 对已关闭的 issue 以非零退出并报 "already closed" → 幂等 no-op，不抛。
+    # gh issue closes the closed issue and reports "already closed" no-op, no-op.
     monkeypatch.setattr(
         subprocess,
         "run",
         _fake_run(returncode=1, stderr="! Issue #41 (foo) is already closed"),
     )
-    close_issue(number=41)  # 不应抛异常
+    close_issue(number=41)  # We should not leave the anomaly behind.
 
 
 def test_close_issue_ignores_absent(monkeypatch):
-    # 不存在的 issue：gh 走 GraphQL，报 "Could not resolve to an Issue ..." → 幂等 no-op。
+    # # Not gonna let go of a Issue... #
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -276,7 +276,7 @@ def test_close_issue_ignores_absent(monkeypatch):
             returncode=1, stderr="GraphQL: Could not resolve to an Issue with the number of 99999."
         ),
     )
-    close_issue(number=99999)  # 不应抛异常
+    close_issue(number=99999)  # We should not leave the anomaly behind.
 
 
 def test_close_issue_reraises_other_errors(monkeypatch):
@@ -315,7 +315,7 @@ def test_create_pr_error_raises(monkeypatch):
 
 
 def test_create_pr_default_base_is_main(monkeypatch):
-    # Spec-0023/T1：test 门控退役后 base 默认 main → --base main。
+    # Spec-0023/T1：test After the door control was decommissioned, base Default main → --base main。
     runner = _fake_run(stdout="https://github.com/acme/widget/pull/42\n")
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -348,7 +348,7 @@ def test_create_pr_unparsable_url_raises(monkeypatch):
 
 
 def test_list_comments_parses(monkeypatch):
-    # gh 返回的 comment id 是 node id 字符串，并带 createdAt。
+    # gh returned id is a node id string with a crated At.
     payload = json.dumps(
         {
             "comments": [
@@ -403,25 +403,25 @@ def test_list_comments_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# list_issue_comments（Spec-0065/T2：准入对话读侧；与 list_comments 共用 _parse_comments 解析）
+# list_issue_comments (Spec-0065/T2: Access to dialogue side; shared with list_comments for _parse_comments resolution)
 # --------------------------------------------------------------------------- #
 
 
 def test_list_issue_comments_reads_the_issue_view_not_the_pr_view(monkeypatch):
-    """走 `gh issue view <n> --json comments`：issue 没有 PR 视图，`gh pr view` 在这里必然报错。"""
+    """Go `gh issue view <n> --json comments`:issue without a PR view, `gh pr view` must be wrong here."""
     payload = json.dumps(
         {
             "comments": [
                 {
                     "id": "IC_aaa",
                     "author": {"login": "alice"},
-                    "body": "可以，就按这个做",
+                    "body": "Yeah, just do it.",
                     "createdAt": "2026-07-14T01:00:00Z",
                 },
                 {
                     "id": "IC_bbb",
                     "author": {"login": "openagents"},
-                    "body": "收到",
+                    "body": "Copy that.",
                     "createdAt": "2026-07-14T02:00:00Z",
                 },
             ]
@@ -435,10 +435,12 @@ def test_list_issue_comments_reads_the_issue_view_not_the_pr_view(monkeypatch):
     assert all(isinstance(c, Comment) for c in comments)
     assert [c.id for c in comments] == ["IC_aaa", "IC_bbb"]
     assert [c.author for c in comments] == ["alice", "openagents"]
-    assert comments[0].body == "可以，就按这个做"
+    assert comments[0].body == "Yeah, just do it."
     assert [c.created_at for c in comments] == ["2026-07-14T01:00:00Z", "2026-07-14T02:00:00Z"]
     cmd = runner.calls[-1]
-    assert cmd[:3] == ["gh", "issue", "view"], "issue 的评论流只能从 issue 视图读"
+    assert cmd[:3] == ["gh", "issue", "view"], (
+        "The comment stream of the issue can only be read from the issue view"
+    )
     assert "7" in cmd
     assert cmd[cmd.index("--json") + 1] == "comments"
 
@@ -559,7 +561,7 @@ def test_check_status_failure_takes_priority_over_pending(monkeypatch):
 
 
 def test_check_status_gh_exit_8_means_pending(monkeypatch):
-    # gh pr checks 在仍有 check 进行中时以退出码 8 返回，stdout 仍含 JSON。
+    # gh prchecks returns with exit code 8 when check is still in progress, stdout still contains JSON.
     payload = json.dumps([{"name": "build", "state": "PENDING", "link": "u1"}])
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode=8, stdout=payload))
 
@@ -577,7 +579,7 @@ def test_check_status_real_error_raises(monkeypatch):
 
 
 def test_check_status_no_checks_reported_is_pass(monkeypatch):
-    # 仓库无 CI 时 gh pr checks 非零退出并报 "no checks reported"，应视为 pass。
+    # The warehouse gh prchecks were not Zero-exited when the CI was not available and reported "no checks reported" and should be considered pass.
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -605,7 +607,7 @@ def test_is_merged_gh_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# mergeability（Spec-0022/T1：如实回传 mergeable / mergeStateStatus）
+# mergeability (Spec-0022/T1: authentic /mergestateStatus)
 # --------------------------------------------------------------------------- #
 
 
@@ -614,7 +616,7 @@ def test_mergeability_conflicting_dirty_passthrough(monkeypatch):
     monkeypatch.setattr(subprocess, "run", runner)
     result = mergeability(pr_number=61)
     assert result == Mergeability(mergeable="CONFLICTING", merge_state_status="DIRTY")
-    # 断言传给 gh 的参数恰为 pr view <n> --json mergeable,mergeStateStatus。
+    # The claim is passed. gh . The parameter is the right one. pr view <n> --json mergeable,mergeStateStatus。
     assert runner.calls[-1] == [
         "gh",
         "pr",
@@ -637,7 +639,7 @@ def test_mergeability_clean_passthrough(monkeypatch):
 
 
 def test_mergeability_unknown_is_valid_not_error(monkeypatch):
-    # GitHub 异步尚未算完（刚 push 常见）：UNKNOWN 是合法返回值，照实回传、不抛错。
+    # GitHub is not yet counted (just push common): UNKNOWN is a legal return value, sent back as it is, and not thrown.
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -655,14 +657,14 @@ def test_mergeability_non_dict_raises(monkeypatch):
 
 
 def test_mergeability_missing_field_raises(monkeypatch):
-    # 缺字段属结构异常（区别于 UNKNOWN）：比照 is_merged 抛 GithubError。
+    # The missing field is structural anomaly (distinguished from UNKNOWN): contrasting with is_merged by GithubError.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"mergeable": "MERGEABLE"})))
     with pytest.raises(GithubError):
         mergeability(pr_number=7)
 
 
 # --------------------------------------------------------------------------- #
-# is_closed（RFC-0006：关闭但未合并的 PR 是终止信号）
+# is_closed (RFC-0006: closed but not merged PR is terminated signal)
 # --------------------------------------------------------------------------- #
 
 
@@ -677,7 +679,7 @@ def test_is_closed_false_when_open(monkeypatch):
 
 
 def test_is_closed_false_when_merged(monkeypatch):
-    # 已合并的 PR state 是 MERGED，不算 closed（避免与 merged 终态语义混淆）。
+    # The merged PR state is MERGED, not classified (avoid confusion with meggered final semantic).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps({"state": "MERGED"})))
     assert is_closed(pr_number=7) is False
 
@@ -689,7 +691,7 @@ def test_is_closed_gh_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# find_pr_by_branch（RFC-0003 决策 8）
+# find_pr_by_branch (RFC-0003 Decision 8)
 # --------------------------------------------------------------------------- #
 
 
@@ -720,7 +722,7 @@ def test_find_pr_by_branch_gh_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# create_pr --draft（RFC-0005 决策 2）
+# create_pr --draft (RFC-0005 Decision 2)
 # --------------------------------------------------------------------------- #
 
 
@@ -743,7 +745,7 @@ def test_create_pr_default_is_not_draft(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# mark_ready（RFC-0005 决策 2）
+# mark_ready (RFC-0005 Decision 2)
 # --------------------------------------------------------------------------- #
 
 
@@ -764,7 +766,7 @@ def test_mark_ready_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# has_label（RFC-0005 决策 4）
+# has_label (RFC-0005 Decision 4)
 # --------------------------------------------------------------------------- #
 
 
@@ -795,7 +797,7 @@ def test_has_label_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# RFC-0011 T6：current_login 已随签名机制取代而下线，全仓不应再有引用。
+# RFC-0011 T6: current_login has been removed from line with the signature mechanism and should no longer be quoted at the whole warehouse.
 
 
 def test_current_login_removed_from_github_module():
@@ -805,14 +807,14 @@ def test_current_login_removed_from_github_module():
 
 
 # --------------------------------------------------------------------------- #
-# list_issues（RFC-0004 T1：标签门控的 issue 发现）
+# list_issues (issue found by RFC-0004 T1: Label door)
 # --------------------------------------------------------------------------- #
 
 
 def test_list_issues_parses_multiple(monkeypatch):
     payload = json.dumps(
         [
-            {"number": 9, "title": "守夜人模式", "body": "details"},
+            {"number": 9, "title": "Vigil mode", "body": "details"},
             {"number": 7, "title": "rebase", "body": ""},
         ]
     )
@@ -823,13 +825,13 @@ def test_list_issues_parses_multiple(monkeypatch):
 
     assert [i.number for i in issues] == [9, 7]
     assert all(isinstance(i, Issue) for i in issues)
-    assert issues[0].title == "守夜人模式"
+    assert issues[0].title == "Vigil mode"
     assert issues[1].body == ""
     cmd = runner.calls[-1]
     assert cmd[:3] == ["gh", "issue", "list"]
     assert "--state" in cmd and "open" in cmd
     assert "--json" in cmd
-    # 无 label 时不应带 --label
+    # No label should not be with --label
     assert "--label" not in cmd
 
 
@@ -840,7 +842,7 @@ def test_list_issues_passes_each_label(monkeypatch):
     list_issues(labels=["openagents", "vigil"])
 
     cmd = runner.calls[-1]
-    # 每个 label 展开成一对 --label <value>；gh 以并集语义处理。
+    # Each label expands into a pair of --label<value>; gh is processed in a combination of semantics.
     assert cmd.count("--label") == 2
     assert "openagents" in cmd
     assert "vigil" in cmd
@@ -878,12 +880,12 @@ def test_list_issues_gh_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# RFC-0010 T1：_run_gh 瞬时错误重试 + 指数退避
+# RFC-0010 T1: _run_gh Try again with an instant error + Index Refuse
 # --------------------------------------------------------------------------- #
 
 
 def test_is_transient_gh_error_hits_server_markers():
-    # 各服务端瞬时故障标记串（大小写无关）均应判为瞬时。
+    # The instantaneous failure tag string (not case-in-case) at each service end shall be judged as instantaneous.
     for stderr in (
         "HTTP 502 Bad Gateway",
         "HTTP 503",
@@ -896,7 +898,7 @@ def test_is_transient_gh_error_hits_server_markers():
 
 
 def test_is_transient_gh_error_misses_business_errors():
-    # 业务错误绝不算瞬时——否则会把确定性失败反复重试（决策 2）。
+    # Business mistakes are never instantaneous — otherwise they will repeat the certainty failure (decision 2).
     for stderr in ("pull request not found", "no checks reported", "", "label already exists"):
         assert _is_transient_gh_error(stderr=stderr) is False
 
@@ -915,8 +917,8 @@ def test_run_gh_retries_transient_then_succeeds(monkeypatch):
     result = _run_gh(["pr", "checks", "1"], allow_returncodes=set())
 
     assert result.stdout == "ok"
-    assert len(runner.calls) == 2  # 首败 + 次成
-    assert len(sleeps) == 1  # 仅一次退避
+    assert len(runner.calls) == 2  # Top + Top + Top Zone
+    assert len(sleeps) == 1  # One retreat.
 
 
 def test_run_gh_exhausts_retries_then_raises(monkeypatch):
@@ -927,7 +929,7 @@ def test_run_gh_exhausts_retries_then_raises(monkeypatch):
     with pytest.raises(GithubError):
         _run_gh(["pr", "checks", "1"], allow_returncodes=set())
 
-    assert len(runner.calls) == _GH_RETRY_MAX_ATTEMPTS  # 持续瞬时失败 → 尝试到上限
+    assert len(runner.calls) == _GH_RETRY_MAX_ATTEMPTS  # Endurance failure, poaching to limit.
 
 
 def test_run_gh_backoff_is_exponential(monkeypatch):
@@ -939,12 +941,12 @@ def test_run_gh_backoff_is_exponential(monkeypatch):
     with pytest.raises(GithubError):
         _run_gh(["pr", "checks", "1"], allow_returncodes=set())
 
-    # 3 次尝试 → 2 次退避：base·2^0、base·2^1。
+    # Three attempts to retreat two times: base 2 → 0, base 2 → 1.
     assert sleeps == [_GH_RETRY_BACKOFF_BASE, _GH_RETRY_BACKOFF_BASE * 2]
 
 
 def test_run_gh_timeout_is_retried_then_normalized(monkeypatch):
-    # subprocess.TimeoutExpired 视为瞬时、重试；耗尽后归一化为 GithubError（非 TimeoutExpired）。
+    # subprocess.TimeoutExpired is considered to be instantaneous, retried; after exhaustion, it is converted to GithubError (non-TimeoutExpired).
     monkeypatch.setattr(ghmod.time, "sleep", lambda s: None)
     runner = _fake_run_sequence([subprocess.TimeoutExpired(cmd="gh", timeout=30)])
     monkeypatch.setattr(subprocess, "run", runner)
@@ -981,12 +983,12 @@ def test_run_gh_non_transient_error_not_retried(monkeypatch):
     with pytest.raises(GithubError):
         _run_gh(["pr", "view", "1"], allow_returncodes=set())
 
-    assert len(runner.calls) == 1  # 业务错误立即抛、不重试
+    assert len(runner.calls) == 1  # Business error immediately dropped, not retrying
     assert sleeps == []
 
 
 def test_run_gh_allow_returncode_not_retried(monkeypatch):
-    # allow_returncodes 放行的退出码（如 pending=8）不触发重试，行为与现状一致。
+    # allow_returncodes released exit codes (e.g. pending = 8) do not trigger re-testing and act in accordance with the current status quo.
     sleeps: list[float] = []
     monkeypatch.setattr(ghmod.time, "sleep", lambda s: sleeps.append(s))
     runner = _fake_run_sequence([_FakeProc(returncode=8, stdout="[]")])
@@ -1000,7 +1002,7 @@ def test_run_gh_allow_returncode_not_retried(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# list_open_prs（RFC-0009 T1：枚举所有 open PR 供合并后同步扇出）
+# list_open_prs (RFC-0009 T1: All open PR for merge and synchronize)
 # --------------------------------------------------------------------------- #
 
 
@@ -1049,7 +1051,7 @@ def test_list_open_prs_gh_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# update_branch（RFC-0009 T1 决策 2/5：三态——更新 / 已最新 / 冲突）
+# update_branch (RFC-0009 T1 Decision 2/5: Trigenes - Update / Updated / Conflict)
 # --------------------------------------------------------------------------- #
 
 
@@ -1061,7 +1063,7 @@ def test_update_branch_updated_returns_true_default_merge(monkeypatch):
     cmd = runner.calls[-1]
     assert cmd[:3] == ["gh", "pr", "update-branch"]
     assert "42" in cmd
-    # 默认走 merge，不应带 --rebase。
+    # Default to walk merge, should not take --rebase.
     assert "--rebase" not in cmd
 
 
@@ -1074,7 +1076,7 @@ def test_update_branch_rebase_passes_flag(monkeypatch):
 
 
 def test_update_branch_already_up_to_date_returns_false(monkeypatch):
-    # gh 在分支已与 base 同步时以非零退出并报 "already up to date" → 吞为 False，不抛。
+    # gh Exits with non-zero when branch is synchronized with base and reports "already up to date" swallows into False, unscrew.
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -1094,7 +1096,7 @@ def test_update_branch_conflict_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# merge_pr（RFC-0012 决策 1：代码闸 PASS 后自动合入 test）
+# merge_pr (RFC-0012 Decision 1: Code Gate and Auto-Accord to test)
 # --------------------------------------------------------------------------- #
 
 
@@ -1133,7 +1135,7 @@ def test_merge_pr_binds_native_write_to_approved_head(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# add_label（RFC-0012 决策 1/3/5：自动打 rfc-approved / needs-human）
+# add_label (RFC-0012 Decision 1 /3/5: automatically beat refc-approved/ needs-human)
 # --------------------------------------------------------------------------- #
 
 
@@ -1156,7 +1158,7 @@ def test_add_label_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# branch_ci_green（RFC-0012 决策 7；Spec-0023/T1：release 预检 main 分支 CI 全绿）
+# branch_ci_green (RFC-0012 Decision 7; Spec-0023/T1: pre-check ahead of Main Branch CI Green)
 # --------------------------------------------------------------------------- #
 
 
@@ -1188,7 +1190,7 @@ def test_branch_ci_green_failure_false(monkeypatch):
 
 
 def test_branch_ci_green_pending_false(monkeypatch):
-    # 未完成的 check（status != completed）算非绿——pending 不放行。
+    # Unfinished check (status!=completed) is not green -- pending is not allowed.
     payload = json.dumps([{"name": "deploy", "status": "in_progress", "conclusion": None}])
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -1196,7 +1198,7 @@ def test_branch_ci_green_pending_false(monkeypatch):
 
 
 def test_branch_ci_green_no_checks_is_green(monkeypatch):
-    # 无任何 check → 视为绿（与 check_status「无 check 视为 pass」一致）。
+    # No check  →  is considered green (same as check_status "No check is considered pass").
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
 
     assert branch_ci_green(branch="main") is True
@@ -1209,7 +1211,7 @@ def test_branch_ci_green_error_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0055/T5: code_fingerprint 排除证据目录（docs/e2e-results/）——证据 commit 不改源码指纹
+# Spec-0055/T5: code_fingerprint Excludes Evidence Directory (docs/e2e-results/) - Evidence committee does not change source-code fingerprints
 # --------------------------------------------------------------------------- #
 
 _SRC_BLOCK = (
@@ -1242,7 +1244,7 @@ def _patch_diff(monkeypatch, diff):
 
 
 def test_code_fingerprint_ignores_evidence_only_changes(monkeypatch):
-    # 两个 diff 仅证据块不同、源码块相同 → 指纹相等（证据 commit 不改源码指纹，收敛的关键）。
+    # Two diffs are different in the evidence, the source blocks are the same, and the fingerprints are the same (evidence committee does not change the source code, key to condensation).
     from openagents.utils.github import code_fingerprint
 
     _patch_diff(monkeypatch, _SRC_BLOCK + _EVID_BLOCK_A)
@@ -1263,7 +1265,7 @@ def test_code_fingerprint_source_change_flips(monkeypatch):
 
 
 def test_code_fingerprint_evidence_only_diff_is_empty(monkeypatch):
-    # 整个 diff 只有证据块 → 剔除后为空 → 返回 ""（fail-open，sticky 不基于此跳过）。
+    # The whole diff only has the piece of evidence  →   →  & & & & & & return "(fail-open, sticky does not skip on this basis).
     from openagents.utils.github import code_fingerprint
 
     _patch_diff(monkeypatch, _EVID_BLOCK_A)

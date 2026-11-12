@@ -1,12 +1,12 @@
 ---
 number: "0011"
-title: 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+title: "Local Agent Identity + Comment Signatures (Distinguish Self-Comments from Human Comments and Eliminate poll Self-Loops)"
 issue: 28
 slug: agent-identity-comment-signature
-summary: 给本地 agent 一个持久身份并在评论上盖签名，从而区分「自己发的评论」和「真人评论」，根治 poll 把自己评论当新消息的自循环问题。
+summary: "Give the local agent a persistent identity and sign its comments to distinguish comments it posted itself from human comments, eliminating the self-loop in which poll treats its own comments as new messages."
 tasks:
   - id: T1
-    title: state 层 agent_id 持久化
+    title: "Persist agent_id in the state layer"
     status: done
     priority: P1
     tags:
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/state.py
       - tests/test_state.py
-    scope: 在 `State` 上新增 `get_agent_id` / `set_agent_id`，state.json 顶层增可选键 `"agent_id"`；`_load` 容错（缺键返回不含 agent_id 的状态），保持既有 runs/cursors 不变。
-    acceptance: set 后 get 取回同值；未设过时 get 返回 None；写入不破坏既有 runs/cursors；文件缺失/损坏仍容错为空状态。
+    scope: "Add `get_agent_id` / `set_agent_id` to `State`, and add an optional top-level `\"agent_id\"` key to state.json; make `_load` fault-tolerant (if the key is missing, return a state without agent_id), preserving existing runs/cursors."
+    acceptance: "After set, get returns the same value; if never set, get returns None; writes do not damage existing runs/cursors; a missing/corrupted file is still handled gracefully as an empty state."
   - id: T2
-    title: identity 模块（身份解析 + 评论签名）
+    title: "identity module (identity resolution + comment signatures)"
     status: done
     priority: P1
     tags:
@@ -36,10 +36,10 @@ tasks:
     files:
       - openagents/identity.py
       - tests/test_identity.py
-    scope: 新建 `openagents/identity.py`，实现 `resolve_agent_id`（env > state > 生成落盘）、`sign`、`parse_agent_id`、`post_signed_comment`，及签名标记常量与字符集约束。
-    acceptance: '`sign` → `parse_agent_id` 往返一致；无签名/真人正文 `parse_agent_id` 返回 None；`resolve_agent_id` 三级优先级正确，自动生成时落盘且跨调用稳定；`post_signed_comment` 调 `github.post_comment` 且正文带签名（monkeypatch 断言）。'
+    scope: "Create `openagents/identity.py`, implementing `resolve_agent_id` (env > state > generate and persist to disk), `sign`, `parse_agent_id`, and `post_signed_comment`, along with the signature marker constant and character set constraints."
+    acceptance: "`sign` → `parse_agent_id` round-trips consistently; for unsigned comments/human-authored bodies, `parse_agent_id` returns None; `resolve_agent_id` correctly follows the three-level priority order, persists automatically generated IDs to disk, and remains stable across calls; `post_signed_comment` calls `github.post_comment` with a signed body (assert using monkeypatch)."
   - id: T3
-    title: poll 判定剔除自评论 + 游标简化
+    title: "Exclude self-comments from poll processing decisions + simplify cursors"
     status: done
     priority: P1
     tags:
@@ -54,10 +54,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages.py
-    scope: '`Messages.__init__` 增 `agent_id`；`_latest_new_comment` 额外剔除「我自己签名」的评论；`_process_rfc_review` 游标只推进到触发评论；删除 `_newest_comment_id`；`poll` 合并分支把 `agent_id` 透传给 `rebase.rebase_open_prs`。'
-    acceptance: 自己签名的评论不触发处理（含「post 后未推游标即崩溃重启」场景）；其他 agent 签名 / 无签名评论照常触发；refine 后游标等于触发评论的 `created_at`；干活期间到达的真人评论下一轮被处理。
+    scope: "Add `agent_id` to `Messages.__init__`; additionally exclude comments signed by this agent in `_latest_new_comment`; in `_process_rfc_review`, advance the cursor only to the triggering comment; delete `_newest_comment_id`; in the merge branch of `poll`, pass `agent_id` through to `rebase.rebase_open_prs`."
+    acceptance: "Comments signed by this agent do not trigger processing (including the scenario where the process crashes and restarts after posting but before advancing the cursor); comments signed by other agents / unsigned comments still trigger processing as usual; after refine, the cursor equals the triggering comment's `created_at`; human comments arriving while work is in progress are processed in the next cycle."
   - id: T4
-    title: orchestrator 回贴评论盖章
+    title: "Sign comments posted by the orchestrator"
     status: done
     priority: P1
     tags:
@@ -71,10 +71,10 @@ tasks:
     files:
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
-    scope: '`Orchestrator.__init__` 增 `agent_id`；`refine_rfc` 的回贴改走 `identity.post_signed_comment(..., agent_id=self._agent_id)`。'
-    acceptance: '`refine_rfc` 发出的评论正文带本实例签名（monkeypatch `identity.post_signed_comment` 或 `github.post_comment` 断言）；其余流程（commit/push、状态流转）不变。'
+    scope: "Add `agent_id` to `Orchestrator.__init__`; change replies in `refine_rfc` to use `identity.post_signed_comment(..., agent_id=self._agent_id)`."
+    acceptance: "The body of comments posted by `refine_rfc` carries this instance's signature (assert by monkeypatching `identity.post_signed_comment` or `github.post_comment`); the rest of the workflow (commit/push, state transitions) remains unchanged."
   - id: T5
-    title: rebase 冲突评论盖章
+    title: "Sign rebase conflict comments"
     status: done
     priority: P1
     tags:
@@ -88,10 +88,10 @@ tasks:
     files:
       - openagents/rebase.py
       - tests/test_rebase.py
-    scope: '`rebase_open_prs` 增必填 `agent_id`；冲突留言改走 `identity.post_signed_comment(..., agent_id=agent_id)`。'
-    acceptance: 冲突时留言带签名；`agent_id` 正确透传；错误隔离/结果分类行为不变。
+    scope: "Add a required `agent_id` parameter to `rebase_open_prs`; change conflict comments to use `identity.post_signed_comment(..., agent_id=agent_id)`."
+    acceptance: "Comments posted when conflicts occur carry a signature; `agent_id` is passed through correctly; error isolation/result classification behavior remains unchanged."
   - id: T6
-    title: CLI 接线 + 下线 current_login
+    title: "Wire up the CLI + remove current_login"
     status: done
     priority: P1
     tags:
@@ -109,77 +109,76 @@ tasks:
       - openagents/github.py
       - tests/test_cli.py
       - tests/test_github.py
-    scope: '`cli` 解析 `agent_id` 并注入 `Orchestrator` / `Messages`，`_cmd_sync_prs` 透传 `agent_id`；删除 `github.current_login` 及其测试。'
-    acceptance: poll / vigil / sync-prs 端到端拿到一致 agent_id；`current_login` 全仓无引用；ruff + 全量 pytest 通过。
+    scope: "Have `cli` resolve `agent_id` and inject it into `Orchestrator` / `Messages`, and have `_cmd_sync_prs` pass `agent_id` through; delete `github.current_login` and its tests."
+    acceptance: "poll / vigil / sync-prs receive a consistent agent_id end to end; there are no references to `current_login` anywhere in the repository; ruff + the full pytest suite pass."
 ---
 
-# 0011 · 本地 Agent 身份 + 评论签名（区分自评论与真人评论，根治 poll 自循环）
+# 0011 · Local Agent Identity + Comment Signatures (Distinguishing Self-Comments from Human Comments to Eliminate poll Self-Loops)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给每个本地运行的 agent 一个**持久且稳定的身份**（`agent_id`），并在它发出的每条 PR 评论正文上盖一枚**可解析的签名标记**。这样 poll 在拉取评论时就能机械地区分「这条是我自己刚发的」与「这条是真人或其他 agent 发的」，从而根治 poll 把自己的回贴当成新消息、再次触发处理的**自循环**。
+Give every locally running agent a **persistent, stable identity** (`agent_id`), and stamp the body of every PR comment it posts with a **parseable signature marker**. When fetching comments, poll can then mechanically distinguish “I just posted this myself” from “a human or another agent posted this,” eliminating **self-loops** in which poll treats its own reply as a new message and triggers processing again.
 
 ## Motivation
 
-OpenAgents 的 agent 通过 GitHub 式的 PR + comment 机制互相传递消息：每当 PR 上出现一条新评论，agent 就收到「your PR 收到一条评论」并据此推进流程（如 refine RFC、回贴结论）。这套机制有一个致命的反身性缺陷：**agent 自己回贴的评论，对它自己的 poll 而言也是「一条新评论」**。
+OpenAgents agents exchange messages through a GitHub-style PR + comment mechanism: whenever a new comment appears on a PR, the agent receives “your PR received a comment” and advances the workflow accordingly (for example, refining an RFC or posting a conclusion). This mechanism has a fatal reflexive flaw: **a comment posted by the agent itself is also “a new comment” to its own poll**.
 
-旧实现靠「最新评论的作者 != 当前 GitHub 登录名（`github.current_login`）」来过滤自评论。这条判据在多场景下失效：
+The old implementation filtered self-comments using “latest comment author != current GitHub login (`github.current_login`).” This criterion fails in several scenarios:
 
-- 同一个 GitHub 账号下并行跑多个 agent 实例时，登录名相同，无法区分「是我这个实例发的」还是「另一个实例发的」——后者本应被当作真消息处理。
-- 依赖一次额外的网络调用（取 current login），既慢又是一个可失败点。
-- 「post 评论后、还没来得及推进游标就崩溃重启」这一窗口里，重启后的 poll 会把那条自评论当新消息，触发**重复处理 / 自循环**。
+- When multiple agent instances run concurrently under the same GitHub account, their login names are identical, so it cannot distinguish “this instance posted it” from “another instance posted it”—the latter should be processed as a real message.
+- It depends on an additional network call (to fetch the current login), which is both slow and a potential point of failure.
+- In the window where the agent “crashes and restarts after posting a comment but before it has time to advance the cursor,” poll after restart treats that self-comment as a new message, triggering **duplicate processing / a self-loop**.
 
-根因是 agent **没有一个独立于 GitHub 账号的、进程级稳定的身份**，也没有把这个身份**钉在它产出的消息上**。本 feature 引入持久 `agent_id` + 评论签名，把「这条评论是谁发的」从「猜作者登录名」变成「读正文里的签名」，使自评论判定变得确定、本地、可在重启后保持。
+The root cause is that the agent **has no process-level stable identity independent of the GitHub account**, and does not **attach that identity to the messages it produces**. This feature introduces a persistent `agent_id` + comment signatures, changing “who posted this comment” from “guess from the author's login” to “read the signature in the body,” making self-comment detection deterministic, local, and persistent across restarts.
 
 ## Guide-level explanation
 
-引入两个概念：
+Introduce two concepts:
 
-- **agent_id（身份）**：一个进程级稳定的标识符。解析优先级为 **env > state > 自动生成并落盘**：显式给了环境变量就用它；否则读 state.json 里持久化的 `agent_id`；都没有就生成一个、写回 state.json，于是后续调用（含重启后）拿到的是同一个 id。
-- **评论签名（消息盖章）**：agent 发评论时，正文里嵌一枚带 `agent_id` 的签名标记。任何一方读到这条评论，都能用 `parse_agent_id` 从正文还原出发送者的 `agent_id`；真人评论或无签名评论解析结果为 `None`。
+- **agent_id (identity)**: A process-level stable identifier. Resolution precedence is **env > state > automatic generation and persistence**: use the environment variable if explicitly provided; otherwise, read the `agent_id` persisted in state.json; if neither exists, generate one and write it back to state.json, so subsequent calls (including after a restart) receive the same id.
+- **Comment signature (message stamp)**: When an agent posts a comment, it embeds a signature marker containing its `agent_id` in the body. Any party reading the comment can use `parse_agent_id` to recover the sender's `agent_id` from the body; human comments or unsigned comments parse to `None`.
 
-接好之后，poll 的判定从「最新评论作者 != 我的登录名」改为「最新评论的**签名** != 我的 `agent_id`」。于是：自己刚发的评论被精确剔除（即便崩溃重启、即便同账号多实例并行）；别的 agent 盖了**不同**签名的评论、以及真人发的**无**签名评论，照常被当作新消息处理。`github.current_login` 这条旧判据随之整体下线。
+Once wired up, poll's criterion changes from “latest comment author != my login” to “latest comment's **signature** != my `agent_id`.” As a result, comments just posted by the agent itself are precisely excluded (even after a crash and restart, and even with multiple instances running concurrently under the same account); comments stamped with a **different** signature by other agents, and **unsigned** comments posted by humans, continue to be processed as new messages. The old `github.current_login` criterion is then retired entirely.
 
 ## Reference-level explanation
 
-落到改动，分解为 6 个 Task（DAG 见末尾；`files` 互斥，各 Task 单一 writer）：
+The changes are broken down into 6 Tasks (see the DAG at the end; `files` are mutually exclusive, with a single writer per Task):
 
-1. **T1 state 层 agent_id 持久化**（无依赖）—— `State` 新增 `get_agent_id` / `set_agent_id`，state.json 顶层增可选键 `"agent_id"`。`_load` 对缺键容错（返回不含 agent_id 的状态），既有 `runs` / `cursors` 结构不变。这是 `agent_id` 的持久化底座，被 T2 的「生成后落盘」依赖。
-2. **T2 identity 模块**（依赖 T1）—— 新建 `openagents/identity.py`：`resolve_agent_id`（env > state > 生成并落盘，落盘走 T1 的 `set_agent_id`）、`sign`（把 `agent_id` 编成正文签名标记）、`parse_agent_id`（从正文反解，无签名返回 `None`）、`post_signed_comment`（包装 `github.post_comment`，正文自动带签名）。同时定义签名标记常量与 `agent_id` 字符集约束，保证 `sign` → `parse_agent_id` 往返无歧义。这是 T3/T4/T5 共享的签名能力中枢。
-3. **T3 poll 判定剔除自评论 + 游标简化**（依赖 T2、T5）—— `Messages.__init__` 增 `agent_id`；`_latest_new_comment` 在原有「新于游标」的基础上**额外剔除签名等于自身 `agent_id`** 的评论；`_process_rfc_review` 的游标**只推进到触发评论**（不再跳到最新），消除「post 后未推游标即崩溃」的自循环窗口；删除不再需要的 `_newest_comment_id`；`poll` 的合并分支把 `agent_id` 透传给 `rebase.rebase_open_prs`（故依赖 T5 的签名形参就位）。
-4. **T4 orchestrator 回贴评论盖章**（依赖 T2）—— `Orchestrator.__init__` 增 `agent_id`；`refine_rfc` 回贴结论改走 `identity.post_signed_comment(..., agent_id=self._agent_id)`，使其产出的评论自带签名、被 T3 识别为自评论。commit/push 与状态流转逻辑不变。
-5. **T5 rebase 冲突评论盖章**（依赖 T2）—— `rebase_open_prs` 增**必填** `agent_id`；rebase 冲突时的留言改走 `identity.post_signed_comment(..., agent_id=agent_id)`。错误隔离与结果分类行为不变。
-6. **T6 CLI 接线 + 下线 current_login**（依赖 T3、T4、T5）—— `cli` 在入口解析 `agent_id`（经 `resolve_agent_id`）并注入 `Orchestrator` / `Messages`，`_cmd_sync_prs` 把 `agent_id` 透传给 rebase 路径；删除 `github.current_login` 及其测试（旧自评论判据已被签名取代，全仓无残留引用）。
+1. **T1 Persist agent_id in the state layer** (no dependencies) — Add `get_agent_id` / `set_agent_id` to `State`, and add an optional top-level key `"agent_id"` to state.json. `_load` tolerates a missing key (returning state without agent_id), and the existing `runs` / `cursors` structures remain unchanged. This provides the persistence foundation for `agent_id`, required by T2's “persist after generation” step.
+2. **T2 identity module** (depends on T1) — Create `openagents/identity.py`: `resolve_agent_id` (env > state > generate and persist, using T1's `set_agent_id` for persistence), `sign` (encode `agent_id` as a signature marker in the body), `parse_agent_id` (decode it from the body, returning `None` if unsigned), and `post_signed_comment` (wrap `github.post_comment`, automatically adding a signature to the body). Also define signature marker constants and `agent_id` character-set constraints to ensure an unambiguous `sign` → `parse_agent_id` round trip. This is the shared signature functionality hub for T3/T4/T5.
+3. **T3 Exclude self-comments in poll + simplify cursors** (depends on T2, T5) — Add `agent_id` to `Messages.__init__`; in addition to the existing “newer than the cursor” criterion, `_latest_new_comment` **also excludes comments whose signature equals its own `agent_id`**; the cursor in `_process_rfc_review` **advances only to the triggering comment** (no longer jumping to the latest one), eliminating the self-loop window caused by “a crash after posting but before advancing the cursor”; delete the now-unneeded `_newest_comment_id`; the merge branch in `poll` passes `agent_id` through to `rebase.rebase_open_prs` (hence the dependency on T5 having the signature parameter in place).
+4. **T4 Stamp orchestrator reply comments** (depends on T2) — Add `agent_id` to `Orchestrator.__init__`; change conclusion replies in `refine_rfc` to use `identity.post_signed_comment(..., agent_id=self._agent_id)`, so the comments it produces carry signatures and are recognized as self-comments by T3. The commit/push and state transition logic remain unchanged.
+5. **T5 Stamp rebase conflict comments** (depends on T2) — Add a **required** `agent_id` to `rebase_open_prs`; change comments posted on rebase conflicts to use `identity.post_signed_comment(..., agent_id=agent_id)`. Error isolation and result classification behavior remain unchanged.
+6. **T6 CLI wiring + retire current_login** (depends on T3, T4, T5) — At entry, `cli` resolves `agent_id` (via `resolve_agent_id`) and injects it into `Orchestrator` / `Messages`; `_cmd_sync_prs` passes `agent_id` through to the rebase path; delete `github.current_login` and its tests (signatures have replaced the old self-comment criterion, with no remaining references anywhere in the repository).
 
-**端到端验证**：本 feature 的验证以全量单测为准 —— `ruff check` + `pytest`（各 Task 的 `tests/test_*.py` 用 monkeypatch 打桩 `github.post_comment` / state IO，断言签名往返、自评论剔除、游标只进到触发评论、`current_login` 无引用）。仓库 `scripts/` 下暂无本 feature 专属 e2e 脚本；如需对外回归，应新增 `scripts/e2e-spec-0011-agent-identity.sh` 离线串起上述断言。
+**End-to-end validation**: Validation of this feature is based on the full unit test suite — `ruff check` + `pytest` (each Task's `tests/test_*.py` uses monkeypatch to stub `github.post_comment` / state IO, asserting signature round trips, self-comment exclusion, cursor advancement only to the triggering comment, and no references to `current_login`). There is currently no e2e script dedicated to this feature under the repository's `scripts/`; if external regression testing is needed, add `scripts/e2e-spec-0011-agent-identity.sh` to chain together the assertions above offline.
 
-依赖 DAG：`T1 → T2`，`T2 → T3`，`T2 → T4`，`T2 → T5`，`T5 → T3`，`T3 → T6`，`T4 → T6`，`T5 → T6`。
+Dependency DAG: `T1 → T2`, `T2 → T3`, `T2 → T4`, `T2 → T5`, `T5 → T3`, `T3 → T6`, `T4 → T6`, `T5 → T6`.
 
 ## Drawbacks
 
-- 评论正文里多了一枚签名标记，对人类读者是轻微噪音（需保证标记紧凑、不喧宾夺主）。
-- `agent_id` 一旦落盘即长期存在；若同一工作目录被多个本不相干的用途复用，可能误共享身份（实践中 state.json 与工作树一一对应，风险可控）。
+- An additional signature marker in the comment body introduces minor noise for human readers (the marker must remain compact and unobtrusive).
+- Once persisted, `agent_id` remains for the long term; if the same working directory is reused for multiple unrelated purposes, they may inadvertently share an identity (in practice, state.json corresponds one-to-one with a worktree, so the risk is manageable).
 
 ## Rationale and alternatives
 
-- **为什么用「正文签名」而非「靠作者登录名」**：登录名在同账号多实例并行下不可区分，且需额外网络调用、有崩溃重启窗口。把身份钉在消息正文里，判定变成纯本地的字符串解析，确定、可重启保持、零额外网络调用。
-- **为什么 `agent_id` 落 state.json 而非纯环境变量**：环境变量适合显式覆盖，但默认场景下需要一个**无需配置即稳定**的身份，故采用 env > state > 生成落盘 三级，兼顾可覆盖与零配置稳定。
-- **为什么游标「只推进到触发评论」**：把「处理动作」与「游标推进」对齐到同一条触发评论，消除「已 post 自评论、游标尚未越过它就崩溃」导致下一轮重复处理的窗口；配合签名剔除形成双保险。
-- **备选：给评论打 GitHub label / 用 reactions 标记**。否决（YAGNI + 解耦）：label/reaction 需额外 API、且不随正文流转；正文签名零依赖、随消息天然携带。
+- **Why use a “body signature” rather than “rely on the author's login”**: Login names cannot distinguish multiple instances running concurrently under the same account, require an additional network call, and leave a crash-and-restart window. Attaching the identity to the message body makes detection purely local string parsing: deterministic, persistent across restarts, and requiring zero additional network calls.
+- **Why persist `agent_id` in state.json rather than use only an environment variable**: Environment variables are suitable for explicit overrides, but the default scenario needs an identity that is **stable without configuration**, hence the three-level env > state > generate and persist approach, supporting both overrides and zero-configuration stability.
+- **Why the cursor “advances only to the triggering comment”**: Aligning the “processing action” and “cursor advancement” with the same triggering comment eliminates the window where “a self-comment has been posted, but a crash occurs before the cursor has moved past it,” causing duplicate processing in the next round; together with signature-based exclusion, this provides two safeguards.
+- **Alternative: Apply a GitHub label to comments / mark them with reactions**. Rejected (YAGNI + decoupling): labels/reactions require additional APIs and do not travel with the body; body signatures have zero dependencies and naturally travel with the message.
 
 ## Prior art
 
-「在消息体内嵌可解析的发送者标记以实现自我识别 / 防回环」是消息系统的常见做法（如邮件的 `Message-ID` / `In-Reply-To`、机器人为避免响应自身消息而校验 sender id）。本 feature 取其「用稳定身份标识消息来源、据此过滤自身」的核心，落到 PR 评论这一具体载体上。
+“Embedding a parseable sender marker in a message body for self-identification / loop prevention” is common practice in messaging systems (such as email's `Message-ID` / `In-Reply-To`, or bots checking sender ids to avoid responding to their own messages). This feature takes the core idea of “using a stable identity to identify message origins and filter out one's own messages” and applies it to the specific medium of PR comments.
 
 ## Unresolved questions
 
-无。身份解析优先级、签名往返、游标语义、`current_login` 下线均已在本组确定。
+None. Identity resolution precedence, signature round trips, cursor semantics, and retirement of `current_login` have all been settled within this group.
 
 ## Future possibilities
 
-- 签名可扩展为携带更多结构化元数据（如所接 coding agent 类型 claude-code / codex），供前端区分不同 agent 的产出。
-- 多 agent 协同时，可基于签名做评论归属可视化 / 审计。
-- 补一条 `scripts/e2e-spec-0011-agent-identity.sh` 离线端到端脚本，串联签名往返 + 自评论剔除回归。
-
+- Signatures could be extended to carry more structured metadata (such as the type of connected coding agent, claude-code / codex), allowing the frontend to distinguish output from different agents.
+- In collaboration among multiple agents, signatures could support visualization / auditing of comment ownership.
+- Add an offline end-to-end script, `scripts/e2e-spec-0011-agent-identity.sh`, chaining together regression checks for signature round trips + self-comment exclusion.

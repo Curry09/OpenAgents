@@ -1,43 +1,43 @@
 ---
 number: "0081"
-title: 自治失败收口与单份 Prompt 契约
+title: "Autonomous Failure Closure and the Single-Copy Prompt Contract"
 issue: 0
 slug: autonomous-failure-and-prompt-contract
-summary: 移除 needs-human 控制协议、标签终态、人工阶段与 hold 入口，以有限重试和 automation-failed 机器终态闭合无人值守状态机；同时规定大段动态材料只经 context 传输一次，并以运行时重叠校验和 stdin 传输阻止 prompt 重复与 argv 膨胀。
+summary: "Remove the needs-human control protocol, terminal label states, human stages, and hold entry points, closing the unattended state machine with bounded retries and the automation-failed machine terminal state; also require large dynamic materials to be transmitted only once through context, with runtime overlap checks and stdin transport preventing prompt duplication and argv bloat."
 e2e:
-  intent: 证明所有生产角色的一次调用只携带一份动态材料，Claude Code 子进程不在 argv 暴露或复制 prompt；证明模型拒绝、协议错误、连续崩溃、零进展和超时均在有限调用内收敛到可解释的 automation-failed，同一事实不再调用模型，而材料事实变化后可由自动化自行复活，整个活动运行面不再产生或消费 needs-human。
-  method: 运行 scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh；脚本用记录型 backend 覆盖 triage、draft、architecture、implement、reply、test、review、merge 的真实组装路径，以唯一 sentinel 断言最终 prompt 中只出现一次，并以 Popen seam 断言 prompt 只经 stdin；随后在临时 SQLite 队列与假 forge 上分别注入可重试崩溃、旧 needs-human 输出、零进展和事实变化，断言调用次数有界、automation-failed 标签与带 fingerprint 的签名诊断落地、未变事实不重派、变化事实自动清除失败态并重新入队；最后扫描活动源码、模板、CLI help 与桌面类型，除专用迁移脚本外不得出现 needs-human、OWNER_HUMAN 或 --hold。
+  intent: "Prove that each invocation of every production role carries only one copy of dynamic material, and that the Claude Code subprocess neither exposes nor duplicates the prompt in argv; prove that model refusals, protocol errors, repeated crashes, zero progress, and timeouts all converge to an explainable automation-failed within a bounded number of invocations, that the model is not invoked again for the same facts, and that automation can revive the work on its own after the material facts change, with the entire active runtime surface no longer producing or consuming needs-human."
+  method: "Run scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh; the script uses a recording backend to cover the actual assembly paths for triage, draft, architecture, implement, reply, test, review, and merge, uses a unique sentinel to assert that it appears exactly once in the final prompt, and uses a Popen seam to assert that the prompt is passed only through stdin; it then injects retryable crashes, legacy needs-human output, zero progress, and fact changes into a temporary SQLite queue and a fake forge, asserting bounded invocation counts, persistence of the automation-failed label and a signed diagnostic containing a fingerprint, no redispatch for unchanged facts, and automatic clearing of the failure state and re-enqueuing for changed facts; finally, it scans active source code, templates, CLI help, and desktop types, where needs-human, OWNER_HUMAN, and --hold must not appear except in the dedicated migration script."
 architecture:
-  objective: 让 OpenAgents 的无人值守循环既不把无法完成的工作甩给人工终态，也不因相同输入无限重试；同时消除角色指令与上下文重复携带造成的 token 浪费、argv 上限和进程列表暴露。
+  objective: "Ensure that the OpenAgents unattended loop neither offloads work it cannot complete to a terminal state requiring human intervention nor retries indefinitely on identical inputs; also eliminate token waste, argv limits, and exposure in process listings caused by carrying duplicate role instructions and context."
   constraints:
-    - 合并、CI、证据戳、分支归属与交付真实性等确定性安全硬闸不得因移除人工出口而降级或跳过。
-    - 瞬时 backend、网络、进程和协议失败只能在既有有界预算内重试；耗尽后必须停止模型调用并留下机器可读原因。
-    - automation-failed 必须绑定不含自身标签的事实 fingerprint；只有相关事实变化或显式重试才可复活，不能按 tick 自动重烧。
-    - 活着且持锁的 IN_FLIGHT 任务不得被看门狗终止化或重领；硬超时后的持有者失败仍走同一有界重试路径。
-    - 大段动态载荷只有 context 一个所有者；task 只含稳定角色指令和短标量定位符，最终模型输入每段动态材料至多一份。
-    - Claude Code prompt 必须经 stdin 传入，argv 不含 prompt 正文；stream-json 输出、工具事件、token usage 与 watchdog 行为保持不变。
-    - 旧仓库状态必须有显式、幂等、可审计的迁移路径，升级不能让既有挂起对象静默重新开工。
+    - "Deterministic safety gates for merging, CI, evidence stamps, branch ownership, and delivery authenticity must not be weakened or skipped as a result of removing the human intervention exit."
+    - "Transient backend, network, process, and protocol failures may be retried only within the existing bounded budget; once it is exhausted, model invocations must stop and a machine-readable reason must be left behind."
+    - "automation-failed must be bound to a facts fingerprint that excludes its own label; revival is allowed only when relevant facts change or an explicit retry is requested, and must not automatically burn through more model invocations on each tick."
+    - "An IN_FLIGHT task whose process is alive and holding the lock must not be moved to a terminal state or reclaimed by the watchdog; failure of the holder after a hard timeout must still follow the same bounded retry path."
+    - "context is the sole owner of large dynamic payloads; task contains only stable role instructions and short scalar locators, and the final model input contains at most one copy of each piece of dynamic material."
+    - "The Claude Code prompt must be passed through stdin, with no prompt body in argv; stream-json output, tool events, token usage, and watchdog behavior remain unchanged."
+    - "Legacy repository state must have an explicit, idempotent, auditable migration path; upgrading must not silently restart existing suspended objects."
   non-goals:
-    - 不承诺所有 issue 都能由模型完成，也不把 automation-failed 包装成成功。
-    - 不移除人类评论回复能力；人仍可补充事实，但自动流程不以等待人作为必经状态。
-    - 不改变各角色的业务判断边界、模型选择或本轮瘦身实验的角色拆分方案。
-    - 不在本 spec 引入无限自反思、跨 subject 共享重试预算或新的外部队列服务。
+    - "There is no promise that the model can complete every issue, and automation-failed must not be presented as success."
+    - "Do not remove the ability to reply to human comments; people can still supply additional facts, but waiting for a person is not a mandatory state in the automated flow."
+    - "Do not change the boundaries of each role's business decisions, model selection, or the role decomposition used in the current slimming experiment."
+    - "Do not introduce unlimited self-reflection, retry budgets shared across subjects, or a new external queue service in this spec."
   candidates:
     - id: rename-only
       layer: forge-label
       boundary:
         - needs-human label
       evidence:
-        - 当前 engine envelope、human owner、hold、watchdog、release 和 desktop 都依赖同一人工语义
-      tradeoffs: 改名成本低，但仍是等待人的旧状态机，且无法解决无界重派和 prompt 重复。
+        - "The current engine envelope, human owner, hold, watchdog, release, and desktop all depend on the same human-intervention semantics"
+      tradeoffs: "Renaming is inexpensive, but it retains the old state machine that waits for people and cannot resolve unbounded redispatch or prompt duplication."
     - id: always-retry
       layer: vigil-reconciliation
       boundary:
         - queue attempts
         - watchdog
       evidence:
-        - 当前 poison task 已需要 MAX_ATTEMPTS 防止持续占槽
-      tradeoffs: 表面无人介入，实际会对相同事实无限烧模型并淹没队列。
+        - "Current poison tasks already require MAX_ATTEMPTS to prevent them from continually occupying slots"
+      tradeoffs: "It appears unattended, but in practice it burns through model invocations indefinitely on identical facts and floods the queue."
     - id: fingerprinted-machine-failure
       layer: runtime-contract-and-orchestrator
       boundary:
@@ -46,80 +46,80 @@ architecture:
         - vigil state machine
         - forge projection
       evidence:
-        - vigil 已有稳定 facts fingerprint、attempt stamp、队列 attempts 与持锁回收原语
-        - GLM FP8 issue 17 的 E2BIG 与 1800 秒外层超时两次被投影成 needs-human，但修复传输、恢复 checkpoint 和网络后同一工作最终合并，证明它们是可恢复机器故障而非必须由人裁决的业务状态
-      tradeoffs: 迁移面较大，但能复用现有确定性原语，把停止与复活都绑定到可观测事实。
+        - "vigil already has stable facts fingerprints, attempt stamps, queue attempts, and lock-aware reclamation primitives"
+        - "E2BIG and the 1800-second outer timeout for GLM FP8 issue 17 were both projected as needs-human, but after fixing transport, restoring the checkpoint, and resolving network problems, the same work was ultimately merged, demonstrating that these were recoverable machine failures rather than business states that required human judgment"
+      tradeoffs: "The migration surface is relatively large, but existing deterministic primitives can be reused to bind both stopping and revival to observable facts."
     - id: role-by-role-prompt-cleanup
       layer: agent-prompts
       boundary:
         - individual Template placeholders
       evidence:
-        - Architect 已有局部单份化修补，而 Curator、Drafter、Triager 与 Replier 仍可重复载荷
-        - issue 17 的 Architect 输入由约 145 KB 且完整 Spec 出现两次降到 73,834 bytes 且只出现一次后即可正常启动，但 backend 仍受 argv 单参数约 128 KiB 上限约束
-      tradeoffs: 可降低当前 token，但没有运行时不变量，新增角色或调用点很容易回归。
+        - "Architect already has a local fix to carry a single copy, while Curator, Drafter, Triager, and Replier can still duplicate payloads"
+        - "Architect for issue 17 could start normally once its input was reduced from approximately 145 KB with the complete Spec appearing twice to 73,834 bytes with it appearing only once, but the backend was still subject to the approximately 128 KiB limit on a single argv argument"
+      tradeoffs: "This can reduce current token usage, but without a runtime invariant, new roles or invocation sites can easily cause regressions."
   selected: fingerprinted-machine-failure
   affected-components:
-    - runtime.engine 与 runtime.context 的单份输入协议
-    - ClaudeCodeBackend 的 stdin 传输
-    - agents 与 recipes.stages 的动态载荷组装
-    - recipes.vigil 的分类、重试、看门狗、失败投影与复活
-    - forge 标签、runtime state、release 与 desktop 观测
-    - agent_config、CLI、默认配置和旧状态迁移
+    - "The single-copy input protocol for runtime.engine and runtime.context"
+    - "stdin transport for ClaudeCodeBackend"
+    - "Dynamic payload assembly in agents and recipes.stages"
+    - "Classification, retries, watchdog, failure projection, and revival in recipes.vigil"
+    - "Forge labels, runtime state, release, and desktop observability"
+    - "agent_config, CLI, default configuration, and legacy state migration"
   failure-modes:
-    - 重叠校验过宽误把短标量或公共措辞当成重复载荷时，backend 不会被调用并给出具体冲突段，测试必须覆盖允许的短标量。
-    - stdin 写入失败、子进程提前退出或管道关闭时，backend 必须按原有非零调用失败上抛，不能吞错或丢 watchdog 回收。
-    - failure fingerprint 若包含 automation-failed 标签本身会自触发复活；计算时必须显式排除失败投影字段。
-    - 到达重试上限后若先删队列行再写 forge，forge 短暂失败会重置 attempts；必须先原子落失败投影，再删队列行。
-    - 旧 needs-human 对象若未迁移而运行时又不再识别，可能意外重启；升级前检查必须 fail-closed，迁移命令完成后才允许 vigil 启动。
-    - 旧 human 配置若被静默改成 skip 会降低安全闸；加载器必须拒绝并指导改成 agent，不能猜测迁移意图。
+    - "If overly broad overlap validation incorrectly treats short scalars or common wording as duplicate payloads, the backend will not be invoked and the specific conflicting segments will be reported; tests must cover permitted short scalars."
+    - "If writing to stdin fails, the subprocess exits early, or the pipe closes, the backend must propagate the error using the existing nonzero invocation failure behavior; it must not swallow the error or lose watchdog reclamation."
+    - "If the failure fingerprint includes the automation-failed label itself, it will trigger its own revival; failure projection fields must be explicitly excluded from the calculation."
+    - "If the queue row is deleted before writing to the forge after the retry limit is reached, a transient forge failure will reset attempts; the failure projection must first be persisted atomically, and only then may the queue row be deleted."
+    - "If legacy needs-human objects are not migrated and the runtime no longer recognizes them, they may restart unexpectedly; the pre-upgrade check must fail-closed, and vigil may start only after the migration command completes."
+    - "Silently changing legacy human configuration to skip would weaken safety gates; the loader must reject it and instruct the user to change it to agent, rather than guessing the intended migration."
 verification:
   behavior-cases:
     - id: prompt-payload-single-copy
       polarity: positive
-      stimulus: 用含唯一长 sentinel 的 issue、评论、Spec、evidence 和 ready issue 快照运行每个生产角色组装路径
-      expected: backend 收到的 task 不含该动态载荷、context 含且仅含一份，最终组装 prompt 中 sentinel 恰好出现一次
-      observation: 记录型 backend 捕获的 task/context 与 _build_prompt 结果
+      stimulus: "Run every production role's assembly path with issue, comment, Spec, evidence, and ready issue snapshots containing unique long sentinels"
+      expected: "The task received by the backend does not contain the dynamic payload, context contains exactly one copy, and the sentinel appears exactly once in the final assembled prompt"
+      observation: "The task/context captured by the recording backend and the _build_prompt result"
     - id: duplicate-payload-rejected-before-dispatch
       polarity: negative
-      stimulus: 调用 run_agent 时让同一段非短动态文本同时经 Template placeholder 和 context 注入
-      expected: 抛 AgentOutputError，错误指出重复段，backend 调用数为零
-      observation: tests/test_runtime_engine.py 的异常与 spy 计数
+      stimulus: "When calling run_agent, inject the same non-short dynamic text through both a Template placeholder and context"
+      expected: "Raise AgentOutputError, with the error identifying the duplicate segment and the backend invocation count equal to zero"
+      observation: "The exception and spy count in tests/test_runtime_engine.py"
     - id: prompt-not-in-argv
       polarity: negative
-      stimulus: 传入超过典型 ARG_MAX 风险长度且带秘密 sentinel 的 prompt
-      expected: Popen argv 不含 sentinel 或 prompt 正文，stdin 完整收到一次输入，stream-json 结果照常解析
-      observation: tests/test_backend_claude_code.py 的 Popen seam 与结果断言
+      stimulus: "Pass a prompt whose length exceeds the typical ARG_MAX risk threshold and that contains a secret sentinel"
+      expected: "Popen argv contains neither the sentinel nor the prompt body, stdin receives the complete input exactly once, and the stream-json result is parsed as usual"
+      observation: "The Popen seam and result assertions in tests/test_backend_claude_code.py"
     - id: bounded-failure-convergence
       polarity: positive
-      stimulus: 同一 subject 连续触发 backend 崩溃、协议错误或 agent 旧 needs_human envelope
-      expected: 不超过 MAX_ATTEMPTS 次调用即落 automation-failed、删除队列行并记录 category/attempts/fingerprint；后续相同事实 tick 不再调用 backend
-      observation: 临时队列、假 forge 标签/评论与 backend 调用计数
+      stimulus: "Repeatedly trigger backend crashes, protocol errors, or a legacy agent needs_human envelope for the same subject"
+      expected: "Within no more than MAX_ATTEMPTS invocations, apply automation-failed, delete the queue row, and record category/attempts/fingerprint; subsequent ticks with identical facts do not invoke the backend again"
+      observation: "The temporary queue, fake forge labels/comments, and backend invocation count"
     - id: changed-facts-auto-revive
       polarity: positive
-      stimulus: automation-failed 后改变 issue 正文、PR head、CI、评论或依赖完成度之一
-      expected: 新 fingerprint 与失败戳不同，Vigil 自动清除失败投影并按新事实重新分类；不要求任何人工专用信号
-      observation: 假 forge 调用序与重新入队记录
+      stimulus: "After automation-failed, change one of the issue body, PR head, CI, comments, or dependency completion status"
+      expected: "The new fingerprint differs from the failure stamp, and Vigil automatically clears the failure projection and reclassifies based on the new facts; no dedicated human signal is required"
+      observation: "The fake forge call order and re-enqueue records"
     - id: live-holder-not-terminalized
       polarity: negative
-      stimulus: claimed 行超龄但对应 flock 仍由存活 agent 进程持有
-      expected: 只记录 stalled telemetry，不加 automation-failed、不删行、不重领；持有者退出后才由回收与重试规则接管
-      observation: 多进程锁 e2e 的标签、队列 owner 与并发调用数
+      stimulus: "A claimed row exceeds the age threshold, but its corresponding flock is still held by a live agent process"
+      expected: "Record only stalled telemetry: do not add automation-failed, delete the row, or reclaim it; reclamation and retry rules take over only after the holder exits"
+      observation: "Labels, queue owner, and concurrent invocation count in the multiprocess lock e2e"
     - id: legacy-state-fails-closed-until-migrated
       polarity: negative
-      stimulus: 仓库存在旧 needs-human label、blocked run 或 stages owner=human
-      expected: vigil 启动给出迁移诊断且零 agent 调用；迁移命令幂等改写 label/state 后可启动，human 配置仍须显式改为 agent
-      observation: 迁移脚本前后 forge/state/config 快照与进程退出码
+      stimulus: "The repository contains a legacy needs-human label, a blocked run, or stages owner=human"
+      expected: "vigil startup reports a migration diagnostic and makes zero agent invocations; startup is allowed after the migration command idempotently rewrites label/state, while human configuration must still be explicitly changed to agent"
+      observation: "Forge/state/config snapshots before and after the migration script, and process exit codes"
   repository-invariants:
-    - 活动 Python、TypeScript、默认配置、README 和 CLI help 中除专用迁移脚本及历史 specs/evidence 外不再出现 needs-human、NeedsHumanRequest、OWNER_HUMAN 或 --hold。
-    - engine 不再接受任何角色级人工控制 envelope；包含 needs_human 的模型输出只能成为普通协议错误并进入有界失败路径。
-    - automation-failed 是失败事实的 forge 投影，不是要求人回复的状态；诊断文案不得承诺“等你”“摘标签即继续”或“交人接手”。
-    - 同一未变化 fingerprint 最多消费一次动作尝试组和一个幂等失败诊断；进程级重试总数不超过既有 MAX_ATTEMPTS。
-    - failure fingerprint 排除 automation-failed 标签、签名失败评论和本地队列元数据，但覆盖所有会改变下一步动作的远端事实。
-    - 所有 prompt 组装测试断言动态载荷单份，Claude Code argv 仅含可执行名、模式和输出控制参数。
+    - "needs-human, NeedsHumanRequest, OWNER_HUMAN, and --hold no longer appear in active Python, TypeScript, default configuration, README, or CLI help, except in the dedicated migration script and historical specs/evidence."
+    - "The engine no longer accepts any role-level human-control envelope; model output containing needs_human can only become an ordinary protocol error and enter the bounded failure path."
+    - "automation-failed is the forge projection of failure facts, not a state requiring a human reply; diagnostic messages must not promise to \"wait for you,\" say \"remove the label to continue,\" or \"hand off to a person.\""
+    - "The same unchanged fingerprint consumes at most one group of action attempts and one idempotent failure diagnostic; the total number of process-level retries does not exceed the existing MAX_ATTEMPTS."
+    - "The failure fingerprint excludes the automation-failed label, signed failure comments, and local queue metadata, but covers all remote facts that would change the next action."
+    - "All prompt assembly tests assert that dynamic payloads appear only once, and Claude Code argv contains only the executable name, mode parameters, and output control parameters."
   exemptions: []
 tasks:
   - id: T1
-    title: 单份 Prompt Envelope 与 needs-human 模型协议退役
+    title: "Single-Copy Prompt Envelope and Retirement of the needs-human Model Protocol"
     status: done
     priority: P0
     tags: []
@@ -156,12 +156,10 @@ tasks:
       - tests/test_agents_triager_replier.py
       - tests/test_recipe_stages.py
       - tests/test_prompt_contract.py
-    scope: >-
-      把 engine/backend 之间的调用明确为 instructions task + dynamic context 单份 envelope：角色 Template 只保留稳定指令和短标量，issue 正文、评论、Spec、快照、反馈与 evidence 统一由 context 带标题的 section；engine 在派 backend 前对渲染 task/context 做规范化重叠检查，拒绝重复的非短动态段。ClaudeCodeBackend 改用 claude -p 从 stdin 读取最终 prompt，argv 不再携带正文，并保持 stream、watchdog、工具事件与 usage。删除 NeedsHumanRequest、needs_human envelope 识别和角色提示中的人工出口；旧 envelope 作为 schema/protocol error 上抛。
-    acceptance: >-
-      单测覆盖每个生产角色真实调用路径的 sentinel 单份计数、重复载荷在 backend 前被拒绝、短 ID/branch 公共标量不误报；Popen spy 证明超长 prompt 只写 stdin 一次且 argv 无正文，正常/非零/超时/usage 路径无回归；engine 对旧 needs_human JSON 报协议错误且不再暴露 NeedsHumanRequest。
+    scope: "Define calls between engine/backend explicitly as a single envelope containing instructions task + dynamic context: role Template retains only stable instructions and short scalars, while issue bodies, comments, Spec, snapshots, feedback, and evidence are all carried in titled sections in context; before dispatching to the backend, the engine performs a normalized overlap check on the rendered task/context and rejects duplicated dynamic segments that are not short. Change ClaudeCodeBackend to use claude -p to read the final prompt from stdin, so argv no longer carries the body, while preserving stream, watchdog, tool events, and usage. Delete NeedsHumanRequest, needs_human envelope recognition, and human intervention exits from role prompts; propagate legacy envelopes as schema/protocol errors."
+    acceptance: "Unit tests cover sentinel single-copy counts along the actual invocation path of every production role, rejection of duplicate payloads before they reach the backend, and the absence of false positives for shared short ID/branch scalars; a Popen spy proves that an exceptionally long prompt is written to stdin only once and that argv contains no body, with no regressions in normal/nonzero-exit/timeout/usage paths; the engine reports a protocol error for legacy needs_human JSON and no longer exposes NeedsHumanRequest."
   - id: T2
-    title: Fingerprint 绑定的自治失败收口与自动复活
+    title: "Fingerprint-Bound Autonomous Failure Closure and Automatic Revival"
     status: done
     priority: P0
     tags: []
@@ -202,12 +200,10 @@ tasks:
       - tests/test_release.py
       - tests/test_runtime_gates.py
       - tests/test_runtime_state_converge.py
-    scope: >-
-      以 automation-failed 替换人工终态并重写 Vigil 收口：triage 拒绝、无效依赖建议、连续认领失败、硬超时、零进展超龄和动作异常都归一成 category/attempts/fingerprint 的幂等签名诊断；同 fingerprint 停止重派，事实变化自动清投影并从头分类。IN_FLIGHT 存活持锁者只告警不终止化。forge prerequisites、release、runtime state、token status 和 desktop 待看统一消费机器失败语义；删除 blocknote 等只服务人工挂起的展示面。
-    acceptance: >-
-      queue/fingerprint/watchdog 测试证明失败调用有界、先落 forge 后删行、同事实零重派、任一动作相关事实变化自动复活、存活持锁者绝不被失败化或双跑；release 拒绝未解决的 automation-failed；desktop 展示 automation-failed 而无人工等待文案；相关 Python 与 TypeScript 测试全绿。
+    scope: "Replace the human terminal state with automation-failed and rewrite Vigil closure: triage rejection, invalid dependency suggestions, consecutive claim failures, hard timeouts, excessive age with zero progress, and action exceptions are all normalized into idempotent signed diagnostics based on category/attempts/fingerprint; stop redispatching for the same fingerprint, and automatically clear projections and classify again from the beginning when facts change. For a live lock holder in IN_FLIGHT, only issue a warning; do not transition it to a terminal state. forge prerequisites, release, runtime state, token status, and desktop items awaiting review all consume machine failure semantics consistently; delete display surfaces such as blocknote that serve only human suspension."
+    acceptance: "queue/fingerprint/watchdog tests prove bounded failure calls, persistence to forge before row deletion, zero redispatches for unchanged facts, automatic revival when any action-relevant fact changes, and that a live lock holder is never marked as failed or run twice concurrently; release rejects unresolved automation-failed states; desktop displays automation-failed without wording about waiting for a human; all relevant Python and TypeScript tests pass."
   - id: T3
-    title: 人工 stage owner、hold CLI 与配置表面清退
+    title: "Removal of Human Stage Owners, the hold CLI, and Configuration Surfaces"
     status: done
     priority: P1
     tags: []
@@ -226,12 +222,10 @@ tasks:
       - tests/test_cli_new_stack.py
       - tests/test_hold.py
       - tests/test_skip.py
-    scope: >-
-      从 stage schema、resolved policy、默认模板和路由删除 human owner；删除 --hold、旧 Hold 值对象及 hold/skip 冲突逻辑，保留 skip 但继续执行不许零安全闸约束。含 human 的现有 YAML 必须给出带阶段名的 fail-closed 迁移错误，不能静默变成 skip；CLI help、init 输出和 fleet 透传同步清理。
-    acceptance: >-
-      loader 只接受各阶段的 agent/skip 合法子集，human 配置报可操作错误且零副作用；oa vigil --help 不再暴露 --hold，传旧参数非零退出；默认模板可 round-trip 并保持全自动安全默认；删除模块后无活动 import 悬空，CLI/config 测试全绿。
+    scope: "Remove human owner from the stage schema, resolved policy, default templates, and routing; delete --hold, the legacy Hold value object, and hold/skip conflict logic, retaining skip while continuing to enforce the constraint that execution must not proceed with zero safety gates. Existing YAML containing human must produce a fail-closed migration error that names the stage, and must not silently become skip; clean up CLI help, init output, and fleet passthrough accordingly."
+    acceptance: "The loader accepts only the valid subset of agent/skip for each stage; human configuration produces an actionable error with zero side effects; oa vigil --help no longer exposes --hold, and passing the legacy argument exits with a nonzero status; default templates support round-trip processing and retain fully automated, safe defaults; no active imports are left dangling after module deletion, and all CLI/config tests pass."
   - id: T4
-    title: 旧状态迁移、当前文档与端到端退役证明
+    title: "Legacy State Migration, Current Documentation, and End-to-End Proof of Retirement"
     status: done
     priority: P1
     tags: []
@@ -247,47 +241,45 @@ tasks:
       - scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh
       - scripts/migrate-needs-human-state.py
       - tests/test_migrate_needs_human_state.py
-    scope: >-
-      提供显式幂等迁移器：发现旧 needs-human forge 对象或 blocked runtime run 时，先生成审计计划，再经显式 apply 将其映射为 automation-failed 并保留原理由；human YAML 不自动改写，只报告路径与阶段。更新 README 当前行为，退役旧 reply-unblock e2e，新增单份 prompt、有限失败、事实变化复活、旧状态启动阻断和活动源码扫描的综合 e2e。历史 spec/evidence 保留原文作为设计史。
-    acceptance: >-
-      迁移 dry-run 零写入、apply 可重复且第二次 no-op，部分 forge 失败可安全重跑；未迁移旧对象时 vigil fail-closed 且不派模型，迁移后 e2e 全绿；活动代码/模板/README/CLI help 扫描除迁移脚本外无 needs-human/NeedsHumanRequest/OWNER_HUMAN/--hold；spec validate、render、graph --check 全绿。
+    scope: "Provide an explicit, idempotent migrator: when legacy needs-human forge objects or blocked runtime runs are found, first generate an audit plan, then map them to automation-failed through an explicit apply while preserving the original reasons; do not automatically rewrite human YAML, and report only paths and stages. Update README to reflect current behavior, retire the old reply-unblock e2e, and add comprehensive e2e coverage for single-copy prompts, bounded failures, revival after facts change, startup blocking for legacy states, and active source scanning. Preserve historical spec/evidence verbatim as design history."
+    acceptance: "Migration dry-run performs zero writes; apply is repeatable and the second execution is a no-op, and partial forge failures can be rerun safely; while legacy objects remain unmigrated, vigil fails closed and does not dispatch to models, and all e2e tests pass after migration; scans of active code/templates/README/CLI help find no needs-human/NeedsHumanRequest/OWNER_HUMAN/--hold except in migration scripts; spec validate, render, and graph --check all pass."
 ---
 
-# 0081 · 自治失败收口与单份 Prompt 契约
+# 0081 · Autonomous Failure Closure and the Single-Copy Prompt Contract
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-OpenAgents 将不再把模型或流水线无法完成的工作投递给 `needs-human`。短暂错误继续在严格预算内重试；相同远端事实下耗尽预算、确定性拒绝或零进展，则收敛为带原因、尝试次数与事实 fingerprint 的 `automation-failed` 机器终态。这个终态不要求人回复：相关事实一旦变化，自动化会清除旧失败投影并重新判断；事实不变则不再消耗模型。
+OpenAgents will no longer route work that the model or pipeline cannot complete to `needs-human`. Transient errors will continue to be retried within a strict budget; budget exhaustion under unchanged remote facts, deterministic rejection, or zero progress will converge to an `automation-failed` machine terminal state carrying a reason, attempt count, and facts fingerprint. This terminal state does not require a human reply: once relevant facts change, automation will clear the old failure projection and reassess; if the facts remain unchanged, it will stop consuming model resources.
 
-同一变更还将模型输入收敛为单份 prompt envelope。角色 task 只放稳定职责与短标量，issue、评论、Spec、快照、反馈和 evidence 等动态材料只放 context；engine 在派发前拒绝重复段，Claude Code 通过 stdin 接收最终 prompt，避免 token 重复、命令行长度上限和进程列表暴露。
+The same change will also consolidate model input into a single-copy prompt envelope. The role task will contain only stable responsibilities and short scalars, while dynamic material such as issues, comments, Specs, snapshots, feedback, and evidence will appear only in context; the engine will reject duplicate sections before dispatch, and Claude Code will receive the final prompt through stdin, avoiding duplicate tokens, command-line length limits, and exposure in process listings.
 
 ## Motivation
 
-当前系统把 `needs-human` 同时当作模型的一等控制输出、Vigil 终态、队列毒丸出口、看门狗出口、人工 stage owner 的承载、发布拦截条件和桌面最高优先级。这使“自动化做不到”与“必须等人做决定”被焊成同一件事。实际无人值守实验中，模型进程被杀、端点抖动、协议解析失败或同一状态零进展并不等价于需要产品判断；挂人工标签既掩盖了机器失败类别，也让后续恢复依赖人摘标签。
+The current system uses `needs-human` simultaneously as a first-class model control output, a Vigil terminal state, an exit for queue poison pills, a watchdog exit, a way to represent human stage owners, a release-blocking condition, and the highest desktop priority. This welds “automation cannot do it” and “a human decision is required” into the same thing. In actual unattended experiments, a killed model process, endpoint instability, protocol parsing failure, or zero progress in the same state does not equate to a need for product judgment; applying a human-intervention label both obscures the machine failure category and makes subsequent recovery depend on someone removing the label.
 
-去掉标签本身又不够。如果没有新的终止语义，毒丸任务会在每个 tick 重新入队，重复消耗模型；如果所有失败都立即终止，短暂的 429、进程退出和 CI 异步窗口又会被误判为永久失败。因此停止条件必须绑定“重试预算 + 当前事实 fingerprint”，恢复条件必须绑定“事实真的变化”，而不能绑定某个人是否说话。
+Removing the label alone is not enough. Without new termination semantics, poison-pill tasks will be enqueued again on every tick, repeatedly consuming model resources; if all failures terminate immediately, transient 429s, process exits, and asynchronous CI windows will be misclassified as permanent failures. Stopping conditions must therefore be tied to “retry budget + current facts fingerprint,” and recovery conditions must be tied to “facts have actually changed,” rather than whether someone has spoken.
 
-模型输入另有一个更早暴露的问题：若角色 Template 已展开 issue 正文、评论或 ready 快照，调用方又把同一材料放入 `context`，backend 会把两份内容拼在同一最终 prompt。Architect 的局部修补证明可以手工消掉一处，但 Curator 的 snapshot、Drafter 的 detail/context、Triager 与 Replier 的 body/context 等路径仍允许复发。与此同时 ClaudeCodeBackend 把整条最终 prompt 放在 `argv`，长输入会撞 `ARG_MAX`，也会在进程列表里暴露正文。需要把单份所有权提升成运行时契约，而不是继续逐角色约定。
+Model input has another problem that surfaced earlier: if a role Template has already expanded the issue body, comments, or ready snapshot, and the caller also puts the same material in `context`, the backend concatenates both copies into the same final prompt. A local Architect patch demonstrated that one instance could be removed manually, but paths such as Curator’s snapshot, Drafter’s detail/context, and Triager’s and Replier’s body/context still allow recurrence. Meanwhile, ClaudeCodeBackend puts the entire final prompt in `argv`, so long inputs hit `ARG_MAX` and expose their contents in process listings. Single-copy ownership needs to become a runtime contract rather than remain a convention maintained role by role.
 
-### 实验依据（2026-08-28 至 2026-08-30）
+### Experimental evidence (2026-08-28 to 2026-08-30)
 
-本设计不是仅由代码静态审查推导。GLM-5.2 FP8 的三题无人值守运行与后续接续实验保留了 manifest、token/tool ledger、容器和 Git/Gitea 终态；汇总报告位于 `/root/src/openagents-model-capability-threshold-experiment.md`，独立流程审计位于 `/root/src/auto-designer-experiments/20260828-harness-v2-r3-design-glm52fp8-5/openagents-process-audit-20260829.md`。与本 spec 直接相关的观测是：
+This design was not derived solely from static code review. The three-task unattended GLM-5.2 FP8 run and subsequent continuation experiments retained manifests, token/tool ledgers, containers, and final Git/Gitea states; the consolidated report is at `/root/src/openagents-model-capability-threshold-experiment.md`, and the independent process audit is at `/root/src/auto-designer-experiments/20260828-harness-v2-r3-design-glm52fp8-5/openagents-process-audit-20260829.md`. Observations directly relevant to this spec are:
 
-- issue #17 的完整 Spec 同时进入 task/context 后，最终 prompt 约 145 KB、Spec 出现两次，三次均在 `claude` 进程启动前报 `Argument list too long`。本机最小复现为单参数 131,071 bytes 可启动、131,072 bytes 即 `errno=7 E2BIG`，所以这不是模型能力或 API 失败。
-- 只把 Architect 的 Spec 改为 context 单份后，prompt 降至 73,834 bytes、Spec 只出现一次，Architect 正常启动并 PASS；但后端仍用 argv，说明角色局部去重只能缓解，stdin 才是传输根修。
-- 确定性 E2BIG 被当作普通 Exception 后回退过远，使 Drafter 共跑三遍；额外两遍约浪费 4m52s 和 1,170,901 tokens。随后持续有工具活动的 Implementer 又被外层 1800 秒硬超时杀掉并挂入 `needs-human`。恢复 checkpoint、修正网络并保留 backend idle watchdog 后，同一 issue 最终实现、138 tests、review 和 merge 全部完成，最终三题仓库终态为 3/3 merged。两次 `needs-human` 因而都是机器故障的错误投影，不是缺少人工业务决定。
-- 四个主/恢复容器最终均为 exit 137，但 Docker `OOMKilled=false`，且业务日志分别已经停在失败投影或 merged/frontier-empty；退出码不能直接作为业务终态，必须结合持锁、调用事件和远端事实分类。
-- 流程复审确认 Curator、Drafter 的有效运行仍有同 payload 双传，Triager 与两类 Replier 也存在同文双传代码路径；针对后端/协议/遥测及 workspace/context/prompt 的 166 项检查通过，但当时没有覆盖“所有 active role 动态载荷单份”这一不变量。
-- Drafter 的后续配对实验进一步证明“保留文件 checkpoint、validator 失败后另起短 repair”可在质量门全过的同时将 #16/#18 tokens 分别降低 52.2% 和 39.9%；直接恢复巨大 session 反而增加 47.4% 和 46.1%。这支撑本 spec 保留确定性 checkpoint/fingerprint、只在新事实或最小失败摘要下重试，而不是恢复或重放整段旧 prompt。
-- Implementer 分段实验的有效编辑链 input 曾下降 74.9%，但只达到 81/82 tests，T3b/T4 未完成；因此本 spec 不把 Implementer 分段方案宣布为已验证优化，也不借此删除 Implementer/Reviewer，只处理已被完整反证坐实的输入传输和失败收口问题。
+- After the full Spec for issue #17 was included in both task/context, the final prompt was approximately 145 KB, the Spec appeared twice, and all three attempts failed with `Argument list too long` before the `claude` process started. A minimal local reproduction could launch with a single argument of 131,071 bytes, but 131,072 bytes produced `errno=7 E2BIG`, so this was neither a model capability failure nor an API failure.
+- After changing only Architect’s Spec to a single copy in context, the prompt dropped to 73,834 bytes, the Spec appeared only once, and Architect started normally and achieved PASS; however, the backend still used argv, demonstrating that local role deduplication can only mitigate the problem, while stdin is the fundamental transport fix.
+- Treating deterministic E2BIG as an ordinary Exception caused an excessively broad fallback, making Drafter run three times in total; the two extra runs wasted approximately 4m52s and 1,170,901 tokens. The Implementer, which subsequently maintained continuous tool activity, was then killed by the outer 1800-second hard timeout and assigned `needs-human`. After restoring the checkpoint, correcting the network, and retaining the backend idle watchdog, implementation, 138 tests, review, and merge were all completed for the same issue, and the final repository state for the three tasks was 3/3 merged. Both `needs-human` outcomes were therefore incorrect projections of machine faults, rather than missing human business decisions.
+- All four primary/recovery containers eventually exited with 137, but Docker reported `OOMKilled=false`, and their application logs had already stopped at either a failure projection or merged/frontier-empty; an exit code cannot directly serve as the application terminal state and must be classified together with lock ownership, invocation events, and remote facts.
+- The process review confirmed that effective Curator and Drafter runs still transmitted the same payload twice, and Triager and both types of Replier also had code paths that transmitted identical text twice; 166 checks covering backend/protocol/telemetry and workspace/context/prompt passed, but at that time they did not cover the invariant that “all active roles have a single copy of each dynamic payload.”
+- Subsequent paired Drafter experiments further demonstrated that “retaining file checkpoints and starting a separate short repair after validator failure” could pass all quality gates while reducing tokens for #16/#18 by 52.2% and 39.9%, respectively; directly resuming a huge session instead increased them by 47.4% and 46.1%. This supports retaining deterministic checkpoints/fingerprints in this spec and retrying only with new facts or a minimal failure summary, rather than resuming or replaying the entire old prompt.
+- In the Implementer segmentation experiment, input for the effective editing chain fell by 74.9%, but only 81/82 tests passed, and T3b/T4 were not completed; this spec therefore does not declare the Implementer segmentation approach a validated optimization, nor does it use that experiment as grounds to remove Implementer/Reviewer. It addresses only the input transport and failure closure problems conclusively established by complete counterexamples.
 
-这些数字只用于证明干预层与失败语义，不外推为模型的一般成功率；不同 provider 的 token/cache 口径也不用于跨模型成本比较。
+These figures serve only to establish the intervention layer and failure semantics, and are not extrapolated into a general model success rate; token/cache accounting conventions from different providers are also not used for cross-model cost comparisons.
 
 ## Guide-level explanation
 
-升级后，正常操作者只看到三类推进结果：成功推进、可重试失败、`automation-failed`。例如某个 agent 连续三次因后端进程退出而没有收工，Vigil 会在对应 issue/PR 写一条签名诊断并加 `automation-failed`：
+After the upgrade, ordinary operators will see only three kinds of progression outcomes: successful progress, retryable failure, and `automation-failed`. For example, if an agent fails to finish three consecutive times because the backend process exits, Vigil will write a signed diagnostic to the corresponding issue/PR and add `automation-failed`:
 
 ```text
 OpenAgents automation failed
@@ -297,103 +289,103 @@ fingerprint: 9f2a1c...
 last_error: Claude Code CLI exited 137
 ```
 
-只要 issue 正文、PR head、CI、依赖、有效评论等会影响下一动作的事实没有变化，后续 tick 只观察该终态，不再调用模型。如果有人补充了 issue、外部系统推了新 commit、CI 结论变化或依赖合并，新的 fingerprint 与失败戳不同，Vigil 自己清除 `automation-failed` 并重新从判定表顶部推进。这是“新证据触发自动重试”，不是“等人来解挂”。
+As long as facts that affect the next action—such as the issue body, PR head, CI, dependencies, and applicable comments—remain unchanged, subsequent ticks will only observe this terminal state and will no longer invoke the model. If someone supplements the issue, an external system pushes a new commit, the CI conclusion changes, or a dependency is merged, the new fingerprint will differ from the failure stamp, and Vigil will clear `automation-failed` itself and resume progression from the top of the decision table. This is “new evidence triggers an automatic retry,” rather than “wait for someone to unblock it.”
 
-配置里的每道可选阶段只能由 `agent` 执行或在允许处 `skip`；`human` 和命令行 `--hold` 被删除。旧配置不会被猜测性迁移：启动会点名报错，要求操作者明确选择 `agent`。旧 forge 标签和 runtime `blocked` 状态则通过一次显式迁移命令转换，因为它们代表已经停住的实际对象，静默忽略会意外重新开工。
+Each optional stage in the configuration can only be executed by `agent` or, where permitted, set to `skip`; `human` and the command-line `--hold` are removed. Old configurations will not be migrated speculatively: startup will report an error naming the offending setting and require the operator to explicitly select `agent`. Old forge labels and runtime `blocked` states, however, will be converted through a one-time explicit migration command, because they represent actual objects that have already stopped, and silently ignoring them would unexpectedly restart work.
 
-对于模型调用，调用方仍传 `task` 和 `context`，但含义变得严格：
+For model invocations, callers still pass `task` and `context`, but their meanings become strict:
 
 ```text
-task    = 稳定角色说明 + issue/pr 编号、mode、branch 等短定位符
-context = [issue] / [comment] / [spec] / [feedback] / [evidence] 动态段，各一份
+task    = stable role instructions + short locators such as issue/pr number, mode, and branch
+context = dynamic [issue] / [comment] / [spec] / [feedback] / [evidence] sections, one copy each
 ```
 
-若同一段动态文本同时出现在两边，engine 在启动 backend 前报错。backend 最终只组装一次 guardrail、task 和 context，并通过 stdin 喂给 `claude -p`；正文不出现在 argv。
+If the same dynamic text section appears on both sides, the engine reports an error before starting the backend. The backend ultimately assembles guardrail, task, and context exactly once and feeds them to `claude -p` through stdin; the body does not appear in argv.
 
 ## Reference-level explanation
 
-### 1. 单份 prompt envelope
+### 1. Single-copy prompt envelope
 
-`runtime.context` 成为所有动态材料的唯一组装层。每个 context section 使用稳定标题标识来源；Agent Template 删除 `$issue_body`、`$comment_body`、`$issue_snapshot`、`$dialogue`、`$detail`、`$spec_text` 等大段占位，只保留编号、mode、branch、命令等短标量。evidence 在 context 中追加且只追加一次。
+`runtime.context` becomes the sole assembly layer for all dynamic material. Each context section uses a stable heading to identify its source; Agent Templates remove large placeholders such as `$issue_body`, `$comment_body`, `$issue_snapshot`, `$dialogue`, `$detail`, and `$spec_text`, retaining only short scalars such as numbers, mode, branch, and commands. Evidence is appended to context exactly once.
 
-`engine.run_agent` 在 Template 渲染后、backend 调用前执行重叠校验。校验对换行与连续空白规范化，并比较 context 中的非短段以及本次字符串 placeholder 值；若一个动态段同时完整存在于 task 和 context，抛 `AgentOutputError`，错误包含角色与截断后的段摘要。短编号、branch 名、协议关键词等允许同时出现，防止误报。这个检查是防回归硬闸，角色调用测试仍逐一证明正常路径没有重复。
+`engine.run_agent` performs overlap validation after Template rendering and before the backend call. Validation normalizes line breaks and runs of whitespace, and compares non-short sections in context as well as the string placeholder values for the current invocation; if a dynamic section appears in full in both task and context, it raises `AgentOutputError`, with an error containing the role and a truncated section summary. Short numbers, branch names, protocol keywords, and the like may appear on both sides to prevent false positives. This check is a hard gate against regressions; role invocation tests must still individually demonstrate that normal paths contain no duplication.
 
-`ClaudeCodeBackend` 以不含正文的 `claude -p --permission-mode ... --output-format stream-json --verbose` 启动子进程，并通过 `stdin=PIPE` 写入一次最终 prompt 后关闭。stdout 逐行读取、watchdog、子进程登记、result/usage/tool event 解析维持现有语义。stdin 写入、提前退出和 BrokenPipe 都归一为既有 backend 失败，交上游重试。
+`ClaudeCodeBackend` launches the subprocess with `claude -p --permission-mode ... --output-format stream-json --verbose`, without the body, writes the final prompt once through `stdin=PIPE`, and then closes stdin. Line-by-line stdout reading, the watchdog, subprocess registration, and result/usage/tool event parsing retain their existing semantics. stdin write failures, early exits, and BrokenPipe are all normalized into existing backend failures and passed upstream for retry.
 
-### 2. 模型控制协议退役
+### 2. Retirement of the model control protocol
 
-删除 `NeedsHumanRequest` 与 `{"needs_human": true, ...}` 特判。每个角色只能返回自己的 `OUTPUT_SCHEMA`：判断不通过使用既有 `REWORK`、`false`、`delivered=false` 或 `merged=false` 表达；真正的 backend/协议错误抛异常。旧模型若仍返回 needs_human，因为不符合角色 schema 而成为 `protocol_error`，由 Vigil 的统一有限重试处理，模型不再直接决定编排终态或写 forge。
+Remove `NeedsHumanRequest` and the special handling of `{"needs_human": true, ...}`. Each role may return only its own `OUTPUT_SCHEMA`: a negative judgment is expressed using the existing `REWORK`, `false`, `delivered=false`, or `merged=false`; actual backend/protocol errors raise exceptions. If an old model still returns needs_human, it becomes a `protocol_error` because it does not conform to the role schema, and is handled by Vigil’s unified bounded retries. The model no longer directly determines orchestration terminal states or writes to the forge.
 
-`admitter` 随 `triage: human` 一同删除。人类普通评论仍由 replier 处理，它是新事实来源之一，但不承担解挂专用协议。
+`admitter` is removed along with `triage: human`. Ordinary human comments are still handled by replier and remain one source of new facts, but do not serve as a dedicated unblocking protocol.
 
-### 3. `automation-failed` 投影
+### 3. `automation-failed` projection
 
-forge 新增单一标签常量 `AUTOMATION_FAILED_LABEL = "automation-failed"`，替代活动代码中的 BLOCKED/needs-human 命名。失败诊断至少包含：`category`、`attempts`、排除失败投影后的 facts fingerprint、最后错误摘要和时间。评论使用现有 identity 签名，并按 `(subject, fingerprint, category)` 幂等；标签和评论必须先成功落 forge，队列才能删除，防止 forge 短暂失败把 attempts 清零。
+The forge adds a single label constant, `AUTOMATION_FAILED_LABEL = "automation-failed"`, replacing BLOCKED/needs-human naming in active code. Failure diagnostics contain at least: `category`, `attempts`, the facts fingerprint excluding the failure projection, the last error summary, and a timestamp. Comments use the existing identity signature and are idempotent by `(subject, fingerprint, category)`; the label and comment must be successfully written to the forge before the queue entry can be deleted, preventing transient forge failures from resetting attempts to zero.
 
-失败类别至少区分：`backend-error`、`protocol-error`、`no-progress`、`invalid-input`、`invalid-dependency`、`action-timeout` 与 `deterministic-gate`。这些类别用于诊断和统计，不改变安全硬闸。
+Failure categories distinguish at least: `backend-error`, `protocol-error`, `no-progress`, `invalid-input`, `invalid-dependency`, `action-timeout`, and `deterministic-gate`. These categories are used for diagnostics and statistics and do not change safety hard gates.
 
-### 4. 分类、停止与复活
+### 4. Classification, stopping, and revival
 
-`_classify` 不把 `automation-failed` 无条件放在所有分支之前。它先读取最近一条有效签名失败戳：
+`_classify` does not unconditionally place `automation-failed` ahead of all branches. It first reads the most recent valid signed failure stamp:
 
-1. 用排除 `automation-failed` 标签、失败评论、队列字段后的远端事实计算当前 fingerprint；
-2. 若与失败戳相同，返回 `TERMINAL(automation-failed)`，不入队；
-3. 若不同，机械移除失败标签，保留历史诊断评论，并对新事实从分类表顶部重判。
+1. Compute the current fingerprint from remote facts, excluding the `automation-failed` label, failure comments, and queue fields;
+2. If it matches the failure stamp, return `TERMINAL(automation-failed)` without enqueueing;
+3. If it differs, mechanically remove the failure label, retain historical diagnostic comments, and reassess the new facts from the top of the classification table.
 
-显式删除失败标签可作为运维强制重试，但不是流水线依赖的人工协议；失败戳仍在时，生产者会把“标签已被显式移除”视为一次允许重试，新的失败仍受完整预算约束。实现必须避免在每 tick 自动清理再重加。
+Explicitly removing the failure label can serve as an operational forced retry, but is not a human protocol on which the pipeline depends; while the failure stamp remains, the producer treats “the label has been explicitly removed” as permission for one retry, and any new failure is still subject to the full budget. The implementation must avoid automatically clearing and then reapplying the label on every tick.
 
-认领异常继续使用 `_MAX_ATTEMPTS`。同一队列生命周期内未到上限回队；到上限先落失败投影再删行。agent 返回正常 schema 但远端 fingerprint 一个字节未变时盖 attempt 戳，等待异步效果的宽限期结束后落 `no-progress`，不再反复调用。QUIET 的 CI、mergeability、blockers 等自然等待仍按各自阈值处理，只有超过明确上限才转机器失败。
+Exceptions during a claim continue to use `_MAX_ATTEMPTS`. Within the same queue lifecycle, the entry returns to the queue if the limit has not been reached; at the limit, the failure projection is written before the row is deleted. When an agent returns a normal schema but the remote fingerprint has not changed by even one byte, record an attempt stamp and, after the grace period for asynchronous effects expires, project `no-progress` rather than repeatedly invoking the model. Natural waits in QUIET for CI, mergeability, blockers, and similar conditions continue to follow their respective thresholds and become machine failures only after an explicit limit is exceeded.
 
-IN_FLIGHT 看门狗必须先验证持锁者是否活着。存活者超龄只写 telemetry/log，不加失败标签、不删 claimed 行；真正的 `_TimedBackend` 硬超时由持有者杀进程并抛错，再进入上述 attempts 规则。这样移除人工出口不会重新引入双跑。
+The IN_FLIGHT watchdog must first verify whether the lock holder is alive. If a live holder exceeds the age threshold, write only telemetry/logs; do not add a failure label or delete the claimed row. An actual `_TimedBackend` hard timeout is handled by the holder killing the process and raising an error, which then enters the attempts rules above. This prevents removal of the human exit from reintroducing duplicate execution.
 
-### 5. 配置与产品表面
+### 5. Configuration and product surface
 
-`OWNER_HUMAN`、所有 stage 的 `human` 枚举、`--hold`、旧 Hold 模型与 `triage: human` 对话路径全部删除。允许 skip 的阶段保持原范围；不可 skip 的 conflict/merge 仍必须 agent；`review: skip + merge: agent` 等零安全闸组合继续拒绝。含 human 的旧 YAML 报精确配置错误，禁止静默解释成 skip。
+`OWNER_HUMAN`, the `human` enum value in every stage, `--hold`, the old Hold model, and the `triage: human` conversation path are all removed. The set of stages that allow skip remains unchanged; conflict/merge, which cannot be skipped, must still use agent; combinations with zero safety gates, such as `review: skip + merge: agent`, continue to be rejected. Legacy YAML containing human must produce a precise configuration error and must never be silently interpreted as skip.
 
-release 对未解决的 `automation-failed` run/PR fail-closed。desktop 将其显示为机器失败待看项，但文案不要求人工输入。旧阻塞便签模块和“摘标签/回复即继续”承诺退役。
+release fails closed for unresolved `automation-failed` runs/PRs. desktop displays them as machine failures awaiting review, but its wording does not require human input. The old blocking-note module and the promise that “removing the label/replying resumes execution” are retired.
 
-### 6. 迁移与兼容
+### 6. Migration and compatibility
 
-升级检查若发现旧 `needs-human` 标签或 runtime `blocked` run，Vigil 在任何 agent 调用前退出并打印迁移命令。专用脚本默认 dry-run，列出将修改的 issue/PR/run；显式 `--apply` 后为对象补 `automation-failed` 与迁移签名诊断，再移除旧标签，并把本地 run 状态改为 `failed`。顺序保证中途失败可重跑且不会让对象短暂无终态。历史 specs/evidence 保留旧词作为设计史；活动源码只允许迁移脚本持有旧字面量。
+If the upgrade check finds a legacy `needs-human` label or a runtime `blocked` run, Vigil exits before any agent invocation and prints the migration command. A dedicated script defaults to dry-run and lists the issues/PRs/runs it would modify; after an explicit `--apply`, it adds `automation-failed` and migration-signature diagnostics to the objects, then removes the old labels and changes the local run state to `failed`. This ordering ensures that the script can be rerun after an intermediate failure and that objects never briefly lack a terminal state. Historical specs/evidence retain the old terms as design history; within active source code, only the migration script may contain the legacy literals.
 
-### 7. DAG 与文件所有权
+### 7. DAG and file ownership
 
-`T1` 先建立模型输入和输出协议；`T2` 在其上改写失败状态机。`T3` 与 `T1` 可并行清理配置表面；`T4` 等状态机和配置都稳定后完成迁移与综合证明。各 Task 的 `files` 在 frontmatter 中互斥，避免并行 writer 冲突。
+`T1` first establishes the model input and output protocol; `T2` rewrites the failure state machine on that foundation. `T3` can clean up the configuration surface in parallel with `T1`; `T4` completes migration and comprehensive verification after both the state machine and configuration have stabilized. Each Task's `files` in frontmatter are mutually exclusive to avoid conflicts between parallel writers.
 
-端到端入口为 `scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh`，全部使用临时仓库、临时队列和假 forge/backend，不访问真实 issue、PR 或模型服务。
+The end-to-end entry point is `scripts/e2e-spec-0081-autonomous-failure-and-prompt-contract.sh`. All tests use temporary repositories, temporary queues, and fake forge/backend implementations, without accessing real issues, PRs, or model services.
 
 ## Drawbacks
 
-`automation-failed` 仍然是一个终态标签；它解决的是“机器明确失败且停止烧钱”，并不让模型能力凭空提高。相比原先任何人摘标签即可重跑，fingerprint 绑定和迁移检查增加了状态机复杂度。运行时重叠校验也可能在边界文案上误报，因此必须把“动态段”和“短标量”的界线写成可测规则，而不能用模糊相似度。
+`automation-failed` is still a terminal-state label; it addresses “the machine has explicitly failed and stopped spending money,” without magically improving model capabilities. Compared with the previous behavior, where anyone could remove a label to trigger a rerun, fingerprint binding and migration checks increase state-machine complexity. Runtime overlap checks may also produce false positives on borderline wording, so the boundary between “dynamic segments” and “short scalars” must be expressed as testable rules rather than fuzzy similarity.
 
-移除 `human` owner 意味着 OpenAgents 不再提供逐阶段人工审批模式。需要人工治理的团队只能在自动化之外使用受保护分支、forge 权限或关闭自动 merge；这是有意收窄产品承诺，但属于不兼容配置变化。
+Removing the `human` owner means that OpenAgents no longer provides a mode for human approval at each stage. Teams that need human governance must use protected branches or forge permissions, or disable automatic merge, outside the automation; this deliberately narrows the product's commitments, but constitutes an incompatible configuration change.
 
-stdin 改造会触及进程生命周期细节。若写端未及时关闭，Claude CLI 会等待 EOF；若同步写超长输入阻塞而 stdout 尚未消费，理论上可能形成管道背压。实现应使用 communicate 等价的安全写法或独立受控写入，同时保持流式读和 watchdog。
+The stdin changes touch process-lifecycle details. If the write end is not closed promptly, Claude CLI will wait for EOF; if a synchronous write of very long input blocks while stdout has not yet been consumed, pipe backpressure could theoretically occur. The implementation should use a safe approach equivalent to communicate or a separate, controlled writer, while retaining streaming reads and the watchdog.
 
 ## Rationale and alternatives
 
-选择 fingerprint 绑定的机器失败，是因为现有 Vigil 已有 `_Facts` 全字段稳定哈希、attempt stamp、SQLite attempts 和 flock 存活证明，所需机制大多存在；新设计只是把它们从“最终叫人”改成“同证据停止、新证据复活”。它同时满足成本上界与自治恢复，且不需要新增服务。
+Fingerprint-bound machine failure was chosen because the existing Vigil already has a stable hash over all `_Facts` fields, an attempt stamp, SQLite attempts, and flock-based proof of liveness, so most of the required mechanisms already exist; the new design simply changes them from “eventually call a human” to “stop on the same evidence, revive on new evidence.” It satisfies both bounded costs and autonomous recovery without requiring a new service.
 
-未选择简单把 `needs-human` 改名为 `automation-failed`：旧的“人回复/摘标签复活”和 human owner 仍会保留，概念并未摘除。未选择无限自动重试：相同 prompt 和事实的期望收益接近零，会让模型故障转化成资源事故。未选择失败后关闭 issue/PR：关闭是更强、可能误伤的人类协作动作，而失败标签保留工作成果和诊断。
+Simply renaming `needs-human` to `automation-failed` was rejected: the old “revive when a human replies/removes the label” behavior and the human owner would remain, leaving the concept intact. Unlimited automatic retries were rejected: the expected benefit from the same prompt and facts is close to zero, turning a model failure into a resource incident. Closing the issue/PR after failure was rejected: closing is a stronger action in human collaboration that could cause unintended harm, whereas a failure label preserves the work and diagnostics.
 
-Prompt 侧未选择只修当前几个重复调用点，因为 Architect 已经证明局部修补不能保护未来路径。也未选择把所有上下文直接塞回 Template：那会失去 task/context 分层，并继续让各角色自行发明格式。选择“context 单一所有权 + engine 硬闸 + 角色路径测试”，让约定、检测和证据三层一致。
+On the prompt side, fixing only the current few duplicate call sites was rejected because Architect has already demonstrated that local patches cannot protect future paths. Putting all context directly back into Template was also rejected: that would lose the task/context separation and continue to let each role invent its own format. The choice is “single ownership of context + a hard engine gate + role-path tests,” aligning the contract, detection, and evidence across all three layers.
 
-Claude CLI 未继续使用 argv，因为 stdin 是其 print 模式已支持的标准输入通道，能同时消除 `ARG_MAX` 与进程列表泄露；这不减少模型 token，但保证瘦身后的单份内容可被任意长度安全传输。
+Claude CLI does not continue to use argv because stdin is a standard input channel already supported by its print mode, eliminating both `ARG_MAX` limits and exposure through process listings; this does not reduce model tokens, but ensures that the single, streamlined copy of the content can be safely transmitted at any length.
 
 ## Prior art
 
-构建系统通常按输入内容哈希缓存失败或成功结果，只有输入变化才重新执行；本 spec 的 failure fingerprint 采用同一原则。消息队列的 dead-letter queue 同样在有限投递后隔离毒丸消息，不过这里不建立第二队列，而把失败投影留在 forge 真源并允许新事实自动复活。
+Build systems commonly cache failure or success results by a hash of the input content and execute again only when the input changes; this spec's failure fingerprint follows the same principle. Message queues likewise isolate poison messages in a dead-letter queue after a finite number of delivery attempts, but here no second queue is created: the failure projection remains in the forge source of truth, and new facts can automatically revive execution.
 
-Claude Code 的非交互 print 模式支持从 stdin 获取 prompt；Unix 工具也普遍把大载荷放 stdin/文件、把 argv 留给控制参数。OpenAgents 现有 `runtime.context`、`engine.run_agent`、`_fingerprint`、队列 attempts 和进程锁为本方案提供了直接先例。
+Claude Code's non-interactive print mode supports reading prompts from stdin; Unix tools also commonly put large payloads in stdin/files and reserve argv for control parameters. OpenAgents' existing `runtime.context`, `engine.run_agent`, `_fingerprint`, queue attempts, and process locks provide direct precedents for this approach.
 
 ## Unresolved questions
 
-1. 初版沿用现有 `_MAX_ATTEMPTS` 与各 QUIET watchdog 阈值，不在本 spec 重新调参；token usage 数据充足后再按失败类别校准。
-2. 显式删除 `automation-failed` 标签是否应永久作为强制重试入口，还是后续增加独立 `oa retry <subject>` 以留下更清楚的审计事件，留待实际运维反馈。
-3. 运行时重叠检测初版使用确定性完整段匹配，不做模糊语义去重；同义改写造成的 token 冗余交给后续 observability 数据判断。
+1. The initial version retains the existing `_MAX_ATTEMPTS` and all QUIET watchdog thresholds, without retuning them in this spec; calibration by failure category will follow once sufficient token usage data is available.
+2. Whether explicitly deleting the `automation-failed` label should remain a permanent entry point for forced retries, or whether a separate `oa retry <subject>` should be added later to leave a clearer audit event, is left to operational feedback.
+3. The initial runtime overlap detection uses deterministic full-segment matching, without fuzzy semantic deduplication; token redundancy caused by synonymous rewording will be assessed using subsequent observability data.
 
 ## Future possibilities
 
-可以按 `category × role × model` 聚合失败率，动态选择较短 session、备用 backend 或更严格预算；也可以把 automation-failed 事件导出到监控告警，但告警仍不成为流水线继续所必需的输入。
+Failure rates could be aggregated by `category × role × model` to dynamically select shorter sessions, fallback backends, or stricter budgets; automation-failed events could also be exported to monitoring and alerting, but alerts would still not become inputs required for the pipeline to continue.
 
-Prompt envelope 后续可从带标题字符串升级为结构化 section 列表，在 backend 边界统一做 token 预算、截断优先级、内容哈希与缓存复用。若多个 backend 都支持文件输入，还可以传只读 context artifact，进一步避免大文本在进程间复制。
+The prompt envelope could later evolve from a string with headings into a structured list of sections, with token budgets, truncation priorities, content hashes, and cache reuse handled uniformly at the backend boundary. If multiple backends support file input, a read-only context artifact could also be passed, further avoiding copies of large text between processes.

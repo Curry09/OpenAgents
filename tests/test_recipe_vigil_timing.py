@@ -1,9 +1,9 @@
-"""# Spec-0066/T2: vigil 旁路埋点针对性单测（假 backend/github seam，不触真实 LLM/网络/仓库）。
+"""# Spec-0066/T2: vigil Targeted single bystander (false) backend/github seam  Don’t touch the truth   LLM/Network/The warehouse.
 
-覆盖：`_phase_of` 对四值 verdict × facts 逐态归一（TERMINAL 细分 merged/closed/needs-human；QUIET 取
-reason；ACTIONABLE 取 action；IN_FLIGHT→in-flight）；`_consider` 跑一 tick 后 timing.jsonl 生成、含
-dispatch(solve)/等待(awaiting-*)/合并各段；record 抛异常时 `_consider` 照常返回（容错端到端）；`_fingerprint`
-埋点前后相等（旁路不进 fp、不触护栏一自毁）；合并段 awaiting-ci（CI-wait）与 review-or-fix（review-wait）可区分。
+Overwrite: `_phase_of` to four values verdic x facts one by one (TERMINAL subdivision merged/closed/needs-human; QUIET taken
+reason；ACTIONABLE Remove action；IN_FLIGHT→in-flight）；`_consider` Run one. tick Back timing.jsonl Generate, contain
+dispatch(solve)/Wait(awaiting-*)/(a) Merge the paragraphs;record When you throw an anomaly `_consider` Return as usual (mistake to end);`_fingerprint`
+The burial site is equal (fp not by side, self-destructing without touching the fence); the merged section awaiting-ci (CI-wait) can be distinguished from the review-or-fix (review-wait).
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def _stub_sense(monkeypatch, *, facts: _Facts, comments=()):
         lambda *, config, subject: _Observed(facts=facts, clock=_Clock(last_progress_at=_NOW)),
     )
     monkeypatch.setattr(vigil_module.github, "list_comments", lambda *, pr_number: list(comments))
-    # solve 段（pr_number=None）的护栏一读侧走 issue 评论——同样打桩，杜绝真触网。
+    # The guard of the Solve section (pr_number =None) sideways the issue comment - also pegging, off the net.
     monkeypatch.setattr(
         vigil_module.github, "list_issue_comments", lambda *, number: list(comments)
     )
@@ -116,7 +116,7 @@ def _timing_events(work_dir: Path):
 
 
 # --------------------------------------------------------------------------------------------------
-# _phase_of：四值 verdict × facts 逐态归一。
+# _phase_of: Four values vedict x facts one by one.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -133,7 +133,7 @@ def test_phase_of_in_flight():
     ],
 )
 def test_phase_of_terminal_subdivides_by_facts(overrides, expected):
-    """TERMINAL 据 facts 细分 merged/closed/automation-failed。"""
+    """TERMINAL subdivided by facts merged/closed/automation-failed."""
     assert _phase_of(verdict=_Verdict(kind=_TERMINAL), facts=_facts(**overrides)) == expected
 
 
@@ -148,12 +148,12 @@ def test_phase_of_actionable_takes_action():
 
 
 # --------------------------------------------------------------------------------------------------
-# _consider 旁路：timing.jsonl 生成、含 dispatch(solve)/等待/合并各段；issue/pr 归属。
+# _consider By-pass:timing.jsonl Generate, contain dispatch(solve)/Wait/(a) Merge the paragraphs;issue/pr Attribution.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_consider_stamps_dispatch_solve_phase(tmp_path, monkeypatch):
-    """还没有 PR → ACTIONABLE:solve → timing.jsonl 落一条 solve 事件（dispatch 段），带 issue 归属。"""
+    """Not yet. PR → ACTIONABLE:solve → timing.jsonl - I’m down. solve Events (%1)dispatch paragraph), issue Attribution."""
     conn = _db(tmp_path)
     _stub_sense(monkeypatch, facts=_facts(pr_number=None))
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
@@ -165,7 +165,7 @@ def test_consider_stamps_dispatch_solve_phase(tmp_path, monkeypatch):
 
 
 def test_consider_stamps_merge_phase_with_pr_attribution(tmp_path, monkeypatch):
-    """全绿 + APPROVED → ACTIONABLE:merge；issue subject 的 pr 归属取 facts.pr_number。"""
+    """+APPROVED  → ACTIONABLE:merge; issue subject’s pr belongs to facts.pr_number."""
     conn = _db(tmp_path)
     _stub_sense(monkeypatch, facts=_facts())
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
@@ -175,7 +175,7 @@ def test_consider_stamps_merge_phase_with_pr_attribution(tmp_path, monkeypatch):
 
 
 def test_consider_bare_pr_subject_has_null_issue(tmp_path, monkeypatch):
-    """裸 PR subject（pr:12）→ issue 归属为 null，pr 取 subject 号。"""
+    """standalone PR subject (pr:12)  → issue belongs to nult, pr takes subject."""
     conn = _db(tmp_path)
     _stub_sense(monkeypatch, facts=_facts(subject="pr:12"))
     _consider_once(conn, subject="pr:12", work_dir=tmp_path)
@@ -185,13 +185,13 @@ def test_consider_bare_pr_subject_has_null_issue(tmp_path, monkeypatch):
 
 
 def test_consider_merge_segment_distinguishes_ci_wait_from_review_wait(tmp_path, monkeypatch):
-    """合并段咽喉：CI pending → awaiting-ci（CI-wait）；review 陈旧 → review-or-fix（review-wait）。
-    两者是不同 phase，不再糊成旧栈的一段 `open`——这是本 issue 价值的核心。"""
+    """Combined throat: CI pending  →  ailing-ci (CI-wait); review old  →  review-or-fix (review-wait).
+    The two are different phasies, and no longer a part of the old cork `open` -- this is the core of the value of this issue."""
     conn = _db(tmp_path)
-    # ① CI 排队。
+    # 1 CI queue.
     _stub_sense(monkeypatch, facts=_facts(ci="pending"))
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
-    # ② review 陈旧（裁决绑旧 sha）→ review-or-fix。
+    # 2 review old (sa) review-or-fix.
     stale = _facts(review_commit_id="0000000", labels=frozenset({"review-approved:0000000"}))
     _stub_sense(monkeypatch, facts=stale)
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
@@ -201,12 +201,12 @@ def test_consider_merge_segment_distinguishes_ci_wait_from_review_wait(tmp_path,
 
 
 def test_consider_guardrail_one_downgrade_records_awaiting_effect(tmp_path, monkeypatch):
-    """护栏一降级：同 fp attempt 戳 → ACTIONABLE 降 QUIET(awaiting-effect)，记的是**降级后**的等待相。"""
+    """Decline in the first column: with fp attempt jab ACTIONABLE down QUIET (awaiting-effict) remembers** the waiting face** after the downgrade."""
     conn = _db(tmp_path)
     stuck = _facts(ci="failure")
     fp = _fingerprint(facts=stuck)
     stamp = github.Comment(
-        1, "bot", f"<!-- openagents:attempt fp={fp} -->\n撞墙了", "2026-07-14T11:00:00Z"
+        1, "bot", f"<!-- openagents:attempt fp={fp} -->\nIt hit the wall.", "2026-07-14T11:00:00Z"
     )
     _stub_sense(monkeypatch, facts=stuck, comments=[stamp])
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
@@ -215,24 +215,24 @@ def test_consider_guardrail_one_downgrade_records_awaiting_effect(tmp_path, monk
 
 
 # --------------------------------------------------------------------------------------------------
-# 容错端到端 + fp 不变（旁路不回归）。
+# Allows the wrong end to the end + fp to remain unchanged (by-side not returning).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_consider_survives_timing_record_raising(tmp_path, monkeypatch):
-    """record 抛异常（注入）→ `_consider` 照常返回入队数、不受影响（容错端到端）。"""
+    """Record drops (injection) `_consider` returns as usual, without impact (with the wrong end to end)."""
     conn = _db(tmp_path)
-    _stub_sense(monkeypatch, facts=_facts(pr_number=None))  # solve → 会入队
+    _stub_sense(monkeypatch, facts=_facts(pr_number=None))  #   Solve       Bang, bang, bang, bang
 
     def _boom(**kwargs):
         raise RuntimeError("timing backend down")
 
     monkeypatch.setattr(vigil_module.timing, "record", _boom)
-    assert _consider_once(conn, subject="issue:5", work_dir=tmp_path) == 1  # 照常入队
+    assert _consider_once(conn, subject="issue:5", work_dir=tmp_path) == 1  # As usual.
 
 
 def test_fingerprint_unchanged_by_timing_stamp(tmp_path, monkeypatch):
-    """旁路写 timing.jsonl 不进 fp——埋点前后 `_fingerprint` 相等（护栏一不自毁）。"""
+    """timing.jsonl does not enter fp - equals `_fingerprint` before and after the burial site (I am not self-destructing)."""
     conn = _db(tmp_path)
     facts = _facts(ci="failure")
     fp_before = _fingerprint(facts=facts)
@@ -240,14 +240,14 @@ def test_fingerprint_unchanged_by_timing_stamp(tmp_path, monkeypatch):
     _consider_once(conn, subject="issue:5", work_dir=tmp_path)
     fp_after = _fingerprint(facts=facts)
     assert fp_before == fp_after
-    # 且确实盖了戳（旁路真发生，不是空转）。
+    # And it does.
     assert len(_timing_events(tmp_path)) == 1
 
 
 def test_consider_timing_write_failure_does_not_block_enqueue(tmp_path, monkeypatch):
-    """即便 timing 目录被占成文件导致写崩，主流程仍入队（容错断言，另一条注入路径）。"""
+    """Even if the Timing catalogue was filed and the main process collapsed (the false assertion, the other injection path)."""
     conn = _db(tmp_path)
     _stub_sense(monkeypatch, facts=_facts(pr_number=None))
-    # 让 record 内部 open 抛错，验证是 timing.record 自身的 try 兜住、`_consider` 无感。
+    # Jean. record Internal open Wrong. timing.record Your own. try Hold on.`_consider` No sense.
     monkeypatch.setattr(Path, "open", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
     assert _consider_once(conn, subject="issue:5", work_dir=tmp_path) == 1

@@ -1,23 +1,5 @@
-"""RFC-0011 T2: 本地 agent 身份 + 评论签名。
-
-每个 OpenAgents 实例持有一个稳定 `agent_id`，并给自己经 OpenAgents 发出的每条 PR 评论盖一个
-隐藏 HTML 注释签名 `<!-- openagents:agent=<agent_id> -->`。
-
-RFC-0019 现状对账：RFC-0011 原设计的「读侧」——poll 读 PR 评论 → 按签名剔除自评论 → 触发
-`refine_rfc`/`iterate`——已被 RFC-0012 的 reviewer 闸取代且从未在 `messages.poll` 落地
-（poll 不读 PR 评论）。因此本模块的活跃职责收敛为**写侧**：盖章（`sign` / `post_signed_comment`）
-服务于评论**溯源/审计**，并为未来若复活读侧保留零成本接口。`parse_agent_id` 是 `sign` 的
-验证逆函数，由测试断言盖章往返、并作为公开 API。
-
-Spec-0032（issue #89）**定向复活读侧**于一个安全子集：`new_human_comments` 调
-github.list_comments 读评论，用 `parse_agent_id` 滤掉一切带 OpenAgents 签名的机器评论、只留
-「block 之后的无签名人类评论」，专供 messages 的 blocked 解挂判定（自动流转主路径仍由 reviewer
-闸驱动，不读评论）。两道硬约束（仅新评论 + 仅人类签名）精确化解 RFC-0019 的自循环顾虑。
-
-身份解析优先级（决策 2）：env OPENAGENTS_AGENT_ID > RuntimeState 已存值 > 首次自动生成并落盘。
-盖章逻辑收口在本模块（决策 4）：所有「agent 主动发评论」的调用方走 post_signed_comment，
-github.post_comment 维持「对 gh pr comment 的薄封装、不含业务逻辑」的定位（理念 10：解耦）。
-"""
+# RFC-0011
+"""Identify the local agent and sign comments on issues and pull requests."""
 
 from __future__ import annotations
 
@@ -28,40 +10,40 @@ from datetime import UTC, datetime
 
 from openagents.runtime.state import RuntimeState
 
-# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+# Spec-0074/T1: arias-import switch - Platform operations are configured by github/gitea driver to call zero changes.
 from openagents.utils import forge as github
 
-# RFC-0011 决策 2：显式命名实例的环境变量；多 agent 协同时给运维一个可读的命名入口。
+# RFC-0011 Decision 2: Environmental Variables for Visible Naming Examples; A Readable Naming Entry for Multiple Entries.
 AGENT_ID_ENV = "OPENAGENTS_AGENT_ID"
 
-# Spec-0049/T2：认领便签标记——与既有 agent 签名**并存**的第二段隐藏标记，把「认领便签」从
-# 其它署名机器评论（precheck 对齐评论、reviewer 裁决回贴等同样带 <!-- openagents:agent=… -->
-# 签名）里区分出来。GitHub 不渲染 HTML 注释，对人类零干扰；gh raw body 里可被 `in` 子串命中。
-# 只需「在不在」判定（不带可变字段），故用常量 + 子串匹配，不引入正则（奥卡姆，理念 1）。
+# Spec-0049/T2: Sign the flag as required - hide the second paragraph with the existing agent** and sign the "Authorize the sign" from
+# Other signed machine reviews (precheck cross-references, reviewer decision returns, etc.) are also on the same page <! -- openagets: agent=... >
+# ) Distinguished in. GitHub does not render HTML comments, and interferes with humans without any interference; gh Raw body can be hit by `in`.
+# Only "in-in-a-situ" determination (without variable fields) is required, so the constant + substring is matched and the regular rule is not introduced (Ocam, Concept 1).
 _CLAIM_MARKER = "<!-- openagents:claim -->"
 
-# RFC-0011 决策 3：agent_id 字符集限制为 [A-Za-z0-9_-]，使签名正则稳健、不被正文意外撞匹配。
+# RFC-0011 Decision 3: agent_id character set limited to [A-Za-z0-9_-] to secure the signature from accidental complication with the body.
 _AGENT_ID_CHARS = "A-Za-z0-9_-"
 
-# 隐藏签名标记模板：GitHub Markdown 不渲染 HTML 注释，对人类读者零干扰，
-# 但 gh pr view --json comments 返回的原始 body 里可被下方正则解析出来。
+# Hide signature tag template: GitHub Markdown does not render HTML comments, and does not interfere with human readers, and the user is not allowed to read them.
+# But gh pr view --json comments can be dissected from the lower part of the original body returned.
 _SIGNATURE_TEMPLATE = "<!-- openagents:agent={agent_id} -->"
 
-# 解析签名用的正则：只认严格匹配字符集的 agent_id，正文里的普通文字不会被误判。
+# The regular rule for the declaring signature: agent_id is only for strict matching of character sets, and the normal text in the body is not misjudged.
 _SIGNATURE_RE = re.compile(rf"<!-- openagents:agent=([{_AGENT_ID_CHARS}]+) -->")
 
 
 def resolve_agent_id(*, state: RuntimeState) -> str:
-    """RFC-0011 决策 2：解析本实例 agent_id（env > RuntimeState > 自动生成并落盘）。
+    """RFC-0011 Decision 2: Parsing this instance agent_id (env > Runtimestate > Auto Generate and Discrete).
 
-    # Spec-0063/T2: 改接新栈——存取从旧 State 迁到 runtime.RuntimeState，落盘从 state.json 顶层
-    # 键改为 runtime-state.json 顶层键（get/set_agent_id 签名不变，行为完全等价）。
+    # Spec-0063/T2: Reconnect the new inn - Access moved from old State to runtime.RuntimeState, Crashed from state.json Top Level
+    # Replace the key with runtime-state.json top floor key (get/set_agent_id signature unchanged, behaviour fully equal).
 
-    - env OPENAGENTS_AGENT_ID 非空白：直接用，不写 state（不污染落盘值，env 是临时覆盖）。
-    - 否则 RuntimeState 已有值：复用，保证跨进程/重启稳定。
-    - 都没有：uuid4 生成短串，立即 state.set_agent_id 落盘（runtime-state.json），使后续进程拿到同一 id。
+    - env OPENAGENTS_AGENT_ID is not empty: direct use, no state (no contaminated drop value, env is temporary cover).
+    - Otherwise Runtestate has its value: reuse, ensures cross-process/relaunch stability.
+    - None: uuid4 generation short string, immediately state.set_agent_id drop (runtime-state.json), to get the follow-up process to the same id.
 
-    返回非空、字符集受限（[A-Za-z0-9_-]）的稳定 id。
+    returns the non-empty, charset limited ([A-Za-z0-9_-]) stability id.
     """
     env_value = os.environ.get(AGENT_ID_ENV)
     if env_value and env_value.strip():
@@ -71,39 +53,39 @@ def resolve_agent_id(*, state: RuntimeState) -> str:
     if existing:
         return existing
 
-    # uuid4 的十六进制短串：无外部依赖（理念 1），天然落在受限字符集内。
+    # uuid4 hexadecimal string: no external dependence (ideology 1) and naturally falls within the restricted character set.
     generated = uuid.uuid4().hex[:12]
     state.set_agent_id(agent_id=generated)
     return generated
 
 
 def sign(*, body: str, agent_id: str) -> str:
-    """RFC-0011 决策 3：在 body 末尾追加隐藏签名标记，返回带签名的新正文（纯函数）。"""
+    """RFC-0011 Decision 3: Add a hidden signature tag to the end of body and return the new body (pure function) with the signature."""
     return f"{body}\n\n{_SIGNATURE_TEMPLATE.format(agent_id=agent_id)}"
 
 
 def parse_agent_id(*, body: str) -> str | None:
-    """RFC-0011：从 body 中解析签名里的 agent_id；无签名返回 None（纯函数）。
+    """RFC-0011: parsing the signature agent_id from body; returns None without signature (pure function).
 
-    RFC-0019：`sign` 的验证逆函数。当前无生产 poll 调用它过滤评论（评论驱动读侧已退役，
-    poll 不读 PR 评论，自动流转由 reviewer 闸驱动）；保留作为公开 API + 测试盖章往返的断言对象，
-    并为未来若复活读侧留接口。
+    RFC-0019: `sign` is a verification inverse. No production currently exists for polll to call it filtering comment (the comment drive is retired, the comment side is retired, the comment side is not working.
+    Poll does not read PR comments, automatically moving to reviewer gate; retains the claim as the subject of the public API+ test stamp round trip, and then leaves the page open.
+    The blog also provides a good idea of how to use the Internet to help people in their own countries.
     """
     match = _SIGNATURE_RE.search(body)
     return match.group(1) if match else None
 
 
 def new_human_comments(*, pr_number: int, since: str) -> list[github.Comment]:
-    """Spec-0032/T4：读侧复活——返回 PR 上「block 之后的新人类评论」，按时间升序。
+    """Spec-0032/T4: Read side resurrection - returns to the PR ”New Human Review After Block” in time order.
 
-    调 github.list_comments 取全量评论，保留同时满足两条硬约束的：
-    - created_at 严格大于 `since`（挂起水位线 block_watermark）——历史评论、上次解挂前的评论
-      都被滤掉；since="" 时任何非空 created_at 都算新（任意人类评论即可触发）。
-    - parse_agent_id(body) is None（无 OpenAgents 隐藏签名）——一切带签名的机器评论（本实例刚
-      贴的挂起评论、reviewer 回贴、refine/iterate/解冲突回贴）全被滤掉。
+    github.list_comments to take full-scale comments and keep those that satisfy both hard-bound:
+    - created_at is more than `since` (string waterline block_watermark) - Historical review, comments before last unmounted
+      created_at is new when it’s not empty (a human comment can trigger).
+    - parse_agent_id (body) is None (no OpenAgents hidden signature) - All machine reviews with signatures (this example just happened)
+      Hanging comments,reviewer Backup.refine/iterate/The conflict has been leached.
 
-    两道约束叠加 → agent 永远读不到自己的评论自触发，精确还原 RFC-0011 读侧的安全子集、定向
-    解除 RFC-0019「不读评论」限制（自动流转主路径仍由 reviewer 闸驱动，本函数只服务 blocked 解挂）。
+    Two-barrel superstitions  →  agent never reads its comments to trigger, accurately restores the security subset, orientation of the RFC-0011 side of the read.
+    Unable to read comments on RFC-0019 (Auto-Transmit main path is still driven by reviewer gate, which only serves blocked unmounted).
     """
     fresh = [
         comment
@@ -114,17 +96,17 @@ def new_human_comments(*, pr_number: int, since: str) -> list[github.Comment]:
 
 
 def new_human_comments_on_issue(*, number: int, since: str) -> list[github.Comment]:
-    """# Spec-0016/T1：读侧 issue 版——返回 issue 页上「since 之后的新人类评论」，按时间升序。
+    """#Spec-0016/T1: Read side issue - Return to the ”Since New Humanity Review” page, in chronological order.
 
-    与 `new_human_comments`（PR 版）逐字对称，唯一区别是读源改调 `github.list_issue_comments`
-    （`gh issue view --json comments`）而非 `list_comments`（`gh pr view`）。沿用同一对硬约束：
-    - created_at 严格大于 `since`（issue 评论游标 state.get_issue_cursor）——历史评论、上次回复
-      之前的评论全被滤掉；since="" 时任何非空 created_at 都算新（任意人类评论即可触发）。
-    - parse_agent_id(body) is None（无 OpenAgents 隐藏签名）——一切带签名的机器评论（本实例回帖、
-      认领便签、准入对话回贴）全被滤掉。
+    with `new_human_comments`（PR The only difference is the re-reading of the source. `github.list_issue_comments`
+    （`gh issue view --json comments`）Not `list_comments`（`gh pr view`）。Follow the same hard-barrel:
+    - created_at is more than `since` (issue comment state.get_issue_cursor) - History review, last response
+      The comments were all filtered out; the since=”any non-empty created_at is new (a trigger for any human comment).
+    - parse_agent_id (body) is None (no OpenAgents hidden signature) - All machine comments with signatures (this instance reply,
+      The following is a list of the most recent posts on the website of the World Health Organization (WHO) that have been posted on the website:
 
-    两道约束叠加 → agent 永远读不到自己的回帖自触发（issue #149「回复即消息」闭环延伸到 issue 页），
-    与 PR 侧防自循环语义完全同构。PR 版 `new_human_comments` 零改动（零回归）。
+    The two restraints added that the comment never read itself triggers (issue #149, ”Reaction is the message” closed to the issue page).
+    It is identical to the PPR side protection from the cycling semantics. The PR version `new_human_comments` zero changes (zero returns).
     """
     fresh = [
         comment
@@ -135,29 +117,26 @@ def new_human_comments_on_issue(*, number: int, since: str) -> list[github.Comme
 
 
 def build_claim_note(*, agent_id: str) -> str:
-    """Spec-0049/T2：构造一条**署名认领便签**正文——claim 标记 + agent 签名，供贴到 issue。
+    """Render a signed claim comment for an issue.
 
-    认领 = 幂等 add 固定标签 + 追加这条便签（归属凭证 + 刷新新鲜度的新 created_at）。便签同时带
-    两段隐藏标记：`_CLAIM_MARKER`（区分「这是认领便签」）与 `sign` 追加的 agent 签名（记「是谁
-    认领」）。正文给人一行可读说明，隐藏标记只在 gh raw body 可见。与 latest_claim 互为逆：
-    latest_claim(build_claim_note(agent_id=x)) 还原出 owner==x（测试断言往返保真）。
+    The claim marker identifies the comment and the signature identifies its owner.
     """
-    body = f"🤖 openagents 认领本 issue、起草中（派单去重便签）。\n\n{_CLAIM_MARKER}"
+    body = f"OpenAgents claimed this issue and is drafting a Spec.\n\n{_CLAIM_MARKER}"
     return sign(body=body, agent_id=agent_id)
 
 
 def latest_claim(*, comments: list[github.Comment]) -> tuple[str, float] | None:
-    """Spec-0049/T2：从 issue 评论列表解析**最近一条认领便签**的 (owner_agent_id, age_seconds)。
+    """Spec-0049/T2: Parsing the most recent sign-on from the issue review list** (owner_agent_id, age_seconds).
 
-    纯函数（唯一的「现在」来自 datetime.now，用于算年龄）：
-    - 只认同时满足两条的评论：含 `_CLAIM_MARKER`（是认领便签，滤掉 precheck 对齐评论 / reviewer
-      裁决回贴 / 无签名人类评论）**且** parse_agent_id 能取出 owner（有归属）。
-    - 在这些认领便签里按 created_at（ISO 8601，字典序即时序）取**最新一条**，返回其 owner 与
-      「now - created_at」秒龄。无任何有效认领便签 → None。
+    Pure function (the only ”now” from datetime.now is used to calculate age):
+    - Only two comments satisfied when agreeing: `_CLAIM_MARKER` (take-in-and-check-out precheck alignment comments/reviewer
+      The decision returns / unsigned human review)** and ** parse_agent_id can remove the owner (attribution).
+    - created_at (ISO 8601, dictionary in chronological order)** in these identification notes, returns the latest item** to the owner and
+      ”now - created_at” seconds old. Sign None without any valid endorsement.
 
-    归属 + 新鲜度一次读出：调用方（vigil 发现段判归属闸 / orchestrator 二次确认退让）据此判
-    「是不是我的」「过没过期」。created_at 空/不可解析时保守判 age=0.0（未过期，宁可占坑多留一轮
-    也不误判过期回收活后端）——与发现段「取不到证据保守判未过期」同源。
+    Attribution + Fresh Read One: From this basis, the caller (vigil found paragraph at the gate / orchestranter confirmed the surrender)
+    ”Isn’t mine” ”is it past?” created_at is empty/ undefeated conservatively agg = 0.0 (previously, prefers to keep another round of the pit)
+    The decision is not to be misjudged at the back end of the recovery activity - it is the same source as the discovery that ”the conservative decision not to take evidence is not expired”.
     """
     notes = [
         (comment, owner)
@@ -172,7 +151,7 @@ def latest_claim(*, comments: list[github.Comment]) -> tuple[str, float] | None:
 
 
 def _claim_age_seconds(*, created_at: str) -> float:
-    """Spec-0049/T2：认领便签 created_at（ISO 8601）距今秒数；空/不可解析保守判 0.0（未过期）。"""
+    """Spec-0049/T2: Number of seconds from now when you sign created_at (ISO 8601) on your confirmation; empty/unresolved conservative sentence 0.0 (unexpired)."""
     if not created_at:
         return 0.0
     try:
@@ -183,25 +162,25 @@ def _claim_age_seconds(*, created_at: str) -> float:
 
 
 def post_signed_comment(*, pr_number: int, body: str, agent_id: str) -> None:
-    """RFC-0011 决策 4 / Spec-0064/T5：盖章后 post + **同步后校验漏签则补签**——所有「agent 主动发
-    评论」的唯一出口（约束③：防自循环闭环不可拆）。
+    """RFC-0011 Decision 4 / Spec-0064/T5: post after stamp + **Sync check and check check and sign after mark** - All ’agents’
+    The only export (bound 3: the self-closure of the loop is not to be removed) is the comment.
 
-    收口盖章逻辑，使 github.post_comment 保持纯薄封装。`sign` 恒在 body 末尾追加隐藏签名，故 post 的
-    正文必带签名；但 Spec-0064 约束③要求「同步后校验漏签则补（不能只 warn）」——post 后回读 PR 上本
-    实例的最近一条评论确认签名确实落地，万一漏签（如外部改写/截断）则**主动补一条签名评论**修复闭环，
-    而非只告警。补签失败不上抛（best-effort，不阻断已发出的回复）。poll_comments 靠签名过滤人类评论，
-    漏签会让 agent 把自己的回复当新人类评论、自问自答死循环——故必须闭合。
+    Seal-in-the-port logic, keeping github.post_comment in a thin wrap. `sign` always adds a hidden signature to the end of body, so post
+    The text must be signed; however, Spec-0064 bound 3 requires ”Sync and verify the missing signature to be completed (not just warm)” - post back to PR.
+    A recent comment from the example confirms that the signature is actually on the ground, and in the event of a omission (e.g. external rewriting/cut)** a signature comment** is being prepared to restore the closed ring, and the signature is being replaced by a signature comment.
+    The poll_comments filters human comments by signing.
+    The omission would have allowed agent to turn his response into a new human commentary, a self-questioning loop -- so it had to close.
     """
     github.post_comment(pr_number=pr_number, body=sign(body=body, agent_id=agent_id))
     _verify_signature_or_fix(pr_number=pr_number, agent_id=agent_id)
 
 
 def _verify_signature_or_fix(*, pr_number: int, agent_id: str) -> None:
-    """Spec-0064/T5：回读最近一条评论校验本实例签名是否落地；漏签则补一条签名评论（约束③，非只 warn）。
+    """Spec-0064/T5: Read back the last comment check-in example of whether the signature has landed; the omission adds a signature comment (bound 3, not just warn).
 
-    正常路径（`sign` 已盖章）→ 最近评论带本实例签名 → no-op。异常路径（签名被截断/改写）→ 补一条只带
-    签名的修复评论，保证 PR 上确有本实例的签名评论、闭合防自循环闭环。读/补失败均吞掉（best-effort，
-    不阻断已发出的回复；github 侧真故障由上层守候段的 per-PR 错误隔离兜住）。
+    Normal Path (`sign` stamped)  →  no-op. Unusual Path (signature stopped/rewritten)  →  Add a strip
+    Signing a restoration comment that ensures that a signature comment from this example is available on PR, closed from the loop. Reading/remedial failure swallows (best-effort, etc.)
+    No response sent; the github side’s real failure is blocked by per-PR error in the upper guard segment).
     """
     try:
         comments = github.list_comments(pr_number=pr_number)
@@ -215,31 +194,34 @@ def _verify_signature_or_fix(*, pr_number: int, agent_id: str) -> None:
     try:
         github.post_comment(
             pr_number=pr_number,
-            body=sign(body="（openagents 补签名：校正上一条回复的归属）", agent_id=agent_id),
+            body=sign(
+                body="(openagents additional signature: correction of the previous reply to attribution)",
+                agent_id=agent_id,
+            ),
         )
     except github.GithubError:
         return
 
 
 def post_signed_comment_on_issue(*, number: int, body: str, agent_id: str) -> None:
-    """# Spec-0016/T1：盖章后 post 到 **issue 页** + 同步后校验漏签则补签——issue 版签名回帖唯一出口。
+    """#Spec-0016/T1: Post after stamp to **issue page** + Sync and check and check for slips and sign - issue only exit for signature return.
 
-    与 `post_signed_comment`（PR 版）逐字对称，唯一区别是写源改调 `github.issue_comment`
-    （`gh issue comment`）而非 `post_comment`（`gh pr comment`）、回读改调 `list_issue_comments`。
-    `sign` 恒在 body 末尾追加隐藏签名，故落地正文必带签名；Spec-0064 约束③要求「同步后校验漏签则
-    补（不能只 warn）」——post 后回读 issue 上本实例的最近一条评论确认签名确实落地，万一漏签则**主动
-    补一条签名评论**闭合防自循环闭环（漏签会让下一轮 `new_human_comments_on_issue` 把自己的回帖当新
-    人类评论、自问自答死循环）。补签失败不上抛（best-effort，不阻断已发出的回复）。PR 版零改动（零回归）。
+    Symmetry with `post_signed_comment` (PR version), the only difference is the `github.issue_comment`
+    （`gh issue comment`）Not `post_comment`（`gh pr comment`）Read back and change the tone `list_issue_comments`。
+    `sign` Always hides the signature at the end of body, so the text will be signed; Spec-0064 bound 3 requires ”Sync and check the missing signature rule”
+    The last comment in the post-issue example confirms that the signature is actually on the ground, and in case of a default**
+    A signed comment** closed from the loop (failure to make the next round `new_human_comments_on_issue` new)
+    The re-signing is not a fallout (best-effort, does not block the response already sent).
     """
     github.issue_comment(number=number, body=sign(body=body, agent_id=agent_id))
     _verify_signature_or_fix_on_issue(number=number, agent_id=agent_id)
 
 
 def _verify_signature_or_fix_on_issue(*, number: int, agent_id: str) -> None:
-    """# Spec-0016/T1：issue 版回读校验——最近一条评论带本实例签名则 no-op，漏签则补一条签名评论。
+    """#Spec-0016/T1:issue version of the check-back — the last comment with this example is signed no-op, while the omission is supplemented by a signature comment.
 
-    与 `_verify_signature_or_fix`（PR 版）对称：读经 `list_issue_comments`、补签经 `issue_comment`。
-    读/补失败均吞掉（best-effort，不阻断已发出的回复；真故障由上层守候段 per-subject 错误隔离兜住）。
+    Symmetrical with `_verify_signature_or_fix` (PR version): Read `list_issue_comments`, and sign `issue_comment`.
+    Read/refill failure swallows (best-effort, without blocking the response sent; the real failure is being driven by a per-subject error isolation in the upper guard segment).
     """
     try:
         comments = github.list_issue_comments(number=number)
@@ -253,7 +235,10 @@ def _verify_signature_or_fix_on_issue(*, number: int, agent_id: str) -> None:
     try:
         github.issue_comment(
             number=number,
-            body=sign(body="（openagents 补签名：校正上一条回复的归属）", agent_id=agent_id),
+            body=sign(
+                body="(openagents additional signature: correction of the previous reply to attribution)",
+                agent_id=agent_id,
+            ),
         )
     except github.GithubError:
         return

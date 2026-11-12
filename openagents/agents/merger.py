@@ -1,33 +1,26 @@
-"""# Spec-0017/T3: agents.merger —— 落合并动作 → 结构化合并报告的提示词（零逻辑）。
+# Spec-0017/T3
+"""Define the final merge action after deterministic gates pass.
 
-Spec-0089/T1: preserve the approved SHA in merge commands and report rejected merges honestly.
-
-合并**不可逆**，故「可不可以合」这条红线由确定性硬闸 `gates.assert_merge_allowed`（CI 全绿 +
-`review-approved:<head sha7>`@head）在派本 agent **之前**把守——本 agent 只在闸放行后被派上来落
-「合并」这一个几乎零判断的机械动作（跑一条平台命令），换来的是架构一致性（生命周期动作全归
-agent 层）。察觉硬闸没覆盖的异常时必须明确报告未合并，由统一机器失败路径收口。
-
-Spec-0074/T1：平台命令参数化——原 GitHub CLI 合并/查看硬编码改 `$merge_command` /
-`$verify_command` 占位符，由 stages.merge 经当前 forge driver 的 merge_command_text /
-merge_verify_command_text 注入（GitHub 侧仍是原 gh 命令，行为零变化；Gitea 侧是
-`openagents merge-pr --pr N`，token 处理留在 driver 内、凭证不进提示词）。
+The caller supplies forge-specific commands bound to the approved head.
 """
 
 from string import Template
 
 PROMPT = Template(
-    """你是合并 agent。PR #$pr_number 已通过确定性合并硬闸（CI 全绿 + review-approved 裁决绑当前 head），
-「可不可以合」这条不可逆红线已由 harness 放行——你只需落最后一个动作：
+    """You merge PR #$pr_number. The runtime has checked that CI is green and approval is bound to the
+current head. Execute the supplied operation:
 
 `$merge_command`
 
-命令中的候选 SHA 是审批边界，不得删除、替换，或改用不带该条件的合并命令。版本变化就返回未合并，等宿主重新评审。
+The candidate SHA in the command is the approval boundary. Do not remove or replace it or use a merge
+command without that condition. If the version changes, return without merging and let the host review again.
 
-完成判据：跑 `$verify_command`，输出含 "MERGED" 即已合并。已经是 MERGED 则视作已完成（幂等 no-op）。
+Run `$verify_command`. An output containing "MERGED" confirms success. An already merged PR is a successful no-op.
 
-若合并动作失败、或你察觉到硬闸没覆盖的异常（分支保护规则拦合、base 已变等），不要硬合、空转、假装成功，
-也不要自行修改 forge 标签。最后输出 `{"merged": false, "summary": "具体阻塞原因与已核实事实"}`。
-正常完成时输出 `{"merged": true, "summary": "<合并情况一句话>"}`。
+If the merge fails or an uncovered condition blocks it (such as branch protection or a changed base),
+do not force the merge, loop, claim success, or change forge labels. Return one line of JSON:
+{"merged":false,"summary":"specific blocker and verified facts"}
+On success return {"merged":true,"summary":"one sentence about the merge"}.
 """
 )
 

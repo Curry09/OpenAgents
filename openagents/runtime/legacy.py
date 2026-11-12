@@ -41,7 +41,7 @@ def assert_migrated(*, state: Any, inspect_forge: bool = True) -> None:
     detail = "; ".join(found)
     command = f"scripts/migrate-{LEGACY_LABEL}-state.py"
     raise LegacyStateError(
-        f"检测到 Spec-0081 之前的终态：{detail}。请先运行 {command}（先 dry-run，再 --apply）。"
+        f"Pre-Spec-0081 terminal state found: {detail}. Run {command} in dry-run mode first, then with --apply."
     )
 
 

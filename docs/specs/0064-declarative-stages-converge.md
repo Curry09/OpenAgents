@@ -1,15 +1,15 @@
 ---
 number: "0064"
-title: 收敛 recipes 到 vigil+issue：声明式 stages YAML 定义 agent/human/skip 阶段归属
+title: "Consolidate recipes into vigil+issue: declarative stages YAML defines agent/human/skip stage ownership"
 issue: 161
 slug: declarative-stages-converge
-summary: 把 recipes 层 6→3 收敛（stages/vigil/backfill），人面向入口收敛为 vigil+issue+backfill-rfc+release，用一份声明式 .openagents/openagents.yml（agents/stages 三态/release）作「用哪些 agent + 每道闸归谁把关」的单一真源，阶段抽成 Vigil 类外的独立自由函数由 run_vigil 按 stages 策略路由，并给 CI/e2e/review 三闸接上「失败→派 implementer 迭代→下轮从 conflict 重进」的统一打回回环。
+summary: "Consolidate the recipes layer from 6→3 (stages/vigil/backfill), and consolidate human-facing entry points into vigil+issue+backfill-rfc+release. Use a single declarative .openagents/openagents.yml (agents/three-state stages/release) as the single source of truth for “which agents to use + who controls each gate.” Extract stages into independent free functions outside the Vigil class, routed by run_vigil according to the stages policy, and connect the CI/e2e/review gates to a unified rejection loop: “failure→dispatch implementer to iterate→re-enter from conflict on the next round.”"
 e2e:
-  intent: 证明「声明式 stages 策略路由 + recipes 层 6→3 收敛」的架构契约在离线确定性链路上成立——同一 issue 环，喂不同 .openagents/openagents.yml，agent_config 加载出的三态策略能真正驱动 run_vigil 分支（agent→调 stage 函数 / human→停等人 / skip→跳过），「不许零闸」守卫拦掉 review:skip+merge:agent，conflict/merge:skip 被拒；CI/e2e/review 失败经统一回环派 implementer 迭代、下轮从 conflict 重进；确定性硬闸（head 前移/证据戳/round_cap）不受 stages 管辖恒在；收敛后 recipes/ 仅剩 stages/vigil/backfill，人面向仅 vigil/issue/backfill-rfc/release + 隐藏 reply-comment。
-  method: "形态：纯后端配置 + 编排 + CLI 收敛，无 product-facing 前端可导航；自检工具列表无 Playwright /\nChrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0060/0061/0062 同款）：\n1. 配置层针对性 pytest（假 YAML 串，不触真实仓库/网络）：agent_config 解析 agents/stages/release/\n   defaults/repos + 内建默认全回落 + 每仓 override 合并；三态每闸合法取值校验（conflict/merge 拒\n   skip、rfc 仅 agent/skip、硬闸名进 stages 直接 reject）；「不许零闸」守卫拒 review:skip+merge:agent；\n   rfc:skip 出显式告警。\n2. 编排层针对性 pytest（假 backend 喂 canned 结构化裁决，不触真实 LLM/网络/仓库）：run_vigil 按\n   注入 config 的三态断言 agent/human/skip 三分支；合并流水线 conflict→ci→e2e→review→merge 序；\n   CI/e2e/review 失败→派 implementer→下轮从 conflict 重进的回环；stages 关不掉确定性硬闸。\n3. grep 锚点（e2e 脚本）：recipes/ 仅剩 {stages,vigil,backfill,__init__}.py；全库对已删\n   recipes（solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet）与 agents.planner 的裸 import\n   零命中；stages 九原子函数均显式收参（无位置参数、无 private 默认值）；agent 回评论盖签名闭环\n   （identity.post_signed_comment 漏签 edit 补，非只 warn）。\n4. 真实自主环冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa vigil 用一份最小\n   openagents.yml（rfc:skip + merge:human）跑通一个 issue→PR、PR CI 全绿——作为成果验收（理念 8）\n   在 runbook 记录，不塞进离线脚本。\n脚本：scripts/e2e-spec-0064-declarative-stages-converge.sh（ruff check + ruff format --check +\n针对性 pytest + grep 锚点），被 PR e2e signpost 采集。\n"
+  intent: "Prove that the architectural contract of “declarative stages policy routing + recipes-layer convergence from 6→3” holds in an offline deterministic flow—within the same issue loop, supplying different .openagents/openagents.yml files allows the three-state policies loaded by agent_config to actually drive run_vigil branches (agent→call the stage function / human→pause and wait for a human / skip→skip); the “no zero gates” guard blocks review:skip+merge:agent, and conflict/merge:skip is rejected; CI/e2e/review failures dispatch the implementer to iterate through a unified loop, with the next round re-entering at conflict; deterministic hard gates (head advancement/evidence stamps/round_cap) remain active at all times and are outside the control of stages; after convergence, recipes/ contains only stages/vigil/backfill, and the human-facing commands are only vigil/issue/backfill-rfc/release + the hidden reply-comment."
+  method: "Form: backend-only configuration + orchestration + CLI convergence, with no navigable product-facing frontend; the self-check tool list contains no Playwright /\nChrome DevTools MCP, so no browser e2e is planned; use offline deterministic testing instead (the same approach as Spec-0060/0061/0062):\n1. Targeted configuration-layer pytest tests (fake YAML strings, without touching real repositories/networks): agent_config parses agents/stages/release/\n   defaults/repos + full fallback to built-in defaults + per-repository override merging; validate the allowed values for each gate under the three-state model (conflict/merge reject\n   skip, rfc allows only agent/skip, and hard-gate names in stages are rejected outright); the “no zero gates” guard rejects review:skip+merge:agent;\n   rfc:skip emits an explicit warning.\n2. Targeted orchestration-layer pytest tests (a fake backend supplies canned structured verdicts, without touching real LLMs/networks/repositories): assert the three\n   agent/human/skip branches in run_vigil according to the injected config; the merge pipeline follows the conflict→ci→e2e→review→merge order;\n   CI/e2e/review failure→dispatch implementer→re-enter at conflict in the next round; stages cannot disable deterministic hard gates.\n3. grep anchors (e2e script): recipes/ contains only {stages,vigil,backfill,__init__}.py; zero matches across the repository for bare imports of the deleted\n   recipes (solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet) or agents.planner;\n   all nine atomic functions in stages take parameters explicitly (no positional arguments, no private defaults); ensure a closed loop for signing agent comment replies\n   (identity.post_signed_comment repairs a missing signature with an edit, rather than merely warning).\n4. Real autonomous-loop smoke test (dogfood, Phase-3 human acceptance / runbook, not a deterministic CI gate): oa vigil uses a minimal\n   openagents.yml (rfc:skip + merge:human) to complete one issue→PR flow, with all PR CI checks green—record this in the runbook as outcome acceptance (Principle 8),\n   without putting it into the offline script.\nScript: scripts/e2e-spec-0064-declarative-stages-converge.sh (ruff check + ruff format --check +\ntargeted pytest tests + grep anchors), collected by the PR e2e signpost.\n"
 tasks:
   - id: T1
-    title: 配置层：.openagents/openagents.yml schema + 加载器
+    title: "Configuration layer: .openagents/openagents.yml schema + loader"
     status: done
     priority: P1
     tags: []
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/utils/agent_config.py
       - tests/test_agent_config.py
-    scope: 新建 utils/agent_config.py：沿用 fleet_config 的 ruamel.yaml+jsonschema 声明式校验解析 version/agents/stages/release/defaults/repos（整份可省全回落内建默认），产出 resolved dataclasses（AgentPolicy/StagePolicy 三态/ReleasePolicy/RepoPlan）；每闸按闸校验合法取值（conflict/merge 拒 skip、rfc 仅 agent/skip、硬闸名进 stages 直接 reject）+「不许零闸」跨字段守卫（拒 review:skip+merge:agent）+ rfc:skip 显式告警 + 每仓 override 合并。additive，无消费者改动。
-    acceptance: hermetic 可测（喂 YAML 串断言解析结果/校验错误，不触真实仓库网络）；整份省略→全默认；review:skip+merge:agent 组合 reject；conflict/merge:skip reject；硬闸名进 stages reject；rfc:skip 出告警；每仓 override 合并生效；ruff 绿。
+    scope: "Create utils/agent_config.py: reuse fleet_config's ruamel.yaml+jsonschema declarative validation to parse version/agents/stages/release/defaults/repos (the entire file may be omitted, with everything falling back to built-in defaults), producing resolved dataclasses (AgentPolicy/three-state StagePolicy/ReleasePolicy/RepoPlan). Validate allowed values for each gate individually (conflict/merge reject skip, rfc allows only agent/skip, and hard gate names in stages are rejected outright), add a cross-field guard prohibiting “zero gates” (reject review:skip+merge:agent), issue an explicit warning for rfc:skip, and merge per-repository overrides. Additive, with no changes to consumers."
+    acceptance: "Hermetically testable (feed in YAML strings and assert parsing results/validation errors, without accessing real repositories or the network); omitting the entire file→all defaults; reject the review:skip+merge:agent combination; reject conflict/merge:skip; reject hard gate names in stages; emit a warning for rfc:skip; per-repository override merging takes effect; ruff passes."
   - id: T2
-    title: 九阶段抽成 Vigil 类外独立自由函数：recipes/stages.py
+    title: "Extract the nine stages into independent free functions outside the Vigil class: recipes/stages.py"
     status: done
     priority: P1
     tags: []
@@ -32,10 +32,10 @@ tasks:
     files:
       - openagents/recipes/stages.py
       - tests/test_recipe_stages.py
-    scope: 把 triage/rfc/implement/review/conflict/ci/e2e/deliver/merge 九个阶段抽成 Vigil 类外的独立自由函数，各自显式收 backend/state/ctx（禁位置参数、private 禁默认值）。judgment 段（triage→triager、rfc→drafter、review→reviewer）派既有 agent、机械段（ci/e2e 读 github check/证据戳、conflict/deliver git 交付、merge github 合并）走 utils/gates。rfc 阶段收敛 planner+drafter 为单一起草函数（drafter 承接、planner 死代码留 T6 删）。additive，从 solve_issue/merge_pr/poll_comments 逐字重立为原子函数，旧文件零改动。
-    acceptance: 九原子函数各 hermetic 可测（假 backend 喂 canned 裁决，不触真实 LLM/网络/仓库）；各函数显式收参、无位置参数、private 无默认值；rfc 阶段单一起草函数只依赖 drafter；ruff 绿。
+    scope: "Extract the nine stages triage/rfc/implement/review/conflict/ci/e2e/deliver/merge into independent free functions outside the Vigil class, each explicitly accepting backend/state/ctx (positional arguments prohibited; defaults prohibited for private functions). Judgment stages (triage→triager, rfc→drafter, review→reviewer) dispatch existing agents; mechanical stages (ci/e2e reading github checks/evidence stamps, conflict/deliver performing git delivery, merge performing github merges) use utils/gates. Consolidate planner+drafter in the rfc stage into a single drafting function (drafter takes over; leave planner dead code for removal in T6). Additive: reproduce the code from solve_issue/merge_pr/poll_comments verbatim as atomic functions, with zero changes to the old files."
+    acceptance: "Each of the nine atomic functions is hermetically testable (a fake backend supplies canned judgments, without accessing real LLMs/the network/repositories); each function accepts explicit parameters, allows no positional arguments, and private functions have no defaults; the rfc stage has a single drafting function that depends only on drafter; ruff passes."
   - id: T3
-    title: run_vigil 策略路由编排 + CI/e2e/review 打回回环
+    title: "run_vigil policy-based routing and orchestration + CI/e2e/review rejection loop"
     status: done
     priority: P1
     tags: []
@@ -47,10 +47,10 @@ tasks:
     files:
       - openagents/recipes/vigil.py
       - tests/test_recipe_vigil.py
-    scope: Vigil 类散成自由函数 run_vigil(*, backend, state, work_dir, config, ...)：按 T1 的 stages 三态策略路由取代 solve_issue 写死的 plan→impl→review→deliver——每可配阶段查 owner（agent→调 T2 stage 函数 / human→打 needs-human 停等人 / skip→跳过）；合并流水线按 conflict→ci→e2e→review→merge 序，给 CI/e2e/review 三闸接『失败→派 implementer 迭代→下轮从 conflict 重进流水线』统一回环（非原地重试）。agent→backend 映射从 config.agents 取。fleet 多仓折入为每仓一次 run_vigil 调用。确定性硬闸（head 前移/证据戳/round_cap）恒在、不受 stages 管辖。
-    acceptance: 策略路由 hermetic 可测（注入 config 三态断言 agent/human/skip 三分支）；conflict→ci→e2e→review→merge 序 + 三闸打回回环覆盖；conflict 在读 CI 前先判 mergeable 非 CONFLICTING/DIRTY/UNKNOWN；硬闸不受 stages 关；ruff 绿。
+    scope: "Break up the Vigil class into the free function run_vigil(*, backend, state, work_dir, config, ...): route according to T1's three-state stages policy, replacing solve_issue's hard-coded plan→impl→review→deliver sequence—check the owner for each configurable stage (agent→call the T2 stage function / human→mark needs-human and stop to wait for a human / skip→skip). Run the merge pipeline in conflict→ci→e2e→review→merge order, and connect the CI/e2e/review gates to a unified loop: “failure→dispatch implementer to iterate→re-enter the pipeline from conflict on the next round” (not an in-place retry). Obtain the agent→backend mapping from config.agents. Fold fleet's multi-repository handling into one run_vigil invocation per repository. Deterministic hard gates (head advancement/evidence stamps/round_cap) are always active and are not governed by stages."
+    acceptance: "Policy routing is hermetically testable (inject the three config states and assert the agent/human/skip branches); cover conflict→ci→e2e→review→merge ordering + the three-gate rejection loop; before reading CI, conflict first checks that mergeable is not CONFLICTING/DIRTY/UNKNOWN; stages cannot disable hard gates; ruff passes."
   - id: T4
-    title: backfill-rfc path 驱动单列：recipes/backfill.py
+    title: "Separate backfill-rfc as a path-driven recipe: recipes/backfill.py"
     status: done
     priority: P2
     tags: []
@@ -61,10 +61,10 @@ tasks:
     files:
       - openagents/recipes/backfill.py
       - tests/test_recipe_backfill.py
-    scope: 把 rfc_lifecycle 的 backfill_rfc 抽成独立 recipe recipes/backfill.py（不进 issue 环、与 vigil 发现段正交）：复用 T2 stages 的 rfc 起草原子 + drafter 的 backfill mode，扫存量代码路径反推 spec 并开 draft PR（实现在前/设计在后）。additive。
-    acceptance: hermetic 可测（假 backend + 假代码路径，不触真实仓库）；不触发 vigil 发现段；复用 stages.rfc 起草而非重复实现；ruff 绿。
+    scope: "Extract backfill_rfc from rfc_lifecycle into the independent recipe recipes/backfill.py (it does not enter the issue loop and is orthogonal to vigil's discovery stage): reuse the T2 stages rfc drafting primitive + drafter's backfill mode to scan existing code paths, infer a spec, and open a draft PR (implementation first/design afterward). Additive."
+    acceptance: "Hermetically testable (fake backend + fake code paths, without accessing real repositories); does not trigger vigil's discovery stage; reuses stages.rfc drafting instead of duplicating its implementation; ruff passes."
   - id: T5
-    title: CLI 面收敛四命令 + 隐藏 reply-comment + 签名后校验硬化
+    title: "Consolidate the CLI surface into four commands + hidden reply-comment + hardened post-signing verification"
     status: done
     priority: P1
     tags: []
@@ -77,10 +77,10 @@ tasks:
       - openagents/cli.py
       - openagents/utils/identity.py
       - tests/test_cli_new_stack.py
-    scope: 人面向入口收敛为 vigil/issue/backfill-rfc/release 四命令：删 rfc/refine-rfc/implement/iterate/solve/poll/watch/vigil-all/fleet 九命令（并入 vigil，cli 改接 recipes.run_vigil）；reply-comment 降隐藏内部命令（仍走 utils.identity.post_signed_comment）；vigil/issue 读 .openagents/openagents.yml（经 T1 loader），--hold/--skip/--base/--interval 仍可单次覆盖；release 保持确定性动作直连 utils.release（无 agent）、issue 直连 github.create_issue。identity.post_signed_comment 硬化为『回复加签名 + 同步后校验漏签 edit 补（不能只 warn）』闭合防自循环闭环（约束③）。
-    acceptance: 人面向仅 vigil/issue/backfill-rfc/release + 隐藏 reply-comment；oa 全命令解析分发；YAML 单一真源 + flag 单次覆盖并存；漏签由 edit 补（非只 warn）；无对旧九命令路由的残留；ruff 绿。
+    scope: "Consolidate human-facing entry points into four commands: vigil/issue/backfill-rfc/release. Remove the nine commands rfc/refine-rfc/implement/iterate/solve/poll/watch/vigil-all/fleet (fold them into vigil, and rewire the cli to recipes.run_vigil); demote reply-comment to a hidden internal command (still using utils.identity.post_signed_comment); vigil/issue read .openagents/openagents.yml (through the T1 loader), while --hold/--skip/--base/--interval remain available as per-invocation overrides; release remains a deterministic action wired directly to utils.release (no agent), and issue is wired directly to github.create_issue. Harden identity.post_signed_comment into “sign replies + verify synchronously afterward and use edit to repair missing signatures (warning alone is insufficient),” completing the loop that prevents self-triggered cycles (constraint ③)."
+    acceptance: "The human-facing commands are only vigil/issue/backfill-rfc/release, plus hidden reply-comment; parsing and dispatch work for all oa commands; YAML as the single source of truth coexists with per-invocation flag overrides; missing signatures are repaired via edit (not merely warned about); no routing remnants for the old nine commands; ruff passes."
   - id: T6
-    title: 删 5 旧 recipe + planner 合并 + 测试桩收敛 + docs 再生成
+    title: "Remove 5 old recipes + merge planner + consolidate test stubs + regenerate docs"
     status: done
     priority: P1
     tags: []
@@ -95,204 +95,203 @@ tasks:
       - openagents/recipes/rfc_lifecycle.py
       - openagents/recipes/fleet.py
       - openagents/agents/planner.py
-    scope: 删 5 个旧 recipe（solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet，逻辑已溶入 T2 stages.py / T3 vigil.py / T4 backfill.py）+ 删 agents/planner.py（合并进 drafter）；连带收敛直测这些旧模块的测试桩（test_recipe_solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet 等，行为已被 test_recipe_stages/vigil/backfill 覆盖）与 dogfood/runbook 引用的旧命令；spec render/graph 再生成 OVERVIEW/ARCHITECTURE。删旧只在 T5 CLI 全量改接后发生。
-    acceptance: recipes/ 仅剩 stages/vigil/backfill/__init__；全库 grep 对已删 recipe 与 agents.planner 的裸 import 零命中；全量 pytest 绿；spec validate 无 error；OVERVIEW/ARCHITECTURE drift-free。
+    scope: "Remove the 5 old recipes (solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet, whose logic has been incorporated into T2 stages.py / T3 vigil.py / T4 backfill.py) + remove agents/planner.py (merged into drafter). Also consolidate the test stubs that directly test these old modules (test_recipe_solve_issue/merge_pr/poll_comments/rfc_lifecycle/fleet, etc., whose behavior is already covered by test_recipe_stages/vigil/backfill) and the old commands referenced by dogfood/runbook; regenerate OVERVIEW/ARCHITECTURE using spec render/graph. Remove the old code only after all CLI wiring has been updated in T5."
+    acceptance: "recipes/ contains only stages/vigil/backfill/__init__; a repository-wide grep finds zero bare imports of the deleted recipes or agents.planner; the full pytest suite passes; spec validate reports no errors; OVERVIEW/ARCHITECTURE are drift-free."
 ---
 
-# 0064 · 收敛 recipes 到 vigil+issue：声明式 stages YAML 定义 agent/human/skip 阶段归属
+# 0064 · Consolidate recipes into vigil+issue: declarative stages YAML defines agent/human/skip stage ownership
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-`openagents/recipes/` 现有 6 个模块（`fleet`/`merge_pr`/`poll_comments`/`rfc_lifecycle`/`solve_issue`/`vigil`），CLI 暴露 16 个子命令。这些命令里 `rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watch`/`vigil-all`/`fleet` 其实都是 `vigil` 每轮自动做的事的「手动单步版」；「跑哪些 agent、每个 agent 接哪个后端、每个阶段归谁把关」硬编码散在各 recipe 与 `gates.py` 的 `--hold`/`--skip` flag 里，无单一真源；`review` 焊在 `solve_issue` 的 for 循环、`triage` 焊在 `Vigil` 类方法里，阶段不可单独寻址。
+`openagents/recipes/` currently has 6 modules (`fleet`/`merge_pr`/`poll_comments`/`rfc_lifecycle`/`solve_issue`/`vigil`), and the CLI exposes 16 subcommands. Among these commands, `rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watch`/`vigil-all`/`fleet` are effectively “manual single-step versions” of what `vigil` does automatically each round. “Which agents run, which backend each agent uses, and who controls each stage” are hardcoded across individual recipes and the `--hold`/`--skip` flags in `gates.py`, with no single source of truth. `review` is embedded in the `solve_issue` for loop, and `triage` is embedded in methods of the `Vigil` class; stages cannot be addressed individually.
 
-本 spec 做三件相互咬合的事：**(1) 人面向入口收敛为 `oa vigil`（自主环）+ `oa issue`（创造工作）+ `oa backfill-rfc`（path 驱动追溯）+ `oa release`（仓库级发版）四个正交触发**（其余九条自动化环切片命令并入 `vigil`，`reply-comment` 降为隐藏内部命令）；**(2) 用一份声明式 YAML `.openagents/openagents.yml` 作「用哪些 agent + 每道闸归谁把关」的单一真源**——`agents` 段声明每个角色接哪个后端（理念 2 去中心化，同项目可混接 Claude Code / Codex / nexau），`stages` 段用 `agent`/`human`/`skip` 三态声明每个阶段归属，加载器按闸校验合法取值并守「不许零闸」；**(3) 把每个阶段抽成 `Vigil` 类外的独立自由函数**（`recipes/stages.py`），由一个**按 `stages` 策略路由的编排点** `run_vigil`（`recipes/vigil.py`）组合，并给 CI/e2e/review 三道闸接上统一的「失败→派 implementer 迭代→下轮从 conflict 重进流水线」回环。收敛后 `recipes/` 层从 6 文件收窄到 3（`stages.py`/`vigil.py`/`backfill.py`）。
+This spec makes three interlocking changes: **(1) Consolidate user-facing entry points into four orthogonal triggers: `oa vigil` (the autonomous loop) + `oa issue` (create work) + `oa backfill-rfc` (path-driven retrospective specification) + `oa release` (repository-level releases)** (the other nine commands exposing slices of the automation loop are folded into `vigil`, and `reply-comment` becomes a hidden internal command); **(2) Use a declarative YAML file, `.openagents/openagents.yml`, as the single source of truth for “which agents to use + who controls each gate”**—the `agents` section declares which backend each role uses (principle 2, decentralization: the same project can mix Claude Code / Codex / nexau), while the `stages` section declares each stage’s ownership using the three states `agent`/`human`/`skip`; the loader validates allowed values for each gate and enforces “no zero-gate configurations”; **(3) Extract each stage into an independent free function outside the `Vigil` class** (`recipes/stages.py`), compose them through a single **orchestration point that routes according to the `stages` policy**, `run_vigil` (`recipes/vigil.py`), and connect the CI/e2e/review gates to a unified feedback loop: “failure → dispatch the implementer to iterate → re-enter the pipeline from conflict in the next round.” After consolidation, the `recipes/` layer shrinks from 6 files to 3 (`stages.py`/`vigil.py`/`backfill.py`).
 
 ## Motivation
 
-**现状（就地复述，不靠跨 spec 引用）**：Spec-0060/0061/0062/0063 已把新栈立成四层——`agents/`（零逻辑 Template 提示词，如 `triager`/`drafter`/`reviewer`/`implementer`/`replier`/`deliver`）、`recipes/`（纯控制流）、`runtime/`（`engine.run_agent` + `gates.py` 最小硬闸 + `context`/`state`）、`utils/`（`git`/`github`/`identity`/`fleet_config`/`release` 等确定性原语）。旧 flat 层已删空、两栈合一。当前 `recipes/` 有 6 个模块：`solve_issue`（issue 竖切求解 plan→impl→review→deliver）、`merge_pr`（合并流水线阶段机：可合并性预检/CI/e2e 证据闸/review/merge + hold/skip 短路）、`poll_comments`（拉新人类评论→replier→签名回帖）、`rfc_lifecycle`（`start_rfc`/`backfill_rfc`/`refine_rfc`/`implement`/`iterate` 五入口）、`vigil`（`Vigil` 类：发现→分诊→派单 + 每轮守候段调 `poll_comments`+`merge_pr`）、`fleet`（多仓库子进程扇出）。CLI 16 命令直连它们。
+**Current state (restated here without relying on cross-spec references)**: Spec-0060/0061/0062/0063 have established four layers in the new stack—`agents/` (Template prompts with no logic, such as `triager`/`drafter`/`reviewer`/`implementer`/`replier`/`deliver`), `recipes/` (pure control flow), `runtime/` (`engine.run_agent` + minimal hard gates in `gates.py` + `context`/`state`), and `utils/` (deterministic primitives such as `git`/`github`/`identity`/`fleet_config`/`release`). The old flat layer has been completely removed, and the two stacks have been unified. Currently, `recipes/` has 6 modules: `solve_issue` (a vertical slice for solving an issue: plan→impl→review→deliver), `merge_pr` (a merge-pipeline stage machine: mergeability preflight/CI/e2e evidence gate/review/merge + hold/skip short-circuiting), `poll_comments` (fetch new human comments→replier→signed replies), `rfc_lifecycle` (five entry points: `start_rfc`/`backfill_rfc`/`refine_rfc`/`implement`/`iterate`), `vigil` (the `Vigil` class: discovery→triage→dispatch + calls to `poll_comments`+`merge_pr` during the monitoring phase of each round), and `fleet` (subprocess fan-out across multiple repositories). The CLI’s 16 commands connect directly to these modules.
 
-**四个为什么**：
+**Four reasons**:
 
-1. **入口分散违背理念 1（奥卡姆）**——`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watch`/`vigil-all`/`fleet` 都是 `vigil` 每轮自动做的事的「手动单步版」，人要记住 9 个手动步骤命令，心智负担过重。人真正要的宏观触发只有三个正交动作：跑自主环、提一个 issue、拿 path 反推存量代码的 spec。
+1. **Scattered entry points violate principle 1 (Occam)**—`rfc`/`refine-rfc`/`implement`/`iterate`/`solve`/`poll`/`watch`/`vigil-all`/`fleet` are all “manual single-step versions” of what `vigil` does automatically each round. Users must remember 9 commands for manual steps, imposing too much cognitive load. The high-level triggers users actually need are just three orthogonal actions: run the autonomous loop, submit an issue, and derive a spec from existing code at a path.
 
-2. **阀门策略是一次性 CLI flag、无单一真源**——`--hold`（停下等人）/`--skip`（当 PASS 放行）散在 `gates.py` 的 `_HOLD_GATES=("spec","merge")`/`_SKIP_GATES=("ci","code","evidence","spec")` 里，每次实验都得记 flag、跨运行不留痕。没有一处能一眼看出「这个项目的每道闸归谁把关」。
+2. **Gate policies are one-off CLI flags with no single source of truth**—`--hold` (stop and wait for a human)/`--skip` (allow through as PASS) are scattered across `_HOLD_GATES=("spec","merge")`/`_SKIP_GATES=("ci","code","evidence","spec")` in `gates.py`. Every experiment requires remembering the flags, and no record persists across runs. There is no single place to see at a glance “who controls each gate in this project.”
 
-3. **跑哪些 agent、每个 agent 接哪个后端硬编码在 recipe 里**——`backends/` 目前只有 `claude_code`，但理念 2 要求「同一项目里不同 Agent 背后接的 coding agent 可能不同，既有 Claude Code 又有 Codex 等」。现状无处声明「implementer 用 Codex、reviewer 用 Claude Code」。
+3. **Which agents run and which backend each agent uses are hardcoded in recipes**—`backends/` currently contains only `claude_code`, but principle 2 requires that “different Agents in the same project may use different coding agents behind them, including both Claude Code and Codex, among others.” There is currently nowhere to declare “the implementer uses Codex, and the reviewer uses Claude Code.”
 
-4. **阶段没解耦、不可单独寻址**——`review` 焊在 `solve_issue` 的 for 循环里、`triage` 焊在 `Vigil` 类方法里；且 `planner` 与 `drafter` 两个 agent 做同一件「起草 spec」的事（新旧栈并存残留，`planner` 是 Spec-0060 的 `_DRAFT_RFC_TASK` 内联串降级，`drafter` 是 Spec-0062 承接五入口起草判断的后来者，二者重复）。阶段不可单独寻址，就没法对它设「谁把关」。
+4. **Stages are not decoupled and cannot be addressed individually**—`review` is embedded in the `solve_issue` for loop, and `triage` is embedded in methods of the `Vigil` class. Also, the `planner` and `drafter` agents do the same job of “drafting a spec” (a remnant of the coexistence of the old and new stacks: `planner` came from demoting Spec-0060’s inline `_DRAFT_RFC_TASK` string, while `drafter` arrived later in Spec-0062 to take over drafting decisions for the five entry points; the two duplicate each other). If stages cannot be addressed individually, “who controls the gate” cannot be configured for them.
 
-**真缺口（本 spec 必补）**：`merge_pr` 现在 CI 挂了只 `return {"reason": "ci"}`、review REWORK 只 `return {"reason": "review"}`——**发现了但不自动派 implementer 重改**（旧栈靠手动 `iterate --reason ci` 打回，收敛后该命令没了）。`vigil` 守候段拿到事件也没动作。CI/e2e/review 三道闸必须接上统一的「失败→派 implementer 迭代→下轮从 conflict 重进流水线」回环，否则收敛掉手动 `iterate` 后自动环会在「报错但不修」处空转。
+**The actual gap (this spec must close it)**: When CI fails, `merge_pr` currently only does `return {"reason": "ci"}`; when review returns REWORK, it only does `return {"reason": "review"}`—**it detects the problem but does not automatically dispatch the implementer to revise the work** (the old stack relied on manually sending it back with `iterate --reason ci`; that command disappears after consolidation). The monitoring phase of `vigil` also takes no action when it receives these events. The CI/e2e/review gates must be connected to a unified feedback loop: “failure → dispatch the implementer to iterate → re-enter the pipeline from conflict in the next round.” Otherwise, after the manual `iterate` command is consolidated away, the autonomous loop will spin at “reports errors but does not fix them.”
 
 ## Guide-level explanation
 
-收敛后，一个用户面对的心智模型是：**四个正交命令 + 一份可选 YAML**。
+After consolidation, the user-facing mental model is: **four orthogonal commands + one optional YAML file**.
 
-**四个命令**：
+**Four commands**:
 
-- `oa vigil` —— 自主环。每轮从 GitHub 拉标签门控 issue，读 `.openagents/openagents.yml` 决定「跑哪些 agent、每个阶段归谁」，自动走 发现→分诊→（起草 spec→实现→评审→交付）→守候（回应评论 + 推进合并）整环。今天要手动敲的 `rfc`/`implement`/`iterate`/`poll`/`watch`/`vigil-all`/`fleet` 都是它一轮里的一步，不再单列。
-- `oa issue` —— 人主动往仓库提一个 issue（独立创造工作的动作，直连 `github.create_issue`）。
-- `oa backfill-rfc <path>` —— path 驱动追溯：指着一段存量代码反推出 spec 并开 draft PR（实现在前、设计在后）。与 issue 驱动的 vigil 环正交——vigil 发现段扫的是 issue，不是待补文档的代码路径，故单列一个入口。
-- `oa release` —— 仓库级、跨 issue 的发版动作（人决定何时把 main 当前 HEAD 物化成版本）。是确定性动作、无 agent，不是某个 issue 的流水线阶段，故单列顶层策略而非进 `stages`。
+- `oa vigil` — The autonomous loop. Each round fetches label-gated issues from GitHub and reads `.openagents/openagents.yml` to determine “which agents run and who owns each stage,” then automatically executes the full loop: discovery→triage→(draft spec→implement→review→deliver)→monitoring (respond to comments + advance merges). The `rfc`/`implement`/`iterate`/`poll`/`watch`/`vigil-all`/`fleet` commands that must be entered manually today are all individual steps within one of its rounds and will no longer be listed separately.
+- `oa issue` — A human proactively submits an issue to the repository (an independent action that creates work, connected directly to `github.create_issue`).
+- `oa backfill-rfc <path>` — Path-driven retrospective specification: point at a section of existing code to derive a spec and open a draft PR (implementation first, design afterward). This is orthogonal to the issue-driven vigil loop—the discovery phase of vigil scans issues, not code paths that need documentation backfilled, so it has a separate entry point.
+- `oa release` — A repository-level release action spanning issues (a human decides when to materialize the current HEAD of main as a version). It is a deterministic action with no agent, and it is not a pipeline stage for an individual issue, so it is configured as a separate top-level policy rather than included in `stages`.
 
-`reply-comment` 保留但降为**隐藏/内部命令**——它是被派出的子 agent（解冲突 agent 等）盖签名回评论的唯一出口，删了会破坏防自循环闭环（见 Reference-level 约束③），但不占人的心智。
+`reply-comment` is retained but becomes a **hidden/internal command**—it is the only route for dispatched sub-agents (such as conflict-resolution agents) to post signed comment replies. Removing it would break the closed loop that prevents self-triggering loops (see Reference-level constraint ③), but users do not need to keep it in mind.
 
-**一份 YAML**——`.openagents/openagents.yml` 整份可省（全回落内建默认），日常极简配置例：
+**One YAML file**—the entire `.openagents/openagents.yml` file is optional (everything falls back to built-in defaults). A minimal configuration for everyday use:
 
 ```yaml
 version: 1
 stages:
-  rfc:   skip     # 小改不走 RFC，直接实现（打 no-rfc 意图；加载器会显式告警）
-  merge: human    # 合并停下等人点头
+  rfc:   skip     # For small changes, bypass the RFC and implement directly (mark no-rfc intent; the loader emits an explicit warning)
+  merge: human    # Pause merging and wait for human approval
 ```
 
-完整配置声明「每个角色接哪个后端」+「每道闸归谁」：
+A complete configuration declares “which backend each role uses” + “who owns each gate”:
 
 ```yaml
 version: 1
-agents:                          # 理念 2：同项目可混接不同 coding agent
+agents:                          # Principle 2: the same project can mix different coding agents
   triager:     { backend: claude_code }
-  drafter:     { backend: claude_code }   # 起草 spec（= 原 planner，已合并）
-  implementer: { backend: codex }         # 例：实现阶段换 Codex
+  drafter:     { backend: claude_code }   # Draft the spec (= the former planner, now merged)
+  implementer: { backend: codex }         # Example: switch implementation to Codex
   reviewer:    { backend: claude_code }
-stages:                          # agent=自动化拥有此闸 | human=停等人 | skip=不设此闸
-  triage:   agent    # 可不可派单（human=每个新 issue 停下等人点头）
-  rfc:      agent    # 起草 spec：agent | skip（skip=不写直接实现）
-  conflict: agent    # rebase 解冲突：agent | human（不可 skip）
-  ci:       agent    # CI 闸：agent(红→自动打回 implementer) | human(红→停) | skip
-  e2e:      agent    # 端到端：agent | human | skip
-  review:   agent    # 评审 PASS/REWORK：agent | human | skip
-  merge:    human    # 合并把关：agent(CI 绿自动合) | human（不可 skip）
-release: manual      # 顶层策略，不进 stages；auto=main 绿+无 BLOCKED 自动物化
+stages:                          # agent=automation owns this gate | human=pause for a human | skip=do not establish this gate
+  triage:   agent    # Whether work can be dispatched (human=pause for human approval on every new issue)
+  rfc:      agent    # Draft the spec: agent | skip (skip=implement directly without writing it)
+  conflict: agent    # Resolve conflicts through rebase: agent | human (cannot skip)
+  ci:       agent    # CI gate: agent(red→automatically send back to implementer) | human(red→pause) | skip
+  e2e:      agent    # End-to-end: agent | human | skip
+  review:   agent    # Review PASS/REWORK: agent | human | skip
+  merge:    human    # Merge control: agent(automatically merge when CI is green) | human (cannot skip)
+release: manual      # Top-level policy, outside stages; auto=automatically materialize when main is green and there is no BLOCKED
 defaults: { interval: 60, base: main, labels: [openagents] }
-repos:               # 多仓库统管（收编 fleet.yml；单仓库整段可省）
+repos:               # Unified management of multiple repositories (absorbs fleet.yml; omit the entire section for a single repository)
   - path: .
   - path: ../other-repo
     base: develop
-    stages: { merge: agent }   # 每仓可覆盖单个阶段
+    stages: { merge: agent }   # Each repository can override individual stages
 ```
 
-`--hold`/`--skip`/`--base`/`--interval` 仍可对**单次运行**覆盖 YAML——「单一真源」指声明式默认收敛到一处，不是消灭所有 flag。
+`--hold`/`--skip`/`--base`/`--interval` can still override YAML for a **single run**—“single source of truth” means consolidating declarative defaults in one place, not eliminating all flags.
 
 ## Reference-level explanation
 
-### 分界线（承前四批，逐字一致）
+### Boundary (carried forward from the previous four batches, identical word for word)
 
-留确定性代码（recipe 控制流 + `runtime.gates` 硬闸 + `utils` 原语）的是**读客观事实**：可合并性（GitHub 给的 mergeable 位）、CI 结论（check 的 conclusion）、e2e 证据戳（head_sha 匹配否）、hold/skip 命中、认领便签过期。下放 agent 的是**主观判断**：issue 讲清没/该不该做（triager）、RFC 正文写什么（drafter）、这版能不能过评审（reviewer）、评论想要什么（replier）、冲突怎么 rebase（deliver）。**`stages` 三态是「这道闸归谁」而非「谁执行检测」**：`ci: agent` 指「自动化拥有此闸——检测仍是客观读 check，红了自动打回 implementer」，**不是**让 agent 去判 CI 过没过。
+What stays in deterministic code (recipe control flow + `runtime.gates` hard gates + `utils` primitives) is **reading objective facts**: mergeability (the mergeable bit provided by GitHub), CI results (a check’s conclusion), e2e evidence stamps (whether head_sha matches), hold/skip matches, and claim-note expiration. What is delegated to agents is **subjective judgment**: whether an issue is clearly explained/whether it should be done (triager), what to write in the RFC body (drafter), whether this version can pass review (reviewer), what a comment is asking for (replier), and how to rebase to resolve conflicts (deliver). **The three `stages` states mean “who owns this gate,” not “who performs the check”**: `ci: agent` means “automation owns this gate—the check still objectively reads checks, and a red result automatically sends the work back to the implementer”; it does **not** mean asking an agent to judge whether CI passed.
 
-### 配置层：`.openagents/openagents.yml` schema + 加载器（T1）
+### Configuration layer: `.openagents/openagents.yml` schema + loader (T1)
 
-沿用 `utils/fleet_config.py` 的 `ruamel.yaml` + `jsonschema` Draft202012 声明式校验模式，新建 `utils/agent_config.py`。顶层键 `version`/`agents`/`stages`/`release`/`defaults`/`repos` 全可选（整份省略→内建默认）。加载器产出 resolved dataclasses（`AgentPolicy`{role→backend}、`StagePolicy`{stage→owner 三态}、`ReleasePolicy`、`RepoPlan`），并做：
+Follow the declarative validation pattern in `utils/fleet_config.py`, using `ruamel.yaml` + `jsonschema` Draft202012, and create `utils/agent_config.py`. The top-level keys `version`/`agents`/`stages`/`release`/`defaults`/`repos` are all optional (omit the entire configuration → use built-in defaults). The loader produces resolved dataclasses (`AgentPolicy`{role→backend}, `StagePolicy`{stage→three-state owner}, `ReleasePolicy`, `RepoPlan`) and performs the following:
 
-- **每闸按闸校验合法取值**（不是所有闸都收全三态）——见下表「合法取值」列。非法值（如 `merge: skip`、`conflict: skip`、`rfc: human`）报 schema error。
-- **确定性硬闸名进 `stages` 直接 reject**——`head-advanced`/`evidence-stamp`/`round-cap` 等 `gates.py` 硬闸名不是可配阶段，写进 `stages` 即报错（强化分层，见约束②）。
-- **「不许零闸」跨字段守卫**——拒绝 `review: skip` + `merge: agent`（+ ci 放行）这类「未审未测直接盲合进 main」组合（类比 `fleet_config` 的既有矛盾校验）。天然兜底：理念 5「PR 需人审」——只要 `merge: human` 在，跳 agent-review 就站得住。
-- **`rfc: skip` 显式告警**——允许跳（撞理念 4 先改 RFC 再改代码），但加载器打显式告警，别让全局默认悄悄关掉框架的 RFC 卖点（约束①）。
-- **每仓 override 合并**——`repos[].stages` 覆盖顶层 `stages` 单个阶段（沿用 fleet_config 的 defaults 合并模式）。
+- **Validate allowed values separately for each gate** (not every gate accepts all three states)—see the “Allowed values” column below. Invalid values (such as `merge: skip`, `conflict: skip`, `rfc: human`) produce a schema error.
+- **Reject deterministic hard-gate names directly when they appear in `stages`**—hard-gate names from `gates.py`, such as `head-advanced`/`evidence-stamp`/`round-cap`, are not configurable stages; placing them in `stages` produces an error (reinforcing the separation of layers; see constraint ②).
+- **Cross-field “no zero gates” guard**—reject combinations such as `review: skip` + `merge: agent` (+ CI allowing passage), which “blindly merge straight into main without review or testing” (analogous to the existing contradiction checks in `fleet_config`). A natural fallback is principle 5, “PRs require human review”—as long as `merge: human` is present, skipping agent review is defensible.
+- **Explicit warning for `rfc: skip`**—skipping is allowed (it conflicts with principle 4, update the RFC before changing code), but the loader emits an explicit warning so that a global default does not silently disable the framework’s RFC selling point (constraint ①).
+- **Merge per-repository overrides**—`repos[].stages` overrides individual stages in the top-level `stages` (following the defaults-merging pattern in fleet_config).
 
-### 阶段原子函数：`recipes/stages.py`（T2）
+### Atomic stage functions: `recipes/stages.py` (T2)
 
-把九个阶段抽成 `Vigil` 类外的独立自由函数，各自**显式收 backend/state/ctx**（符合 CLAUDE.md「禁位置参数、private 函数禁默认值、调用方显式传参」约定）：
+Extract the nine stages into independent free functions outside the `Vigil` class, each **explicitly accepting backend/state/ctx** (following the CLAUDE.md conventions: “no positional arguments, no default values for private functions, and explicit arguments at call sites”):
 
-| stage | 实现 | 进 `stages` 策略点？ | 合法取值 | 说明 |
+| stage | Implementation | Policy point in `stages`? | Allowed values | Notes |
 |---|---|---|---|---|
-| `triage` | agent 函数（triager） | ✅ | agent/human/skip | 可不可派单 |
-| `rfc`（起草 spec） | agent 函数（drafter） | ✅ | agent/skip | 合并 planner+drafter |
-| `implement` | agent 函数（implementer） | ❌ 恒 agent | — | 按获批 spec 写码 |
-| `conflict` | agent 函数（deliver rebase） | ✅ | agent/human | 冲突必须解，不可 skip |
-| `ci` | 确定性闸读（github check） | ✅ | agent/human/skip | agent=红自动打回；非「agent 判 CI」 |
-| `e2e` | 确定性闸读 + executor 跑 | ✅ | agent/human/skip | 单独可跳（skip） |
-| `review` | agent 函数（reviewer） | ✅ | agent/human/skip | PASS/REWORK |
-| `deliver` | agent 函数（deliver git 交付） | ❌ 恒 agent | — | git 交付 |
-| `merge` | 确定性动作（github merge） | ✅ | agent/human | 不可 skip |
+| `triage` | agent function (triager) | ✅ | agent/human/skip | Whether the issue can be assigned |
+| `rfc` (draft spec) | agent function (drafter) | ✅ | agent/skip | Combine planner+drafter |
+| `implement` | agent function (implementer) | ❌ Always agent | — | Write code according to the approved spec |
+| `conflict` | agent function (deliver rebase) | ✅ | agent/human | Conflicts must be resolved; cannot skip |
+| `ci` | Deterministic gate read (github check) | ✅ | agent/human/skip | agent=automatically send back on red; not “an agent judges CI” |
+| `e2e` | Deterministic gate read + executor run | ✅ | agent/human/skip | Can be skipped independently (skip) |
+| `review` | agent function (reviewer) | ✅ | agent/human/skip | PASS/REWORK |
+| `deliver` | agent function (deliver git delivery) | ❌ Always agent | — | git delivery |
+| `merge` | Deterministic action (github merge) | ✅ | agent/human | Cannot skip |
 
-`rfc` 阶段收敛 `planner`+`drafter` 为单一起草函数（drafter 已承接五 mode 起草判断，planner 是重复的死代码，T6 删）。
+The `rfc` stage consolidates `planner`+`drafter` into a single drafting function (drafter already handles drafting decisions for all five modes; planner is redundant dead code, deleted in T6).
 
-### 编排点：`run_vigil` 策略路由 + 打回回环（T3）
+### Orchestration point: `run_vigil` policy routing + rework loop (T3)
 
-`Vigil` 类散成自由函数 `run_vigil(*, backend, state, work_dir, config, ...)`——stage 都显式收参后，类只剩「打包依赖 + 主循环」，无肉，散开更符合奥卡姆。**关键**：抽函数是必要条件不是目的，必须同时有一个**按 `stages` 策略路由的编排点**取代今天 `solve_issue` 写死的 `plan→impl→review→deliver`——对每个可配阶段查 owner：`agent`→调 agent 版 stage 函数；`human`→停在此闸打 needs-human 挂起等人；`skip`→跳过。只抽不组合，`review: skip` 依然无处落。agent→backend 映射从 `config.agents` 取（理念 2）。多仓 `fleet` 收编为「每仓一次 `run_vigil` 调用」，不需要类。
+Dissolve the `Vigil` class into a free function, `run_vigil(*, backend, state, work_dir, config, ...)`—once all stages explicitly accept their arguments, the class contains only “dependency packaging + the main loop,” with no substance left; breaking it apart better follows Occam’s razor. **Key point**: extracting functions is a necessary condition, not the goal. There must also be an **orchestration point that routes according to the `stages` policy**, replacing today’s hard-coded `plan→impl→review→deliver` in `solve_issue`—look up the owner for each configurable stage: `agent`→call the agent version of the stage function; `human`→stop at this gate, mark needs-human, and suspend until a human intervenes; `skip`→skip it. Extraction without composition still leaves nowhere to apply `review: skip`. Obtain the agent→backend mapping from `config.agents` (principle 2). Fold multi-repository `fleet` into “one `run_vigil` call per repository”; no class is needed.
 
-**合并流水线定稿顺序**：`conflict → CI → e2e → review → merge`。每道闸 = (检测者) + (没过时的修复者) + (修完从流水线顶重进)：
+**Finalized merge pipeline order**: `conflict → CI → e2e → review → merge`. Each gate = (detector) + (fixer on failure) + (re-entry from the top of the pipeline after the fix):
 
-| 顺序 | 闸 | 检测者 | 没过打回给谁 | 可跳过 |
+| Order | Gate | Detector | Send back to whom on failure | Skippable |
 |---|---|---|---|---|
-| ① | conflict / behind | 确定性读 mergeable 位 | deliver agent 去 rebase | 否（前置） |
-| ② | CI/CD | 确定性读 check 结论 | **implementer 打回重改** | skip ci |
-| ③ | e2e | 确定性读证据戳（或真跑） | implementer 打回重改 | ✅ 单独可跳 |
-| ④ | review | reviewer agent 判断（最贵） | implementer 打回重改（REWORK） | skip code |
-| ⑤ | merge | —（github merge） | — | hold=停等人 |
+| ① | conflict / behind | Deterministic read of the mergeable field | deliver agent to rebase | No (prerequisite) |
+| ② | CI/CD | Deterministic read of check conclusions | **Send back to implementer for rework** | skip ci |
+| ③ | e2e | Deterministic read of the evidence stamp (or an actual run) | Send back to implementer for rework | ✅ Independently skippable |
+| ④ | review | reviewer agent judgment (most expensive) | Send back to implementer for rework (REWORK) | skip code |
+| ⑤ | merge | — (github merge) | — | hold=stop and wait for a human |
 
-排序三原则：**便宜的在前**（读 API 位 < LLM 评审）、**客观闸在前判断闸在后**、**前置依赖在前**。**conflict 必须在 CI 前不只是成本、是硬依赖**：PR 冲突（`mergeable=false` / `mergeStateStatus=DIRTY`）时 GitHub 造不出 merge ref，`pull_request` 的 CI 没东西可跑或只有陈旧 head 结果 → 冲突没解时 CI 绿/红不可信；且 push 刚完 `mergeable=null`（后台异步计算）/`UNKNOWN` 时既不能判冲突也不能信 CI，须等下轮。故**读 CI 前必先确认 mergeable 既非 CONFLICTING/DIRTY 也非 UNKNOWN/null**（现状 `gates.is_conflicting`/`is_mergeable_unknown` 已提供判读，`merge_pr` 已在读 CI 前短路）。
+Three ordering principles: **cheaper checks first** (reading API fields < LLM review), **objective gates before judgment gates**, and **prerequisite dependencies first**. **Placing conflict before CI is not merely about cost; it is a hard dependency**: when a PR has conflicts (`mergeable=false` / `mergeStateStatus=DIRTY`), GitHub cannot create a merge ref, so `pull_request` CI has nothing to run against or has only stale head results → green/red CI results are untrustworthy while conflicts remain unresolved. Also, immediately after a push, when `mergeable=null` (asynchronous background computation)/`UNKNOWN`, neither a conflict determination nor trust in CI is possible; wait for the next round. Therefore, **before reading CI, first confirm that mergeable is neither CONFLICTING/DIRTY nor UNKNOWN/null** (the existing `gates.is_conflicting`/`is_mergeable_unknown` already provide these interpretations, and `merge_pr` already short-circuits before reading CI).
 
-**打回回环（本 spec 补的真缺口）**：给 CI/e2e/review 三闸接统一回环——失败**不再只 `return {"reason": ...}`**，而是派 `implementer` 迭代改代码，改完**下轮从 conflict 重进流水线**（不是原地重试——改完代码 base 可能又变，须从冲突客观复检重进；`github.merge_pr` 不可合并时拒绝是最后兜底）。
+**Rework loop (the real gap this spec fills)**: connect the CI/e2e/review gates to a unified loop—on failure, **no longer merely `return {"reason": ...}`**; instead, dispatch `implementer` to iteratively revise the code. After revision, **re-enter the pipeline from conflict in the next round** (not a retry in place—the base may have changed again after the code was revised, so re-entry must start with an objective conflict recheck; refusal by `github.merge_pr` when merging is impossible is the final fallback).
 
-### 约束（不可让步，硬编进校验/分层）
+### Constraints (non-negotiable, hard-coded into validation/layering)
 
-- **① `rfc: skip` 撞理念 4**——允许跳，但当按 issue 粒度的显式选择或至少加载器打显式告警，别放进全局默认悄悄关掉 RFC 卖点。
-- **② 确定性硬闸永不进 `stages`**——head 前移 / 证据溯源戳（`assert_evidence_stamp`）/ `round_cap` 死循环上限恒机器、恒在（防 #140 空转的安全底线，`skip` 关不掉）。`stages`（可配阶段）与 `gates.py`（硬底线）词分开以强化分层，加载器把硬闸名写进 `stages` 判 error。
-- **③ 防自循环闭环不可拆**——agent 回评论必带隐藏签名 `<!-- openagents:agent=xxx -->`（agent 与人可能共用同一 gh 账号，只能靠 body 签名区分、不能靠作者）；`poll_comments` 靠它过滤「只回无签名的新人类评论」。`reply-comment` 降隐藏命令后，盖章仍由 `identity.post_signed_comment` 保证「回复时加签名 + 同步后校验（漏签则 edit 补上，不能只 warn）」，否则自问自答死循环重现。
+- **① `rfc: skip` conflicts with principle 4**—allow skipping, but require an explicit choice at issue granularity or at least an explicit loader warning; do not put it into global defaults and silently disable the RFC selling point.
+- **② Deterministic hard gates never enter `stages`**—head advancement / evidence provenance stamps (`assert_evidence_stamp`) / the `round_cap` infinite-loop limit are always machine-enforced and always present (the safety baseline against spinning without progress in #140; `skip` cannot disable them). Keep the terminology for `stages` (configurable stages) separate from `gates.py` (hard baselines) to reinforce the separation of layers; the loader treats hard-gate names in `stages` as errors.
+- **③ The closed loop that prevents self-replies must remain intact**—agent comment replies must carry the hidden signature `<!-- openagents:agent=xxx -->` (agents and humans may share the same gh account, so only a body signature can distinguish them, not the author); `poll_comments` uses it to filter for “reply only to new, unsigned human comments.” After `reply-comment` is demoted to a hidden command, `identity.post_signed_comment` must still guarantee “add the signature when replying + verify after synchronization (if the signature is missing, edit to add it; a warning alone is insufficient),” or the infinite loop of self-directed questions and answers will recur.
 
-### Task DAG + 文件分配
+### Task DAG + file allocation
 
-`files` 全组两两不相交——协同模式无冲突的根（理念 6，单一 writer 所有权）。
+The `files` sets across all groups are pairwise disjoint—the foundation of conflict-free collaboration (principle 6, single-writer ownership).
 
-| Task | depends-on | 拥有的 files | 交付 |
+| Task | depends-on | Owned files | Deliverable |
 |------|-----------|-------------|------|
-| **T1** | — | `openagents/utils/agent_config.py`, `tests/test_agent_config.py` | 配置层：schema + 加载器 + 三态校验 + 不许零闸守卫（additive） |
-| **T2** | — | `openagents/recipes/stages.py`, `tests/test_recipe_stages.py` | 九阶段抽成 `Vigil` 类外自由函数（additive） |
-| **T3** | T1, T2 | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil.py` | `run_vigil` 策略路由 + CI/e2e/review 打回回环 + fleet 折入 |
-| **T4** | T2 | `openagents/recipes/backfill.py`, `tests/test_recipe_backfill.py` | backfill-rfc path 驱动单列（additive） |
-| **T5** | T3, T4 | `openagents/cli.py`, `openagents/utils/identity.py`, `tests/test_cli_new_stack.py` | CLI 面收敛四命令 + 隐藏 reply-comment + 签名后校验硬化 |
-| **T6** | T5 | `openagents/recipes/solve_issue.py`, `openagents/recipes/merge_pr.py`, `openagents/recipes/poll_comments.py`, `openagents/recipes/rfc_lifecycle.py`, `openagents/recipes/fleet.py`, `openagents/agents/planner.py` | 删 5 旧 recipe + planner（合并进 drafter）+ 收敛测试桩 + docs 再生成 |
+| **T1** | — | `openagents/utils/agent_config.py`, `tests/test_agent_config.py` | Configuration layer: schema + loader + three-state validation + no-zero-gates guard (additive) |
+| **T2** | — | `openagents/recipes/stages.py`, `tests/test_recipe_stages.py` | Extract nine stages into free functions outside the `Vigil` class (additive) |
+| **T3** | T1, T2 | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil.py` | `run_vigil` policy routing + CI/e2e/review rework loop + fold in fleet |
+| **T4** | T2 | `openagents/recipes/backfill.py`, `tests/test_recipe_backfill.py` | Separate path-driven backfill-rfc flow (additive) |
+| **T5** | T3, T4 | `openagents/cli.py`, `openagents/utils/identity.py`, `tests/test_cli_new_stack.py` | Consolidate the CLI surface into four commands + hide reply-comment + harden post-signature verification |
+| **T6** | T5 | `openagents/recipes/solve_issue.py`, `openagents/recipes/merge_pr.py`, `openagents/recipes/poll_comments.py`, `openagents/recipes/rfc_lifecycle.py`, `openagents/recipes/fleet.py`, `openagents/agents/planner.py` | Delete 5 old recipes + planner (merged into drafter) + consolidate test stubs + regenerate docs |
 
-DAG 形状：T1 ∥ T2 无依赖可并行（皆 additive、hermetic 可测）→ T3 汇合（读 T1 config、组 T2 stage）→ T4 复用 T2 rfc 原子 → T5 CLI 改接（新栈已就位）→ T6 删旧（无人再 import 旧 recipe）。additive 的 T1/T2/T4 先行，destructive 的 T5→T6 严格串行，每步跑全量 pytest + ruff 作硬闸，任一红即停。
+DAG shape: T1 ∥ T2 have no dependencies and can run in parallel (both additive and hermetically testable) → T3 joins them (reads T1 config, composes T2 stages) → T4 reuses the T2 rfc primitive → T5 rewires the CLI (the new stack is already in place) → T6 deletes the old code (nothing imports the old recipes anymore). The additive T1/T2/T4 go first; the destructive T5→T6 are strictly sequential. Run the full pytest suite + ruff at every step as a hard gate; stop if either is red.
 
-### e2e 脚本
+### e2e script
 
-`scripts/e2e-spec-0064-declarative-stages-converge.sh`——ruff check + ruff format --check + 针对性 pytest（配置层三态校验/不许零闸/每仓 override；编排层 agent·human·skip 三分支 + 打回回环 + 硬闸不受管辖）+ grep 锚点（`recipes/` 仅剩 stages/vigil/backfill；对已删 recipe/planner 裸 import 零命中；九原子函数显式收参；签名闭环）。形态为纯后端配置/编排/CLI 收敛、无 product-facing 前端，故不设浏览器 e2e，沿用前四批离线确定性测法（见 frontmatter `e2e` 块）。
+`scripts/e2e-spec-0064-declarative-stages-converge.sh`—ruff check + ruff format --check + targeted pytest (configuration-layer three-state validation/no zero gates/per-repository overrides; orchestration-layer agent·human·skip branches + rework loop + hard gates outside policy control) + grep anchors (only stages/vigil/backfill remain under `recipes/`; zero matches for bare imports of deleted recipes/planner; explicit parameters for the nine atomic functions; the signature loop). This is purely backend configuration/orchestration/CLI consolidation, with no product-facing frontend, so no browser e2e is specified; continue using the offline deterministic testing approach from the previous four batches (see the frontmatter `e2e` block).
 
 ## Drawbacks
 
-- **单批体量大、review 面宽**：跨新增配置层 + 阶段抽函数 + 编排重写 + CLI 收敛删九命令 + 删 5 recipe/1 agent，是继 Spec-0062 后又一次大收敛。缓解：DAG 把 additive（T1/T2/T4）与 destructive（T5/T6）严格分层，每层全量 pytest+ruff 硬闸，删旧只在 CLI 已改接（无人再 import 旧 recipe）后发生。
-- **配置层多一个真源、多一层解析**：引入 `.openagents/openagents.yml` 后，「每道闸归谁」从代码常量变成运行时配置，读代码不再能直接看出行为——须连着看 YAML。缓解：整份可省、全回落内建默认（= 今天的硬编码行为），不写 YAML 的用户零感知；且加载器把非法组合挡在启动期。
-- **三态语义有认知成本**：`agent`/`human`/`skip` 三态 × 每闸合法取值不同（conflict/merge 不可 skip、rfc 仅 agent/skip），用户可能记混。缓解：加载器按闸校验并给明确 error 文案；Guide-level 附完整注释样例。
-- **`rfc: skip` 给了绕过 RFC 卖点的口子**：即便有告警，长期开着 skip 会侵蚀理念 4。缓解：只当按 issue 粒度显式选择 + 加载器显式告警，不进全局默认（约束①）。
-- **打回回环可能与 reviewer 恒 REWORK 叠加放大轮次**：CI/e2e/review 三闸都能触发 implementer 迭代，坏情况下多闸交替打回。缓解：`gates.round_cap` 死循环上限恒在（不受 stages 管），跑满即兜底 raise。
+- **Large batch size and broad review scope**: Adding a configuration layer + extracting stage functions + rewriting orchestration + consolidating the CLI by deleting nine commands + deleting 5 recipes/1 agent makes this another major consolidation after Spec-0062. Mitigation: the DAG strictly separates additive work (T1/T2/T4) from destructive work (T5/T6), with the full pytest+ruff suite as a hard gate at each layer. Old code is deleted only after the CLI has been rewired (with no remaining imports of the old recipes).
+- **The configuration layer adds a source of truth and another parsing layer**: Introducing `.openagents/openagents.yml` turns “who owns each gate” from code constants into runtime configuration. Reading the code alone no longer directly reveals behavior—the YAML must be read alongside it. Mitigation: the entire file is optional, with everything falling back to built-in defaults (= today's hardcoded behavior), so users who do not write YAML see no change; the loader also rejects invalid combinations at startup.
+- **Three-state semantics impose a cognitive cost**: The three states `agent`/`human`/`skip`, combined with different legal values for each gate (conflict/merge cannot be skipped; rfc allows only agent/skip), may confuse users. Mitigation: the loader validates values per gate and provides clear error messages; the Guide-level documentation includes a fully commented example.
+- **`rfc: skip` creates a way to bypass the RFC selling point**: Even with warnings, leaving skip enabled long term would erode principle 4. Mitigation: allow it only as an explicit choice per issue + issue an explicit loader warning; exclude it from global defaults (constraint ①).
+- **Rejection loops may compound with a reviewer that always returns REWORK, increasing the number of rounds**: All three gates—CI/e2e/review—can trigger implementer iterations; in the worst case, multiple gates take turns rejecting the work. Mitigation: the `gates.round_cap` limit on infinite loops always remains in force (outside the control of stages), with a fallback raise when the limit is reached.
 
 ## Rationale and alternatives
 
-- **备选 A：策略继续用 CLI flag（`--hold`/`--skip`）、不引入 YAML**。改动最小、无新真源。**否决**：flag 是一次性的、跨运行不留痕、无处一眼看全「每道闸归谁」，且无法表达「每个 agent 接哪个后端」（理念 2）。选择声明式 YAML 作单一真源，flag 降为单次覆盖。
-- **备选 B：只抽阶段函数、不做策略路由编排点**。省掉 `stages` 三态与加载器。**否决**：抽函数是必要条件不是目的——只抽不组合，`review: skip` 依然无处落，阶段可寻址却不可配。必须同时有按 `stages` 路由的 `run_vigil`。
-- **备选 C：把 CI/e2e/review 也做成「agent 判断闸」**（让 agent 读日志判 CI 过没过）。看似统一。**否决**：撞约束②——CI/e2e 的**检测**恒是确定性读（github check / 证据戳），`agent` 只表示「自动化拥有此闸、红了自动打回」，不是让 agent 主观判客观事实。检测者与所有者是两件事。
-- **备选 D：`stages` 也收编确定性硬闸**（head 前移/证据戳/round_cap 允许 `skip`）。配置更「完整」。**否决**：撞约束②——硬闸是防 #140 空转的安全底线，`skip` 关不掉才是它存在的意义；可配阶段与硬底线必须分层。硬闸名进 `stages` 判 error。
-- **备选 E：`planner` 与 `drafter` 并存不合并**。少动一个 agent。**否决**：二者都「起草 spec、不写实现代码」，是新旧栈残留重复；drafter 已承接五 mode 起草判断，planner 是死代码。合并成单一起草 stage 更符合奥卡姆。
-- **备选 F：recipes 层收敛但不删旧文件、保留两栈回退**。更安全。**否决**：Spec-0062 已完成两栈合一，再留旧 recipe 就是回到并存中间态、增认知负担与 import 间接层；删旧只在 CLI 全量改接后发生、且前置 grep 零 import 硬证据。
+- **Alternative A: Continue using CLI flags (`--hold`/`--skip`) for policy, without introducing YAML**. Minimal changes and no new source of truth. **Rejected**: flags apply only once, leave no record across runs, provide no place to see “who owns each gate” at a glance, and cannot express “which backend each agent uses” (principle 2). Choose declarative YAML as the single source of truth, reducing flags to per-run overrides.
+- **Alternative B: Extract stage functions only, without adding an orchestration point for policy routing**. Avoids the three-state `stages` model and the loader. **Rejected**: extracting functions is a prerequisite, not the goal—without composition, `review: skip` still has nowhere to take effect; stages become addressable but remain unconfigurable. A `run_vigil` that routes according to `stages` is also required.
+- **Alternative C: Make CI/e2e/review “agent decision gates” as well** (have an agent read logs to decide whether CI passed). Appears uniform. **Rejected**: violates constraint ②—CI/e2e **detection** always consists of deterministic reads (github check / evidence stamps); `agent` means only “automation owns this gate and automatically sends work back when it turns red,” not that an agent subjectively judges objective facts. The detector and the owner are separate things.
+- **Alternative D: Bring deterministic hard gates under `stages` as well** (allow `skip` for head advancement/evidence stamps/round_cap). Makes configuration more “complete.” **Rejected**: violates constraint ②—hard gates are the safety baseline against the unproductive looping in #140; their purpose depends on `skip` being unable to disable them. Configurable stages and the hard safety baseline must remain separate layers. A hard gate name in `stages` produces an error.
+- **Alternative E: Keep both `planner` and `drafter` without merging them**. Leaves one more agent untouched. **Rejected**: both “draft specs without writing implementation code,” making them redundant remnants of the old and new stacks; drafter already handles drafting decisions across five modes, while planner is dead code. Merging them into a single drafting stage better follows Occam's razor.
+- **Alternative F: Consolidate the recipes layer but retain old files and both stacks as a fallback**. Safer. **Rejected**: Spec-0062 already unified the two stacks. Retaining old recipes would return to an intermediate state of coexistence, increasing cognitive load and adding an import indirection layer. Old code is deleted only after the CLI has been fully rewired, with hard evidence from a preceding grep showing zero imports.
 
 ## Prior art
 
-- **Spec-0027（多仓库 vigil）与 `utils/fleet_config.py`**：既有的 `ruamel.yaml` + `jsonschema` Draft202012 声明式配置加载 + `defaults`/`repos` 合并 + 矛盾校验模式，是 T1 `agent_config.py` 直接沿用的范本（收编 `fleet.yml` 的 `repos` 段）。
-- **Spec-0060/0061/0062（agents/recipes/runtime/utils 新栈三批）**：确立四层分界线（判断→agent、机械→确定性代码）、`solve_issue`/`merge_pr`/`poll_comments`/`vigil`/`fleet` recipe 与 `triager`/`drafter`/`reviewer`/`replier`/`deliver` agent、`gates.py` 最小硬闸、`cli._new_vigil_for` 单一接线点。本 spec 的阶段抽函数、编排点、删旧收敛直接承接。
-- **Spec-0020（human-oversight-gates）与 `gates.hold_hits`/`skip_hits`**：`--hold`（停等人）/`--skip`（当 PASS 放行）的既有闸名白名单与短路语义，是 `stages` 三态要收编成单一真源的现状来源。
-- **Spec-0055/0057（e2e 证据溯源戳）与 `gates.assert_evidence_stamp`**：e2e 闸确定性读证据戳的硬闸判定，是约束②「硬闸不进 stages」的具体对象。
-- **Spec-0011（agent 身份签名）与 `utils/identity.post_signed_comment`**：隐藏签名 `<!-- openagents:agent=xxx -->` + `poll_comments` 靠它过滤人类评论的防自循环闭环，是约束③与 `reply-comment` 降隐藏命令的行为基准。
-- **GitHub 合并状态语义**：[REST — pulls（`mergeable` 可为 true/false/null，null=后台计算中）](https://docs.github.com/en/rest/pulls/pulls) · [GraphQL Enums — `MergeableState`/`MergeStateStatus`（DIRTY/BEHIND/UNKNOWN/CLEAN…）](https://docs.github.com/en/graphql/reference/enums) · [Troubleshooting required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks)——支撑「conflict 必须在 CI 前是硬依赖」的排序论证。
-- **[rust-lang/rfcs](https://github.com/rust-lang/rfcs)**：本 spec 组级 9 段总览形态的来源。
+- **Spec-0027 (multi-repository vigil) and `utils/fleet_config.py`**: The existing pattern of declarative configuration loading with `ruamel.yaml` + `jsonschema` Draft202012, `defaults`/`repos` merging, and contradiction validation is the template directly reused by T1 `agent_config.py` (incorporating the `repos` section of `fleet.yml`).
+- **Spec-0060/0061/0062 (three batches of the new agents/recipes/runtime/utils stack)**: Established the boundaries between the four layers (judgment → agent; mechanical work → deterministic code), the `solve_issue`/`merge_pr`/`poll_comments`/`vigil`/`fleet` recipes and `triager`/`drafter`/`reviewer`/`replier`/`deliver` agents, the minimal hard gates in `gates.py`, and `cli._new_vigil_for` as the single wiring point. This spec directly builds on that work to extract stage functions, introduce an orchestration point, and consolidate by deleting old code.
+- **Spec-0020 (human-oversight-gates) and `gates.hold_hits`/`skip_hits`**: The existing gate-name allowlist and short-circuit semantics of `--hold` (stop and wait for a human)/`--skip` (let through as PASS) are the current behavior that the three-state `stages` model will bring under a single source of truth.
+- **Spec-0055/0057 (e2e evidence provenance stamps) and `gates.assert_evidence_stamp`**: The hard-gate decision made by deterministically reading evidence stamps at the e2e gate is the concrete subject of constraint ②, “hard gates do not go into stages.”
+- **Spec-0011 (agent identity signatures) and `utils/identity.post_signed_comment`**: The hidden signature `<!-- openagents:agent=xxx -->`, together with `poll_comments` using it to filter for human comments, forms the closed loop that prevents self-triggering. This is the behavioral baseline for constraint ③ and for demoting `reply-comment` to a hidden command.
+- **GitHub merge-state semantics**: [REST — pulls (`mergeable` can be true/false/null, where null = being computed in the background)](https://docs.github.com/en/rest/pulls/pulls) · [GraphQL Enums — `MergeableState`/`MergeStateStatus` (DIRTY/BEHIND/UNKNOWN/CLEAN…)](https://docs.github.com/en/graphql/reference/enums) · [Troubleshooting required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks)—support the ordering argument that “conflict must be a hard dependency before CI.”
+- **[rust-lang/rfcs](https://github.com/rust-lang/rfcs)**: The source of this spec's nine-section overview structure at the group level.
 
 ## Unresolved questions
 
-以下三问来自 issue #161「开放问题」，记录本 spec 的倾向，落地前需用户拍板：
+The following three questions come from “Open questions” in issue #161. They record this spec's preferences and require a user decision before implementation:
 
-- **1. `board` 命令归属**：保留为独立只读观测命令（**倾向**，将来并入前端呈现成果，理念 8）？还是塞进 `vigil` 子命令？本 spec 暂按「保留独立、不进 stages/不进本收敛范围」处理——它是只读观测、非自动化环切片，收编价值低。（`release` 已定：顶层 `release: manual|auto`，不做 stage。）
-- **2. 确定性硬闸在 YAML 的暴露口径**：完全不进 YAML（**倾向**，最安全，本 spec 采此——硬闸名进 `stages` 判 error）？还是沿用 `--skip ci/evidence` 语义、允许 YAML 标 `skip` 但绝不允许标 `agent`/`human`？两者对约束②的落地方式不同，需确认。
-- **3. `reply-comment` 的实现口径**：降为隐藏内部命令即可（**倾向**，仍走 `identity.post_signed_comment` 单一盖章出口）？还是彻底改走「裸 gh + 后校验补签」？本 spec 采前者，并要求 `post_signed_comment` 做「回复加签名 + 同步后校验漏签 edit 补」的硬化（约束③）。
-- **4. `drafter` 单 agent 承载起草 + backfill 两种判断是否需拆**：`recipes/backfill.py`（T4）复用 drafter 的 backfill mode；若某 mode 提示词膨胀到互相干扰，后续可拆多 agent。是否拆、按什么信号拆，实现 T4 时据提示词实际复杂度定（承 Spec-0062 同一 Unresolved）。
+- **1. Where the `board` command belongs**: Retain it as an independent read-only observation command (**preferred**, eventually incorporating it into the frontend to present results, principle 8)? Or place it under `vigil` as a subcommand? For now, this spec treats it as “remain independent, outside stages/outside this consolidation scope”—it provides read-only observation rather than a slice of the automation loop, so incorporating it has little value. (`release` is already settled: top-level `release: manual|auto`, not a stage.)
+- **2. How deterministic hard gates are exposed in YAML**: Exclude them from YAML entirely (**preferred**, safest, and adopted by this spec—a hard gate name in `stages` produces an error)? Or retain the semantics of `--skip ci/evidence`, allowing YAML to specify `skip` but never `agent`/`human`? These implement constraint ② differently and require confirmation.
+- **3. How `reply-comment` is implemented**: Simply demote it to a hidden internal command (**preferred**, still using `identity.post_signed_comment` as the single signing outlet)? Or switch entirely to “raw gh + post-validation and signature repair”? This spec adopts the former and requires hardening `post_signed_comment` to “add signatures to replies + synchronously validate afterward and edit to add any missing signature” (constraint ③).
+- **4. Whether the single `drafter` agent should be split to handle drafting and backfill decisions separately**: `recipes/backfill.py` (T4) reuses drafter's backfill mode; if a mode's prompt grows enough to interfere with other modes, it can be split into multiple agents later. Whether to split it, and what signals should trigger a split, will be decided during T4 implementation based on the actual prompt complexity (carried over from the same Unresolved question in Spec-0062).
 
 ## Future possibilities
 
-- **落地 `codex`/`nexau` 后端**：`backends/` 目前只有 `claude_code`，本 spec 只留 `agents.<role>.backend` 的 schema 位（理念 2 去中心化的声明面）；实现另议。届时同项目混接不同 coding agent 才真正跑通。
-- **`stages` 扩到更细粒度的 per-role 策略**：如「reviewer 用严格模式 / 宽松模式」「implementer 的迭代轮次上限」进 YAML，让配置面覆盖更多可调旋钮。
-- **`board` 并入前端**：把只读观测命令收编进「主要视觉范围用于呈现成果」的前端（理念 8），YAML 的 `stages`/`agents` 同时作为前端可视化的策略数据源。
-- **`release: auto` 物化**：本 spec 只声明顶层 `release: manual|auto` 策略位；`auto`（main 绿 + 无 BLOCKED 自动切版本）的实现另议。
-- **recipe 层沉淀通用编排组合子**：`run_vigil` 的「查 owner→按三态路由（调 agent 函数 / 停等人 / 跳过）」若在多处重复，可抽成 `runtime` 层的策略路由组合子，进一步收敛。
-
+- **Implement the `codex`/`nexau` backends**: `backends/` currently contains only `claude_code`; this spec reserves only the schema slot for `agents.<role>.backend` (the declarative interface for decentralization in principle 2). Implementation will be discussed separately. Only then will mixing different coding agents within the same project actually work end to end.
+- **Extend `stages` to finer-grained per-role policies**: For example, put “reviewer uses strict mode / lenient mode” and “implementer iteration limit” into YAML so that configuration covers more adjustable controls.
+- **Incorporate `board` into the frontend**: Bring the read-only observation command into the frontend, where “the primary visual area is used to present results” (principle 8), with YAML `stages`/`agents` also serving as the policy data source for frontend visualization.
+- **Materialize `release: auto`**: This spec declares only the top-level `release: manual|auto` policy slot; implementation of `auto` (automatically cut a version when main is green + there is no BLOCKED) will be discussed separately.
+- **Develop reusable orchestration combinators from the recipe layer**: If `run_vigil`'s pattern of “look up the owner → route by the three states (call an agent function / stop and wait for a human / skip)” recurs in multiple places, it can be extracted into a policy-routing combinator in the `runtime` layer for further consolidation.

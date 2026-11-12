@@ -55,7 +55,7 @@ class Fleet:
         try:
             self._supervise(handles=handles, log_queue=log_queue)
         except KeyboardInterrupt:
-            self._emit(message="✓ 多仓库守夜已停止（Ctrl-C）")
+            self._emit(message="✓ Many warehouses have stopped for the night.Ctrl-C）")
             for handle in handles.values():
                 handle.terminate()
         finally:
@@ -78,7 +78,7 @@ class Fleet:
         for name, handle in handles.items():
             code = handle.exitcode
             if code:
-                self._emit(message=f"[{name}] ✗ 守夜进程退出（code {code}）")
+                self._emit(message=f"[{name}] Vigil process exited (code {code})")
 
     def _emit(self, *, message: str) -> None:
         print(message, file=sys.stderr, flush=True)

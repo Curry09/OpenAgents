@@ -1,12 +1,12 @@
 ---
 number: "0041"
-title: hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
+title: "Keep hold-merge firmly awaiting merge after PASS: freeze approved PRs as needs-human to eliminate repeated-review oscillation on the same code"
 issue: 106
 slug: hold-merge-freeze
-summary: reviewer PASS 且 hold.at_merge 时把 PR 从「pr-open 空转、下轮重审」改为「置 BLOCKED + 打 needs-human + 贴『✅ 已通过评审，待你合并』」，复用既有冻结机制让 poll 自动跳过、不再重审，从根上消除同一 commit 被非确定 reviewer 反复 PASS/REWORK 的复审震荡；附带净化挂起评论里泄漏的 reviewer scratchpad。
+summary: "When the reviewer returns PASS and hold.at_merge is set, change the PR behavior from \"idle in pr-open and review again next round\" to \"set BLOCKED + add needs-human + post '✅ Review passed, ready for you to merge'\". Reuse the existing freeze mechanism so poll automatically skips the PR and stops reviewing it, eliminating at the source the repeated-review oscillation in which a nondeterministic reviewer repeatedly returns PASS/REWORK for the same commit; also sanitize reviewer scratchpad content leaked into the hold comment."
 tasks:
   - id: T2
-    title: 「✅ 已通过评审，待你合并」成功文案
+    title: "\"✅ Review passed, ready for you to merge\" success message"
     status: done
     priority: P0
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/blocknote.py
       - tests/test_blocknote_hold_merge.py
-    scope: 在 blocknote 加一个纯函数（如 build_hold_merge_pass），产出「✅ 已通过评审，待你合并」的签名前正文——与既有 build 的「🤖 卡住了」四段失败模板并列、语气为成功待合并；不含签名、无 IO，供 messages 冻结时贴出。既有 build/_GATE_REASONS 不改（零回归）。
-    acceptance: 新纯函数产出含「✅ 已通过评审，待你合并」措辞的 markdown 正文，明确「点合并即完成 / 回评论即据此继续」两条指引，且不含任何失败/求救措辞（不含「卡住了」）；既有 build 输出逐字节不变；ruff+pytest 全绿。
+    scope: "Add a pure function in blocknote (such as build_hold_merge_pass) that produces the body before the signature for \"✅ Review passed, ready for you to merge\"—alongside the existing build function's four-part \"🤖 Stuck\" failure template, with a tone indicating success and awaiting merge; it contains no signature and performs no IO, and is posted by messages when freezing. Leave the existing build/_GATE_REASONS unchanged (zero regressions)."
+    acceptance: "The new pure function produces a markdown body containing the wording \"✅ Review passed, ready for you to merge\", explicitly providing both instructions: \"Click merge to finish / Reply with a comment to continue based on it\". It contains no failure wording or requests for help (and does not contain \"Stuck\"); existing build output remains byte-for-byte unchanged; ruff+pytest all pass."
   - id: T3
-    title: 净化 reviewer scratchpad
+    title: "Sanitize reviewer scratchpad content"
     status: done
     priority: P1
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer_feedback_distill.py
-    scope: 在 reviewer.py 加纯函数 _distill_feedback(summary)->str，在聚合 feedback（reviewer.py:147-155 拼接各非 PASS summary）前施用：剥离 reviewer 内心独白/scratchpad，保留可操作反馈；净化后为空回落既有占位文案。只作用于喂人的 feedback；verdicts/actionable 判定与 render_decision 票型渲染不变。
-    acceptance: 给定含内心独白（如 'All 32 tests pass. I have enough to finalize. Let me capture...'）的样本 summary，聚合后的 decision.feedback 不含该独白、仍保留可操作反馈；净化后为空时回落既有占位；passed/actionable/verdicts 判定逐字节不变（零回归）；ruff+pytest 全绿。
+    scope: "Add a pure function _distill_feedback(summary)->str in reviewer.py and apply it before aggregating feedback (concatenating all non-PASS summaries at reviewer.py:147-155): strip the reviewer's internal monologue/scratchpad while retaining actionable feedback; if sanitization leaves an empty result, fall back to the existing placeholder message. Apply this only to feedback shown to humans; verdicts/actionable determinations and vote-type rendering in render_decision remain unchanged."
+    acceptance: "Given a sample summary containing internal monologue (such as 'All 32 tests pass. I have enough to finalize. Let me capture...'), the aggregated decision.feedback excludes that monologue while retaining actionable feedback; if sanitization leaves an empty result, fall back to the existing placeholder; passed/actionable/verdicts determinations remain byte-for-byte unchanged (zero regressions); ruff+pytest all pass."
   - id: T1
-    title: hold-merge 夯住 + merge-hold 解挂路由
+    title: "Stabilize hold-merge + route release from merge-hold"
     status: done
     priority: P0
     tags: []
@@ -43,10 +43,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages_hold_merge_freeze.py
-    scope: 把 _process_coding 的 hold.at_merge&PASS 子分支（messages.py:430-431）从空操作改为调新私有收口 _hold_merge_freeze：复用 _block 冻结骨架（贴评论→add_label→update_status(BLOCKED)→set_block_gate→set_block_watermark），但贴 T2 的成功文案（非 blocknote.build 失败模板）、gate 设 'merge-hold'。给 _unblock_with_comment 加一条 merge-hold→iterate(reason='human') 分支（与 code* 同款）；is_merged reconcile 与 _unblock_by_label(撕标签→resume) 对 merge-hold 无需改动。
-    acceptance: hold.at_merge 且 reviewer PASS 时：run 置 blocked、打 needs-human、恰贴一条 T2 成功文案（不贴 blocknote.build 失败模板）、block_gate=='merge-hold'；下一轮 poll 因 blocked 不在 _OPEN_STATUSES 被跳过、不重审(reviewer 不再被调)；is_merged→done、merge-hold 新评论→iterate(reason='human')、撕标签→resume 回 pr-open 三出口均走通；非 hold（自动合并）路径逐字节不变；ruff+pytest 全绿。
+    scope: "Change the hold.at_merge&PASS sub-branch of _process_coding (messages.py:430-431) from a no-op to a call to a new private helper _hold_merge_freeze: reuse the _block freeze framework (post comment→add_label→update_status(BLOCKED)→set_block_gate→set_block_watermark), but post the T2 success message (rather than the blocknote.build failure template), and set gate to 'merge-hold'. Add a merge-hold→iterate(reason='human') branch to _unblock_with_comment (matching code*); is_merged reconciliation and _unblock_by_label (remove label→resume) require no changes for merge-hold."
+    acceptance: "When hold.at_merge is set and the reviewer returns PASS: set the run to blocked, add needs-human, post exactly one T2 success message (do not post the blocknote.build failure template), and set block_gate=='merge-hold'; the next poll skips it because blocked is not in _OPEN_STATUSES, with no further review (the reviewer is no longer called); all three exit paths work: is_merged→done, a new comment on merge-hold→iterate(reason='human'), and removing the label→resume back to pr-open; the non-hold (automatic merge) path remains byte-for-byte unchanged; ruff+pytest all pass."
   - id: T4
-    title: 端到端成果测试（含浏览器看板「冻结后稳定」断言）
+    title: "End-to-end outcome tests (including browser dashboard assertions for \"stability after freezing\")"
     status: done
     priority: P1
     tags: []
@@ -59,191 +59,190 @@ tasks:
     files:
       - scripts/e2e-spec-0041-hold-merge-freeze.sh
       - tests/test_hold_merge_freeze_integration.py
-    scope: e2e 脚本沿用两段式（默认离线确定性；OPENAGENTS_E2E_REAL=1 追加真实冒烟）。集成用例：hold.at_merge Poller + MERGEABLE/CLEAN + CI 绿 + reviewer 桩恒 PASS(计数)；第一次 poll 断言冻结(blocked+needs-human+成功文案+merge-hold)，第二次 poll 断言 reviewer 桩未再被调、状态稳定、无新评论(反震荡铁证)；再断言 is_merged→done / 新评论→iterate / 撕标签→resume 三出口；scratchpad 净化断言。浏览器(Playwright/chrome-devtools MCP)导航两轮 poll 后各自渲染的 board.html，snapshot+截图断言该 PR 恰一行状态=blocked 且两份完全一致(冻结后跨轮稳定)、console/network 无报错；无浏览器时降级 HTML 文本断言。
-    acceptance: 脚本离线段跑通并断言：首轮 poll 后 blocked+needs-human+成功文案+block_gate=merge-hold；次轮 poll reviewer 桩调用次数不变、状态仍 blocked、无新评论、rounds 不增；三出口(合并→done/评论→iterate/撕标签→resume)均验证；含 scratchpad 净化子断言；浏览器导航两份 board.html 断言 PR 行状态=blocked 且两份一致、console/network 无报错(无浏览器降级为 HTML 文本比对不跳过)；脚本被 PR 指路牌拾取；ruff+pytest 全绿。
+    scope: "Keep the e2e script's two-phase structure (deterministic offline execution by default; OPENAGENTS_E2E_REAL=1 adds a real smoke test). Integration case: a hold.at_merge Poller + MERGEABLE/CLEAN + green CI + a reviewer stub that always returns PASS (with a call counter); after the first poll, assert freezing (blocked+needs-human+success message+merge-hold); after the second poll, assert that the reviewer stub has not been called again, the state is stable, and there are no new comments (conclusive evidence against oscillation); then assert the three exit paths: is_merged→done / new comment→iterate / remove label→resume; assert scratchpad sanitization. In a browser (Playwright/chrome-devtools MCP), navigate to the respective board.html rendered after each of the two polls; use snapshots+screenshots to assert that the PR has exactly one row with status=blocked and that the two are identical (stability across rounds after freezing), with no console/network errors; if no browser is available, fall back to HTML text assertions."
+    acceptance: "The script's offline phase runs successfully and asserts: after the first poll, blocked+needs-human+success message+block_gate=merge-hold; after the second poll, the reviewer stub's call count is unchanged, the status remains blocked, there are no new comments, and rounds does not increase; all three exit paths (merge→done/comment→iterate/remove label→resume) are verified; scratchpad sanitization sub-assertions are included; browser navigation to both board.html files asserts that the PR row has status=blocked and is identical in both, with no console/network errors (if no browser is available, fall back to HTML text comparison without skipping); the script is picked up by the PR signpost; ruff+pytest all pass."
 ---
 
-# 0041 · hold-merge PASS 后夯住待合并：已通过的 PR 冻结成 needs-human，消除同码复审震荡
+# 0041 · Hold steady after hold-merge PASS while awaiting merge: freeze approved PRs as needs-human to eliminate review oscillation on unchanged code
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is the group-level overview in the 9-section rust-RFC format. -->
 
 ## Summary
 
-在 vigil 的代码评审闸 `_process_coding`（`openagents/messages.py`）里，当框架带 `--hold merge`（`hold.at_merge`）运行、reviewer 对某 PR 给出 PASS 时，当前实现只 `return {"reason": "hold-merge"}`——**不合并、不改状态、不打标签**的一次性空操作。PR 状态仍停在 `pr-open`，而 `pr-open` 在 `_OPEN_STATUSES` 里，于是下一轮 poll 又**从头把这个已 PASS 的 PR 重跑一遍代码闸**（可合并性 → CI → reviewer）。因为 reviewer 是非确定性的 LLM，同一份没变的代码会被反复审出不同结论，PASS↔REWORK 来回震荡，攒满 `MAX_ROUNDS` 后被 `_block` 打上 `needs-human`——一个本可直接合并的健康 PR 被永久卡死。
+In Vigil's code review gate `_process_coding` (`openagents/messages.py`), when the framework runs with `--hold merge` (`hold.at_merge`) and the reviewer gives a PR a PASS, the current implementation only does `return {"reason": "hold-merge"}`—a one-time no-op that **does not merge, change status, or add a label**. The PR's status remains `pr-open`, and `pr-open` is in `_OPEN_STATUSES`, so the next poll **runs this already-approved PR through the entire code gate again from scratch** (mergeability → CI → reviewer). Because the reviewer is a nondeterministic LLM, the same unchanged code repeatedly receives different review verdicts, oscillating between PASS↔REWORK until it reaches `MAX_ROUNDS` and `_block` labels it `needs-human`—permanently blocking a healthy PR that could have been merged directly.
 
-本 spec 把 hold-merge 分支从「空操作」改成「**夯住**」：reviewer PASS 且 `hold.at_merge` 时，复用既有冻结机制置 `STATUS_BLOCKED` + 打 `needs-human` 标签（`STATUS_BLOCKED` 不在 `_OPEN_STATUSES`，poll 自动跳过 → **不再重审**），但贴一句「✅ 已通过评审，待你合并」的**成功文案**（而非 `_block` 的失败文案），并把解挂 gate 设成能让「人回评论 → iterate、人撕标签 → resume、人点合并 → done」三个出口都走通的值。附带净化 `_block` 挂起评论里逐字透传的 reviewer `scratchpad`（内心独白不该当成给人的求救信息）。
+This spec changes the hold-merge branch from a “no-op” to a “**freeze**”: when the reviewer returns PASS and `hold.at_merge` is true, reuse the existing freeze mechanism to set `STATUS_BLOCKED` + add the `needs-human` label (`STATUS_BLOCKED` is not in `_OPEN_STATUSES`, so polling automatically skips it → **no further reviews**), but post a **success message**, “✅ Review passed, awaiting your merge” (instead of `_block`'s failure message), and set the unblock gate to a value that supports all three exits: “human replies with a comment → iterate; human removes the label → resume; human merges → done.” Also sanitize the reviewer `scratchpad` that is passed verbatim into `_block`'s suspension comment (internal monologue should not be presented as a request for human help).
 
 ## Motivation
 
-**现状（就地复述，无需外读）。** OpenAgents 是 RFC/spec 驱动的多 Agent 框架，`vigil`（守夜人）每隔 interval 秒 poll 每个在途 run。单个 run 的处理入口是 `messages.py` 的 `_process_run`：先看 `github.is_merged`（已合并 → 置 `STATUS_DONE` + 关 issue）、`is_closed`（已关 → `STATUS_CLOSED`）、`status == STATUS_BLOCKED`（走解挂 `_process_blocked`），其余按阶段路由到 RFC 评审闸 `_process_rfc_review` 或代码评审闸 `_process_coding`（`messages.py:216-249`）。
+**Current behavior (restated here; no external reading required).** OpenAgents is an RFC/spec-driven multi-agent framework. `vigil` (Vigil) polls every in-flight run every interval seconds. The entry point for processing a single run is `_process_run` in `messages.py`: it first checks `github.is_merged` (merged → set `STATUS_DONE` + close the issue), `is_closed` (closed → `STATUS_CLOSED`), and `status == STATUS_BLOCKED` (enter unblock handling in `_process_blocked`), then routes the remaining runs by stage to the RFC review gate `_process_rfc_review` or the code review gate `_process_coding` (`messages.py:216-249`).
 
-**代码评审闸 `_process_coding`（`messages.py:374-452`）的流程**：可合并性预检（DIRTY/CONFLICTING → merge 闸；UNKNOWN → 本轮不动；BEHIND → `update_branch` 拉式同步后等下一轮）→ CI（fail → `iterate(reason="ci")`；pending → 等）→ CI 全绿则调 `review_code` 拿 `ReviewDecision`。裁决为 PASS 时（`messages.py:426-439`）：
+**The flow of the code review gate `_process_coding` (`messages.py:374-452`)**: mergeability precheck (DIRTY/CONFLICTING → merge gate; UNKNOWN → take no action this round; BEHIND → pull-based synchronization via `update_branch`, then wait for the next round) → CI (fail → `iterate(reason="ci")`; pending → wait) → if all CI checks are green, call `review_code` to obtain a `ReviewDecision`. When the verdict is PASS (`messages.py:426-439`):
 
 ```python
 if decision.passed:
     if hold.at_merge:
-        return {"pr_number": pr_number, "reason": "hold-merge"}   # ← 空操作，bug 所在
+        return {"pr_number": pr_number, "reason": "hold-merge"}   # ← No-op; the bug is here
     github.merge_pr(pr_number=pr_number)
     self._state.update_status(issue_number=record.issue_number, status=STATUS_DONE)
     github.close_issue(number=record.issue_number)
     return {"pr_number": pr_number, "reason": "merged"}
 ```
 
-`hold merge`（`openagents/hold.py` 的 `Hold.at_merge`）的设计意图是「reviewer 评审照跑，但 PASS 后不自动合并，把最后一下留给人」（Spec-0020/T3 引入的人类监督闸）。但它的实现只是「这轮别合并」的**一次性空操作**——**没有把 run 夯住**。它把「不自动合并」和「继续处理」混为一谈：PR 状态没变，仍是 `pr-open`。
+The design intent of `hold merge` (`Hold.at_merge` in `openagents/hold.py`) is “run the reviewer as usual, but do not merge automatically after PASS; leave the final step to a human” (the human oversight gate introduced by Spec-0020/T3). But its implementation is merely a **one-time no-op** that says “do not merge this round”—it **does not freeze the run**. It conflates “do not merge automatically” with “continue processing”: the PR's status does not change and remains `pr-open`.
 
-**为什么这是 bug——`_OPEN_STATUSES` 让它被反复重审。** `_OPEN_STATUSES = {STATUS_RFC_REVIEW, STATUS_PR_OPEN, STATUS_ITERATING}`（`messages.py:64`）。`pr-open` 在其中，所以下一轮 poll 仍把这个 PR 当「在途、需推进」，再次进 `_process_coding`，再次 `review_code`。`review_code` 背后是**非确定性 LLM reviewer**（`openagents/reviewer.py`：`review()` 以任务模板调 `backend.run` 若干次聚合裁决，`reviewer.py:116-158`）。同一份没变的代码，这一轮 PASS、下一轮可能挑出新点判 REWORK：
+**Why this is a bug—`_OPEN_STATUSES` causes repeated reviews.** `_OPEN_STATUSES = {STATUS_RFC_REVIEW, STATUS_PR_OPEN, STATUS_ITERATING}` (`messages.py:64`). Since `pr-open` is in this set, the next poll still treats the PR as “in flight and needing progress,” enters `_process_coding` again, and calls `review_code` again. Behind `review_code` is a **nondeterministic LLM reviewer** (`openagents/reviewer.py`: `review()` calls `backend.run` several times using task templates and aggregates the verdicts, `reviewer.py:116-158`). The same unchanged code may receive PASS this round and REWORK for newly identified points in the next:
 
-- 真 REWORK（`decision.actionable`）→ `rounds++`；未超 `MAX_ROUNDS`（默认 3，`messages.py:75,90`）→ `iterate(reason="review")` 让写码 agent 追着改；
-- 下一轮又 PASS → 又空转 hold-merge；再下一轮又 REWORK……
-- `rounds` 攒满 → `_block(gate="code")` 打 `needs-human`（`messages.py:442-446`）。
+- An actual REWORK (`decision.actionable`) → `rounds++`; if `MAX_ROUNDS` has not been exceeded (default 3, `messages.py:75,90`) → `iterate(reason="review")` makes the coding agent chase the requested changes;
+- The next round returns PASS again → another idle hold-merge no-op; the following round returns REWORK again…
+- Once `rounds` reaches the limit → `_block(gate="code")` adds `needs-human` (`messages.py:442-446`).
 
-**铁证（issue #106 的 PR #103，裁决时间戳对齐 commit 时间戳，同一 commit 先 PASS 后 REWORK）**：
+**Hard evidence (PR #103 for issue #106, with verdict timestamps aligned against commit timestamps: the same commit first received PASS, then REWORK)**:
 
-- commit `975e7e1`：12:37 PASS → 期间无新 commit → 18:01 REWORK
-- commit `6e3d95b`：18:14 PASS → 无新 commit → 20:06 REWORK
-- commit `a5c954e4`：20:20 PASS → 无新 commit → 20:54 REWORK（卡死处）
+- commit `975e7e1`: 12:37 PASS → no new commits in between → 18:01 REWORK
+- commit `6e3d95b`: 18:14 PASS → no new commits → 20:06 REWORK
+- commit `a5c954e4`: 20:20 PASS → no new commits → 20:54 REWORK (where it became stuck)
 
-同一份代码 34 分钟内一次 PASS 一次 REWORK，reviewer 甚至自相矛盾（一轮说「离线 e2e 是本仓库既定惯例、没问题」，另一轮又因「端到端脚本完全离线」打 REWORK）。PR #103 本身 `OPEN + MERGEABLE + CLEAN + rfc-approved`，却停在 `needs-human`——一个只差人点一下合并的健康 PR 被永久卡死。注意：#103 的 `needs-human` 是 REWORK 震荡耗尽 `rounds` 后 `_block` 打的，**hold-merge 那条路从头到尾没冻结过任何东西**。
+The same code received both PASS and REWORK within 34 minutes, and the reviewer even contradicted itself (one round said “offline e2e is an established convention in this repository and is fine,” while another returned REWORK because “the end-to-end script is entirely offline”). PR #103 itself was `OPEN + MERGEABLE + CLEAN + rfc-approved`, yet it remained at `needs-human`—a healthy PR needing only a human click to merge was permanently blocked. Note: #103's `needs-human` label was applied by `_block` after REWORK oscillation exhausted `rounds`; **the hold-merge path never froze anything at any point**.
 
-**根因一句话**：`hold-merge` 是「这轮别合并」的空操作，没有夯住 run；一个 PASS 完只差人点合并的健康 PR，被当成活跃 PR 反复重新审判，追着非确定性评审员每轮的新意见改，永远收敛不了。
+**The root cause in one sentence**: `hold-merge` is a no-op that says “do not merge this round” without freezing the run; a healthy PR that has passed review and needs only a human merge click is repeatedly judged again as an active PR, chasing the nondeterministic reviewer's new feedback each round and never converging.
 
-**附带小脏（一并修）。** `_block` 打 `needs-human` 时贴的结构化挂起评论（`openagents/blocknote.py` 的 `build`）把「卡在哪」段填成 `decision.feedback`——而 `decision.feedback` 是各非 PASS reviewer 的 `backend.run(...).summary` **逐字拼接**（`reviewer.py:147-155`），未做任何净化（`blocknote.py:40,50-52` 只逐行加 `> ` 前缀）。于是 reviewer 的**内心独白 / scratchpad**（如 `All 32 tests pass. I have enough to finalize. Let me capture...`）被当成给人的求救信息原样贴出，噪声淹没真正的卡点。
+**An additional small mess (fix it at the same time).** The structured suspension comment posted when `_block` adds `needs-human` (`build` in `openagents/blocknote.py`) fills its “Where it is stuck” section with `decision.feedback`—but `decision.feedback` is a **verbatim concatenation** of the non-PASS reviewers' `backend.run(...).summary` values (`reviewer.py:147-155`), without any sanitization (`blocknote.py:40,50-52` only prepends `> ` to each line). As a result, the reviewer's **internal monologue / scratchpad** (such as `All 32 tests pass. I have enough to finalize. Let me capture...`) is posted unchanged as a request for human help, with noise drowning out the actual blocker.
 
 ## Guide-level explanation
 
-改动后，带 `--hold merge` 跑 vigil 的体验变成：
+After this change, running Vigil with `--hold merge` behaves as follows:
 
-- **reviewer 对一个可合并的 PR 判 PASS** → 框架**冻住它**：置 `blocked`、打 `needs-human` 标签、贴一条「✅ 已通过评审，待你合并」的评论。因为 `blocked` 不在 `_OPEN_STATUSES`，**下一轮起 poll 直接跳过这个 PR，不再重审**。震荡从根上消失。
-- **人点了合并**（GitHub 上手动 merge）→ 下一轮 poll 的 `is_merged` 分支（在 blocked 分支**之前**被检查，`messages.py:224` vs `:243`）reconcile 成 `done` + 关 issue。出口现成。
-- **人回一条评论说要改** → 既有「回评论解挂环」（issue #89 / Spec-0032）读到 block 水位线之后的新人类评论 → 按 gate 喂 `iterate(reason="human")` 让写码 agent 据评论迭代。出口现成。
-- **人手撕 `needs-human` 标签** → 既有「摘标签解挂」兜底路径（`_unblock_by_label`）→ resume 回 `pr-open`。出口现成。
+- **The reviewer gives a mergeable PR a PASS** → the framework **freezes it**: sets `blocked`, adds the `needs-human` label, and posts a comment saying “✅ Review passed, awaiting your merge.” Because `blocked` is not in `_OPEN_STATUSES`, **polling skips this PR directly starting with the next round, with no further reviews**. This eliminates oscillation at its source.
+- **A human merges it** (manually on GitHub) → the next poll's `is_merged` branch (checked **before** the blocked branch, `messages.py:224` vs `:243`) reconciles it to `done` + closes the issue. This exit already exists.
+- **A human replies with a comment requesting changes** → the existing “unblock-on-comment loop” (issue #89 / Spec-0032) reads new human comments after the block watermark → feeds them to `iterate(reason="human")` according to the gate so the coding agent iterates based on the comments. This exit already exists.
+- **A human manually removes the `needs-human` label** → the existing fallback “unblock on label removal” path (`_unblock_by_label`) → resumes to `pr-open`. This exit already exists.
 
-关键：**三个出口全部复用既有机制，无需新写**（`is_merged` reconcile、Spec-0032 解挂环、`_unblock_by_label`）。本 spec 只把 hold-merge 分支从「空操作」换成「调用既有冻结原语 + 贴一条成功文案 + 设对解挂 gate」。
+The key point: **all three exits reuse existing mechanisms; no new ones need to be written** (`is_merged` reconciliation, the Spec-0032 unblock loop, and `_unblock_by_label`). This spec only changes the hold-merge branch from “no-op” to “call the existing freeze primitive + post a success message + set the correct unblock gate.”
 
-一次典型时序（引入本方案后）：
+A typical sequence (after introducing this approach):
 
-1. PR 就绪（MERGEABLE、CI 绿），reviewer 判 PASS，`hold.at_merge` 为真。
-2. 框架冻住：`blocked` + `needs-human` + 贴「✅ 已通过评审，待你合并」。
-3. 下一轮 poll：run 是 `blocked`，走 `_process_blocked`；无新人类评论、`needs-human` 仍在 → `return None`，**不重审**。
-4. 人点合并 → 下轮 `is_merged` → `done`；或人回评论要改 → `iterate`；或人撕标签 → resume。
+1. The PR is ready (MERGEABLE, CI green), the reviewer returns PASS, and `hold.at_merge` is true.
+2. The framework freezes it: `blocked` + `needs-human` + a comment saying “✅ Review passed, awaiting your merge.”
+3. Next poll: the run is `blocked`, so it enters `_process_blocked`; there are no new human comments and `needs-human` is still present → `return None`, **without another review**.
+4. A human merges → next round's `is_merged` → `done`; or a human comments requesting changes → `iterate`; or a human removes the label → resume.
 
-对比修复前：第 2 步会是「空操作、状态仍 `pr-open`」，第 3 步会「再审一遍」→ 震荡。
+Before the fix, by comparison: step 2 would be “no-op, status remains `pr-open`,” and step 3 would “review again” → oscillation.
 
-**成果可视化（理念 8）。** OpenAgents 已有本地成果看板：`openagents/results.py` 的 `board(state)` 把各 `RunRecord` 渲染成单页静态 `templates/board.html`（Issue / 状态 / PR / 摘要 四列表格，无 JS），`oa board` 命令用标准库 `webbrowser` 打开。本 spec 的可见成果是：一个 hold-merge PASS 的 PR 在看板上**从 `pr-open` 一次性转成 `blocked` 后就稳定不动**——连续多轮 poll 后看板那一行状态/摘要不再翻动（修复前会看到 rounds 攀升、状态在 open 与 blocked 间反复、评论越贴越多）。e2e 用浏览器导航 `board.html` 对「冻结后稳定、无震荡」做断言 + 截图（详见 Reference-level）。
+**Visualizing results (Principle 8).** OpenAgents already has a local results board: `board(state)` in `openagents/results.py` renders each `RunRecord` into a single static page, `templates/board.html` (a four-column table: Issue / Status / PR / Summary, with no JS), and the `oa board` command opens it using the standard library's `webbrowser`. The visible result of this spec is that a PR receiving PASS under hold-merge **transitions once from `pr-open` to `blocked` on the board and then stays stable**—after multiple consecutive polls, that row's status/summary no longer changes (before the fix, rounds would climb, status would repeatedly switch between open and blocked, and comments would accumulate). The e2e test uses a browser to navigate to `board.html`, assert “stable after freezing, with no oscillation,” and take a screenshot (see Reference-level for details).
 
 ## Reference-level explanation
 
-### 决策 A：hold-merge PASS 分支改为「夯住」（`openagents/messages.py`）
+### Decision A: change the hold-merge PASS branch to “freeze” (`openagents/messages.py`)
 
-把 `_process_coding` 的 PASS 分支（`messages.py:426-439`）里的 hold-merge 子分支从空操作改为调用一个新的私有收口 `_hold_merge_freeze`：
+Change the hold-merge sub-branch within `_process_coding`'s PASS branch (`messages.py:426-439`) from a no-op to a call to a new private helper, `_hold_merge_freeze`:
 
 ```python
 if decision.passed:
     if hold.at_merge:
-        return self._hold_merge_freeze(record=record)   # 夯住：blocked + needs-human + 成功文案
+        return self._hold_merge_freeze(record=record)   # Freeze: blocked + needs-human + success message
     github.merge_pr(pr_number=pr_number)
     ...
 ```
 
-`_hold_merge_freeze(record)` 复用 `_block` 的冻结骨架（次序沿用 `_block`：先贴评论 → `add_label` → `update_status(BLOCKED)` → `set_block_gate` → `set_block_watermark`，`messages.py:535-553`），但两处不同：
+`_hold_merge_freeze(record)` reuses `_block`'s freeze structure (preserving `_block`'s order: post comment → `add_label` → `update_status(BLOCKED)` → `set_block_gate` → `set_block_watermark`, `messages.py:535-553`), with two differences:
 
-1. **贴成功文案，不贴失败文案**：调 T2 在 `blocknote` 里新增的「✅ 已通过评审，待你合并」纯函数生成正文（而非 `blocknote.build` 的「🤖 卡住了」四段模板），再经 `identity.post_signed_comment` 盖签名贴出（盖签名 → 解挂读侧 `new_human_comments` 按签名滤掉它、不自触发，与 `_block` 同理）。
-2. **设自描述的解挂 gate = `"merge-hold"`**（不复用 `"code"`——见下）：`set_block_gate(gate="merge-hold")`，使运维看 `block_gate` 即知「这条 blocked 不是评审失败、而是通过后待合并」（理念 8 可观测性，与 `reviewer.py:178-183` 区分 REWORK/评审无效 同精神）。`set_block_watermark` 落挂起时刻最新评论 createdAt（含刚贴的成功评论），供解挂环只认水位线之后的新人类评论。
+1. **Post a success message instead of a failure message**: call the pure function added to `blocknote` by T2 to generate the “✅ Review passed, awaiting your merge” body (instead of `blocknote.build`'s four-part “🤖 Stuck” template), then sign and post it through `identity.post_signed_comment` (adding the signature → the unblock reader's `new_human_comments` filters it out by signature, preventing it from triggering itself, just as with `_block`).
+2. **Set a self-describing unblock gate = `"merge-hold"`** (do not reuse `"code"`—see below): `set_block_gate(gate="merge-hold")`, so operators can see from `block_gate` that “this run is blocked because it passed and is awaiting merge, rather than because review failed” (observability under Principle 8, in the same spirit as distinguishing REWORK from invalid review in `reviewer.py:178-183`). `set_block_watermark` records the latest comment's createdAt at the time of suspension (including the success comment just posted), so the unblock loop recognizes only new human comments after the watermark.
 
-### 决策 B：`merge-hold` gate 的解挂路由（`openagents/messages.py`）
+### Decision B: Unblocking routes for the `merge-hold` gate (`openagents/messages.py`)
 
-三个出口里，`is_merged`（人点合并）与 `_unblock_by_label`（人撕标签）**无需改动**即对 `merge-hold` 正确：
+Of the three exit paths, `is_merged` (a human clicks merge) and `_unblock_by_label` (a human removes the label) already handle `merge-hold` correctly **without changes**:
 
-- **人点合并** → `_process_run` 的 `is_merged` 分支先于 blocked 分支被检查（`messages.py:224`）→ `done` + 关 issue。✅ 现成。
-- **人撕标签**（无评论）→ `_process_blocked` 发现无新评论且 `needs-human` 已被摘 → `_unblock_by_label`（`messages.py:320-339`）：`block_gate != "merge"` → 落 else 分支 resume 回 `pr-open`（有 `rfc-approved` 标签）+ 清 `block_gate`。✅ 现成（`merge-hold` 天然落 else，无需新分支）。
+- **A human clicks merge** → the `is_merged` branch in `_process_run` is checked before the blocked branch (`messages.py:224`) → `done` + close the issue. ✅ Already available.
+- **A human removes the label** (without commenting) → `_process_blocked` finds no new comments and sees that `needs-human` has been removed → `_unblock_by_label` (`messages.py:320-339`): `block_gate != "merge"` → takes the else branch to resume at `pr-open` (with the `rfc-approved` label) + clears `block_gate`. ✅ Already available (`merge-hold` naturally takes the else branch; no new branch is needed).
 
-唯一需要新增的路由：**人回评论要改** → `_process_blocked` → `_unblock_with_comment`（`messages.py:267-308`）。当前该函数按 gate 分 `rfc*`→refine、`code*`→iterate、`merge`→armed、else→resume。为让 `merge-hold` 的评论解挂喂 `iterate(reason="human")`（人在健康 PR 上回评论 = 想让写码 agent 据评论改），加一条分支：`gate == "merge-hold"` 与 `code*` 同款处理（`iterate(reason="human", detail)` + 清 `block_gate` + `_post_comment_reply` 引用原评论贴回应）。
+The only route that needs to be added: **a human replies with a comment requesting changes** → `_process_blocked` → `_unblock_with_comment` (`messages.py:267-308`). Currently, this function branches by gate: `rfc*`→refine, `code*`→iterate, `merge`→armed, else→resume. To make comment-based unblocking for `merge-hold` feed into `iterate(reason="human")` (a human commenting on a healthy PR means they want the coding agent to make changes based on the comment), add a branch: handle `gate == "merge-hold"` in the same way as `code*` (`iterate(reason="human", detail)` + clear `block_gate` + use `_post_comment_reply` to post a response quoting the original comment).
 
-> **为何不直接复用 `gate="code"`（备选，见 Rationale）**：复用能零新增路由（`code*` 已 iterate），但会让一个健康、已通过的 PR 的持久化状态显示 `block_gate="code"`（评审失败），误导运维与未来的按 gate 分流；理念 8 看重可观测性，故付一条 `elif` 的代价换自描述状态。
+> **Why not directly reuse `gate="code"` (an alternative; see Rationale)**: Reusing it would require no new routing (`code*` already iterates), but it would make the persisted state of a healthy PR that has passed review show `block_gate="code"` (review failure), misleading operations and future gate-based routing. Principle 8 values observability, so the cost of one `elif` buys self-describing state.
 
-### 决策 C：净化 reviewer scratchpad（`openagents/reviewer.py`）
+### Decision C: Sanitize reviewer scratchpad content (`openagents/reviewer.py`)
 
-附带小脏的根在**反馈聚合处**（`reviewer.py:147-155` 把各非 PASS reviewer 的 `.summary` 逐字拼进 `feedback`），而非展示处（`blocknote` 无从分辨哪段是 scratchpad）。在 `reviewer.py` 加一个纯函数 `_distill_feedback(summary) -> str`，在拼接 `feedback` 前对每个 summary 施用：抽出 reviewer 给人看的「可操作反馈」段、剥掉内心独白 / scratchpad（如以 `Let me`、`I have enough`、`All N tests pass` 等第一人称过程叙述开头、且不含裁决结论的行/段）。净化后为空则回落到既有占位「（reviewer 未给出可解析的裁决，按疑罪从严视为未通过）」。净化只作用于**喂给人的 `feedback`**；`verdicts`/`actionable` 判定与 `render_decision` 票型渲染不变（零回归）。具体启发式规则与阈值属实现细节，验收以「给定含 scratchpad 的样本 summary，净化后 `feedback` 不含内心独白、保留可操作反馈」断言。
+The source of the stray unwanted content is **feedback aggregation** (`reviewer.py:147-155` concatenates each non-PASS reviewer's `.summary` verbatim into `feedback`), rather than presentation (`blocknote` has no way to distinguish which parts are scratchpad content). Add a pure function `_distill_feedback(summary) -> str` in `reviewer.py` and apply it to each summary before concatenating `feedback`: extract the reviewer's human-facing “actionable feedback” section and strip internal monologue / scratchpad content (for example, lines/paragraphs that begin with first-person process narration such as `Let me`, `I have enough`, or `All N tests pass`, and contain no verdict conclusion). If sanitization leaves the result empty, fall back to the existing placeholder “(The reviewer did not provide a parseable verdict; conservatively treated as a failure.)”. Sanitization applies only to **human-facing `feedback`**; `verdicts`/`actionable` determination and the vote rendering in `render_decision` remain unchanged (zero regression). The specific heuristic rules and thresholds are implementation details; acceptance is based on the assertion that “given a sample summary containing scratchpad content, the sanitized `feedback` contains no internal monologue and retains actionable feedback.”
 
-### 决策 D：无需新增 state 字段
+### Decision D: No new state fields are needed
 
-冻结全程复用既有 `State` 方法（`update_status` / `set_block_gate` / `set_block_watermark` / `add_label`），`block_gate` 是自由字符串、容纳 `"merge-hold"` 无需迁移。**不引入 `reviewed_sha` 之类的评审缓存字段**（见 Rationale 备选 1）——夯住机制已让每个 commit 在 hold-merge 路径下只审一次，无需额外的 per-sha 缓存表。
+Throughout freezing, reuse the existing `State` methods (`update_status` / `set_block_gate` / `set_block_watermark` / `add_label`); `block_gate` is a free-form string and can accommodate `"merge-hold"` without a migration. **Do not introduce review-cache fields such as `reviewed_sha`** (see alternative 1 in Rationale)—the freezing mechanism already ensures that each commit is reviewed only once on the hold-merge path, so no additional per-sha cache table is needed.
 
-### DAG 与文件分配
+### DAG and file allocation
 
-| Task | 标题 | files（单一 writer 所有权，组内互斥） | depends-on |
+| Task | Title | files (single-writer ownership, mutually exclusive within the group) | depends-on |
 |---|---|---|---|
-| T1 | hold-merge 夯住 + merge-hold 解挂路由 | `openagents/messages.py`, `tests/test_messages_hold_merge_freeze.py` | T2 |
-| T2 | 「✅ 已通过评审，待你合并」成功文案 | `openagents/blocknote.py`, `tests/test_blocknote_hold_merge.py` | — |
-| T3 | 净化 reviewer scratchpad | `openagents/reviewer.py`, `tests/test_reviewer_feedback_distill.py` | — |
-| T4 | 端到端成果测试（含浏览器看板「冻结后稳定」断言） | `scripts/e2e-spec-0041-hold-merge-freeze.sh`, `tests/test_hold_merge_freeze_integration.py` | T1, T2, T3 |
+| T1 | hold-merge freezing + merge-hold unblocking routes | `openagents/messages.py`, `tests/test_messages_hold_merge_freeze.py` | T2 |
+| T2 | “✅ Review passed, awaiting your merge” success message | `openagents/blocknote.py`, `tests/test_blocknote_hold_merge.py` | — |
+| T3 | Sanitize reviewer scratchpad content | `openagents/reviewer.py`, `tests/test_reviewer_feedback_distill.py` | — |
+| T4 | End-to-end outcome tests (including a browser board assertion for “stability after freezing”) | `scripts/e2e-spec-0041-hold-merge-freeze.sh`, `tests/test_hold_merge_freeze_integration.py` | T1, T2, T3 |
 
 ```mermaid
 graph TD
-  T2[T2 成功文案 note] --> T1[T1 messages 夯住+路由]
-  T1 --> T4[T4 e2e 成果]
-  T3[T3 reviewer scratchpad 净化] --> T4
+  T2[T2 Success message note] --> T1[T1 messages freezing+routing]
+  T1 --> T4[T4 e2e outcomes]
+  T3[T3 reviewer scratchpad sanitization] --> T4
 ```
 
-T2、T3 无相互依赖，可并行（协同模式，各持不相交 `files`）；T1 依赖 T2 的 note 纯函数；T4 汇合三者。
+T2 and T3 have no mutual dependencies and can run in parallel (collaborative mode, each owning disjoint `files`); T1 depends on T2's pure note function; T4 brings all three together.
 
-### e2e 成果脚本（PR 指路牌拾取）
+### e2e outcome script (picked up from the PR signpost)
 
-**路径：`scripts/e2e-spec-0041-hold-merge-freeze.sh`**，沿用本仓库 e2e 两段式约定（默认离线确定性验证；`OPENAGENTS_E2E_REAL=1` 时追加真实冒烟）：
+**Path: `scripts/e2e-spec-0041-hold-merge-freeze.sh`**, following this repository's two-stage e2e convention (offline deterministic verification by default; an additional real smoke test when `OPENAGENTS_E2E_REAL=1`):
 
-**阶段 1——离线确定性（默认，全程 mock）**：ruff lint/format + pytest；核心集成用例 `tests/test_hold_merge_freeze_integration.py`：
+**Stage 1—offline deterministic verification (default, fully mocked)**: ruff lint/format + pytest; core integration cases in `tests/test_hold_merge_freeze_integration.py`:
 
-1. **反震荡断言（bug 的核心回归）**：构造一个 `hold.at_merge=True` 的 `Poller`，PR 桩为 MERGEABLE/CLEAN、CI 绿，reviewer 桩恒返回 PASS（并计数被调次数）。第一次 `poll()` → 断言 run 转 `blocked`、`needs-human` 标签已打、恰贴一条「✅ 已通过评审，待你合并」评论（**不含**「🤖 卡住了」失败文案、**不含** scratchpad）、`block_gate == "merge-hold"`。**第二次 `poll()`** → 断言 reviewer 桩调用次数**未增加**（没重审）、状态仍 `blocked`、无新评论、`rounds` 未增。此即「同码不再复审震荡」的确定性证据。
-2. **三出口断言**：（a）把 PR 桩改成 `is_merged=True`，poll → `done` + 关 issue；（b）在水位线后注入一条人类新评论，poll → `iterate(reason="human")` 被调、resume；（c）摘掉 `needs-human` 标签，poll → resume 回 `pr-open`。
-3. **scratchpad 净化断言**：给一个含内心独白的 reviewer summary，`_distill_feedback` 后 `feedback` 不含独白、保留可操作反馈（T3 单测，e2e 引用）。
+1. **Anti-oscillation assertion (the core regression test for the bug)**: Construct a `Poller` with `hold.at_merge=True`, a PR stub that is MERGEABLE/CLEAN with green CI, and a reviewer stub that always returns PASS (and counts calls). First `poll()` → assert that the run transitions to `blocked`, the `needs-human` label has been applied, exactly one “✅ Review passed, awaiting your merge” comment has been posted (**without** the “🤖 Stuck” failure message and **without** scratchpad content), and `block_gate == "merge-hold"`. **Second `poll()`** → assert that the reviewer stub's call count **has not increased** (no repeat review), the state remains `blocked`, there are no new comments, and `rounds` has not increased. This is deterministic evidence that “the same code no longer oscillates through repeated reviews.”
+2. **Three-exit assertion**: (a) Change the PR stub to `is_merged=True`, poll → `done` + close the issue; (b) inject a new human comment after the watermark, poll → `iterate(reason="human")` is called, and resume; (c) remove the `needs-human` label, poll → resume at `pr-open`.
+3. **Scratchpad sanitization assertion**: Given a reviewer summary containing internal monologue, after `_distill_feedback`, `feedback` contains no monologue and retains actionable feedback (T3 unit test, referenced by e2e).
 
-**阶段 1 浏览器成果断言（理念 8，用 Playwright / chrome-devtools MCP）**：用上面构造的 `State` 分别在「第一次 poll 后」「第二次 poll 后」调 `results.render` 写出两份 `board.html`，浏览器 `navigate` 到 `file://.../board.html`：
+**Stage 1 browser outcome assertions (Principle 8, using Playwright / chrome-devtools MCP)**: Using the `State` constructed above, call `results.render` separately “after the first poll” and “after the second poll” to write two copies of `board.html`, and use the browser to `navigate` to `file://.../board.html`:
 
-- 在冻结后的看板 `snapshot` + `take_screenshot`，**断言该 PR 恰好一行、状态列为 `blocked`**（不是 `pr-open`，不是消失）。
-- 对「第一次 poll 后」与「第二次 poll 后」两份看板**断言该行完全一致**（状态、摘要、PR 号不变）——即「冻结后跨轮稳定、无震荡」的可见成果（修复前两份会不同：rounds/状态翻动）。两张截图留档对比。
-- `list_console_messages` / `list_network_requests` 断言无报错、无失败请求（看板为纯本地静态页，不应有网络失败）。
-- **降级**：若运行环境无浏览器 MCP，此步降级为对渲染出的 `board.html` 做 HTML 文本断言（grep PR 行、比对两份 HTML 该行一致），不跳过成果验证。
+- Take a `snapshot` + `take_screenshot` of the board after freezing, and **assert that this PR has exactly one row and its status column is `blocked`** (neither `pr-open` nor absent).
+- For the two boards “after the first poll” and “after the second poll,” **assert that the row is exactly identical** (status, summary, and PR number unchanged)—the visible outcome of “stability across rounds after freezing, with no oscillation” (before the fix, the two would differ: rounds/status would change). Retain both screenshots for comparison.
+- Use `list_console_messages` / `list_network_requests` to assert that there are no errors and no failed requests (the board is a purely local static page and should have no network failures).
+- **Fallback**: If the runtime environment has no browser MCP, fall back to HTML text assertions on the rendered `board.html` (grep the PR row and compare that row in both HTML files for equality); do not skip outcome verification.
 
-**阶段 2——真实冒烟（`OPENAGENTS_E2E_REAL=1`，会真实开 PR）**：在 scratch 仓库真实开一个可合并 PR，带 `--hold merge` 跑一轮 vigil，验证 PR 被打上 `needs-human`、评论是成功文案；随后连跑两轮验证无重复评审评论堆积。
+**Stage 2—real smoke test (`OPENAGENTS_E2E_REAL=1`, opens a real PR)**: Open a real mergeable PR in a scratch repository, run one round of Vigil with `--hold merge`, and verify that the PR receives the `needs-human` label and that the comment uses the success message; then run two consecutive rounds to verify that duplicate review comments do not accumulate.
 
 ## Drawbacks
 
-- **`needs-human` 从此一词两义**——既表示「失败卡住，救我」，也表示「健康，等你点合并」；看板/按标签筛时两者混在一起分不出。为保持简洁**接受**这个信号冲淡（**不新增** `awaiting-merge` 专用标签）。`block_gate="merge-hold"` 在 state 层面可区分二者（决策 B），但 GitHub 标签层面不区分。
-- **冻住的 PR 不会自己跟 main 集成**。本仓库当前是**拉式同步**（Spec-0023/0038：合并后不再 push 扇出，各 open PR 轮到自己时在 `_process_coding` 的 BEHIND 分支由 `update_branch` 跟上集成，`messages.py:404-414`）。`blocked` 不在 `_OPEN_STATUSES`，poll 跳过它 → 它**不会**自动 `update_branch`。若在冻结期间 main 前进，人点合并时可能撞到 GitHub 合并按钮层面的落后/冲突（人此刻在场，可手动 rebase 或回评论触发解挂）。此取舍在拉式同步下比 issue 原文假设的 eager 扇出下更需明示，故记于此（issue 原文按 eager 扇出描述，与当前代码不符——以代码为准，理念 7）。
-- **人撕标签但不合并 → 会重审一次**。撕标签走 `_unblock_by_label` resume 回 `pr-open` → 下轮重进 `_process_coding` → 又 PASS → 又冻结。这是**人主动触发**的一次重审（非自动震荡），有界、可接受；但意味着「撕标签」不是「放行合并」的正确操作（正确操作是点合并）。
-- **scratchpad 净化是启发式**，可能误删真正的可操作反馈或漏删某些独白格式。回落占位保证不会把 `feedback` 净化成空导致人一无所知；且净化只影响展示、不影响 `actionable`/裁决，风险被限制在「给人看的文案质量」。
+- **`needs-human` now has two meanings**—both “failed and stuck, help me” and “healthy, waiting for you to click merge”; the two are mixed together and indistinguishable on the board / when filtering by label. To keep things simple, this dilution of the signal is **accepted** (**no new** dedicated `awaiting-merge` label). `block_gate="merge-hold"` distinguishes the two at the state level (Decision B), but GitHub labels do not.
+- **A frozen PR will not integrate with main on its own**. This repository currently uses **pull-based synchronization** (Spec-0023/0038: after a merge, pushes are no longer fanned out; each open PR catches up with integration when its turn arrives, through `update_branch` in the BEHIND branch of `_process_coding`, `messages.py:404-414`). `blocked` is not in `_OPEN_STATUSES`, so polling skips it → it **will not** automatically run `update_branch`. If main advances while the PR is frozen, a human clicking merge may encounter an out-of-date branch / conflict at the GitHub merge-button level (the human is present at that point and can manually rebase or reply with a comment to trigger unblocking). This tradeoff needs to be made more explicit under pull-based synchronization than under the eager fan-out assumed in the original issue, so it is recorded here (the original issue describes eager fan-out, which does not match the current code—the code is authoritative, Principle 7).
+- **A human removing the label without merging → triggers one repeat review**. Removing the label goes through `_unblock_by_label` to resume at `pr-open` → the next round re-enters `_process_coding` → PASS again → frozen again. This is one **human-triggered** repeat review (not automatic oscillation), bounded and acceptable; however, it means that “removing the label” is not the correct operation for “allowing the merge” (the correct operation is to click merge).
+- **Scratchpad sanitization is heuristic** and may mistakenly remove actual actionable feedback or fail to remove some monologue formats. The fallback placeholder ensures that sanitization cannot leave `feedback` empty and the human uninformed; sanitization also affects only presentation, not `actionable`/verdicts, limiting the risk to “the quality of human-facing wording.”
 
 ## Rationale and alternatives
 
-**为什么是「夯住 + 复用既有出口」。** 震荡的根是「PASS 完只差人合并的健康 PR 仍被当活跃 PR、被 `_OPEN_STATUSES` 拉回反复重审」。最小的根治是让它**离开 `_OPEN_STATUSES`**——而 `STATUS_BLOCKED` 正是既有的「poll 自动跳过」状态，`needs-human` 是既有的「求救/待人」标签，`is_merged`/解挂环/撕标签三条恢复路径也都现成。于是本方案不新建状态机、不加 state 字段、不写新出口，只把一个空操作换成「调既有冻结原语 + 贴成功文案 + 设对 gate」（奥卡姆，理念 1）。
+**Why “freeze + reuse existing exits.”** The root cause of oscillation is that “a healthy PR that has passed review and only awaits a human merge is still treated as an active PR, pulled back by `_OPEN_STATUSES` for repeated review.” The smallest root-cause fix is to make it **leave `_OPEN_STATUSES`**—and `STATUS_BLOCKED` is already the state that “polling automatically skips,” `needs-human` is already the “help needed / awaiting a human” label, and the three recovery paths—`is_merged`, the unblocking loop, and label removal—are already available. This proposal therefore creates no new state machine, adds no state fields, and writes no new exits; it only replaces a no-op with “call existing freezing primitives + post a success message + set the correct gate” (Occam's razor, Principle 1).
 
-**备选 1——按 commit sha 缓存评审结论（issue 标题的字面方案）。** 给 `RunRecord` 加 `reviewed_sha` + 缓存该 sha 的裁决；下一轮若 HEAD sha 未变则跳过 `review_code` 直接复用缓存裁决，避免同码重审。**为何不取为主修**：（a）它是更重的机制——要新增持久化字段、定义缓存失效（新 commit、rebase、force-push、base 前进后集成态变化都改变「该审什么」）、还要决定「缓存 PASS 后该做什么」（若仍停 `pr-open` 则照样被 `_OPEN_STATUSES` 拉回、只是不重审但也不前进，问题没根治）；（b）issue 明确判定「反复重审直到翻盘」本身就是 bug、不是待优化的 feature，夯住后**每个 commit 只审一次**已达到「按 sha 只审一次」的等价效果，无需显式缓存表；（c）夯住直接解决了「PASS 后卡在 open 空转」，而 sha 缓存只解决「重复审」不解决「空转」。故 sha 缓存留作 Future（若将来去掉 hold、或有非 hold 路径也出现同码重审时再引入）。**本 spec 采纳 issue 正文的「夯住」建议修法，把 sha 缓存作为记录在案的备选。**
-- **接口不变的可替换性**：即使将来引入 sha 缓存，它作用于 `_process_coding` 调 `review_code` 之前的短路，与本 spec 的「PASS 后夯住」正交、可叠加。
+**Alternative 1—cache review verdicts by commit sha (the literal approach in the issue title).** Add `reviewed_sha` to `RunRecord` + cache the verdict for that sha; in the next round, if the HEAD sha has not changed, skip `review_code` and directly reuse the cached verdict to avoid reviewing the same code repeatedly. **Why this is not the primary fix**: (a) It is a heavier mechanism—it requires new persisted fields, a definition of cache invalidation (new commits, rebases, force-pushes, and changes in integration state after the base advances all change “what should be reviewed”), and a decision about “what to do after caching PASS” (if the run remains at `pr-open`, `_OPEN_STATUSES` will still pull it back; it merely avoids repeat reviews without making progress, leaving the root problem unresolved); (b) the issue explicitly identifies “repeatedly reviewing until the verdict flips” as a bug in itself, rather than a feature awaiting optimization; after freezing, **each commit is reviewed only once**, already achieving an effect equivalent to “review only once per sha” without an explicit cache table; (c) freezing directly resolves “remaining open and spinning after PASS,” whereas sha caching resolves only “repeat reviews,” not “spinning.” Thus, sha caching is left for Future work (to be introduced if hold is removed in the future, or if repeated reviews of the same code also arise on non-hold paths). **This spec adopts the “freeze” fix suggested in the issue body and records sha caching as an alternative.**
+- **Replaceability without interface changes**: Even if sha caching is introduced in the future, it acts as a short circuit before `_process_coding` calls `review_code`; it is orthogonal to this spec's “freeze after PASS” and can be combined with it.
 
-**备选 2——用评审员多签 / 复核对抗非确定性。** 让多个 reviewer 投票、多数 PASS 才算 PASS，降低单次翻案概率。**不取**：issue 明确「不建议用多签复核作为本 issue 主修」——夯住后每个 commit 只审一次（正常评审波动，人能兜），追着「反复重审直到翻盘」本身就是这个 bug，不能当 feature；多签只是降低震荡频率、不消除「PASS 后仍空转被拉回」的结构性根因。（注：`reviewer.configured_reviewers` 已支持 n 个 reviewer，本 spec 不改其语义。）
+**Alternative 2—use multiple reviewer sign-offs / secondary reviews to counter nondeterminism.** Have multiple reviewers vote and require a majority PASS to count as PASS, reducing the probability of a verdict reversal in a single review. **Rejected**: The issue explicitly states that “multiple sign-offs and secondary reviews are not recommended as the primary fix for this issue”—after freezing, each commit is reviewed only once (normal review variation can be handled by a human); pursuing “repeated reviews until the verdict flips” is itself this bug and cannot be treated as a feature. Multiple sign-offs only reduce the frequency of oscillation; they do not eliminate the structural root cause of “still spinning and being pulled back after PASS.” (Note: `reviewer.configured_reviewers` already supports n reviewers; this spec does not change its semantics.)
 
-**备选 3——hold-merge PASS 后用 `pr-open` 之外的新状态（如 `awaiting-merge`）而非复用 `blocked`。** 语义最干净（不冲淡 `needs-human`），但要新增状态常量、把它排除出 `_OPEN_STATUSES`、给它配全套解挂/reconcile 出口、看板加新状态展示——一整套新实体。issue 明确**接受** `needs-human` 一词两义以换简洁，故**不取**，仅在 state 层用 `block_gate="merge-hold"` 做轻量区分。
+**Alternative 3—after hold-merge PASS, use a new state other than `pr-open` (such as `awaiting-merge`) instead of reusing `blocked`.** This has the cleanest semantics (it does not dilute `needs-human`), but requires adding a state constant, excluding it from `_OPEN_STATUSES`, providing a full set of unblocking/reconcile exits, and adding a new state display to the board—an entire set of new entities. The issue explicitly **accepts** the two meanings of `needs-human` in exchange for simplicity, so this is **rejected**; only `block_gate="merge-hold"` at the state level is used as a lightweight distinction.
 
-**备选 4（决策 B 内）——复用 `gate="code"` 而非新 `merge-hold`。** 零新增路由，但持久化状态把健康 PR 标成「代码评审失败」，误导可观测性。付一条 `elif` 换自描述状态，**取 `merge-hold`**。
+**Alternative 4 (within Decision B)—reuse `gate="code"` instead of introducing `merge-hold`.** This requires no new routing, but the persisted state marks a healthy PR as “code review failed,” making observability misleading. One `elif` buys self-describing state; **choose `merge-hold`**.
 
 ## Prior art
 
-- **本仓库既有冻结/解挂骨架**：`_block` 置 `STATUS_BLOCKED` + `needs-human`（Spec-0032）、回评论解挂环（issue #89 / Spec-0032 `_unblock_with_comment` + Spec-0036 引用原评论回应）、撕标签解挂 `_unblock_by_label`（issue #49 / Spec-0031）、`is_merged` reconcile（RFC-0017）。本 spec 全程复用这套既有原语，只新增「成功文案 note」与「`merge-hold` gate 的一条 iterate 路由」。
-- **人类监督闸 `hold`**（Spec-0020/T3）：`--hold spec` / `--hold merge` 把某道闸的最后一下留给人。本 spec 修的是 `hold merge` 分支「留给人」却没「夯住」的缺陷——把它做成真正的「停下来等人」。
-- **CI 系统的「同 commit 结果缓存」范式**（如 GitHub Actions/Buildkite 对同一 SHA 不重跑已成功的 check）：备选 1 的 sha 缓存即此范式的移植；本 spec 用「夯住」达到等价「每 commit 审一次」而不引入缓存表，是同一目标的更轻实现。
-- **可观测性区分同名状态的先例**：`reviewer.render_decision` 把「REWORK」与「评审无效（裁决无法解析）」分开渲染（`reviewer.py:178-183`）——本 spec 的 `block_gate="merge-hold"` 沿用同一「同名结果、底层可区分」精神。
+- **This repository’s existing freeze/unblock framework**: `_block` sets `STATUS_BLOCKED` + `needs-human` (Spec-0032), the comment-reply unblock loop (issue #89 / Spec-0032 `_unblock_with_comment` + Spec-0036 replies referencing the original comment), unblocking by removing a label via `_unblock_by_label` (issue #49 / Spec-0031), and `is_merged` reconciliation (RFC-0017). This spec reuses these existing primitives throughout, adding only a “success message note” and “one iterate route for the `merge-hold` gate.”
+- **The human oversight gate `hold`** (Spec-0020/T3): `--hold spec` / `--hold merge` leaves the final step at a particular gate to a human. This spec fixes the defect in the `hold merge` branch where that step is “left to a human” without actually holding execution in place—making it truly “stop and wait for a human.”
+- **The CI-system pattern of “caching results for the same commit”** (for example, GitHub Actions/Buildkite not rerunning checks that have already succeeded for the same SHA): the SHA cache in Alternative 1 is an adaptation of this pattern. This spec achieves the equivalent of “review once per commit” by holding execution in place without introducing a cache table, providing a lighter implementation of the same goal.
+- **A precedent for distinguishing identically named states through observability**: `reviewer.render_decision` renders “REWORK” separately from “Invalid review (decision could not be parsed)” (`reviewer.py:178-183`)—this spec’s `block_gate="merge-hold"` follows the same principle of “identically named results that remain distinguishable underneath.”
 
 ## Unresolved questions
 
-- **scratchpad 净化的启发式边界**：以什么规则判定一行/一段是「内心独白」而非「可操作反馈」？初版用保守启发式（第一人称过程叙述 + 无裁决结论），实测样本后再调；是否值得让 reviewer 任务模板**结构化输出**（如强制 `## 可操作反馈` 段）从源头免净化，留作 Future。
-- **人撕标签重审一次是否需要抑制**：撕标签 resume → 重审一次（有界，见 Drawbacks）。是否要在 resume 时对「未变的 HEAD sha」短路重审（即备选 1 的轻量版），或接受这一次人触发的重审？初版接受。
-- **拉式同步下冻结 PR 的落后处理**：冻结期间 main 前进，人点合并时若 GitHub 报落后/冲突，是否需要在成功文案里提示「合并前可能需 rebase」？初版不提示，观察真实使用后再定。
-- **`merge-hold` 是否该进 `render_decision`/看板文案**：state 层已可区分，但看板仍显示 `blocked`。是否值得在看板对 `block_gate="merge-hold"` 的行加一个「待合并」轻标注（不新增 GitHub 标签）？留待观察，初版不改看板。
+- **Heuristic boundaries for scratchpad sanitization**: What rules determine whether a line or paragraph is “internal monologue” rather than “actionable feedback”? The initial version uses conservative heuristics (first-person narration of the process + no decision conclusion), to be adjusted after testing against real samples. Whether it is worth requiring **structured output** in the reviewer task template (such as a mandatory `## Actionable feedback` section) to eliminate the need for sanitization at the source is left for Future.
+- **Whether to suppress the single re-review triggered by a human removing a label**: Removing the label resumes execution → one re-review (bounded; see Drawbacks). Should resume short-circuit re-review when the HEAD SHA has not changed (a lightweight version of Alternative 1), or should this single human-triggered re-review be accepted? The initial version accepts it.
+- **Handling frozen PRs that fall behind under pull-based synchronization**: If main advances during the freeze and GitHub reports that the branch is behind or has conflicts when a human clicks merge, should the success message say “A rebase may be needed before merging”? The initial version does not include this notice; the decision will be revisited after observing real usage.
+- **Whether `merge-hold` should appear in `render_decision`/board text**: The state layer can already distinguish it, but the board still displays `blocked`. Is it worth adding a small “Awaiting merge” annotation to board rows with `block_gate="merge-hold"` (without adding a GitHub label)? Left for observation; the initial version does not change the board.
 
 ## Future possibilities
 
-- **按 commit sha 的通用评审缓存**（备选 1）：若将来出现非 hold-merge 路径的同码重审，或要在 resume 后免重审，引入 `reviewed_sha` + 裁决缓存 + 失效规则；接口对 `_process_coding` 正交、可叠加在本 spec 之上。
-- **reviewer 结构化输出**：让评审任务模板强制输出「裁决 + 可操作反馈」分段，从源头消除 scratchpad 泄漏，`_distill_feedback` 退化为直接取结构化段。
-- **`awaiting-merge` 专用信号**：若「一词两义」的 `needs-human` 在真实看板使用中造成明显困扰，再引入专用标签/状态，把 `block_gate="merge-hold"` 提升为一等公民（含看板展示、按标签筛）。
-- **冻结 PR 的自动跟随集成**：拉式同步下给 `blocked`（`merge-hold`）的 PR 一条「仅 `update_branch`、不重审」的轻路径，让它冻结期间也能跟 main 集成，减少人点合并时的落后概率。
-
+- **A general review cache keyed by commit SHA** (Alternative 1): If re-reviews of unchanged code occur on paths other than hold-merge in the future, or if re-review after resume needs to be avoided, introduce `reviewed_sha` + a decision cache + invalidation rules. The interface is orthogonal to `_process_coding` and can be layered on top of this spec.
+- **Structured reviewer output**: Require the review task template to output separate “Decision + Actionable feedback” sections, eliminating scratchpad leakage at the source and reducing `_distill_feedback` to directly extracting the structured section.
+- **A dedicated `awaiting-merge` signal**: If the two meanings of `needs-human` cause significant confusion in actual board usage, introduce a dedicated label/state to make `block_gate="merge-hold"` a first-class concept (including board display and filtering by label).
+- **Automatic integration updates for frozen PRs**: Under pull-based synchronization, give PRs that are `blocked` (`merge-hold`) a lightweight path that “only runs `update_branch`, without re-review,” allowing them to integrate with main during the freeze and reducing the likelihood that they are behind when a human clicks merge.

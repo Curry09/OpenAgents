@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Spec-0051 端到端测试启动脚本：统一 agent 执行后回贴 PR 评论（可观测性收口）。
+# Spec-0051 End-to-end test start script: Unique agent post-exit PR comments (observable portal).
 #
-# 本组把「派 agent 执行→执行完在 PR 回贴一条署名说明评论」从各方法零散自接、收口到编排层
-# （messages）统一：给 executor/evidence_gate/编排步骤各配 render_* 纯函数，在
-# _process_rfc_review / _process_coding / _evidence_gate 三个收口点统一「执行完→render_*→
-# _post_agent_report（identity.post_signed_comment，带防刷屏去重）」，补齐 implement /
-# iterate(ci·review·e2e) / finalize_runbook / run_executor / review_evidence 五处静默步骤。
-# 收口后 executor/evidence_gate 保持不 import identity、不碰 IO（理念 10），发评论有唯一出口。
+# The group has "Peagengent execution completed in PR and posted a signed note to comment" from the method to the layout level.
+# (messages) Unidise: each step of executor/evidence_gate/ is matched with a pure function of render_* in
+# _process_rfc_review / _process_coding / _evidence_gate Unified Three Entry Points "Enforcement of  → render_*
+# _post_agent_report (identity.post_signed_comment, with brushscreen to re-heavy)" and fill in implement/
+# Iterate (ci review e2e) / finalize_runbook / run_executor / review_evidence Five Silent Steps.
+# After closing, executor/evidence_gate maintains no effect, no IO, and the only exit for comments.
 #
-# **浏览器 e2e 不适用**：本 feature 的「成果」是 GitHub PR 上的机器评论流（可观测性），本仓库无任何
-# 产品前端界面可驱动（无导航/交互/截图可断言的视觉成果），且真发评论需真 GitHub。故成果测试形态为
-# **确定性集成复现**（pytest 驱动整条链 + 本 shell 跑它并打印证据），而非浏览器 e2e。全程**不触网、
-# 不调真实 gh/LLM/git 远端**。
+# ** Browser e2e Not applicable**: This feature 'results 'is a machine review stream (observable) on GitHub PR, which has no one in this repository
+# Product front-end interface driver (no navigation)/Interactive/I'm sure it's a good idea to make a real comment. GitHub。So the result test pattern is
+# **Structific integration recurrence** (pytest drive whole chain + Ben shell runs it and prints evidence) instead of browser e2e. The whole journey** is net-free,
+# Do not tune the real gh/LLM/git remote**.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0051-unify-agent-run-report.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/4] 静态检查（ruff lint + format）"
+echo "==> [1/4] Static Check (Standard)ruff lint + format）"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] 定向单元/集成测试（Spec-0051 T1–T6）"
+echo "==> [2/4] Orientation module/Integrated Test (Integrator Test)Spec-0051 T1–T6）"
 uv run --extra dev pytest -q \
   tests/test_executor.py \
   tests/test_evidence_gate.py \
@@ -35,12 +35,12 @@ uv run --extra dev pytest -q \
   tests/test_agent_report_integration.py
 
 echo
-echo "==> [3/4] 成果证据：用**真实** Messages 收口 + render_* 驱动整条回执链，打印三条断言证据"
+echo "==> [3/4] Evidence of results: use**Real** Messages Shut up. + render_* Drive the whole chain back and print three pieces of evidence to assert it."
 uv run python - <<'PY'
-# Spec-0051 成果演练：用**真实**产品代码——messages.Messages（含 _post_agent_report/_report_already_posted
-# 去重 + 五处收口接线）+ executor.render_result / evidence_gate.render_decision / worknote.render_* 真渲染函数
-# ——把「派 agent 执行完→回贴一条署名说明评论」跑出来，打印证据。脚本只提供内存版 GitHub 评论账本 +
-# 假 orchestrator（返回可编排 summary/handle）+ 假裁决；回执渲染/去重/收口全部来自产品代码。
+# Spec-0051 Result Exercise: Using **real** product code - messages.Messages (with _post_agent_report/_report_already_posted)
+# +5-Dig + executor.render_result/ evidence_gate.render_decision/ worknote.render_* True Rendering Functions
+# – Runs out of "Peagen agent executes a signed note comment" and prints evidence. Scripts only provide memory versions of GitHub comments book +
+# False orchestrator(Return to programmable) summary/handle）+ false award;release rendering/- To the heavy./The portal is all from product code.
 from pathlib import Path
 
 from openagents import identity
@@ -63,7 +63,7 @@ AGENT_ID = "agent-self"
 
 
 class Ledger:
-    """内存假 GitHub 评论账本：post_signed_comment 记盖真签名的 body + 递增 created_at；list_comments 回读。"""
+    """Memory Leave GitHub Comment books:post_signed_comment It’s signed by the real man. body + Incremental created_at；list_comments Read back."""
 
     def __init__(self):
         self.comments = []
@@ -72,7 +72,7 @@ class Ledger:
 
     def post_signed_comment(self, *, pr_number, body, agent_id):
         if self.raise_on_post:
-            raise RuntimeError("gh 发评论挂了")
+            raise RuntimeError("gh We’re dead.")
         self._seq += 1
         self.comments.append(
             Comment(
@@ -103,14 +103,14 @@ class FakeOrch:
         self.iterate_calls = []
 
     def implement(self, *, pr_number):
-        return "实现了 issue 的核心逻辑"
+        return "Achieved. issue Core logic"
 
     def review_code(self, *, pr_number):
         return self._code_decision
 
     def iterate(self, *, pr_number, reason, detail):
         self.iterate_calls.append(reason)
-        return f"据 {reason} 反馈改了代码"
+        return f"According to the source, {reason} Feedback changed the code."
 
     def finalize_runbook(self, *, pr_number):
         return self._handle
@@ -162,7 +162,7 @@ HANDLE = RunbookHandle(
     worktree=Path("/wt"),
     runbook_path=Path("/wt/docs/e2e-results/5/runbook.md"),
     evidence_dir=Path("/wt/docs/e2e-results/5"),
-    intent="意图：x\n验收行为：\n- a",
+    intent="Intent:x\nReceiving and inspection:\n- a",
     form="cli",
 )
 
@@ -180,7 +180,7 @@ class Cfg:
 
 
 def wire(ledger, cfg, *, evidence_decision):
-    """把 messages 依赖指向内存账本/假裁决（monkeypatch 等价的手工 setattr，脚本内自恢复无所谓）。"""
+    """- Put it on. messages Dependence on the memory book/False award (in thousands of United States dollars)monkeypatch Handmade equal value setattrIt doesn’t matter if the script recovers itself."""
     g = messages_module.github
     g.is_merged = lambda *, pr_number: False
     g.is_closed = lambda *, pr_number: False
@@ -197,7 +197,7 @@ def wire(ledger, cfg, *, evidence_decision):
     messages_module.identity.new_human_comments = lambda *, pr_number, since: []
     messages_module.executor.run_executor = (
         lambda *, backend, work_dir, runbook_path, evidence_dir, pr_number: ExecutorResult(
-            outcome="passed", form="cli", notes="真跑 init，退出码 0"
+            outcome="passed", form="cli", notes="Run! init, exit code 0"
         )
     )
     messages_module.evidence_gate.review_evidence = (
@@ -205,13 +205,13 @@ def wire(ledger, cfg, *, evidence_decision):
     )
 
 
-# --- 证据① 五处收口各留一条署名回执 ---------------------------------------- #
+# --- Evidence 1 Leaves a letter of reply at each of the five points of entry ----------------------------------------#
 ledger = Ledger()
 cfg = Cfg()
 orch = FakeOrch(code_decision=ReviewDecision(passed=True, feedback=""), handle=HANDLE)
 rec = run_record(status=STATUS_RFC_REVIEW)
 state = FakeState(runs=[rec])
-wire(ledger, cfg, evidence_decision=EvidenceDecision(passed=False, feedback="验收行为①未达成"))
+wire(ledger, cfg, evidence_decision=EvidenceDecision(passed=False, feedback="Receiving and inspection behaviour①Not achieved"))
 msgs = Messages(orchestrator=orch, state=state, agent_id=AGENT_ID, backend=object())
 
 cfg.has_approval = True
@@ -222,54 +222,54 @@ cfg.ci_state = "fail"
 msgs.poll()                       # CI fail → iterate(ci)
 rec.status = STATUS_ITERATING
 cfg.ci_state = "success"
-orch._code_decision = ReviewDecision(passed=False, feedback="补单测", actionable=True)
+orch._code_decision = ReviewDecision(passed=False, feedback="Completion measurement", actionable=True)
 msgs.poll()                       # reviewer REWORK → iterate(review)
 orch._code_decision = ReviewDecision(passed=True, feedback="")
-msgs.poll()                       # reviewer PASS → 证据闸 FAIL → iterate(e2e)
+msgs.poll()                       # reviewer PASS → Evidence gate. FAIL → iterate(e2e)
 
 expected = [
-    "## 实现自述",
-    "## 迭代自述（CI 反馈）",
-    "## 迭代自述（代码评审反馈）",
-    "## 说明书定稿",
-    "## 证据执行",
-    "## 证据闸判决",
-    "## 迭代自述（证据闸反馈）",
+    "## Implementation report",
+    "## Recursive self-presentation (infra).CI (Received)",
+    "## Interpret (code review feedback)",
+    "## Finalization of the manual",
+    "## Evidence execution",
+    "## Evidence lock ruling",
+    "## Reciprocal self-statement (inventory gate feedback)",
 ]
 headers = ledger.headers()
 counts = {h: headers.count(h) for h in expected}
 all_signed = all(identity.parse_agent_id(body=c.body) == AGENT_ID for c in ledger.comments)
-print("  证据①【五处收口各一条署名回执】：七类回执各恰一条且全带签名 =",
+print("  evidence①”Five exits each sign: one each with one signature in each of the seven categories.” =",
       all(v == 1 for v in counts.values()) and all_signed)
 for h in expected:
-    print(f"      {h}：{counts[h]} 条")
-assert all(v == 1 for v in counts.values()), f"某类回执数量异常：{counts}"
-assert all_signed, "存在未署名回执"
+    print(f"      {h}：{counts[h]} Article")
+assert all(v == 1 for v in counts.values()), f"Some type of reply is unusual:{counts}"
+assert all_signed, "Unsigned reply exists"
 
-# --- 证据② 重复 poll 同内容不刷屏 ------------------------------------------ #
+# --- Evidence 2 Repeat Poll without screening ------------------------------------------#
 ledger2 = Ledger()
 cfg2 = Cfg()
 cfg2.has_approval = False
 orch2 = FakeOrch(code_decision=ReviewDecision(passed=True, feedback=""), handle=HANDLE)
 rec2 = run_record(status=STATUS_PR_OPEN)
 state2 = FakeState(runs=[rec2])
-wire(ledger2, cfg2, evidence_decision=EvidenceDecision(passed=False, feedback="同一条反馈"))
+wire(ledger2, cfg2, evidence_decision=EvidenceDecision(passed=False, feedback="Same feedback"))
 msgs2 = Messages(orchestrator=orch2, state=state2, agent_id=AGENT_ID, backend=object())
 msgs2.poll()
 rec2.status = STATUS_ITERATING
-msgs2.poll()                      # 连续两轮证据闸、内容不变
+msgs2.poll()                      # Two successive rounds of evidence, no change in content.
 h2 = ledger2.headers()
 dedup_ok = (
-    h2.count("## 说明书定稿") == 1
-    and h2.count("## 证据执行") == 1
-    and h2.count("## 证据闸判决") == 1
-    and h2.count("## 迭代自述（证据闸反馈）") == 1
+    h2.count("## Finalization of the manual") == 1
+    and h2.count("## Evidence execution") == 1
+    and h2.count("## Evidence lock ruling") == 1
+    and h2.count("## Reciprocal self-statement (inventory gate feedback)") == 1
 )
-print("  证据②【重复 poll 不刷屏】：两轮同内容证据闸后每类回执仍恰一条（_report_already_posted 命中）=",
+print("  evidence②[Repeats] poll No screen brush: one for each type after two rounds of the same proof gate (in thousands of years)_report_already_posted Hit=",
       dedup_ok)
-assert dedup_ok, f"去重失效：{h2}"
+assert dedup_ok, f"Reactivation:{h2}"
 
-# --- 证据③ 发评论故障不阻断编排 -------------------------------------------- #
+# --- Evidence 3 Commenting that failure does not interrupt the --------------------------------------------#
 ledger3 = Ledger()
 ledger3.raise_on_post = True
 cfg3 = Cfg()
@@ -280,23 +280,23 @@ rec3 = run_record(status=STATUS_PR_OPEN)
 state3 = FakeState(runs=[rec3])
 wire(ledger3, cfg3, evidence_decision=EvidenceDecision(passed=True, feedback=""))
 msgs3 = Messages(orchestrator=orch3, state=state3, agent_id=AGENT_ID, backend=object())
-events = msgs3.poll()             # 回执发送全抛错，编排应照常推进
+events = msgs3.poll()             # Backends send all wrongs and the organization should go as usual.
 not_blocked = (
     orch3.iterate_calls == ["ci"]
     and events == [{"pr_number": 5, "reason": "ci"}]
     and ledger3.comments == []
 )
-print("  证据③【发评论故障不阻断】：post 全抛错时 iterate 仍被调、poll 返回 ci 事件、账本为空 =",
+print("  evidence③[A comment failure continues]:post When all is thrown wrong iterate Still being transferred.poll Back ci Event, Book of Accounts is empty =",
       not_blocked)
-assert not_blocked, "发评论故障阻断了编排"
+assert not_blocked, "The comment failure blocked the organization."
 
-print("  ✓ 三条断言全部通过")
+print("  ✓ All three claims passed.")
 PY
 
 echo
-echo "==> [4/4] spec 校验（Spec-0051 组结构 + OVERVIEW/ARCHITECTURE 无漂移）"
+echo "==> [4/4] spec VerifySpec-0051 Group Structure + OVERVIEW/ARCHITECTURE No drift)"
 uv run spec validate --specs-root docs/specs
-# 幂等（无漂移）自检：render/graph 前先存副本，重渲后 diff 应逐字节一致——不依赖 git 提交状态。
+# ZiQQ000QXZ: A copy of render/graph should be stored before replaying and diff should be consistent byte - without git-based submission.
 cp docs/specs/OVERVIEW.md /tmp/oa-0051-overview.bak
 cp docs/specs/ARCHITECTURE.md /tmp/oa-0051-arch.bak
 uv run spec render --specs-root docs/specs
@@ -306,4 +306,4 @@ diff /tmp/oa-0051-arch.bak docs/specs/ARCHITECTURE.md
 uv run spec graph --specs-root docs/specs --check
 
 echo
-echo "✅ Spec-0051 端到端验证通过：五处收口各一条署名回执 + 重复 poll 不刷屏 + 发评论故障不阻断（可复现证据见上）。"
+echo "✅ Spec-0051 End-to-end authentication pass: letter of signature for each of the five closing points + Repeat poll Do Not Screen + The failure to issue comments is not interrupted (the evidence is available for reproduction)."

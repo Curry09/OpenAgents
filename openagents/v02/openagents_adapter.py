@@ -94,7 +94,7 @@ class OpenAgentsAdapter:
             return NodeResult(
                 issue.number,
                 "FAILED",
-                "READY Spec 缺少 selected_intervention.files，无法生成可靠 DAG",
+                "READY Spec is missing selected_intervention.files; cannot build a reliable DAG",
                 str(report.get("head_sha") or ""),
             )
         return SpecNode(
@@ -168,7 +168,7 @@ class OpenAgentsAdapter:
         )
         status = str(verdict["status"])
         if status not in {"DELIVERED", "FAILED", "NEEDS_DECISION"}:
-            raise gates.GateError(f"v0.2 Developer 返回未知状态：{status!r}")
+            raise gates.GateError(f"v0.2 Developer returned an unknown status: {status!r}")
         if status != "DELIVERED":
             return DevelopmentResult(
                 status=status,
@@ -179,7 +179,7 @@ class OpenAgentsAdapter:
             )
         after = gates.assert_head_advanced(before=before, workspace=node.worktree)
         if dirty := _delivery_dirty(work_dir=node.worktree):
-            raise gates.GateError(f"Developer 交付后 worktree 不干净：{dirty[:200]}")
+            raise gates.GateError(f"Worktree is dirty after Developer delivery: {dirty[:200]}")
         Workspace(work_dir=self._work_dir).assert_delivered(
             worktree=node.worktree, branch=node.branch
         )
@@ -205,12 +205,12 @@ class OpenAgentsAdapter:
 
     def _accept(self, *, node: SpecNode, development: DevelopmentResult) -> AcceptanceResult:
         if development.pr_number is None:
-            raise gates.GateError(f"issue #{node.number} 没有 PR，不能验收")
+            raise gates.GateError(f"issue #{node.number}: no PR to review")
         if dirty := _delivery_dirty(work_dir=node.worktree):
-            raise gates.GateError(f"Acceptance 前 worktree 不干净：{dirty[:200]}")
+            raise gates.GateError(f"Worktree is dirty before Acceptance: {dirty[:200]}")
         before = gates.snapshot_head(workspace=node.worktree)
         if before != development.head_sha:
-            raise gates.GateError("Acceptance candidate HEAD 与 Developer HEAD 不一致")
+            raise gates.GateError("Acceptance candidate HEAD differs from Developer HEAD")
         candidate_record = {
             "developer_changed_files": list(development.changed_files),
             "frozen_spec_digest": node.spec_digest,
@@ -221,8 +221,8 @@ class OpenAgentsAdapter:
             return AcceptanceResult(
                 verdict="PARTIAL",
                 reason=(
-                    "v0.2 Acceptance 缺少 OPENAGENTS_USER_TEST_COMMAND/TRANSCRIPT；"
-                    "拒绝仅凭组件审查或 Developer 自报结果放行"
+                    "v0.2 Acceptance requires OPENAGENTS_USER_TEST_COMMAND/TRANSCRIPT; "
+                    "component review or Developer self-reports alone cannot establish PASS"
                 ),
                 evidence=(),
                 head_sha=before,
@@ -237,7 +237,7 @@ class OpenAgentsAdapter:
         if user_test.status != "completed":
             return AcceptanceResult(
                 verdict="FAIL" if user_test.status in {"timed_out", "crashed"} else "PARTIAL",
-                reason=f"User Test {user_test.status}，禁止 fail-open：{user_test.error or user_test.status}",
+                reason=f"User Test {user_test.status}; acceptance cannot fail open: {user_test.error or user_test.status}",
                 evidence=(_user_test_evidence(user_test),),
                 head_sha=before,
             )
@@ -260,9 +260,11 @@ class OpenAgentsAdapter:
         )
         after = gates.snapshot_head(workspace=node.worktree)
         if after != before or after != development.head_sha:
-            raise gates.GateError("Acceptance 期间 HEAD 发生变化，裁决作废")
+            raise gates.GateError("HEAD changed during Acceptance; the verdict is invalid")
         if dirty := _delivery_dirty(work_dir=node.worktree):
-            raise gates.GateError(f"Acceptance 修改了 worktree，裁决作废：{dirty[:200]}")
+            raise gates.GateError(
+                f"Acceptance modified the worktree; the verdict is invalid: {dirty[:200]}"
+            )
         manifest = _evidence(verdict.get("evidence", []))
         if str(verdict.get("verdict")) == "PASS":
             _validate_user_test_manifest(manifest=manifest, result=user_test)
@@ -276,10 +278,10 @@ class OpenAgentsAdapter:
 
     def merge(self, *, node: SpecNode, development: DevelopmentResult) -> None:
         if development.pr_number is None:
-            raise gates.GateError(f"issue #{node.number} 没有 PR，不能合并")
+            raise gates.GateError(f"issue #{node.number}: no PR to merge")
         current = gates.snapshot_head(workspace=node.worktree)
         if current != development.head_sha:
-            raise gates.GateError("Developer HEAD 在合并前已变化，Acceptance PASS 作废")
+            raise gates.GateError("Developer HEAD changed before merge; Acceptance PASS is invalid")
         stages.assert_minimal_design_approved(
             work_dir=node.worktree,
             issue_number=node.number,
@@ -370,14 +372,16 @@ def _validate_user_test_manifest(*, manifest: list[dict], result: UserTestResult
     """Ensure model-cited user evidence points into this run's immutable artifact."""
     artifact_root = Path(result.artifact_dir).resolve()
     if not artifact_root.exists():
-        raise gates.GateError("User Test artifact 目录不存在，拒绝 Acceptance PASS")
+        raise gates.GateError(
+            "User Test artifact directory does not exist; Acceptance PASS is rejected"
+        )
     user_items = [
         item
         for item in manifest
         if item.get("source") == "user_test" and item.get("kind") == "behavior"
     ]
     if not user_items:
-        raise gates.GateError("Acceptance PASS 缺少 source=user_test 的行为证据")
+        raise gates.GateError("Acceptance PASS lacks behavioral evidence with source=user_test")
     for item in user_items:
         cited = Path(str(item.get("path", ""))).expanduser()
         if not cited.is_absolute():
@@ -388,17 +392,19 @@ def _validate_user_test_manifest(*, manifest: list[dict], result: UserTestResult
             cited.relative_to(artifact_root)
         except ValueError as exc:
             raise gates.GateError(
-                f"User Test evidence path 不在本次 artifact 内：{item.get('path')!r}"
+                f"User Test evidence path is outside this invocation’s artifact: {item.get('path')!r}"
             ) from exc
         if not cited.is_file():
-            raise gates.GateError(f"User Test evidence path 不存在或不是文件：{item.get('path')!r}")
+            raise gates.GateError(
+                f"User Test evidence path is missing or is not a file: {item.get('path')!r}"
+            )
 
 
 def _runtime_contract(*, base: str) -> str:
     return (
-        "当前 worktree 是唯一可写仓库。不得访问父 checkout、其它 worktree 或宿主路径。"
-        f"开始实现前 fetch origin/{base} 并在需要时把当前分支 rebase 到该基线；"
-        "只允许对当前 v0.2 issue 分支使用 --force-with-lease。不得修改冻结 compact Spec。"
+        "The current worktree is the only writable repository. Do not access the parent checkout, other worktrees, or host paths. "
+        f"Before implementing, fetch origin/{base} and rebase the current branch onto it if needed. "
+        "Use --force-with-lease only on the current v0.2 issue branch. Do not modify the frozen compact Spec."
     )
 
 
@@ -409,14 +415,14 @@ def _development_material(*, worktree: Path, base: str) -> str:
         meta_spec = meta_path.read_text(encoding="utf-8").strip()
     except OSError:
         meta_spec = (
-            f"当前 worktree 未提供 {_META_SPEC_FILENAME}。将其视为项目基线缺口；"
-            "必要时从源码、测试和当前 issue 重新确认项目骨架。"
+            f"The current worktree has no {_META_SPEC_FILENAME}. Treat this as a gap in the project baseline. "
+            "Use source, tests, and the current issue to establish project structure when needed."
         )
     if not meta_spec:
-        meta_spec = f"当前 worktree 的 {_META_SPEC_FILENAME} 为空；不要假定存在未记录的项目基线。"
+        meta_spec = f"The current worktree’s {_META_SPEC_FILENAME} is empty; do not assume an undocumented project baseline."
     return (
         f"{_runtime_contract(base=base)}\n\n"
-        "--- project Meta-Spec（项目导航；不是实现冻结） ---\n"
+        "--- project Meta-Spec (navigation; does not freeze implementation) ---\n"
         f"{meta_spec}"
     )
 

@@ -1,67 +1,67 @@
 ---
 number: "0090"
-title: 守夜流程终态与可修复故障收口
+title: "Vigil workflow terminal states and closure of recoverable failures"
 issue: 0
 slug: convergence-safety
-summary: 合并后复核终态并将可修复故障回流到正确阶段，避免误挂和整轮终止
+summary: "Recheck the terminal state after merging and route recoverable failures back to the correct stage to avoid incorrectly leaving the workflow hanging and terminating the entire round"
 architecture:
-  objective: "在现有守夜状态机内闭合动作结果、事实重读和可修复故障回流，避免误挂与整轮停止"
+  objective: "Close the loop on action results, fact rereads, and recoverable failure routing within the existing Vigil state machine to avoid incorrectly marking tasks and stopping the entire round"
   constraints:
-    - "不新增角色、持久化实体或失败预算"
-    - "只复用现有 architecture、implement、deliver 和 review 路径"
+    - "Do not add roles, persistent entities, or failure budgets"
+    - "Reuse only the existing architecture, implement, deliver, and review paths"
   non-goals:
-    - "不改变真实模型的需求理解能力"
-    - "不把平台导出、权限和留存纳入本次代码改动"
+    - "Do not change the actual model's ability to understand requirements"
+    - "Do not include platform export, permissions, or retention in this code change"
   candidates:
     - id: "existing-reconcile-routes"
       layer: "recipes.vigil and runtime.gates"
       boundary:
-        - "动作返回"
-        - "门禁异常"
-        - "终态复核"
+        - "Action return"
+        - "Gate exception"
+        - "Terminal-state recheck"
       evidence:
-        - "故障注入单测"
-        - "本地并发压力"
-      tradeoffs: "增加一次事实读取，保持状态模型不变"
+        - "Fault-injection unit tests"
+        - "Local concurrency stress testing"
+      tradeoffs: "Add one fact read while keeping the state model unchanged"
     - id: "increase-retry-budget"
       layer: "queue worker"
       boundary:
-        - "失败重试"
+        - "Failure retries"
       evidence:
-        - "只能延后 round_cap 或 retry_exhausted"
-      tradeoffs: "不解决错误路由，拒绝采用"
+        - "Can only postpone round_cap or retry_exhausted"
+      tradeoffs: "Does not resolve incorrect routing; reject this approach"
   selected: "existing-reconcile-routes"
   affected-components:
     - "recipes.vigil"
     - "runtime.gates"
   failure-modes:
-    - "合并成功后被 round_cap 覆盖"
-    - "设计摘要/生成视图失配重复消耗失败预算"
-    - "外部调用异常越过 worker 边界"
+    - "Successful merge overwritten by round_cap"
+    - "Design summary/generated view mismatches repeatedly consume the failure budget"
+    - "External call exceptions cross the worker boundary"
 verification:
   behavior-cases:
     - id: "merge-terminal"
       polarity: positive
-      stimulus: "动作已得到合并成功但下一次远端快照暂时未更新"
-      expected: "任务保持完成，不写 round_cap"
-      observation: "reconcile 单测"
+      stimulus: "The action has already returned a successful merge result, but the next remote snapshot has not yet been updated"
+      expected: "Keep the task completed; do not write round_cap"
+      observation: "reconcile unit tests"
     - id: "recoverable-gates"
       polarity: positive
-      stimulus: "设计摘要或 OVERVIEW 与候选树失配"
-      expected: "回流既有评审/交付路径，不重复烧认领预算"
-      observation: "门禁类型单测与集成回归"
+      stimulus: "The design summary or OVERVIEW does not match the candidate tree"
+      expected: "Route back through the existing review/delivery paths without repeatedly consuming the claim budget"
+      observation: "Gate-type unit tests and integration regression tests"
     - id: "hard-failure-isolation"
       polarity: negative
-      stimulus: "不可恢复异常或模型调用失败"
-      expected: "仍沿原有有界重试，worker 不退出"
-      observation: "全量 pytest 与压力脚本"
+      stimulus: "Unrecoverable exception or model call failure"
+      expected: "Continue using the existing bounded retries; the worker does not exit"
+      observation: "Full pytest suite and stress scripts"
   repository-invariants:
-    - "只有合并报告成功才写 done"
-    - "旧评审标签不会认证新候选"
+    - "Write done only when the merge reports success"
+    - "Old review labels do not certify new candidates"
   exemptions: []
 tasks:
   - id: T1
-    title: 终态复核与可修复故障回流
+    title: "Terminal-state verification and routing recoverable failures back"
     status: done
     priority: P0
     tags: []
@@ -76,87 +76,87 @@ tasks:
       - tests/test_runtime_gates.py
       - scripts/e2e-spec-0090.sh
       - docs/specs/0090-convergence-safety.md
-    scope: 修复合并终态误判、设计摘要失配和仓库完整性失配的路由，并补故障注入测试
-    acceptance: 合并成功不得写 round_cap；可修复失配不得重复消耗认领预算；全量 pytest 与专项压力通过
+    scope: "Fix routing for misclassified merge terminal states, design summary mismatches, and repository integrity mismatches, and add fault-injection tests"
+    acceptance: "A successful merge must not write round_cap; recoverable mismatches must not repeatedly consume the claim budget; the full pytest suite and targeted stress tests must pass"
 ---
 
-# 0090 · 守夜流程终态与可修复故障收口
+# 0090 · Vigil Workflow Terminal States and Recoverable Failure Resolution
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-代码修改完毕：包括回流调用的超时保护、候选绑定和返工后重新评审。
+Code changes are complete, including timeout protection for calls on recovery paths, candidate binding, and renewed review after rework.
 
-守夜人在动作之间读取事实、并在轮次上限前复核终态；合并后的成功结果直接收口，不再被上限覆盖。设计摘要
-失配和仓库生成视图失配沿现有评审/交付路径回流，不消耗认领失败预算；外部模型传输中断仍由
-现有有界重试隔离。此处验证单票故障不会终止 worker，不代表外层实验主循环已获得恢复保证。
+Vigil reads facts between actions and rechecks terminal states before reaching the round limit; a successful merge result concludes processing directly and is no longer overridden by the limit. Design digest
+mismatches and repository generated-view mismatches are routed back through the existing review/delivery paths without consuming the claim failure budget; external model transport interruptions remain isolated by
+the existing bounded retries. The verification here establishes that a single-ticket failure does not terminate the worker; it does not mean that recovery is guaranteed for the outer experiment main loop.
 
 ## Motivation
 
-实验中出现四类收敛故障：合并已完成却在最后一轮写成 `round_cap`；已通过代码评审但设计摘要
-已变化时重复同一门禁；`OVERVIEW.md` 与 Spec 树不一致时重复完整性检查；CLI 响应中断被当成
-普通失败。共同根因是动作结果、事实重读和异常路由没有在同一个 reconcile 边界闭合。
+Four types of convergence failures occurred in experiments: a completed merge was recorded as `round_cap` in the final round; the same gate was repeated when code review had passed but the design digest
+had changed; integrity checks were repeated when `OVERVIEW.md` was inconsistent with the Spec tree; and interrupted CLI responses were treated as
+ordinary failures. Their shared root cause was that action results, fact rereads, and exception routing were not brought to closure within the same reconcile boundary.
 
 ## Guide-level explanation
 
-merge 动作返回成功后，编排层接受该动作提供的确定性结果并交还 slot；其它动作在下一轮读取事实，
-到顶前再复读一次，已合并/关闭或等待外部时不写失败。设计摘要失配经已有 architecture 重新确认，
-清理旧裁决后回到既有 review-or-fix；生成视图失配回到既有
-交付修复；只有真正不可恢复的门禁错误才进入原有失败预算。传输错误不改变业务状态，只按现有
-认领边界有界重试。
+After the merge action returns success, the orchestration layer accepts the definitive result supplied by that action and releases the slot; for other actions, it reads facts in the next round,
+then rereads them once more before reaching the limit, without recording failure if the ticket has already been merged/closed or is waiting on an external dependency. A design digest mismatch goes through the existing architecture reconfirmation,
+clears the old verdict, and returns to the existing review-or-fix path; a generated-view mismatch returns to the existing
+delivery repair path; only genuinely unrecoverable gate errors enter the original failure budget. Transport errors do not change business state and are retried only within the existing
+claim boundary, with the existing bound.
 
 ## Reference-level explanation
 
-本修复只修改 `recipes.vigil`、`runtime.gates` 及其测试。新增的异常类型仅用于进程内路由，不落盘、
-不新增角色或状态字段。`_reconcile` 在 `_act` 返回 `merged` 后立即结束，并在轮次上限前再做一次
-终态感知；`_do_merge` 将设计摘要失配和仓库完整性失配分别标为可回流错误；`_run_claimed` 保持
-worker 异常隔离和既有三次预算。
+This fix changes only `recipes.vigil`, `runtime.gates`, and their tests. The new exception types are used only for in-process routing; they are not persisted,
+and no roles or state fields are added. `_reconcile` ends immediately after `_act` returns `merged` and performs one more
+terminal-state-aware check before the round limit; `_do_merge` marks design digest mismatches and repository integrity mismatches as separate errors that can be routed back for recovery; `_run_claimed` preserves
+worker exception isolation and the existing three-attempt budget.
 
-回流仍经现有 `_TimedBackend` 并继承认领锁；设计返工后必须再次获得 architecture PASS，且候选
-读取、评审和审批更新绑定同一已推送版本。无变化的修复仍受零进展护栏约束；轮数耗尽时先确认是否
-已经完成或进入外部等待，否则保留现有八轮上限，不以清零预算掩盖持续返工。没有新增真实模型传输重试机制；
-持续外部故障仍可能令单票有界失败，本规格不保证外层实验监督器永不中止。
+Recovery paths still go through the existing `_TimedBackend` and inherit the claim lock; after design rework, architecture PASS must be obtained again, and candidate
+reads, reviews, and approval updates must be bound to the same pushed version. Fixes that make no changes remain subject to the zero-progress guardrail; when rounds are exhausted, the system first checks whether
+the work has already completed or entered an external wait; otherwise, it retains the existing eight-round limit and does not reset the budget to conceal continued rework. No new retry mechanism for real model transport is added;
+persistent external failures may still cause a single ticket to fail within the defined bounds, and this specification does not guarantee that the outer experiment supervisor will never abort.
 
 ### Task DAG
 
 | id | status | scope | files | acceptance |
 |----|----|----|----|----|
-| T1 | done | 终态复核、可修复门禁路由及故障注入回归 | `openagents/recipes/vigil.py`, `openagents/runtime/gates.py`, `tests/test_recipe_vigil.py`, `tests/test_recipe_vigil_act.py`, `tests/test_runtime_gates.py` | 合并后不再 round_cap；摘要/完整性失配不重复烧预算；全量测试与专项压力通过 |
+| T1 | done | Terminal-state rechecks, recoverable gate routing, and fault-injection regression tests | `openagents/recipes/vigil.py`, `openagents/runtime/gates.py`, `tests/test_recipe_vigil.py`, `tests/test_recipe_vigil_act.py`, `tests/test_runtime_gates.py` | No round_cap after merging; digest/integrity mismatches do not repeatedly consume the budget; full test suite and targeted stress tests pass |
 
-验收入口：`bash scripts/e2e-spec-0090.sh`。前半段包含本次终态、回流超时封装、实际 PASS、
-返工后再评审、候选换版、完整性复检和 worker 隔离测试；后半段复用交付压力入口做并发回归。
-后半段不模拟真实模型、外层实验 runner，也不声称其 17 类交付场景覆盖所有本次回流行为。
+Acceptance entry point: `bash scripts/e2e-spec-0090.sh`. The first half includes tests for the terminal states addressed here, timeout wrapping on recovery paths, actual PASS results,
+review after rework, candidate version changes, integrity rechecks, and worker isolation; the second half reuses the delivery stress-test entry point for concurrency regression testing.
+The second half does not simulate a real model or the outer experiment runner, nor does it claim that its 17 categories of delivery scenarios cover all recovery-path behavior introduced here.
 
-2026-09-10 最终验证：全量 pytest 1336 passed，专项 266 passed；1/4/8/16 worker、每类混合
-故障重复 4 次，共 336 个任务（304 正常/可恢复任务全部合并，32 持续故障按预期停止）。意外结果、
-错误候选审批、重复认领、队列残留均为 0。新增回流分支的行为由专项正反例验证，不将既有交付压力
-结果冒充真实模型闭环。桌面 HTTP 测试需本地回环端口权限；允许后全量通过。
+Final verification on 2026-09-10: full pytest suite, 1336 passed; targeted tests, 266 passed; 1/4/8/16 workers, with mixed
+faults repeated 4 times for each configuration, for a total of 336 tasks (all 304 normal/recoverable tasks merged; 32 tasks with persistent faults stopped as expected). Unexpected outcomes,
+approval of incorrect candidates, duplicate claims, and leftover queue entries were all 0. Behavior in the newly added recovery branches is verified by targeted positive and negative cases; existing delivery stress-test
+results are not presented as a real-model closed-loop validation. Desktop HTTP tests require local loopback port permissions; the full suite passed once those permissions were granted.
 
-本次变更文件 Ruff check/format、Spec validate 和 graph 校验通过。全仓仍有改动前已有的 2 个
-import 排序错误及 22 个文件格式差异；它们未作为本次运行逻辑修复混入，因此不声明全仓 CI 已绿。
-当前测试环境没有 coverage 插件，本次不报告新的覆盖率百分比。GitHub 凭据缺失时不能核对远端
-新提交或开放 PR 编号冲突；推送成功和远端 CI 应以实际远端回执为准。
+Ruff check/format for the files changed here, Spec validate, and graph validation passed. The repository still has 2 pre-existing
+import-sorting errors and formatting differences in 22 files; these were not folded into this runtime logic fix, so no claim is made that repository-wide CI is green.
+The current test environment has no coverage plugin, so no new coverage percentage is reported here. When GitHub credentials are missing, new remote
+commits or open PR number conflicts cannot be checked; successful pushes and remote CI must be confirmed by actual remote acknowledgments.
 
 ## Drawbacks
 
-合并动作后增加一次轻量事实读取；可修复失配会重新触发既有角色调用，延迟略增，但避免错误挂起
-和错误合并。
+One lightweight fact read is added after the merge action; recoverable mismatches retrigger existing role calls, slightly increasing latency while avoiding erroneous suspension
+and incorrect merges.
 
 ## Rationale and alternatives
 
-选择复用现有动作、标签和失败预算，只补齐状态机边界。拒绝提高重试次数（只会延后挂起），也拒绝
-新增专用恢复队列（引入持久化实体且没有必要）。
+The chosen approach reuses existing actions, labels, and failure budgets, filling in only the state-machine boundaries. Increasing the retry count was rejected because it would merely delay suspension, as was
+adding a dedicated recovery queue, which would introduce a persistent entity unnecessarily.
 
 ## Prior art
 
-沿用 Spec-0065 的 level-triggered reconcile、Spec-0074 的 `MergeNotReady` 暂态收口和 Spec-0089
-的候选版本绑定。
+This follows Spec-0065's level-triggered reconcile, Spec-0074's transient-state resolution using `MergeNotReady`, and Spec-0089's
+candidate version binding.
 
 ## Unresolved questions
 
-无。本任务不改变真实模型能力、平台部署或历史实验归档。
+None. This task does not change real model capabilities, platform deployment, or historical experiment archives.
 
 ## Future possibilities
 
-后续可把外层实验监督器的重启/恢复纳入同一故障注入矩阵，但本次不新增监督器组件。
+The outer experiment supervisor's restart/recovery behavior could later be included in the same fault-injection matrix, but no supervisor component is added in this change.

@@ -1,72 +1,72 @@
 #!/usr/bin/env bash
-# Spec-0023 端到端测试启动脚本：退役 test 分支 —— main 持续推进 + release/vX.Y.Z 版本分支发布。
+# Spec-0023 end-to-end test start script: retired test branch - main continuously advance +release/vX.Y.Z version branch release.
 #
-# 两段：
-#   1) 离线确定性验证（默认执行）—— ruff lint/format + pytest，全程 mock，不触达真实 gh/git。
-#      覆盖：base=main 透传（github/orchestrator/cli/vigil）、ensure_prerequisites 只预建标签、
-#      release 预检（无 BLOCKED/needs-human + main CI 绿）、版本号语义化递增（patch/minor/major、
-#      首发 v0.1.0、v0.10.0>v0.9.0）、物化分支+tag、CLI 接线（release/--bump/--base）。
-#   2) 真实发布演练（需显式 opt-in）—— 设 OPENAGENTS_E2E_REAL=1 时，在当前已绑定且 gh 已
-#      登录的仓库里演示 release 预检 + 物化版本：
-#        a. `openagents init` → 幂等预建流程标签（test 分支门控退役后不再建任何分支）；
-#        b. `openagents release --bump patch` → 预检（无 BLOCKED/needs-human + main CI 绿）通过则
-#           把 main 当前 HEAD 物化为 release/vX.Y.Z 分支并打 tag vX.Y.Z。
-#           断言：远端存在 release/<版本> 分支与 <版本> tag，且二者 HEAD == main HEAD。
-#      注：完整 issue→自动合入 main 的循环需真实后端（claude）驱动，成本高、非确定，本脚本
-#      的真实段只演示「预检 + 物化版本」这一确定可断言的链路；完整循环请用
-#      `openagents vigil --once` 在真实仓库手动观察。
+# Two paragraphs:
+#   1) Offline certainty (default execution) - ruff lint/format + pytest, full-scale mock, unattractive to real gh/git.
+#      Overwrite: base=main Passage (github/orchestrator/cli/vigil), ensure_prerequisites preset only labels,
+#      Release precheck (no BLOCKED/needs-human + plain CI Green), version numbers are syntaxed (patch/minor/major,
+#      Launch v0.1.0, v0.10.0 > v0.9.0, the physical branch +tag, CLI connection (release/--bump/--base).
+#   2) Real release exercise (opt-in required) - OPENAGENTS_E2E_REAL =1, currently bound and gh
+#      Show rebase precheck in login repository + philatelic version:
+#        a. Pre-process labels such as `openagents init`  →  (test branch door control is not constructed after decommissioning);
+#        b. `openagents release --bump patch`  →  Pre-check (no BLOCKED/needs-human + main CI Green) pass
+#           Converts the current HEAD object into a release/vX.Y.Z branch and plays tag vX.Y.Z.
+#           Arrival: Releasing/ < Version > branch and < version > tag at a remote end, both HEAD = main HEAD.
+#      Note: Full assue cycling to main requires a backend drive, high cost, undetermined, script
+#      The true section only shows the "pre-screen + physical version" as a definite link; full loop is requested
+#      `openagents vigil --once` is manually observed in real storage.
 #
-# 用法：
-#   bash scripts/e2e-spec-0023-release-flow.sh                          # 仅离线验证
-#   OPENAGENTS_E2E_REAL=1 bash scripts/e2e-spec-0023-release-flow.sh    # 含真实 release 演练
+# Usage:
+#   rash scripts/e2e-spec-0023-release-flow.sh# Offline Only
+#   OPENAGENTS_E2E_REAL = 1 bash scripts/e2e-spec-0023-release-flow.sh# with real release exercise
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元/集成测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + Units/Integrated Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 if [[ "${OPENAGENTS_E2E_REAL:-0}" != "1" ]]; then
   echo
-  echo "✓ 离线验证通过。真实 release 演练已跳过（设 OPENAGENTS_E2E_REAL=1 开启）。"
+  echo "✓ Offline validation passed. Real. release Exercise Skipped (set) OPENAGENTS_E2E_REAL=1 Open."
   exit 0
 fi
 
 echo
-echo "==> [2/2] 真实发布演练：init 预建标签 → release 预检通过则把 main 物化成版本"
-command -v gh >/dev/null || { echo "需要安装并登录 gh CLI"; exit 1; }
-gh auth status >/dev/null || { echo "gh 未登录，请先 gh auth login"; exit 1; }
+echo "==> [2/2] Real release exercise:init Pre-set Tab → release If you pass the pre-screening, you’ll have to... main The object is in the version."
+command -v gh >/dev/null || { echo "Require installation and login gh CLI"; exit 1; }
+gh auth status >/dev/null || { echo "gh Not registered, please first. gh auth login"; exit 1; }
 
-# --- 步骤 1：init 预建流程标签（幂等；test 门控退役后不再建任何分支）------------- #
-echo "--> 步骤 1：openagents init —— 幂等预建流程标签"
+# Step ---: 1: Init pre-process label (tale et al; test door control no longer build any branch) -------------#
+echo "--> Steps 1：openagents init —— & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & & and & & & & and & & & & & & & & & & _ and & %( and _ and & & %((( and, and, and, and & & & & & %(((((((((((((((((((((((((((((((((((((((((((((("
 uv run openagents init
 
 git fetch origin main
 main_head="$(git rev-parse origin/main)"
 echo "    main HEAD = ${main_head:0:8}"
 
-# --- 步骤 2：release —— 预检通过则把 main 物化为 release/vX.Y.Z 分支 + tag ------- #
-echo "--> 步骤 2：openagents release --bump patch —— 预检（无 BLOCKED/needs-human + main CI 绿）后发布"
+# Step ---: 2: release - Pre-screening converts the main object to release/vX.Y.Z branch + tag -------#
+echo "--> Steps 2：openagents release --bump patch —— Pre-screening (none) BLOCKED/needs-human + main CI Release after Green"
 if uv run openagents release --bump patch; then
   git fetch origin --tags
-  # 取最新版本 tag（语义化：按版本号排序取末位）。
+  # Take the latest version of the tag (syntaxization: sorted to the bottom by version number).
   version="$(git tag --list 'v*' --sort=version:refname | tail -n1)"
-  [[ -n "$version" ]] || { echo "✗ release 报成功但找不到任何版本 tag"; exit 1; }
+  [[ -n "$version" ]] || { echo "✗ release The report was successful but no version was found. tag"; exit 1; }
   git fetch origin "refs/heads/release/${version}:refs/remotes/origin/release/${version}"
   branch_head="$(git rev-parse "origin/release/${version}")"
   tag_head="$(git rev-parse "${version}^{commit}")"
   if [[ "$branch_head" == "$main_head" && "$tag_head" == "$main_head" ]]; then
-    echo "    ✓ 已发布 ${version}：release/${version} 分支与 tag 均指向 main HEAD ${main_head:0:8}"
+    echo "    ✓ Published ${version}：release/${version} Branches and tag All points to main HEAD ${main_head:0:8}"
   else
-    echo "✗ ${version} 物化的分支(${branch_head:0:8})/tag(${tag_head:0:8}) != main(${main_head:0:8})"
+    echo "✗ ${version} The branch of the material.(${branch_head:0:8})/tag(${tag_head:0:8}) != main(${main_head:0:8})"
     exit 1
   fi
 else
-  echo "    ⓘ release 预检未通过（存在 BLOCKED/needs-human，或 main CI 未绿）——这是预期内的"
-  echo "      门控行为：有悬而未决的工作时拒绝发布。修完后再跑 release 即可。"
+  echo "    ⓘ release Pre-check not passed (Existing) BLOCKED/needs-human, or main CI (n/a)——That’s what I expected."
+  echo "      Door control: Refuses to publish when there is an outstanding job. release It’s all right."
 fi
 
 echo
-echo "✓ 真实发布演练完成。"
+echo "✓ The real release exercise is complete."

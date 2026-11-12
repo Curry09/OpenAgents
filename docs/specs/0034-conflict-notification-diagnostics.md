@@ -1,12 +1,12 @@
 ---
 number: "0034"
-title: 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
+title: "Conflict/blocking notifications with actionable diagnostics + reduced repeat notifications from merge fan-out—making it structurally possible to answer “what exactly is the conflict?”"
 issue: 92
 slug: conflict-notification-diagnostics
-summary: '冲突通知不再是无诊断的静态罐头：新增 worktree-free 的 git merge-tree 诊断采集（冲突文件清单 + 关键 hunk 摘要），喂进 merge 闸挂起评论与合并扇出冲突评论的「卡在哪」段；并让扇出对已 needs-human 的 PR 不再机械重发，把人机沟通交回 #89 的 blocked 读侧闭环'
+summary: "Conflict notifications are no longer static canned messages without diagnostics: add worktree-free diagnostic collection using git merge-tree (a list of conflicting files + key hunk summaries), feed it into the “Where it is blocked” section of merge-gate blocking comments and merge fan-out conflict comments; also stop fan-out from mechanically reposting to PRs already marked needs-human, handing human–machine communication back to the blocked read-side feedback loop in #89"
 tasks:
   - id: T1
-    title: conflictdiag：merge-tree 诊断采集 + 格式化（新模块）
+    title: "conflictdiag: merge-tree diagnostic collection + formatting (new module)"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/conflictdiag.py
       - tests/test_conflictdiag.py
-    scope: 新模块 openagents/conflictdiag.py（解耦）：collect(*, base, head, run) 经注入 run 跑 git merge-tree --write-tree origin/<base> origin/<head>（worktree-free，不动工作区）解析为 ConflictDiag(files, hunks：冲突文件清单 + 每文件关键 hunk 摘要、截断）；format_blocker(*, diag, step) 纯渲「卡在哪」段（清单+hunk摘要+卡在哪一步），空诊断退回泛化兜底文案；make_diagnoser(*, work_dir, base) IO 工厂返回 diagnose(*, pr_number)->str（取 head、fetch、collect+format，best-effort）。全程吞异常返回空诊断，绝不上抛
-    acceptance: collect 把 merge-tree 冲突输出解析为冲突文件清单 + 每文件关键 hunk 摘要（按字符上限截断），git 无冲突/命令缺失/非0/任何异常时返回空 ConflictDiag 不抛；format_blocker 渲出清单+hunk摘要+step，diag 为空时返回等价今日 CONFLICT_COMMENT 语义的兜底文案；make_diagnoser 在 work_dir 缺省/失败时回退空诊断兜底；纯函数/注入 run，hermetic 由 tests/test_conflictdiag.py 覆盖；ruff check + format --check + pytest 全绿
+    scope: "New decoupled module openagents/conflictdiag.py: collect(*, base, head, run) uses the injected run to execute git merge-tree --write-tree origin/<base> origin/<head> (worktree-free, without touching the working directory) and parses the output into ConflictDiag(files, hunks: a list of conflicting files + key hunk summaries per file, truncated); format_blocker(*, diag, step) purely renders the “Where it is blocked” section (file list + hunk summaries + the step where it is blocked), falling back to generic text for empty diagnostics; make_diagnoser(*, work_dir, base) is an IO factory returning diagnose(*, pr_number)->str (retrieve head, fetch, collect+format, best-effort). Exceptions are swallowed throughout and empty diagnostics are returned; exceptions are never propagated"
+    acceptance: "collect parses merge-tree conflict output into a list of conflicting files + key hunk summaries per file (truncated to a character limit), returning an empty ConflictDiag without raising if git reports no conflicts, the command is missing, the exit status is nonzero, or any exception occurs; format_blocker renders the file list + hunk summaries + step, returning fallback text semantically equivalent to the current CONFLICT_COMMENT when diag is empty; make_diagnoser falls back to empty-diagnostic fallback text when work_dir is omitted or a failure occurs; pure functions/injected run, with hermetic coverage in tests/test_conflictdiag.py; ruff check + format --check + pytest all pass"
   - id: T2
-    title: rebase：扇出冲突评论带诊断 + 已 needs-human 不重发
+    title: "rebase: fan-out conflict comments include diagnostics + no reposting for PRs already marked needs-human"
     status: done
     priority: P1
     tags: []
@@ -30,10 +30,10 @@ tasks:
     files:
       - openagents/rebase.py
       - tests/test_rebase_conflict_diag.py
-    scope: 'rebase_open_prs 新增可选 diagnose: Callable|None（与 heal/resolve 注入同构，rebase 仍无状态）。冲突回落分支：先 github.has_label(pr, BLOCKED_LABEL) 命中（已 needs-human、#89 读侧在管）→ 跳过留言、记 RESULT_CONFLICT_SUPPRESSED、续下一个；否则留言正文取 diagnose(pr_number)（带诊断），diagnose is None/返回兜底时退回静态 CONFLICT_COMMENT，仍 post_signed_comment 盖签名、记 RESULT_CONFLICT。CONFLICT_COMMENT 常量保留作空诊断兜底文案'
-    acceptance: 已打 needs-human 的 PR 在扇出冲突回落时被跳过留言（不重发）并记可区分结果分类；未打标签的 PR 留一条带冲突文件清单+hunk摘要的签名评论，diagnose 缺省/兜底时退回静态 CONFLICT_COMMENT；签名/错误隔离/续跑后续 PR 行为不变；hermetic（fake has_label/post_signed_comment/diagnose）由 tests/test_rebase_conflict_diag.py 覆盖；ruff check + format --check + pytest 全绿
+    scope: "rebase_open_prs gains an optional diagnose: Callable|None (following the same injection pattern as heal/resolve; rebase remains stateless). In the conflict fallback branch: first, if github.has_label(pr, BLOCKED_LABEL) matches (already needs-human and managed by the #89 read side), skip commenting, record RESULT_CONFLICT_SUPPRESSED, and continue to the next PR; otherwise, use diagnose(pr_number) for the comment body (with diagnostics), falling back to the static CONFLICT_COMMENT when diagnose is None or returns fallback text, still signing via post_signed_comment and recording RESULT_CONFLICT. Retain the CONFLICT_COMMENT constant as fallback text for empty diagnostics"
+    acceptance: "PRs already labeled needs-human have comments skipped (no reposting) during fan-out conflict fallback, with a distinguishable result classification recorded; unlabeled PRs receive one signed comment containing a list of conflicting files + hunk summaries, falling back to the static CONFLICT_COMMENT when diagnose is omitted or falls back; signing/error isolation/continuation to subsequent PRs remain unchanged; hermetic coverage (fake has_label/post_signed_comment/diagnose) in tests/test_rebase_conflict_diag.py; ruff check + format --check + pytest all pass"
   - id: T3
-    title: messages：merge 闸 blocker 带诊断 + 扇出注入诊断器
+    title: "messages: merge-gate blockers include diagnostics + inject a diagnoser into fan-out"
     status: done
     priority: P1
     tags: []
@@ -44,10 +44,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages_conflict_diag.py
-    scope: '新增 _make_diagnoser()->Callable|None（镜像 _make_resolver：work_dir/base 齐备才返回 conflictdiag.make_diagnoser，否则 None）+ _conflict_blocker(*, pr_number)->str（有诊断器调它出带诊断正文，否则退回 rebase.CONFLICT_COMMENT）。merge 闸三处 _block(gate=merge, blocker=rebase.CONFLICT_COMMENT)（_process_coding 首次冲突、_process_armed_conflict 无后端、达上限）改 blocker=self._conflict_blocker(pr_number=...)；合并扇出调用补传 diagnose=self._make_diagnoser()。_block 评论/标签/状态/水位线次序与 #89 watermark 语义完全不变'
-    acceptance: 'merge 闸三处挂起评论的「卡在哪」段携带冲突文件清单+hunk摘要（有诊断器时），无 work_dir/诊断为空时退回 CONFLICT_COMMENT；合并扇出调用注入 diagnose 使扇出评论带诊断并触发 T2 重发收敛；_block 的标签/状态/block_gate/block_watermark 落盘次序与 #89 解挂读侧语义零改动；hermetic（注入 conflictdiag/github/state）由 tests/test_messages_conflict_diag.py 覆盖；ruff check + format --check + pytest 全绿'
+    scope: "Add _make_diagnoser()->Callable|None (mirroring _make_resolver: return conflictdiag.make_diagnoser only when both work_dir/base are available; otherwise None) + _conflict_blocker(*, pr_number)->str (call the diagnoser, if available, to produce a body with diagnostics; otherwise fall back to rebase.CONFLICT_COMMENT). At the three merge-gate _block(gate=merge, blocker=rebase.CONFLICT_COMMENT) call sites (the initial conflict in _process_coding, no backend in _process_armed_conflict, and reaching the limit), change blocker to self._conflict_blocker(pr_number=...); also pass diagnose=self._make_diagnoser() to the merge fan-out call. The comment/label/state/watermark ordering in _block and the #89 watermark semantics remain completely unchanged"
+    acceptance: "The “Where it is blocked” section in the three merge-gate blocking comments includes a list of conflicting files + hunk summaries (when a diagnoser is available), falling back to CONFLICT_COMMENT when work_dir is unavailable or diagnostics are empty; inject diagnose into the merge fan-out call so fan-out comments include diagnostics and trigger the T2 reduction in repeat notifications; no changes to the persistence ordering of labels/state/block_gate/block_watermark in _block or to the #89 unblocking read-side semantics; hermetic coverage (injected conflictdiag/github/state) in tests/test_messages_conflict_diag.py; ruff check + format --check + pytest all pass"
   - id: T4
-    title: hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端）
+    title: "Hermetic e2e script (no network, no access to real LLM/gh/git remotes)"
     status: done
     priority: P2
     tags: []
@@ -58,318 +58,317 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0034-conflict-diagnostics.sh
-    scope: 新增 hermetic e2e 脚本：① ruff check + format --check + pytest 离线确定性验证；② 用 fake run（喂固定 git merge-tree 输出）+ fake github.has_label/post_signed_comment 闭环演练『冲突→采集诊断→带文件清单+hunk摘要的评论；已 needs-human 的 PR 扇出→跳过不重发；诊断为空→退回泛化文案』整条轨迹，全程不触网、不调真实 LLM、不碰真实 gh、不连真实 git 远端
-    acceptance: bash scripts/e2e-spec-0034-conflict-diagnostics.sh 在无网络环境退出码 0；脚本不调用真实 gh/LLM/git 远端；两段均通过（离线确定性 + 诊断/收敛/降级轨迹）
+    scope: "Add a hermetic e2e script: ① ruff check + format --check + pytest for offline deterministic verification; ② use fake run (fed fixed git merge-tree output) + fake github.has_label/post_signed_comment to exercise the complete end-to-end sequence: “conflict → collect diagnostics → comment with file list + hunk summaries; fan-out to a PR already marked needs-human → skip without reposting; empty diagnostics → fall back to generic text.” No network access, real LLM calls, real gh usage, or connections to real git remotes throughout"
+    acceptance: "bash scripts/e2e-spec-0034-conflict-diagnostics.sh exits with code 0 in an environment without network access; the script does not invoke real gh/LLM/git remotes; both parts pass (offline determinism + diagnostics/repeat-notification reduction/fallback sequence)"
 ---
 
-# 0034 · 冲突/挂起通知带可定位诊断 + 合并扇出重发收敛——让「具体什么 conflict」结构上答得出
+# 0034 · Locatable diagnostics in conflict/blocked notifications + curbing repeated merge fan-out notifications—making “what exactly is the conflict?” structurally answerable
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-让所有「合并冲突」通知从**无诊断的静态罐头**变成**可定位的诊断**，并堵住唯一还在**机械重发**
-罐头的通道：
+Turn all “merge conflict” notifications from **static canned messages without diagnostics** into **locatable diagnostics**, and close the only channel that still **mechanically reposts**
+canned messages:
 
-1. **冲突诊断采集（新解耦模块 `conflictdiag`）**——用 **worktree-free 的 `git merge-tree
-   --write-tree`**（git 2.38+，不 checkout、不动工作区）算出某 PR 分支并入目标分支会撞哪些文件、
-   每个冲突文件的**关键 hunk 摘要**，产出一段结构化 markdown（冲突文件清单 + 关键 hunk 摘要 + 卡在
-   哪一步）。纯函数 + 注入 `run` / 安全降级：拿不到诊断（老 git / 任何异常）就退回今天的泛化一句话。
-2. **诊断喂进两类冲突通知的「卡在哪」段**——① merge 闸挂起评论（`messages._block(gate="merge")`，
-   今天 `blocker=rebase.CONFLICT_COMMENT` 静态串）；② 合并扇出冲突评论（`rebase.rebase_open_prs`
-   冲突回落，今天 `post_signed_comment(CONFLICT_COMMENT)` 静态串）。两处都换成带诊断的正文。
-3. **扇出不再机械重发**——合并扇出对**已打 `needs-human` 标签**的 PR 跳过冲突评论：这类 PR 的人机
-   沟通已由 issue #89（Spec-0032）的 **blocked 读侧闭环**接管（人回评论即解挂喂 detail），扇出再贴
-   同一句只会**淹没**人的追问。把「同一处问三次得到字字不差的罐头」从根上消除。
+1. **Conflict diagnostic collection (new decoupled module `conflictdiag`)**—use **worktree-free `git merge-tree
+   --write-tree`** (git 2.38+, no checkout, no changes to the working directory) to calculate which files would conflict when a PR branch is merged into its target branch,
+   along with **key hunk summaries** for each conflicting file, producing structured markdown (conflicting file list + key hunk summaries + the step
+   where progress is blocked). Pure function + injected `run` / safe fallback: if diagnostics are unavailable (old git / any exception), fall back to today’s generic sentence.
+2. **Feed diagnostics into the “Where I’m stuck” section of both types of conflict notification**—① merge gate blocked comments (`messages._block(gate="merge")`,
+   currently the static string `blocker=rebase.CONFLICT_COMMENT`); ② merge fan-out conflict comments (the conflict fallback in `rebase.rebase_open_prs`,
+   currently the static string `post_signed_comment(CONFLICT_COMMENT)`). Replace the body in both places with one containing diagnostics.
+3. **Stop mechanical reposting in fan-out**—merge fan-out skips conflict comments for PRs **already labeled `needs-human`**: communication between humans and agents
+   on these PRs is already handled by the **blocked read-side feedback loop** from issue #89 (Spec-0032) (a human reply unblocks the PR and is passed in as detail). Posting
+   the same sentence again during fan-out only **drowns out** the human’s follow-up questions. Eliminate “asking three times in the same place and receiving the exact same canned response” at its source.
 
-**明确不做**（边界，理念 10 解耦）：不重写 #89 已落地的「blocked 读侧」（poll 读人类评论解挂），不在
-非 blocked 场景新引入读评论，不改 reviewer/e2e 产出格式——本组只补**冲突通知的诊断字段**与**扇出的
-重发收敛**。
+**Explicitly out of scope** (boundaries, principle 10: decoupling): do not rewrite the “blocked read side” already implemented in #89 (poll reads human comments to unblock); do not
+introduce comment reading in non-blocked scenarios; do not change reviewer/e2e output formats—this group only adds **diagnostic fields to conflict notifications** and **curbs
+reposting in fan-out**.
 
 ## Motivation
 
-**背景（就地复述，不靠裸引用承载必要信息）**：OpenAgents 是 RFC/spec 驱动的多 agent 框架，守夜人
-`messages.Messages.poll` 周期扫描所有 open run，按阶段路由 GitHub 事件。代码闸 `_process_coding`
-跑 reviewer 前先做**可合并性预检**（`github.mergeability` 返回 `merge_state_status` / `mergeable`，
-`DIRTY` 或 `CONFLICTING` 即判冲突）；冲突时：①若注入了 coding 后端就先派 agent 语义解冲突
-（`conflict.make_resolver` 在临时 worktree 里 `git merge origin/<base>`、撞冲突喂文件清单给 agent 解、
-自测、push），解成功本轮不挂；②解不了 → `_block(record, gate="merge", blocker=...)`：贴一条评论 +
-打 `needs-human` 标签（`github.BLOCKED_LABEL = "needs-human"`）+ 置 `STATUS_BLOCKED`（不在
-`_OPEN_STATUSES`，下轮 poll 软跳过）+ 落 `block_gate="merge"` / `block_watermark`。另有一条**独立**的
-冲突通道：一个 PR 合并进 main 后，`rebase.rebase_open_prs` 扇出对**其余每个 open PR** 跑
-`github.update_branch`（把最新 main 并入、触发 CI 重跑）；撞冲突（`GithubError`）时按
-`indexheal → conflict.resolve → 人工留言` 分层降级，最末一层 `identity.post_signed_comment(pr,
-body=rebase.CONFLICT_COMMENT, agent_id=…)` 留言并继续下一个（无状态、错误隔离，理念 10）。
+**Background (restated here so that essential information does not depend on bare references)**: OpenAgents is an RFC/spec-driven multi-agent framework. The watcher,
+`messages.Messages.poll`, periodically scans all open runs and routes GitHub events according to their stage. Before running the reviewer, the coding gate `_process_coding`
+performs a **mergeability precheck** (`github.mergeability` returns `merge_state_status` / `mergeable`;
+`DIRTY` or `CONFLICTING` indicates a conflict). On conflict: ① if a coding backend has been injected, first dispatch an agent to resolve the conflict semantically
+(`conflict.make_resolver` runs `git merge origin/<base>` in a temporary worktree, feeds the conflicting file list to the agent if conflicts occur, has it resolve them,
+run self-tests, and push); if resolution succeeds, do not block in this cycle; ② if resolution fails → `_block(record, gate="merge", blocker=...)`: post a comment +
+apply the `needs-human` label (`github.BLOCKED_LABEL = "needs-human"`) + set `STATUS_BLOCKED` (outside
+`_OPEN_STATUSES`, so the next poll cycle softly skips it) + persist `block_gate="merge"` / `block_watermark`. There is also an **independent**
+conflict channel: after a PR is merged into main, `rebase.rebase_open_prs` fans out to run
+`github.update_branch` on **every other open PR** (merging in the latest main and triggering a CI rerun). On conflict (`GithubError`), it falls back in layers through
+`indexheal → conflict.resolve → manual-intervention comment`. The final layer posts a comment with `identity.post_signed_comment(pr,
+body=rebase.CONFLICT_COMMENT, agent_id=…)` and continues to the next PR (stateless, with error isolation; principle 10).
 
-**`rebase.CONFLICT_COMMENT` 是一句永不带诊断的静态串**（`openagents/rebase.py`）：
+**`rebase.CONFLICT_COMMENT` is a static string that never contains diagnostics** (`openagents/rebase.py`):
 
-> 🤖 OpenAgents 在 main 更新后尝试自动同步本 PR 分支，但存在无法自动解决的冲突，请手动 rebase /
-> 解决冲突后重新 push。
+> 🤖 OpenAgents tried to automatically sync this PR branch after main was updated, but there are conflicts that cannot be resolved automatically. Please manually rebase /
+> resolve the conflicts, then push again.
 
-它**结构上**就不含「哪个文件、哪段 hunk 冲突」。两类冲突通知今天都拿它当正文：merge 闸 `_block` 把它
-当 `blocker` 喂进结构化挂起评论的「卡在哪」段（`_process_coding` 首次发现冲突、`_process_armed_conflict`
-无后端/达上限三处），扇出冲突回落也直接贴它。
+**By construction**, it contains no information about “which file or which hunk conflicts.” Both types of conflict notification currently use it as their body: the merge gate’s `_block` passes it
+as `blocker` into the “Where I’m stuck” section of the structured blocked comment (three sites: initial conflict detection in `_process_coding`, and no backend / attempt limit reached in `_process_armed_conflict`); the fan-out conflict fallback also posts it directly.
 
-**真实案例（issue #92 来源，ccKanBan PR `pcj-sudo/wind-palace-of-cc#11`）**：人在同一处追问/指令三次，
-每次都收到**字字不差**的上面那句：
+**Real case (source of issue #92, ccKanBan PR `pcj-sudo/wind-palace-of-cc#11`)**: a human asked follow-up questions / gave instructions three times in the same place,
+and each time received the sentence above **word for word**:
 
-| 时间 | 谁 | 内容 |
+| Time | Who | Content |
 |------|----|----|
-| 03:43 | 👤 人 | rebase 解冲突 + e2e 结果截图传 commit |
-| 03:45 | 🤖 | 「存在无法自动解决的冲突，请手动 rebase…」 |
-| 09:26 | 👤 人 | **具体什么 conflict 无法自动解决？** |
-| 09:37 | 🤖 | 「存在无法自动解决的冲突…」（一模一样） |
-| 10:02 | 👤 人 | 解冲突更新 PR，解不了要在评论详细说明原因 |
-| 10:03 | 🤖 | 「存在无法自动解决的冲突…」（还是一模一样） |
+| 03:43 | 👤 Human | Rebase to resolve the conflicts + upload screenshots of the e2e results to the commit |
+| 03:45 | 🤖 | “There are conflicts that cannot be resolved automatically. Please manually rebase…” |
+| 09:26 | 👤 Human | **What exactly is the conflict that cannot be resolved automatically?** |
+| 09:37 | 🤖 | “There are conflicts that cannot be resolved automatically…” (exactly the same) |
+| 10:02 | 👤 Human | Resolve the conflicts and update the PR; if you cannot resolve them, explain the reason in detail in a comment |
+| 10:03 | 🤖 | “There are conflicts that cannot be resolved automatically…” (still exactly the same) |
 
-三个不同的问题/指令，得到同一句与之无关的话——**问了等于没问**。本案真实冲突是**三个并行 spec PR 共改
-`docs/specs/OVERVIEW.md` 聚合索引**导致的 content conflict，但消息从没说。
+Three different questions/instructions received the same unrelated sentence—**asking made no difference**. The actual conflict in this case was a content conflict caused by **three parallel spec PRs all editing
+the aggregate index `docs/specs/OVERVIEW.md`**, but the messages never said so.
 
-**两个毛病，分别对应 issue 的 A / B：**
+**Two problems, corresponding to A / B in the issue:**
 
-- **B：通知无诊断。**「具体什么 conflict」这类问题，现有机制**结构上答不出**——`CONFLICT_COMMENT`
-  永远不含文件/hunk。需要让通知携带**冲突文件清单 + 关键 hunk 摘要**（以及 gate 类型、卡在哪一步）。
-- **A：评论只出不进 / 机械重发。** 三句一模一样并非偶然：**合并扇出 `rebase_open_prs` 无状态、不感知
-  PR 是否已被人接管**——每当**别的** PR 合并进 main，扇出就对这个仍冲突的 PR **再贴一次**同一句。
-  issue #89（Spec-0032，已合入本仓库 base）已把 **blocked 读侧**复活：blocked 的 PR 上，poll 会读
-  「挂起水位线之后、无 OpenAgents 签名」的人类评论，命中即自动摘 `needs-human` + 把评论正文当 detail
-  喂给对应闸 agent（merge 闸走 armed 解冲突）——**人回评论就能解挂**。但 #89 的读侧**只在 blocked 分支
-  生效**，**管不到无状态的扇出通道**：扇出照旧对已 `needs-human` 的 PR 机械重发，把人的追问淹没在罐头里。
+- **B: Notifications lack diagnostics.** Questions such as “what exactly is the conflict?” are **structurally unanswerable** with the existing mechanism—`CONFLICT_COMMENT`
+  never contains files/hunks. Notifications need to include a **conflicting file list + key hunk summaries** (as well as the gate type and the step where progress is blocked).
+- **A: Comments go out but are not read / mechanical reposting.** The three identical sentences are no coincidence: **merge fan-out `rebase_open_prs` is stateless and does not know
+  whether a human has already taken over the PR**—whenever **another** PR is merged into main, fan-out **posts the same sentence again** on this still-conflicting PR.
+  Issue #89 (Spec-0032, already merged into this repository’s base) restored the **blocked read side**: on blocked PRs, poll reads
+  human comments “after the blocking watermark and without an OpenAgents signature.” When it finds one, it automatically removes `needs-human` + passes the comment body as detail
+  to the agent for the corresponding gate (the merge gate takes the armed conflict-resolution path)—**a human reply can unblock the PR**. But #89’s read side **only applies in the blocked branch**
+  and **does not cover the stateless fan-out channel**: fan-out continues mechanically reposting on PRs already labeled `needs-human`, drowning out human follow-up questions in canned messages.
 
-**为什么历史上「不读评论」——RFC-0019**：RFC-0011 原设计有读侧（poll 读评论→按签名剔自评论→触发
-`refine_rfc`/`iterate`），RFC-0019 出于**防自循环**顾虑让自动流转**不读评论**（怕 agent 读到自己发的
-评论无限自迭代），`identity.parse_agent_id` 退化为只写不读的审计工具。#89 已用「仅 block 之后 + 仅无
-签名人类」两道硬约束**定向解禁**读侧（仅用于解挂）。**本组不再碰读侧**——A 的残留不是「再读一次评论」，
-而是「让那条**不读评论、机械重发**的扇出通道，对已被 #89 读侧接管的 PR 闭嘴 + 让它真正首发时带诊断」。
+**Why comments historically were not read—RFC-0019**: RFC-0011’s original design had a read side (poll reads comments → filters out self-comments by signature → triggers
+`refine_rfc`/`iterate`). RFC-0019 made automatic transitions **not read comments** out of concern about **self-loops** (an agent might read its own
+comments and iterate indefinitely), reducing `identity.parse_agent_id` to a write-only audit tool. #89 **selectively re-enabled** the read side with two hard constraints:
+“only after blocking + only unsigned human comments” (solely for unblocking). **This group does not touch the read side again**—the remaining part of A is not “read comments again,”
+but “make the fan-out channel that **does not read comments and mechanically reposts** stay quiet for PRs already handled by #89’s read side + include diagnostics when it actually posts for the first time.”
 
-**期望（与 issue 对齐）**：
-- **A**：合并扇出对已 `needs-human`（人已介入、#89 读侧在管）的 PR **不再重发**冲突评论；首发时也带诊断。
-- **B**：merge 闸挂起评论 + 扇出冲突评论都携带**冲突文件清单 + 关键 hunk 摘要 + gate/卡在哪一步**，
-  让人不必再追问「具体是什么」。
+**Expected outcomes (aligned with the issue)**:
+- **A**: Merge fan-out **stops reposting** conflict comments on PRs already labeled `needs-human` (a human has intervened and #89’s read side is handling them); the first comment also includes diagnostics.
+- **B**: Both merge gate blocked comments and fan-out conflict comments include a **conflicting file list + key hunk summaries + gate / step where progress is blocked**,
+  so humans no longer need to ask “what exactly is it?”
 
 ## Guide-level explanation
 
-落地后，一个撞了合并冲突的 PR，人看到的不再是泛化罐头，而是**能直接定位**的诊断；而且**同一句不再
-反复刷屏**。
+After implementation, when a PR hits a merge conflict, humans see **diagnostics that directly locate the problem** instead of a generic canned message; and **the same sentence no longer
+floods the thread repeatedly**.
 
-**① 冲突挂起——挂起评论带诊断。** merge 闸解不掉冲突挂起时（`_block(gate="merge")`），PR 上的结构化
-签名评论「卡在哪」段不再是一句话，而是（模板，细节见 Reference-level）：
+**① Conflict blocking—the blocked comment includes diagnostics.** When the merge gate cannot resolve a conflict and blocks (`_block(gate="merge")`), the “Where I’m stuck” section
+of the structured signed comment on the PR is no longer a single sentence, but the following (template; see Reference-level for details):
 
 ```markdown
-🤖 OpenAgents 卡住了，需要你的判断
+🤖 OpenAgents is stuck and needs your judgment
 
-**原因**：与目标分支存在无法自动解决的冲突（gate=merge）
-**我试过**：已派 agent 尝试语义解冲突 N 次仍失败
-**卡在哪**：自动合并 `origin/main` 时以下文件冲突，需人工裁断——
-> **冲突文件清单（2）**
+**Reason**: There are conflicts with the target branch that cannot be resolved automatically (gate=merge)
+**What I tried**: Dispatched an agent to attempt semantic conflict resolution N times, but it still failed
+**Where I’m stuck**: The following files conflict when automatically merging `origin/main` and require human judgment—
+> **Conflicting files (2)**
 > - `docs/specs/OVERVIEW.md`
 > - `openagents/messages.py`
 >
-> **关键 hunk 摘要 · docs/specs/OVERVIEW.md**
+> **Key hunk summary · docs/specs/OVERVIEW.md**
 > ```
 > <<<<<<< (ours)
-> | 0031 | merge 解挂 |
+> | 0031 | Merge unblocking |
 > =======
-> | 0032 | 评论闭环 |
+> | 0032 | Comment feedback loop |
 > >>>>>>> (origin/main)
 > ```
 
-**你可以怎么做**：直接在本 PR **回复一条评论**给出指导，我会据此继续；无需手动摘标签。
+**What you can do**: **Reply with a comment** directly on this PR to provide guidance, and I will continue based on it; you do not need to remove the label manually.
 
 <!-- openagents:agent=<id> -->
 ```
 
-人一眼看清：撞了哪些文件、关键冲突长什么样、卡在 merge 闸——「具体什么 conflict」**当场答出**。之后
-人回一条评论，就由 #89 的 blocked 读侧闭环接管（自动摘 `needs-human` + 喂 detail），本组不改这条路径。
+Humans can immediately see which files conflict, what the key conflicts look like, and that progress is blocked at the merge gate—“what exactly is the conflict?” is **answered on the spot**. After that,
+a human reply is handled by #89’s blocked read-side feedback loop (automatically removing `needs-human` + passing in detail); this group does not change that path.
 
-**② 合并扇出——首发带诊断、不再机械重发。** 当**别的** PR 合并进 main 触发扇出：
+**② Merge fan-out—diagnostics on the first post, no more mechanical reposting.** When **another** PR is merged into main and triggers fan-out:
 
-- 对一个仍冲突、但**尚未** `needs-human` 的 PR：扇出留一条**带诊断**的签名评论（同样的冲突文件清单 +
-  关键 hunk 摘要），告诉人「main 更新后本 PR 撞了这些文件」。
-- 对一个**已经** `needs-human` 的 PR（人已介入、#89 读侧正在管它的评论对话）：扇出**跳过**冲突评论
-  ——不再贴第二、第三句罐头去淹没人的追问。这类 PR 的沟通完全交回 blocked 读侧闭环。
+- For a PR that still has conflicts but is **not yet** labeled `needs-human`: fan-out posts a signed comment **with diagnostics** (the same conflicting file list +
+  key hunk summaries), telling the human “these files in this PR conflict after main was updated.”
+- For a PR **already** labeled `needs-human` (a human has intervened and #89’s read side is handling its comment conversation): fan-out **skips** the conflict comment
+  —it no longer posts a second or third canned sentence to drown out human follow-up questions. Communication for these PRs is handed back entirely to the blocked read-side feedback loop.
 
-于是案例里「09:37 / 10:03 两次重发」从根上消失：第一次（PR 刚冲突）留一条带诊断的评论，之后 PR 进入
-`needs-human`，后续每次扇出都对它闭嘴，人在评论里的三次追问也由 #89 读侧逐一响应。
+This eliminates the case’s “two reposts at 09:37 / 10:03” at their source: the first time (when the PR initially develops conflicts), a comment with diagnostics is posted; the PR then enters
+`needs-human`, and every subsequent fan-out stays quiet for it. The human’s three follow-up comments are also answered individually by #89’s read side.
 
-**③ 诊断拿不到时安全降级。** 若运行环境 git < 2.38（无 `merge-tree --write-tree`）、或 refs 取不到、
-或任何异常——诊断采集**吞异常返回空**，通知**退回今天的泛化一句话**（`CONFLICT_COMMENT` 语义不变），
-绝不因为「想给诊断」而让挂起/扇出本身失败。
+**③ Safe fallback when diagnostics are unavailable.** If the runtime environment has git < 2.38 (no `merge-tree --write-tree`), refs cannot be obtained,
+or any exception occurs—diagnostic collection **swallows the exception and returns empty**, and the notification **falls back to today’s generic sentence** (the semantics of `CONFLICT_COMMENT` remain unchanged).
+Attempting to provide diagnostics must never cause blocking / fan-out itself to fail.
 
 ## Reference-level explanation
 
-### 核心机制：worktree-free 的 `git merge-tree` 诊断
+### Core mechanism: worktree-free `git merge-tree` diagnostics
 
-冲突文件清单今天其实**已可本地算出**——`conflict.py` 的 `_conflicted`（`git diff --name-only
---diff-filter=U`）就是，但它埋在解冲突 worktree 流程里、只返回 bool，且建/清 worktree 成本高。本组改用
-**`git merge-tree --write-tree origin/<base> origin/<head>`**（git 2.38+）：**不 checkout、不动工作区、
-不建 worktree**，直接在对象库里算出合并结果，stdout 含冲突文件清单 + 带 `<<<<<<< / ======= / >>>>>>>`
-标记的冲突内容。这正是「冲突文件清单 + 关键 hunk 摘要」的权威、廉价来源。
+The conflicting file list **can already be calculated locally** today—`_conflicted` in `conflict.py` (`git diff --name-only
+--diff-filter=U`) does this, but it is buried in the conflict-resolution worktree flow, returns only a bool, and incurs the high cost of creating/cleaning up a worktree. This group instead uses
+**`git merge-tree --write-tree origin/<base> origin/<head>`** (git 2.38+): **no checkout, no changes to the working directory,
+no worktree creation**; it calculates the merge result directly in the object database, with stdout containing the conflicting file list + conflict content marked with `<<<<<<< / ======= / >>>>>>>`.
+This is precisely the authoritative, inexpensive source for the “conflicting file list + key hunk summaries.”
 
-### 新模块 `openagents/conflictdiag.py`（T1，解耦——理念 10）
+### New module `openagents/conflictdiag.py` (T1, decoupling—principle 10)
 
-- 纯/可注入，三件事，全部**安全降级**（任何异常吞成「空诊断」，绝不上抛）：
-  - `collect(*, base, head, run) -> ConflictDiag`：经注入的 `run`（默认包一层 `git`）跑
-    `merge-tree --write-tree origin/<base> origin/<head>`，解析输出为 `ConflictDiag(files: list[str],
-    hunks: dict[str, str])`——`files` 为冲突文件清单，`hunks` 为每个冲突文件的**关键 hunk 摘要**（取
-    首个/最具代表性的冲突块，按字符数**截断**避免评论过长）。git 报「无冲突 / 命令不存在 / 非 0」或任何
-    异常 → 返回**空** `ConflictDiag`。
-  - `format_blocker(*, diag, step) -> str`：纯函数，把 `ConflictDiag` 渲成「卡在哪」段 markdown
-    （冲突文件清单 + 关键 hunk 摘要 + `step` 描述「卡在哪一步」）；`diag` 为空 → 返回泛化兜底文案
-    （等价今天 `CONFLICT_COMMENT` 的语义），使下游无需自己判空。
-  - `make_diagnoser(*, work_dir, base) -> Callable[..., str]`：IO 工厂（与 `conflict.make_resolver`
-    同构），返回 `diagnose(*, pr_number) -> str` 闭包——取 PR head 分支、`git fetch` base/head、调
-    `collect` + `format_blocker`，整体 best-effort（任何环节失败 → 返回空诊断对应的兜底文案）。供
-    `rebase_open_prs` 注入；`work_dir` 缺省时调用方传 `None`、下游退回静态文案。
-- 把「冲突诊断长什么样 + 怎么算」收敛进一个可单测纯模块；`messages` / `rebase` 只调它、不混入 git 细节。
+- Pure/injectable, with three responsibilities, all of which **degrade safely** (swallow any exception as an “empty diagnosis”; never propagate it):
+  - `collect(*, base, head, run) -> ConflictDiag`: use the injected `run` (which wraps `git` by default) to run
+    `merge-tree --write-tree origin/<base> origin/<head>` and parse the output into `ConflictDiag(files: list[str],
+    hunks: dict[str, str])`—`files` is the list of conflicting files, and `hunks` contains a **key hunk summary** for each conflicting file (take
+    the first/most representative conflict block and **truncate** it by character count to keep comments from becoming too long). If git reports “no conflicts / command not found / nonzero exit status,” or any
+    exception occurs → return an **empty** `ConflictDiag`.
+  - `format_blocker(*, diag, step) -> str`: a pure function that renders `ConflictDiag` as a “where it is blocked” Markdown section
+    (list of conflicting files + key hunk summaries + `step` describing “which step is blocked”); if `diag` is empty → return generic fallback text
+    (equivalent in meaning to today's `CONFLICT_COMMENT`), so downstream callers do not need to check for emptiness themselves.
+  - `make_diagnoser(*, work_dir, base) -> Callable[..., str]`: an IO factory (structured like `conflict.make_resolver`)
+    that returns a `diagnose(*, pr_number) -> str` closure—retrieve the PR's head branch, `git fetch` base/head, and call
+    `collect` + `format_blocker`, on an overall best-effort basis (failure at any stage → return the fallback text for an empty diagnosis). For injection into
+    `rebase_open_prs`; when `work_dir` is unavailable, the caller passes `None`, and downstream code falls back to static text.
+- Consolidate “what conflict diagnostics look like + how they are computed” into one pure module that can be unit-tested; `messages` / `rebase` only call it, without incorporating git details.
 
-### 改动点（按文件 / Task）
+### Changes (by file / Task)
 
-**`openagents/rebase.py`（T2）**：
-- `rebase_open_prs` 新增可选形参 `diagnose: Callable[..., str] | None = None`（与既有 `heal` /
-  `resolve` 注入同构，保持无状态：rebase 不持有 work_dir，诊断能力由 messages/CLI 透传）。
-- 冲突回落分支（`heal`/`resolve` 都没命中后）：
-  - **重发收敛**：先 `github.has_label(pr_number=pr.number, name=github.BLOCKED_LABEL)`——已
-    `needs-human`（人已介入、#89 读侧在管）→ **跳过留言**，记一个区分用的结果分类（如
-    `RESULT_CONFLICT_SUPPRESSED`，供日志/测试断言），继续下一个 PR。
-  - 否则留言：正文取 `diagnose(pr_number=pr.number)`（注入了诊断器）带诊断；`diagnose is None` 或返回
-    兜底文案时退回静态 `CONFLICT_COMMENT`。仍 `identity.post_signed_comment` 盖签名（含义不变：盖签名
-    使 #89 读侧按签名把它当机器评论滤掉，不会误触发解挂）、记 `RESULT_CONFLICT`。
-- `CONFLICT_COMMENT` 常量**保留**为「空诊断兜底文案」，不删（向后兼容 + 手动 sync-prs 无 work_dir 路径）。
+**`openagents/rebase.py` (T2)**:
+- Add the optional parameter `diagnose: Callable[..., str] | None = None` to `rebase_open_prs` (structured like the existing `heal` /
+  `resolve` injection, preserving statelessness: rebase does not hold work_dir; messages/CLI pass the diagnostic capability through).
+- In the conflict fallback branch (after neither `heal` nor `resolve` succeeds):
+  - **Suppress repeated posting**: first call `github.has_label(pr_number=pr.number, name=github.BLOCKED_LABEL)`—if already
+    `needs-human` (a human has intervened, and the #89 read side is handling it) → **skip the comment**, record a distinct result category (such as
+    `RESULT_CONFLICT_SUPPRESSED`, for logs/test assertions), and continue to the next PR.
+  - Otherwise, post a comment: use `diagnose(pr_number=pr.number)` for the body (when a diagnoser is injected) to include diagnostics; if `diagnose is None` or it returns
+    fallback text, fall back to the static `CONFLICT_COMMENT`. Continue signing via `identity.post_signed_comment` (the meaning is unchanged: signing
+    lets the #89 read side filter it out as a machine comment based on the signature, so it does not accidentally trigger unblocking), and record `RESULT_CONFLICT`.
+- **Retain** the `CONFLICT_COMMENT` constant as the “empty-diagnosis fallback text”; do not delete it (backward compatibility + the manual sync-prs path without work_dir).
 
-**`openagents/messages.py`（T3，整合）**：
-- 新增 `_make_diagnoser() -> Callable[..., str] | None`（镜像既有 `_make_resolver`：`work_dir` /
-  `base` 齐备才返回 `conflictdiag.make_diagnoser(...)`，否则 `None`）。
-- 新增小私有助手 `_conflict_blocker(*, pr_number) -> str`：有诊断器就调它产出带诊断的「卡在哪」正文，
-  否则退回 `rebase.CONFLICT_COMMENT`——供 merge 闸三处 `_block` 统一取 `blocker`。
-- merge 闸三处 `_block(gate="merge", blocker=rebase.CONFLICT_COMMENT)` 改为
-  `blocker=self._conflict_blocker(pr_number=pr_number)`：`_process_coding` 首次发现冲突、
-  `_process_armed_conflict` 无后端、`_process_armed_conflict` 达上限。
-- 合并扇出调用 `rebase.rebase_open_prs(...)` 处补传 `diagnose=self._make_diagnoser()`（让扇出冲突评论
-  带诊断 + 触发 T2 的重发收敛）。`_block` 自身的评论/标签/水位线次序与语义（含 #89 的 watermark 落盘）
-  **完全不变**——本组只换 `blocker` 的内容来源。
+**`openagents/messages.py` (T3, integration)**:
+- Add `_make_diagnoser() -> Callable[..., str] | None` (mirroring the existing `_make_resolver`: return `conflictdiag.make_diagnoser(...)` only when both `work_dir` /
+  `base` are available; otherwise return `None`).
+- Add a small private helper `_conflict_blocker(*, pr_number) -> str`: if a diagnoser is available, call it to produce the “where it is blocked” body with diagnostics;
+  otherwise fall back to `rebase.CONFLICT_COMMENT`—provide a uniform source of `blocker` for the three `_block` calls at the merge gate.
+- Change the three merge-gate calls to `_block(gate="merge", blocker=rebase.CONFLICT_COMMENT)` to use
+  `blocker=self._conflict_blocker(pr_number=pr_number)`: when `_process_coding` first detects a conflict,
+  when `_process_armed_conflict` has no backend, and when `_process_armed_conflict` reaches its limit.
+- Pass `diagnose=self._make_diagnoser()` at the merge fan-out call to `rebase.rebase_open_prs(...)` (so fan-out conflict comments
+  include diagnostics + trigger T2's repeated-post suppression). The order and semantics of `_block`'s own comments/labels/watermarks (including #89's watermark persistence)
+  remain **completely unchanged**—this group only changes the source of the `blocker` content.
 
-**e2e 脚本（T4）**：`scripts/e2e-spec-0034-conflict-diagnostics.sh`（hermetic，见下）。
+**e2e script (T4)**: `scripts/e2e-spec-0034-conflict-diagnostics.sh` (hermetic; see below).
 
-### DAG + 文件分配
+### DAG + file allocation
 
 ```mermaid
 graph TD
-  T1["T1 conflictdiag：merge-tree 诊断采集 + 格式化（新模块）"]
-  T2["T2 rebase：扇出冲突评论带诊断 + 已 needs-human 不重发"]
-  T3["T3 messages：merge 闸 blocker 带诊断 + 扇出注入诊断器"]
-  T4["T4 hermetic e2e 脚本"]
+  T1["T1 conflictdiag: merge-tree diagnostic collection + formatting (new module)"]
+  T2["T2 rebase: diagnostics in fan-out conflict comments + no reposting when already needs-human"]
+  T3["T3 messages: diagnostics in merge-gate blocker + diagnoser injection for fan-out"]
+  T4["T4 hermetic e2e script"]
   T1 --> T2
   T1 --> T3
   T2 --> T4
   T3 --> T4
 ```
 
-| Task | 标题 | files | 依赖 |
+| Task | Title | files | Dependencies |
 |---|---|---|---|
-| T1 | conflictdiag：`merge-tree` 诊断采集 + 格式化（新模块） | `openagents/conflictdiag.py`, `tests/test_conflictdiag.py` | — |
-| T2 | rebase：扇出冲突评论带诊断 + 已 `needs-human` 不重发 | `openagents/rebase.py`, `tests/test_rebase_conflict_diag.py` | T1 |
-| T3 | messages：merge 闸 `blocker` 带诊断 + 扇出注入诊断器 | `openagents/messages.py`, `tests/test_messages_conflict_diag.py` | T1 |
-| T4 | hermetic e2e 脚本（无网络、不触真实 LLM/gh/git 远端） | `scripts/e2e-spec-0034-conflict-diagnostics.sh` | T2, T3 |
+| T1 | conflictdiag: `merge-tree` diagnostic collection + formatting (new module) | `openagents/conflictdiag.py`, `tests/test_conflictdiag.py` | — |
+| T2 | rebase: diagnostics in fan-out conflict comments + no reposting when already `needs-human` | `openagents/rebase.py`, `tests/test_rebase_conflict_diag.py` | T1 |
+| T3 | messages: diagnostics in merge-gate `blocker` + diagnoser injection for fan-out | `openagents/messages.py`, `tests/test_messages_conflict_diag.py` | T1 |
+| T4 | Hermetic e2e script (no network, no real LLM/gh/git remotes) | `scripts/e2e-spec-0034-conflict-diagnostics.sh` | T2, T3 |
 
-`files` 同组互斥（单一 writer 所有权，理念 6）。T2、T3 互不依赖、可并行（分别改 rebase / messages 两个
-解耦通道，各带专属新测试文件，**不改既有 `tests/test_rebase*.py` / `tests/test_messages*.py`**，把跨
-并行 PR 的共享测试文件冲突面降到最小——本组谈的正是冲突通知，不该自己制造共享文件冲突）。
-`openagents/conflict.py`（worktree 解冲突）、`openagents/identity.py`（#89 读侧）、`openagents/state.py`、
-`openagents/blocknote.py`（#89 四段模板）**复用不改**——本组只补诊断字段与扇出收敛，不重写解冲突/读侧/
-评论模板能力（边界，理念 10 解耦）。
+The `files` allocations within this group are mutually exclusive (single-writer ownership, principle 6). T2 and T3 do not depend on each other and can run in parallel (they modify the two
+decoupled rebase / messages channels respectively, each with its own dedicated new test file, **without modifying existing `tests/test_rebase*.py` / `tests/test_messages*.py`**, minimizing
+the potential for shared-test-file conflicts across parallel PRs—this group is specifically about conflict notifications and should not itself create shared-file conflicts).
+`openagents/conflict.py` (worktree conflict resolution), `openagents/identity.py` (#89 read side), `openagents/state.py`,
+and `openagents/blocknote.py` (#89 four-section template) are **reused without modification**—this group only adds diagnostic fields and fan-out suppression; it does not rewrite conflict resolution/read-side/
+comment-template capabilities (boundary, principle 10: decoupling).
 
-**e2e 脚本路径**：`scripts/e2e-spec-0034-conflict-diagnostics.sh`（hermetic，两段：① `ruff check` +
-`ruff format --check` + `pytest -q` 离线确定性验证；② 用 fake `run`（喂固定的 `git merge-tree` 输出）
-+ fake `github.has_label` / `post_signed_comment` 闭环演练「冲突→采集诊断→带文件清单+hunk 摘要的评论；
-对已 needs-human 的 PR 扇出→跳过不重发；诊断为空→退回泛化文案」整条轨迹，全程不触网、不调真实 LLM、不
-碰真实 gh、不连真实 git 远端）。
+**e2e script path**: `scripts/e2e-spec-0034-conflict-diagnostics.sh` (hermetic, in two parts: ① `ruff check` +
+`ruff format --check` + `pytest -q` for offline, deterministic verification; ② use a fake `run` (fed fixed `git merge-tree` output)
++ fake `github.has_label` / `post_signed_comment` to exercise the complete flow of “conflict → collect diagnostics → comment with a file list + hunk summaries;
+fan-out to an already needs-human PR → skip without reposting; empty diagnosis → fall back to generic text,” without any network access, real LLM calls,
+real gh use, or connections to real git remotes).
 
-每层新代码注释按代码注释规范标注本组 spec id（`Spec-0034/Tn`）。
+Comments in new code at each layer must include this group's spec ID (`Spec-0034/Tn`) in accordance with the code-comment conventions.
 
-### 防自循环 / 安全不变式
+### Self-loop prevention / safety invariants
 
-- **不重新引入读侧风险**：本组**不读评论**，只**写**通知；A 的残留靠「扇出对 `needs-human` PR 闭嘴」
-  解决，把对话权交回 #89 已审过安全边界的 blocked 读侧（仅 block 之后 + 仅无签名人类）。无新自循环面。
-- **诊断绝不致挂起/扇出失败**：`collect` / `make_diagnoser` 全程吞异常返回空诊断 → 兜底文案，最坏退化
-  为今天行为；通知本身的标签/状态/水位线副作用一律不受诊断成败影响。
-- **签名语义不变**：扇出与挂起评论仍盖本实例签名，#89 读侧按签名滤掉机器评论，不会把诊断评论误当人类
-  解挂信号。
+- **Do not reintroduce read-side risks**: this group **does not read comments**; it only **writes** notifications. The remaining issue in A is
+  addressed by “keeping fan-out silent for `needs-human` PRs,” returning control of the conversation to #89's blocked read side, whose safety boundaries have already been reviewed (only after blocking + only unsigned human comments). No new self-loop exposure.
+- **Diagnostics must never cause blocking/fan-out to fail**: `collect` / `make_diagnoser` swallow exceptions throughout and return an empty diagnosis → fallback text; at worst, behavior degrades
+  to today's behavior. The notification's own label/state/watermark side effects must remain unaffected by diagnostic success or failure.
+- **Signature semantics remain unchanged**: fan-out and blocking comments still carry this instance's signature; the #89 read side filters out machine comments based on the signature and will not mistake a diagnostic comment for a human
+  unblocking signal.
 
 ## Drawbacks
 
-- **依赖 git 2.38+ 的 `merge-tree --write-tree`**：更老的 git 拿不到诊断。缓解：安全降级到今天的泛化
-  文案（功能不回退、只是少了诊断）；CI/运行环境普遍已满足。列入 Unresolved 供按部署环境核定。
-- **多一次 git 往返**：挂起/扇出时多一次 `fetch` + `merge-tree`（只读、不动工作区，比建 worktree 轻）。
-  缓解：仅在**确已冲突**的 PR 上触发（非每轮每 PR）；失败即兜底，不重试空转。
-- **「关键 hunk 摘要」可能截断信息**：为控评论长度只取代表性冲突块并截断，复杂冲突看不全。缓解：清单
-  列全部冲突文件，hunk 仅作「一眼定位」用；人可据清单本地 `git diff` 看全。截断阈值列入 Unresolved。
-- **扇出对 `needs-human` PR 完全静默**：若该 PR 的 base 在人介入期间又变（新冲突），扇出不再提示。缓解：
-  人介入期间对话由 #89 读侧承载，PR 解挂回到流转后下一轮预检会重新发现并带诊断挂起；最坏延迟一轮，不丢
-  状态。是否应「刷新/更新已有诊断评论」而非完全静默，列入 Unresolved。
+- **Depends on `merge-tree --write-tree` from git 2.38+**: older git versions cannot provide diagnostics. Mitigation: degrade safely to today's generic
+  text (no functional regression, only missing diagnostics); CI/runtime environments generally already meet this requirement. Include in Unresolved for verification against deployment environments.
+- **One additional git round trip**: blocking/fan-out adds a `fetch` + `merge-tree` (read-only, without touching the working directory, lighter than creating a worktree).
+  Mitigation: trigger only for PRs that **are confirmed to have conflicts** (not every PR on every iteration); fall back immediately on failure, without pointless retries.
+- **“Key hunk summaries” may truncate information**: to control comment length, take only representative conflict blocks and truncate them, so complex conflicts cannot be seen in full. Mitigation: the list
+  includes all conflicting files, while hunks serve only to “locate the problem at a glance”; humans can use the list to inspect the full local `git diff`. Include the truncation threshold in Unresolved.
+- **Fan-out is completely silent for `needs-human` PRs**: if such a PR's base changes again while a human is intervening (new conflicts), fan-out provides no further notification. Mitigation:
+  during human intervention, the #89 read side handles the conversation; after the PR is unblocked and resumes processing, the next preflight check will rediscover the conflict and block it with diagnostics. At worst, there is a one-iteration delay, with no
+  loss of state. Whether to “refresh/update the existing diagnostic comment” instead of remaining completely silent is included in Unresolved.
 
 ## Rationale and alternatives
 
-**为何用 `git merge-tree --write-tree` 而非复用 `conflict.py` 的 worktree 路径**：`conflict._conflicted`
-要先建 detached worktree + `git merge`，成本高且为「解冲突」而设；诊断只需**读**冲突、不需工作区。
-`merge-tree --write-tree` 不 checkout 即得冲突文件清单 + 内容，廉价且无副作用，正合诊断用途。**备选**：
-扩展 `conflict.resolve_branch` 让它在失败时**返回**冲突诊断（而非 bool）。否决——会改动已稳定的解冲突
-契约（`resolve` 回调 `(*, pr_number) -> bool` 被 `rebase_open_prs` 依赖）、把「解冲突」与「诊断」两个
-关注点耦死，且诊断只在「跑过 resolve」时才有（merge 闸首次预检挂起、手动 sync-prs 都没跑 resolve）。
-独立 `conflictdiag` 模块两个场景都能用，解耦更干净（理念 10）。
+**Why use `git merge-tree --write-tree` instead of reusing the worktree path in `conflict.py`**: `conflict._conflicted`
+requires creating a detached worktree + running `git merge` first, which is expensive and designed for “conflict resolution”; diagnostics only need to **read** conflicts, without a working directory.
+`merge-tree --write-tree` obtains the conflicting-file list + content without a checkout; it is inexpensive and has no side effects, making it well suited to diagnostics. **Alternative**:
+extend `conflict.resolve_branch` to **return** conflict diagnostics on failure (instead of bool). Rejected—it would change the stable conflict-resolution
+contract (the `resolve` callback `(*, pr_number) -> bool` is relied on by `rebase_open_prs`), tightly couple the two
+concerns of “conflict resolution” and “diagnostics,” and make diagnostics available only “after resolve has run” (neither blocking at the merge gate's first preflight check nor manual sync-prs runs resolve).
+An independent `conflictdiag` module can serve both scenarios, with cleaner decoupling (principle 10).
 
-**为何 A 的残留用「扇出对 needs-human PR 闭嘴」而非「再加一条读侧」**：issue #89（Spec-0032，已合入）
-已把 blocked 读侧复活并审过安全边界（仅 block 之后 + 仅无签名人类，防自循环）。案例里反复重发的根因**不是
-「没有读侧」**，而是**「无状态扇出通道绕过了读侧、对已被接管的 PR 机械重发」**。最小且对齐 #89 的修法是
-让扇出感知 `needs-human` 标签即收手，把对话权交回读侧——而非再造一条平行读侧（会与 #89 重复、重新打开
-RFC-0019 自循环面）。**备选**：在扇出里也接 `new_human_comments` 做读侧响应。否决——重复 #89、扩大读侧
-作用面、违背理念 1（如无必要勿增实体）。
+**Why address the remaining issue in A by “keeping fan-out silent for needs-human PRs” instead of “adding another read side”**: issue #89 (Spec-0032, already merged)
+has already restored the blocked read side and reviewed its safety boundaries (only after blocking + only unsigned human comments, to prevent self-loops). The root cause of repeated reposting in the example is **not
+“the absence of a read side”**, but **“the stateless fan-out channel bypassing the read side and mechanically reposting to PRs that have already been taken over.”** The smallest fix aligned with #89 is
+to have fan-out stop when it detects the `needs-human` label and return control of the conversation to the read side—instead of creating a parallel read side (which would duplicate #89 and reopen
+RFC-0019's self-loop exposure). **Alternative**: also connect `new_human_comments` within fan-out to handle read-side responses. Rejected—it duplicates #89, broadens the read side's
+scope, and violates principle 1 (do not add entities unless necessary).
 
-**为何保留 `rebase.CONFLICT_COMMENT` 常量而非删除**：它退化为「空诊断兜底文案」，被诊断降级路径与无
-work_dir 的手动 `sync-prs` 复用；删了反而要在多处重写兜底串。保留 = 最小改动 + 向后兼容（理念 1）。
+**Why retain the `rebase.CONFLICT_COMMENT` constant instead of deleting it**: it becomes the “empty-diagnosis fallback text,” reused by the diagnostic degradation path and manual
+`sync-prs` without work_dir; deleting it would instead require rewriting fallback strings in multiple places. Keeping it = minimal change + backward compatibility (principle 1).
 
-**为何把诊断器以 `diagnose` 注入 `rebase_open_prs` 而非让 rebase 自己持有 work_dir**：`rebase.py` 是
-RFC-0009 刻意设计的**无状态**扇出模块（不读 state、不持 work_dir，便于被 poll 与手动 `sync-prs` 同时
-复用）。沿用既有 `heal` / `resolve` 的注入风格，由 messages/CLI 透传诊断能力，既保无状态又复用注入骨架。
+**Why inject the diagnoser into `rebase_open_prs` as `diagnose` instead of having rebase hold work_dir itself**: `rebase.py` is
+a **stateless** fan-out module deliberately designed in RFC-0009 (it does not read state or hold work_dir, making it easy for both poll and manual `sync-prs` to
+reuse). Following the existing `heal` / `resolve` injection style, messages/CLI pass the diagnostic capability through, preserving statelessness while reusing the injection structure.
+
 
 ## Prior art
 
-- **issue #89 / Spec-0032（needs-human 评论闭环）**：本组的**直接上游与边界**。#89 复活了 blocked 读侧
-  （`identity.new_human_comments` 按签名 + 水位线只读「block 之后的无签名人类评论」→ 自动摘 `needs-human`
-  + 把评论当 detail 喂给对应闸 agent）并统一了**结构化挂起评论**（`blocknote.build` 的四段模板，merge
-  闸 `blocker` 即「卡在哪」段）。本组**复用** `blocknote` 模板与 `_block` 流程，只把 merge 闸的 `blocker`
-  从静态串换成诊断；并堵上 #89 未覆盖的**无状态扇出重发**。二者正交、可独立合入。
-- **RFC-0009 `rebase_open_prs` 扇出**：本组沿用其无状态 + `heal`/`resolve` 注入骨架，新增 `diagnose`
-  注入与 `needs-human` 收敛，保持「错误隔离、单 PR 失败不拖垮整轮」的风格。
-- **Spec-0028 `conflict.py` 语义解冲突**：本组诊断与其解冲突正交——它**解**冲突（worktree + agent），
-  本组**说清**冲突（worktree-free merge-tree）；`_conflicted` 的 `--diff-filter=U` 思路印证「本地可定位
-  冲突文件」可行，本组改用更轻的 merge-tree。
-- **RFC-0011 / RFC-0019 评论签名与读侧冻结**：本组复用 `post_signed_comment`（盖签名）；不解冻读侧
-  （读侧由 #89 在安全子集内承担），A 残留用「扇出感知标签收手」绕开读侧，无自循环回归。
-- **git `merge-tree --write-tree`**（https://git-scm.com/docs/git-merge-tree，git 2.38+「Cleanly merging
-  / conflict reporting」）：worktree-free 计算合并结果与冲突的官方机制——诊断采集的技术来源。
-- **rust-lang/rfcs**（https://github.com/rust-lang/rfcs）：9 段总览形态来源。
+- **issue #89 / Spec-0032 (`needs-human` comment feedback loop)**: The **direct predecessor and scope boundary** for this work. #89 restored the blocked read side
+  (`identity.new_human_comments` uses signatures + a watermark to read only “unsigned human comments posted after blocking” → automatically removes `needs-human`
+  + feeds the comments as detail to the corresponding gate agent) and standardized **structured suspension comments** (the four-part template in `blocknote.build`; the merge
+  gate's `blocker` is the “where it is stuck” section). This work **reuses** the `blocknote` template and `_block` flow, replacing only the merge gate's `blocker`
+  static string with diagnostics; it also closes the gap of **repeated sends from stateless fan-out**, which #89 did not cover. The two are orthogonal and can be merged independently.
+- **RFC-0009 `rebase_open_prs` fan-out**: This work retains its stateless skeleton with `heal`/`resolve` injection, adds `diagnose`
+  injection and convergence on `needs-human`, and preserves the approach of “isolating errors so that a single PR failure does not bring down the entire round.”
+- **Spec-0028 `conflict.py` semantic conflict resolution**: This work's diagnostics are orthogonal to its conflict resolution—it **resolves** conflicts (worktree + agent),
+  while this work **explains** conflicts (worktree-free merge-tree); the `--diff-filter=U` approach in `_conflicted` confirms that “locally identifying
+  conflicted files” is feasible. This work uses the lighter merge-tree instead.
+- **RFC-0011 / RFC-0019 comment signatures and read-side freeze**: This work reuses `post_signed_comment` (to apply signatures); it does not unfreeze the read side
+  (#89 handles the read side within a safe subset). The remaining issue A bypasses the read side by “making fan-out aware of labels so it stops,” without reintroducing self-loops.
+- **git `merge-tree --write-tree`** (https://git-scm.com/docs/git-merge-tree, git 2.38+ “Cleanly merging
+  / conflict reporting”): The official mechanism for computing merge results and conflicts without a worktree—the technical basis for collecting diagnostics.
+- **rust-lang/rfcs** (https://github.com/rust-lang/rfcs): The source of the nine-section overview structure.
 
 ## Unresolved questions
 
-- **`merge-tree --write-tree` 的最低 git 版本兜底**：目标运行/CI 环境是否都 ≥ 2.38？若需兼容更老 git，
-  是否提供基于临时 worktree `git merge` 的退化诊断采集（更重）作为第二降级层？初定**只做 merge-tree +
-  空诊断兜底**，待部署环境核定后再议。
-- **关键 hunk 摘要的截断阈值**：每文件取几个 hunk、每 hunk 截多少字符，才能「一眼定位」又不刷屏？初定
-  「每冲突文件取首个冲突块、整体诊断按一个保守字符上限截断」，留实跑校准。
-- **扇出对 `needs-human` PR 是否应「更新」而非「完全静默」**：当前完全跳过。是否应在 base 变化导致**新**
-  冲突时刷新已有诊断评论（而非沉默）？初定**完全静默**（最简、把对话权干净交给 #89 读侧），列此待实跑
-  观察是否漏报。
-- **诊断是否也喂给 #89 的解挂 detail / armed 解冲突器**：当前诊断只进**通知正文**；未来可把冲突文件清单
-  也透传给 #89 解挂路由或 `conflict.resolve` 的 agent 任务，让解冲突 agent 少算一遍。本组不做，列为协同点。
+- **Fallback for the minimum git version required by `merge-tree --write-tree`**: Do all target runtime/CI environments have git ≥ 2.38? If older git versions must be supported,
+  should degraded diagnostic collection based on `git merge` in a temporary worktree (which is heavier) be provided as a second fallback layer? The initial decision is to **use only merge-tree +
+  an empty-diagnostics fallback**, and revisit this once the deployment environments are confirmed.
+- **Truncation thresholds for key hunk summaries**: How many hunks per file and how many characters per hunk allow readers to “locate the problem at a glance” without flooding the screen? The initial decision is
+  “take the first conflict block from each conflicted file and truncate the overall diagnostics at a conservative character limit,” with calibration left to actual runs.
+- **Whether fan-out should “update” `needs-human` PRs rather than “remain completely silent”**: Currently, it skips them entirely. Should it refresh the existing diagnostic comment when base changes cause **new**
+  conflicts, rather than remain silent? The initial decision is to **remain completely silent** (the simplest approach, cleanly handing control of the conversation to #89's read side). This is listed here so actual runs
+  can reveal whether any conflicts go unreported.
+- **Whether diagnostics should also be fed into #89's detail for resuming suspended work / the armed conflict resolver**: Currently, diagnostics appear only in the **notification body**; in the future, the list of conflicted files
+  could also be passed through to #89's routing for resuming suspended work or to the agent task in `conflict.resolve`, saving the conflict resolution agent from computing it again. This work does not do so; it is listed as a coordination point.
 
 ## Future possibilities
 
-- **诊断升级为「gate 通用」**：当前只做 merge 冲突诊断；同一 `conflictdiag` 思路可扩展到 CI 失败
-  （失败 job + 关键日志摘要）、reviewer 无法解析（裁决原文摘要）等其它 gate 的「卡在哪」段，让所有
-  `needs-human` 通知都可定位。
-- **诊断汇入成果看板**：把「冲突文件清单 / 卡在哪一步 / 已等待时长」结构化进看板，让人按「待处置 PR +
-  具体卡点」一屏纵览（理念 2 人负责宏观把控）。
-- **与 #84 / Spec-0031 armed 解冲突协同**：把本组诊断（冲突文件清单 + hunk）透传给 armed 解冲突器，
-  缩短其「先自己探一遍冲突」的开销，并在解冲突 agent 的任务里直接附上人对该冲突的评论指导。
-
+- **Extend diagnostics to be “gate-generic”**: Currently, only merge conflict diagnostics are covered; the same `conflictdiag` approach could extend to the “where it is stuck” sections of other gates, such as CI failures
+  (failed job + key log summary) and reviewer output that cannot be parsed (summary of the original verdict), so that all
+  `needs-human` notifications identify the problem.
+- **Integrate diagnostics into the results dashboard**: Structure “conflicted file list / step where it is stuck / time spent waiting” in the dashboard, giving people a single-screen overview of “PRs awaiting action +
+  specific blockers” (Principle 2: humans are responsible for high-level oversight).
+- **Coordinate with #84 / Spec-0031 armed conflict resolution**: Pass this work's diagnostics (conflicted file list + hunks) through to the armed conflict resolver,
+  reducing the overhead of “first investigating the conflicts itself,” and directly include human comments guiding resolution of the conflict in the conflict resolution agent's task.

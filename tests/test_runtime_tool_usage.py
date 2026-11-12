@@ -55,12 +55,12 @@ def test_record_keeps_bounded_reason_only_when_budget_is_exceeded(tmp_path) -> N
         work_dir=tmp_path,
         role="implementer",
         tool_names=("Read",) * 7 + ("Edit",),
-        lookup_exception_reason="缺少运行时接口定义" * 100,
+        lookup_exception_reason="Lack of running-time interface definition" * 100,
     )
     event = json.loads(
         (tmp_path / ".openagents" / tool_usage.TOOL_USAGE_FILENAME).read_text(encoding="utf-8")
     )
-    assert event["lookup_exception_reason"].startswith("缺少运行时接口定义")
+    assert event["lookup_exception_reason"].startswith("Lack of running-time interface definition")
     assert len(event["lookup_exception_reason"]) == 400
 
     other = tmp_path / "other"
@@ -68,7 +68,7 @@ def test_record_keeps_bounded_reason_only_when_budget_is_exceeded(tmp_path) -> N
         work_dir=other,
         role="implementer",
         tool_names=("Read", "Edit"),
-        lookup_exception_reason="不应保存",
+        lookup_exception_reason="Should Not Save",
     )
     below_budget = json.loads(
         (other / ".openagents" / tool_usage.TOOL_USAGE_FILENAME).read_text(encoding="utf-8")

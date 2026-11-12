@@ -1,8 +1,8 @@
-"""Spec-0017/T3: merger agent 提示词契约单测（零逻辑 Template，不触真实 gh/LLM）。
+"""Spec-0017/T3: Memer ant-word contract single (zero logic Template, untouched for real gh/LLM).
 
-merger 只在确定性硬闸 `gates.assert_merge_allowed` 放行后被派上来落合并动作，带 needs-human 一等出口。
-Spec-0074/T1：平台命令参数化——提示词不再硬编码 gh，$merge_command/$verify_command 由 stages.merge
-按当前 forge 注入。
+The merger was sent up and down to merge after the release of the sexual hard-hand gate `gates.assert_merge_allowed`, with a first-class exit of needs-human.
+Spec-0074/T1: Argumentation of Platform Commands - no more hard-coding of hints gh, $merge_command/ $verify_command by stages.merge
+Press current forge injection.
 """
 
 from __future__ import annotations
@@ -24,22 +24,22 @@ def test_prompt_is_template_and_substitutes():
 
 
 def test_prompt_parametrizes_platform_commands():
-    # Spec-0074/T1: 落合并/验证动作按注入的平台命令执行（github=gh 原命令，gitea=openagents merge-pr）。
+    # Spec-0074/T1: Drop consolidation/validation action by the injection Platform command (github=gh original command, gitea=openagents merge-pr).
     text = merger.PROMPT.substitute(**_KW)
     assert "gh pr merge 42 --merge" in text
     assert "gh pr view 42 --json state" in text
 
 
 def test_prompt_has_no_hardcoded_gh():
-    # Spec-0074/T1: 模板本体不再含 gh 字面量——平台命令只经占位符进来。
+    # Spec-0074/T1: Templates are no longer gh-text-based - Platform commands are only entered by placeholders.
     assert "gh pr merge" not in merger.PROMPT.template
     assert "gh pr view" not in merger.PROMPT.template
 
 
 def test_prompt_reports_failure_in_role_schema():
     text = merger.PROMPT.substitute(**_KW)
-    assert '"merged": false' in text
-    assert "不要自行修改 forge 标签" in text
+    assert '"merged":false' in text
+    assert "change forge labels" in text
 
 
 def test_output_schema_is_merged_and_summary():

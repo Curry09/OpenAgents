@@ -1,18 +1,5 @@
-"""# Spec-0060/T1: utils.git —— 新栈的确定性 git 稳定 import 面。
-
-给新栈（runtime.gates 硬闸 / runtime.context / recipes）一个**只懂 git、不含业务判断**的
-稳定 import 面：
-
-- worktree 生命周期原语（`Workspace` / `WorkspaceError`）——薄再导出现有 `workspace.py`，
-  **不复制、不改动其任何一行**（奥卡姆，理念 1）。worktree 建/拉/清是 agent 无法自建沙箱的
-  **编排** git，仍归 workspace.py；本模块只做稳定再导出，把「搬迁」留后续批次。
-- 只读原语 `head_sha` / `porcelain`——新栈硬闸（head 前移断言）与上下文所需，旧 `workspace.py`
-  未公开暴露，故在此以**最薄 subprocess 封装**提供，语义与 `workspace._git` 一致（`git -C <dir>`、
-  capture、strip）。这是新栈唯一新增的确定性 git 读原语，非复制旧代码。
-
-本模块允许直接调 subprocess（它属 utils 确定性层，正是 git/gh 机械操作的归口）；agents/recipes
-则严禁——判断下放 agent、客观机械留确定性代码，是本重构的分界线。
-"""
+# Spec-0060/T1
+"""Provide deterministic Git operations shared by the runtime and recipes."""
 
 from __future__ import annotations
 
@@ -20,11 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Spec-0060/T1: 薄再导出 worktree 生命周期原语（不改 workspace.py 任何一行）。
+# Spec-0060/T1: Thin reexports the original language of the worktree life cycle (without changing any line of workspace.py).
 from openagents.utils.workspace import Workspace, WorkspaceError
 
-# Spec-0035/T1: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
-# 不抽成三模块共享常量：git.py 已 import workspace.py，反向 import 成循环依赖（见 spec Rationale 备选 1）。
+# Spec-0035/T1: The number of hours of time-out seconds for the sub-process network (coordinate github._GH_TIMEOUT_SECONDS = 30; only triggered when the real card is stuck).
+# No three module sharing constants: git.py has import workspace.py, and Import is revolving dependent (see spec Rationale option 1).
 _GIT_NET_TIMEOUT_SECONDS = 30
 
 __all__ = [
@@ -38,37 +25,37 @@ __all__ = [
 
 
 def head_sha(*, work_dir: Path) -> str:
-    """当前 HEAD 的完整 SHA（`git rev-parse HEAD`）；无提交/失败返回空串。
+    """Current full SHA (`git rev-parse HEAD`); no submitted/ failed to return empty string.
 
-    新栈硬闸 `gates.assert_head_advanced` 与证据溯源戳据此读客观事实——head 到底是哪个 commit，
-    是「有没有真交付」这类客观判断的唯一事实源，不含任何业务判断。
+    The new gate `gates.assert_head_advanced` and the evidence trace to the objective fact that the head is the one that is coming together, and the evidence is coming back to us.
+    It is the only source of objective judgement, such as ”if there is a real delivery”, and does not contain any operational judgement.
     """
     result = _git(args=["rev-parse", "HEAD"], cwd=Path(work_dir))
     return result.stdout.strip()
 
 
 def porcelain(*, work_dir: Path) -> str:
-    """工作区改动的 porcelain 摘要（`git status --porcelain`）；干净工作区返回空串。
+    """PV: Porcelain digest (`git status --porcelain`) of the change of the workspace; clean workspace returns empty string.
 
-    与 backend（claude_code）判定「本轮是否产生改动」同一 git 事实面；供上下文/诊断读取。
+    The same guit face as the backend (claude_code) determines whether the ”conformity of this round” is to be found; read in context/diagnostic.
     """
     result = _git(args=["status", "--porcelain"], cwd=Path(work_dir))
     return result.stdout.strip()
 
 
-# Spec-0061/T1: 只读远端分支存在性探针——新栈 vigil recipe 的确定性去重闸（分支已存在=已在飞行中）
-# 所需，旧 workspace.py 的同名方法绑在 Workspace 实例上，此处以最薄封装提供免实例的自由函数。
+# Spec-0061/T1: Existence probe for remote-only branches - Sinoval vigil recide certainty to the heavy gate (subsection already exists = already in flight)
+# Required, the same name method for the old workspace.py is tied to the case of Workspace, where free functions are provided in the thinest envelope.
 def remote_branch_exists(*, work_dir: Path, branch: str) -> bool:
-    """远端是否已有该分支（`git ls-remote --heads origin <branch>` 有输出即存在）。
+    """Whether the branch (`git ls-remote --heads origin <branch>` has output exists at a remote end).
 
-    vigil recipe 派单前的去重闸：远端分支已存在说明该 issue 已被某后端认领在飞行中，
-    recipe 据此跳过、不重复派单。纯读客观事实（远端 ref），不含业务判断。
+    The main reason for the delay is that the remote branch already exists, indicating that the issue has been claimed by a back end in flight, and that the issue of the identity is not being considered by the authorities.
+    Recide skips, does not repeat, accordingly. Read objective facts (ref) purely, excluding business judgement.
 
-    # Spec-0035/T1: ls-remote 走网络，可能被半开 socket 挂死。跑前打一行 stderr 面包屑（卡住时输出停在
-    # 这行、一眼定位），超时按 fail-open 保守返回 True（视作「可能在途」→ 本轮跳过、下轮重试）——绝不
-    # 误判「无分支」而重复派单（两种误判代价不对称，见 spec fail-open 矩阵）。
+    # Spec-0035/T1: ls-remote walks the network and is likely to be half-open socket. Play a line of stderr bread crumbs before running. Output stops when stuck
+    # This line, one-stop-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go-go--go-go-go-go-go-go-go-go--------go-go-go-go-go--go---------------------------go-go-go-----go-------------------------------
+    # Misjudgement of ”no branch” and repetition of the list (for two miscalculations, see spec fail-open matrix).
     """
-    print(f"… issue 查远端分支去重（{branch}）…", file=sys.stderr, flush=True)
+    print(f"...Checking whether the remote branch exists: {branch}…", file=sys.stderr, flush=True)
     try:
         result = _git(args=["ls-remote", "--heads", "origin", branch], cwd=Path(work_dir))
     except subprocess.TimeoutExpired:
@@ -77,13 +64,13 @@ def remote_branch_exists(*, work_dir: Path, branch: str) -> bool:
 
 
 def seed_branch(*, work_dir: Path, branch: str, message: str) -> None:
-    """Spec-0074 实证修复：落一个空 seed commit 并推送分支——`rfc: skip` 时开 PR 的前置。
+    """Spec-0074 empirical restoration: a empty lid committee and a prefix to a PR when `rfc: skip` is pushed.
 
-    `rfc: agent` 态「首个 commit + push 分支」由 drafter 的交付协议完成；skip 态没人做这两件事，
-    远端没有 head 分支 → `create_pr` 404（生产实证）。此处以**确定性空提交**补位（`--allow-empty`：
-    不制造内容，只让远端有分支、PR 有锚点；显式 `-c` 身份，不依赖宿主全局 git 配置）。副带收益：
-    远端分支落地后进程重启也能经 `pr_for_branch` 重新感知（level-triggered 自愈成立）。
-    这是编排 git（框架动作，非 agent 判断），归本确定性层；失败抛 WorkspaceError 交调用方消化。
+    `rfc: agent` ”First group + Push Branch” was completed by Draffer; no one in Sskip did either of these things.
+    Not at the far end. head branch → `create_pr` 404(Property of production) Here**Uncertainty empty submission**Filling (%2)`--allow-empty`：
+    Do not manufacture content, only have branches and pr anchors at the far end; visible `-c` identity, not dependent on host-wide guit configurations. By-band gain:
+    The re-entry of the remote branch after landing can also be re-awakened by `pr_for_branch` (level-triggered self-rehabilitation).
+    This is the organization of the guit (framework action, non-agent judgement), the sub-set of certainty; failure to throw the WorkspaceError caller digests.
     """
     commit = _git(
         args=[
@@ -99,18 +86,18 @@ def seed_branch(*, work_dir: Path, branch: str, message: str) -> None:
         cwd=Path(work_dir),
     )
     if commit.returncode != 0:
-        raise WorkspaceError(f"seed commit 失败：{(commit.stderr or '').strip()[:200]}")
+        raise WorkspaceError(f"Seed commit failed: {(commit.stderr or '').strip()[:200]}")
     push = _git(args=["push", "-u", "origin", branch], cwd=Path(work_dir))
     if push.returncode != 0:
-        raise WorkspaceError(f"seed 分支推送失败：{(push.stderr or '').strip()[:200]}")
+        raise WorkspaceError(f"Seed branch push failed: {(push.stderr or '').strip()[:200]}")
 
 
 def _git(*, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    """在 cwd 内运行一条只读 git 子命令并捕获输出（与 workspace._git 同款调用形态）。
+    """Runs a read-only guit command and captures the output (in the same workspace._git mode as the ).
 
-    # Spec-0035/T1: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（ls-remote）卡满即中断抛
-    # TimeoutExpired，绝不无限 poll；本地 git（rev-parse/status）经同一 helper 只拿到一个永不触发的
-    # 无害时间上限。收敛到唯一 helper（issue 要求「避免逐点散设」）。
+    # Spec-0035/T1: Pass = _GIT_NET_TIMEOUT_SECONDS — Network git (ls-remote) full is aborted
+    # TimeoutExpired, never limit to the pol; local git (rev-parse/status) gets one unstarted by the same helper
+    # No harm in time limit. Consume to the only helper (issue) that requests ”avoid a break-up”
     """
     return subprocess.run(
         ["git", "-C", str(cwd), *args],

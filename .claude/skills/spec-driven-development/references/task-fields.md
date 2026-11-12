@@ -12,13 +12,12 @@ Authored via `spec new` / `spec add-task` or by editing the markdown directly, t
 ## Group-level overview (body — rust-RFC 9 sections)
 
 The feature's whole story lives here, **before** any task breakdown. Single spec must be
-self-contained: a reader understands it without opening any other spec. Reproduce, don't
-cross-reference — say "复述胜过一个引用". `spec new` scaffolds all 9 headings.
+self-contained: a reader understands it without opening any other spec. Restate essential context instead of relying on references. `spec new` scaffolds all 9 headings.
 
 | Section (`## heading`) | What goes in it |
 |---|---|
 | `Summary` | One paragraph: what this feature is. **(required)** |
-| `Motivation` | Current state + why change. Reproduce background in place — **no load-bearing「见 Spec-NNNN」refs**. **(required)** |
+| `Motivation` | Current state + why change. Reproduce background in place — **no essential facts hidden behind "See Spec-NNNN" references**. **(required)** |
 | `Guide-level explanation` | Teach it as if it already exists; examples. |
 | `Reference-level explanation` | Technical design **+ the DAG / file-allocation breakdown** (task table, mermaid), **+ the e2e script path** (`scripts/*.sh`, picked up by the PR signpost). **(required)** |
 | `Drawbacks` | Why we should *not* do this. |
@@ -28,7 +27,7 @@ cross-reference — say "复述胜过一个引用". `spec new` scaffolds all 9 h
 | `Future possibilities` | Natural follow-on evolution. |
 
 `spec validate` errors if any **required** section is empty, and warns on suspected bare
-cross-spec refs (`Spec-NNNN [决策 N] / Spec-NNNN/Tn`) inside the overview.
+cross-spec refs (`Spec-NNNN [Decision N] / Spec-NNNN/Tn`) inside the overview.
 
 ## Task fields (frontmatter — the work-breakdown row)
 
@@ -56,7 +55,7 @@ from the snapshot by `spec abandon` (history lives in git).
 | `depends-on` | list[str] | blocking deps; cross-group uses `NNNN/Tn`. Enters the global DAG (no cycles). |
 | `relates-to` | list[{ref,type}] | non-blocking links; `type` ∈ `extends` \| `supersedes` \| `note` |
 | `parallel` | bool | hint that this Task can run alongside siblings |
-| `files` | list[str] | exact files this Task owns. **Required + disjoint within a group.** This is the single-writer ownership declaration (理念 6) and the structured source for issue #71's runtime owner checks. |
+| `files` | list[str] | exact files this Task owns. **Required + disjoint within a group.** This is the single-writer ownership declaration and the structured source for issue #71's runtime owner checks. |
 
 ### Short prose (frontmatter, one line each)
 

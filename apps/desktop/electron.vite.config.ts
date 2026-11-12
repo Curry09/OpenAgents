@@ -1,5 +1,5 @@
-// Spec-0073/T3: electron-vite 三进程构建配置（main / preload / renderer）。
-// renderer 用 React 插件；vitest（Board/Detail/pending 单测）复用同一 React 变换、jsdom 环境。
+// Spec-0073/T3: Build the Electron main, preload, and renderer bundles.
+// Vitest uses the same React transform with jsdom.
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'

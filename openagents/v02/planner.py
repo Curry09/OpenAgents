@@ -16,11 +16,11 @@ def build_plan(*, nodes: Sequence[SpecNode], semantic_edges: Iterable[dict]) -> 
     """Build a stable DAG. Edge dictionaries use ``issue -> blocked_by`` direction."""
     by_number = {node.number: node for node in nodes}
     if len(by_number) != len(nodes):
-        raise PlanError("同一 issue 在 v0.2 DAG 中出现多次")
+        raise PlanError("The same issue appears more than once in the v0.2 DAG")
     blockers: dict[int, set[int]] = {number: set() for number in by_number}
     for raw in semantic_edges:
         if not isinstance(raw, dict):
-            raise PlanError(f"Curator edge 不是对象：{raw!r}")
+            raise PlanError(f"Curator edge is not an object: {raw!r}")
         issue = raw.get("issue")
         blocked_by = raw.get("blocked_by")
         if (
@@ -29,11 +29,11 @@ def build_plan(*, nodes: Sequence[SpecNode], semantic_edges: Iterable[dict]) -> 
             or isinstance(blocked_by, bool)
             or not isinstance(blocked_by, int)
         ):
-            raise PlanError(f"Curator edge 缺少整数 issue/blocked_by：{raw!r}") from None
+            raise PlanError(f"Curator edge lacks integer issue/blocked_by: {raw!r}") from None
         if issue not in by_number or blocked_by not in by_number:
-            raise PlanError(f"Curator edge 引用未知 issue：{issue} -> {blocked_by}")
+            raise PlanError(f"Curator edge references an unknown issue: {issue} -> {blocked_by}")
         if issue == blocked_by:
-            raise PlanError(f"Curator edge 自指：issue #{issue}")
+            raise PlanError(f"Curator edge points to itself: issue #{issue}")
         blockers[issue].add(blocked_by)
 
     _assert_acyclic(blockers=blockers)
@@ -81,7 +81,7 @@ def _topological_batches(*, blockers: dict[int, set[int]]) -> tuple[tuple[int, .
         ready = tuple(sorted(number for number in remaining if blockers[number] <= completed))
         if not ready:
             cycle = ", ".join(f"#{number}" for number in sorted(remaining))
-            raise PlanError(f"v0.2 DAG 存在环：{cycle}")
+            raise PlanError(f"v0.2 DAG contains a cycle: {cycle}")
         batches.append(ready)
         completed.update(ready)
         remaining.difference_update(ready)

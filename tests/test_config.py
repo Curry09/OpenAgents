@@ -1,7 +1,7 @@
-"""RFC-0001 T1: 项目绑定（决策 10）的契约测试。
+"""RFC-0001T1: Contract testing for project binding (decision 10).
 
-resolve_project: 以 cwd 解析 git root + origin 远端，非 git 仓库返回 None。
-ensure_project: preflight；非交互模式下缺 git/remote 抛 ProjectNotReady。
+resolve_project: Parsing git root + origin remote, non-git repository back to None.
+ensure_project: preflight; missing git/remote Throw Project NotReady in non-interactive mode.
 """
 
 import subprocess
@@ -91,24 +91,24 @@ def test_ensure_project_interactive_declines_git_init(tmp_path, monkeypatch):
 
 def test_ensure_project_interactive_git_init_then_declines_remote(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    answers = iter(["y", "n"])  # 同意 git init，拒绝新建远端
+    answers = iter(["y", "n"])  # Agree to git init, reject the creation of a new remote
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
 
     with pytest.raises(ProjectNotReady):
         ensure_project(interactive=True)
 
-    assert (tmp_path / ".git").exists()  # git init 确实执行了
+    assert (tmp_path / ".git").exists()  # It's done.
 
 
 def test_ensure_project_interactive_cold_start_writes_remote_origin(tmp_path, monkeypatch):
-    """Spec-0033/T2: 冷启动新建远端后，本地 git config 的 remote.origin.url 已写入。
+    """Spec-0033/T2: After the cold start of the new remote end, the local remote.origin.url of the guit config has been written.
 
-    stub 掉 github.create_repo（无网），驱动 ensure_project(interactive=True) 走完
-    git init → 新建远端分支，断言收尾时 _bootstrap 已执行 git remote add origin。
+    Stub drop github.create_repo (netless), drive ensure_project (interactive=True)
+    gint init  →  New remote branch, _bootstream is executed.
     """
     url = "https://github.com/acme/widget.git"
     monkeypatch.chdir(tmp_path)
-    # 同意 git init、同意新建远端、仓库名、设为私有
+    # Agree to the git init, agree to create a new remote, store name, and private
     answers = iter(["y", "y", "acme/widget", "y"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
     monkeypatch.setattr("openagents.utils.github.create_repo", lambda *, name, private: url)

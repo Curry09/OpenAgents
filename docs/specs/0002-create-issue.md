@@ -1,12 +1,12 @@
 ---
 number: "0002"
-title: OpenAgents 主动提 issue
+title: "OpenAgents proactively creates issues"
 issue: 0
 slug: create-issue
-summary: 让 OpenAgents 不只被动接 issue，还能主动给仓库提 issue。加 github 层 create_issue、CLI issue 子命令，并给自动发现的 issue 打上发现标签、确保标签存在。
+summary: "Enable OpenAgents to proactively create issues in the repository in addition to passively taking on issues. Add create_issue to the github layer and an issue subcommand to the CLI, and apply a discovery label to automatically discovered issues, ensuring that the label exists."
 tasks:
   - id: T1
-    title: github 层 create_issue
+    title: "github layer create_issue"
     status: done
     priority: P1
     tags:
@@ -18,10 +18,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github.py
-    scope: 在 openagents/github.py 增加 create_issue(*, title, body, labels)，调用 gh issue create、解析 issue number 返回 Issue；增加 _parse_issue_number 助手；并确保所需标签存在（ensure label，原 T3 的 github 部分，决策 6）。
-    acceptance: 单测覆盖——成功解析 number；带 labels 时命令含 --label；url 不可解析时抛 GithubError；gh 非零退出时抛 GithubError。
+    scope: "Add create_issue(*, title, body, labels) in openagents/github.py to call gh issue create, parse the issue number, and return an Issue; add a _parse_issue_number helper; and ensure that the required labels exist (ensure label, the github portion of the original T3, decision 6)."
+    acceptance: "Unit test coverage—successfully parsing the number; the command includes --label when labels are provided; raising GithubError when the url cannot be parsed; raising GithubError when gh exits with a nonzero status."
   - id: T2
-    title: CLI issue 子命令
+    title: "CLI issue subcommand"
     status: done
     priority: P1
     tags:
@@ -34,74 +34,73 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: 在 openagents/cli.py 注册 issue 子命令（positional title + --body + 可重复 --label），实现 _cmd_issue 走 preflight 并调用 github.create_issue，挂入 _dispatch handlers；并在 _cmd_issue 追加模块级 DISCOVERY_LABEL="openagents" 去重排序（原 T3 的 cli 部分，决策 5/6）。
-    acceptance: 单测覆盖——parser 注册了 issue；issue "T" --body B --label x --label y 正确透传给打桩的 create_issue 且走 preflight；返回码 0；--label 之外自动附加 openagents 发现标签且去重。
+    scope: "Register the issue subcommand in openagents/cli.py (positional title + --body + repeatable --label), implement _cmd_issue to run preflight and call github.create_issue, and add it to the _dispatch handlers; in _cmd_issue, also append the module-level DISCOVERY_LABEL=\"openagents\", deduplicate, and sort (the cli portion of the original T3, decisions 5/6)."
+    acceptance: "Unit test coverage—the parser registers issue; issue \"T\" --body B --label x --label y correctly passes the arguments through to the stubbed create_issue and runs preflight; the return code is 0; the openagents discovery label is automatically appended in addition to the --label values, with duplicates removed."
 ---
 
-# 0002 · OpenAgents 主动提 issue
+# 0002 · OpenAgents Proactively Creates Issues
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-让 OpenAgents 从「只被动接 issue」升级为「也能主动给仓库提 issue」。在 github 层新增 `create_issue`，在 CLI 暴露 `issue` 子命令，并为自动发现/主动创建的 issue 统一打上发现标签 `openagents`（创建前确保该标签在仓库中存在），使主动提的 issue 可被后续流程按标签识别与回收。
+Extend OpenAgents from “only passively taking on issues” to “also proactively creating issues in repositories.” Add `create_issue` to the github layer, expose an `issue` subcommand in the CLI, and consistently apply the discovery label `openagents` to automatically discovered and proactively created issues (ensuring that the label exists in the repository before creation), so that subsequent workflows can identify and pick up proactively created issues by label.
 
 ## Motivation
 
-OpenAgents 既有能力是「领取仓库已有 issue → 起草改动 → 开 PR」，issue 的产生完全依赖外部输入。但作为一个要「迭代自身」的产品，agent 需要能**主动把发现的问题/想法落成 issue**，让工作流形成闭环：发现 → 立 issue → 领取 → 解决 → PR。
+OpenAgents currently supports “claim an existing repository issue → draft changes → open a PR”; issue creation depends entirely on external input. But as a product intended to “iterate on itself,” the agent needs to be able to **proactively turn discovered problems and ideas into issues**, closing the workflow loop: discover → create an issue → claim → resolve → PR.
 
-要实现这一点缺三块：
+Three pieces are missing:
 
-- github 层没有「创建 issue」的封装（只有读/列 issue 与 PR 相关操作）；
-- CLI 没有让人或 agent 手动提 issue 的入口；
-- 主动/自动产生的 issue 需要一个稳定的**发现标签**来与人工 issue 区分，且该标签必须在仓库里真实存在（否则 `gh issue create --label` 会因标签缺失失败）。
+- The github layer has no wrapper for “creating an issue” (only operations for reading/listing issues and working with PRs).
+- The CLI has no entry point for a person or agent to create an issue manually.
+- Proactively/automatically generated issues need a stable **discovery label** to distinguish them from manually created issues, and that label must actually exist in the repository (otherwise `gh issue create --label` will fail because the label is missing).
 
 ## Guide-level explanation
 
-使用者通过一条命令提 issue：
+Users create an issue with a single command:
 
 ```
-openagents issue "标题" --body "正文" --label bug --label p1
+openagents issue "Title" --body "Body" --label bug --label p1
 ```
 
-它走与其它命令相同的 preflight 校验，然后在 GitHub 上创建一个 issue。无论用户是否显式给 `--label`，命令都会自动追加发现标签 `openagents`（按出现顺序去重，已有则不重复），并在创建前确保 `openagents` 标签存在于仓库中。vigil 在自动发现场景下回落使用的也是这同一个常量，保证「主动提的」与「自动发现的」issue 标签口径一致。
+It runs the same preflight checks as other commands, then creates an issue on GitHub. Whether or not the user explicitly supplies `--label`, the command automatically appends the discovery label `openagents` (deduplicating in order of appearance, without adding it again if already present), and ensures that the `openagents` label exists in the repository before creation. The fallback used by Vigil for automatic discovery also uses this same constant, ensuring consistent labeling of “proactively created” and “automatically discovered” issues.
 
 ## Reference-level explanation
 
-落到改动，分解为 2 个 Task（DAG 见下；`files` 互斥，各 Task 单一 writer）。注:原先「发现标签 + 确保标签存在（决策 5/6）」是一个独立小 Task,但它跨改 `cli.py`(T2 拥有) + `github.py`(T1 拥有) 两个文件、无独占文件——按单一 writer 原则,其 cli 部分并入 T2、github 部分并入 T1。
+The changes are split into 2 Tasks (see the DAG below; `files` are mutually exclusive, with a single writer for each Task). Note: “discovery label + ensuring the label exists (decisions 5/6)” was originally a separate small Task, but it modified both `cli.py` (owned by T2) and `github.py` (owned by T1), with no files exclusively its own. Under the single-writer principle, its cli portion is merged into T2 and its github portion into T1.
 
-1. **T1 github 层 create_issue + ensure_label** — 在 `openagents/github.py` 增加 `create_issue(*, title, body, labels)`：调用 `gh issue create`（带 labels 时命令含 `--label`），从输出 URL 解析出 issue number 并返回 `Issue`；解析逻辑抽成 `_parse_issue_number` 助手。URL 不可解析或 `gh` 非零退出时抛 `GithubError`。并新增 `ensure_label`（不存在则建、已存在则吞 `"already exists"`、其它 gh 错误照抛，决策 6），保证带 `--label openagents` 创建时标签必然存在。这是「创建 issue」的最底层能力来源。
+1. **T1 github-layer create_issue + ensure_label** — Add `create_issue(*, title, body, labels)` to `openagents/github.py`: call `gh issue create` (including `--label` in the command when labels are supplied), parse the issue number from the output URL, and return an `Issue`; extract the parsing logic into a `_parse_issue_number` helper. Raise `GithubError` if the URL cannot be parsed or `gh` exits with a nonzero status. Also add `ensure_label` (create the label if it does not exist, suppress `"already exists"` if it already exists, and propagate other gh errors as usual; decision 6), ensuring that the label exists when creating an issue with `--label openagents`. This provides the lowest-level capability for “creating an issue.”
 
-2. **T2 CLI issue 子命令 + 发现标签**（依赖 T1）— 在 `openagents/cli.py` 注册 `issue` 子命令：positional `title` + `--body` + 可重复 `--label`；`_cmd_issue` 先走 preflight，再调用 `github.create_issue`，并挂入 `_dispatch` 的 handlers 表。引入模块级常量 `DISCOVERY_LABEL = "openagents"`；`_cmd_issue` 在用户 `--label` 之外追加 `DISCOVERY_LABEL` 并按出现顺序去重，创建前先调 `github.ensure_label(name=DISCOVERY_LABEL)`；`_cmd_vigil` 的发现回落改用同一常量（决策 5）。这是人/agent 提 issue 的唯一 CLI 入口。
+2. **T2 CLI issue subcommand + discovery label** (depends on T1) — Register the `issue` subcommand in `openagents/cli.py`: positional `title` + `--body` + repeatable `--label`; `_cmd_issue` runs preflight first, then calls `github.create_issue`, and is added to the handlers table in `_dispatch`. Introduce the module-level constant `DISCOVERY_LABEL = "openagents"`; `_cmd_issue` appends `DISCOVERY_LABEL` to the user's `--label` values and deduplicates in order of appearance, calling `github.ensure_label(name=DISCOVERY_LABEL)` before creation; change the discovery fallback in `_cmd_vigil` to use the same constant (decision 5). This is the sole CLI entry point for people/agents to create issues.
 
-**决策 5/6 复述（自包含）**：主动/自动产生的 issue 一律附带统一发现标签 `openagents`，使其可被后续流程按标签识别；为避免 `--label` 引用不存在的标签导致创建失败，创建前幂等确保该标签存在。
+**Decisions 5/6 restated (self-contained)**: All proactively/automatically generated issues carry the same discovery label, `openagents`, so that subsequent workflows can identify them by label; to prevent creation from failing because `--label` references a nonexistent label, idempotently ensure that the label exists before creation.
 
-**端到端验证**：本组无独立 `scripts/*.sh` e2e 脚本；验证依赖各 Task 的 `tests/test_github.py`、`tests/test_cli.py` 单测（打桩 `gh` 子进程，断言命令拼装、number 解析、标签追加去重、ensure_label 调用与错误传播）。
+**End-to-end verification**: This group has no standalone `scripts/*.sh` e2e scripts; verification relies on each Task's unit tests in `tests/test_github.py` and `tests/test_cli.py` (stubbing the `gh` subprocess and asserting command construction, number parsing, label appending and deduplication, ensure_label calls, and error propagation).
 
-依赖 DAG：`T1 → T2`（线性，无并行）。
+Dependency DAG: `T1 → T2` (linear, no parallelism).
 
 ## Drawbacks
 
-- 给所有主动提的 issue 强制追加 `openagents` 标签，会在仓库标签体系里引入一个约定俗成的保留标签；若仓库已有同名标签语义不同，可能产生歧义。
-- `ensure_label` 在每次创建前多一次 `gh` 调用（已存在则吞错），是创建路径上的轻微开销，但换来「标签必存在」的幂等保证。
+- Forcing the `openagents` label onto all proactively created issues introduces a conventionally reserved label into the repository's labeling scheme; if the repository already has a label with the same name but different semantics, ambiguity may result.
+- `ensure_label` adds one extra `gh` call before each creation (suppressing the error if the label already exists), adding a small overhead to the creation path in exchange for the idempotent guarantee that “the label exists.”
 
 ## Rationale and alternatives
 
-- **为什么发现标签用模块级常量而非散落字面量**：`_cmd_issue` 与 `_cmd_vigil` 共用同一常量 `DISCOVERY_LABEL`，避免「主动提」与「自动发现」两处标签口径漂移（解耦 + 单一来源）。
-- **为什么创建前 `ensure_label` 而非依赖仓库预置**：全新仓库可能没有该标签，`gh issue create --label openagents` 会直接失败；幂等 `ensure_label`（吞 "already exists"）让创建路径自洽，无需人工预建。
-- **备选：用 issue body 里的标记串而非 label 标识发现来源**。否决：label 是 GitHub 一等检索维度，按 label 过滤/回收 issue 远比解析 body 文本稳健。
-- **解析 number 抽成 `_parse_issue_number` 助手**：把脆弱的 URL 解析与错误抛出收敛到一处，便于单测覆盖各失败分支。
+- **Why use a module-level constant for the discovery label instead of scattered literals**: `_cmd_issue` and `_cmd_vigil` share the same constant, `DISCOVERY_LABEL`, preventing label conventions from drifting between “proactively created” and “automatically discovered” issues (decoupling + a single source).
+- **Why call `ensure_label` before creation instead of relying on repository setup**: A new repository may not have this label, causing `gh issue create --label openagents` to fail outright; idempotent `ensure_label` (suppressing "already exists") makes the creation path self-contained, without requiring manual label creation in advance.
+- **Alternative: identify the discovery source with a marker string in the issue body instead of a label**. Rejected: labels are a first-class search dimension in GitHub, and filtering/picking up issues by label is far more robust than parsing body text.
+- **Extract number parsing into a `_parse_issue_number` helper**: Centralize fragile URL parsing and error raising in one place, making it easier for unit tests to cover each failure branch.
 
 ## Prior art
 
-`gh issue create` 是 GitHub 官方 CLI 的标准建 issue 入口；以 label 标记「机器人/自动来源」是社区常见做法（如各类 bot 用专属 label 标注自动产生的 issue/PR）。本 feature 沿用「专属发现 label + 幂等确保 label 存在」这一既有模式，不引入额外的元数据通道。
+`gh issue create` is the standard entry point for creating issues in GitHub's official CLI; using labels to mark “bot/automated origins” is common community practice (for example, various bots use dedicated labels to mark automatically generated issues/PRs). This feature follows the existing pattern of “a dedicated discovery label + idempotently ensuring the label exists,” without introducing an additional metadata channel.
 
 ## Unresolved questions
 
-无。发现标签取值（`openagents`）、去重顺序（按出现顺序）、ensure_label 的错误吞吐边界（仅吞 "already exists"）均已在本组确定。
+None. The discovery label value (`openagents`), deduplication order (order of appearance), and the boundary for suppressing versus propagating ensure_label errors (suppress only "already exists") have all been settled within this group.
 
 ## Future possibilities
 
-- agent 在解决 issue 过程中发现衍生问题时，自动调用本能力分裂出子 issue。
-- 发现标签可扩展为可配置项，或按来源细分（人工发现 / vigil 自动发现）多个 label。
-
+- When an agent discovers related problems while resolving an issue, automatically invoke this capability to split them out into child issues.
+- Make the discovery label configurable, or subdivide it into multiple labels by source (manual discovery / Vigil automatic discovery).

@@ -1,10 +1,10 @@
-"""Spec-0032/T4：identity.new_human_comments 读侧复活的单元测试。
+"""Spec-0032/T4: identity.new_human_comments Reader-side Quest Unit Test.
 
-github.list_comments 注入（monkeypatch 为返回固定 Comment 列表的 fake），不触网。覆盖：
-- 带签名的机器评论（任意 agent_id）被滤掉；
-- created_at <= since 的历史评论被滤掉；
-- 仅 block 之后的无签名人类评论返回、且按时间升序；
-- since="" 时返回全部人类评论（仍滤签名）。
+github.list_comments Injecting (monkeypaytch returns the fake of the fixed Comment list), without touching the net. Overwrite:
+- Signing machine reviews (arbitrary agent_id) are filtered out;
+- created_at < = since history review filtered out;
+- Only unsigned humans returning after block and in chronological order;
+-Since=”backs all human comments (still filtering).
 """
 
 import pytest
@@ -20,7 +20,7 @@ def _patch_comments(monkeypatch, *, comments):
     )
 
 
-def _human(*, created_at, body="人类评论"):
+def _human(*, created_at, body="Human Review"):
     return Comment(id=f"c-{created_at}", author="alice", body=body, created_at=created_at)
 
 
@@ -28,7 +28,7 @@ def _machine(*, created_at, agent_id="bot-1"):
     return Comment(
         id=f"m-{created_at}",
         author="openagents",
-        body=sign(body="机器评论", agent_id=agent_id),
+        body=sign(body="Machine Review", agent_id=agent_id),
         created_at=created_at,
     )
 
@@ -49,13 +49,13 @@ def test_filters_out_comments_at_or_before_watermark(monkeypatch):
     _patch_comments(
         monkeypatch,
         comments=[
-            _human(created_at="2026-06-29T09:00:00Z", body="历史评论"),
-            _human(created_at=wm, body="正好等于水位线"),
-            _human(created_at="2026-06-29T11:00:00Z", body="新评论"),
+            _human(created_at="2026-06-29T09:00:00Z", body="Historical review"),
+            _human(created_at=wm, body="It’s exactly the same as the water level."),
+            _human(created_at="2026-06-29T11:00:00Z", body="New comments"),
         ],
     )
     result = new_human_comments(pr_number=5, since=wm)
-    assert [c.body for c in result] == ["新评论"]
+    assert [c.body for c in result] == ["New comments"]
 
 
 def test_returns_only_post_block_human_comments_sorted(monkeypatch):
@@ -63,28 +63,30 @@ def test_returns_only_post_block_human_comments_sorted(monkeypatch):
     _patch_comments(
         monkeypatch,
         comments=[
-            _human(created_at="2026-06-29T13:00:00Z", body="第三"),
-            _machine(created_at="2026-06-29T12:30:00Z"),  # 机器评论：滤掉
-            _human(created_at="2026-06-29T11:00:00Z", body="第一"),
-            _human(created_at="2026-06-29T12:00:00Z", body="第二"),
-            _human(created_at="2026-06-29T09:00:00Z", body="历史"),  # 水位线之前：滤掉
+            _human(created_at="2026-06-29T13:00:00Z", body="Third"),
+            _machine(created_at="2026-06-29T12:30:00Z"),  # Machine comment: Filter
+            _human(created_at="2026-06-29T11:00:00Z", body="First"),
+            _human(created_at="2026-06-29T12:00:00Z", body="Second"),
+            _human(
+                created_at="2026-06-29T09:00:00Z", body="History"
+            ),  # Before the water level: Leach
         ],
     )
     result = new_human_comments(pr_number=5, since=wm)
-    assert [c.body for c in result] == ["第一", "第二", "第三"]
+    assert [c.body for c in result] == ["First", "Second", "Third"]
 
 
 def test_empty_since_returns_all_human_comments(monkeypatch):
     _patch_comments(
         monkeypatch,
         comments=[
-            _human(created_at="2026-06-29T09:00:00Z", body="历史人类"),
+            _human(created_at="2026-06-29T09:00:00Z", body="History humans"),
             _machine(created_at="2026-06-29T10:00:00Z"),
-            _human(created_at="2026-06-29T11:00:00Z", body="新人类"),
+            _human(created_at="2026-06-29T11:00:00Z", body="New Humanity"),
         ],
     )
     result = new_human_comments(pr_number=5, since="")
-    assert [c.body for c in result] == ["历史人类", "新人类"]
+    assert [c.body for c in result] == ["History humans", "New Humanity"]
 
 
 def test_no_comments_returns_empty(monkeypatch):

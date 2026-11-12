@@ -1,12 +1,12 @@
 ---
 number: "0067"
-title: oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）
+title: "oa init automatically generates the default .openagents/openagents.yml (the packaged template serves as the single source of truth; vigil runtime flags can still override it)"
 issue: 165
 slug: init-scaffold-config
-summary: 把仓库根的 openagents.yml.template 收进包内作 package data 单一真源，oa init 幂等地把它拷成 .openagents/openagents.yml（--force 覆盖），让首次上手即有带注释、可直接改的声明式默认；运行时 --skip/--hold/--base 仍单次覆盖不变。加防漂移测试断言打包 template 语义等价 default_config()。
+summary: "Include the repository-root openagents.yml.template in the package as package data and the single source of truth. Have oa init idempotently copy it to .openagents/openagents.yml (--force overwrites it), so first-time users immediately have a commented, directly editable declarative default; runtime --skip/--hold/--base continue to provide per-run overrides as before. Add an anti-drift test asserting that the packaged template is semantically equivalent to default_config()."
 tasks:
   - id: T1
-    title: 模板迁入包内 + 打包 + scaffold_default_config + 防漂移/幂等测试
+    title: "Move the template into the package + packaging + scaffold_default_config + anti-drift/idempotency tests"
     status: done
     priority: P1
     tags: []
@@ -18,10 +18,10 @@ tasks:
       - openagents.yml.template
       - openagents/utils/agent_config.py
       - tests/test_agent_config.py
-    scope: 把仓库根 openagents.yml.template 逐字迁入 openagents/data/ 作打包单一真源并删仓库根副本（hatchling 默认纳入包目录下所有文件，openagents/utils/templates/board.html 即先例，无需额外 pyproject 配置）；agent_config 加纯 IO 函数 scaffold_default_config(*, path, force) -> bool（读包内资源 importlib.resources → 幂等写盘，存在且非 force 跳过返 False，否则建目录写模板返 True，除写目标文件外无副作用）。
-    acceptance: pytest tests/test_agent_config.py 通过：① 防漂移——打包模板经 load_agent_config 解析后 7 道 stage 全 agent / 各角色 backend 全 claude_code / release=manual / interval=60 / base=main / labels=[openagents]（语义等价 default_config()）；② scaffold 幂等——目标不存在→写入返 True 且内容==模板；已存在且 force=False→返 False 不改；force=True→重写返 True；③ scaffold 产物能被 load_agent_config 无错解析。uv build 后 wheel 内含 openagents/data/openagents.yml.template。
+    scope: "Move the repository-root openagents.yml.template verbatim into openagents/data/ as the packaged single source of truth and delete the repository-root copy (hatchling includes all files under the package directory by default, with openagents/utils/templates/board.html as an existing example; no additional pyproject configuration is needed); add to agent_config a pure I/O function scaffold_default_config(*, path, force) -> bool (read the packaged resource using importlib.resources → write it to disk idempotently; if the target exists and force is false, skip it and return False; otherwise, create the directory, write the template, and return True; no side effects other than writing the target file)."
+    acceptance: "pytest tests/test_agent_config.py passes: ① Anti-drift—the packaged template, parsed with load_agent_config, has all 7 stages set to agent / every role's backend set to claude_code / release=manual / interval=60 / base=main / labels=[openagents] (semantically equivalent to default_config()); ② scaffold idempotency—target does not exist → write it, return True, and content == template; target already exists and force=False → return False without changes; force=True → rewrite it and return True; ③ the scaffold output can be parsed by load_agent_config without errors. After uv build, the wheel contains openagents/data/openagents.yml.template."
   - id: T2
-    title: oa init 接线：--force + 幂等生成 + 提示
+    title: "Wire up oa init: --force + idempotent generation + messages"
     status: done
     priority: P1
     tags: []
@@ -32,138 +32,138 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: init 子命令加 --force（store_true）；_cmd_init 在 preflight 通过后调 agent_config.scaffold_default_config(path=ctx.repo_root/'.openagents'/'openagents.yml', force=args.force)，按返回值印「已生成 / 已覆盖 / 已存在跳过（--force 覆盖）」。运行时覆盖链 _effective_config 不动。
-    acceptance: pytest tests/test_cli.py 通过：oa init 首次在临时 repo 生成 .openagents/openagents.yml 并印已生成；再跑幂等（不覆盖、印已存在跳过）；oa init --force 覆盖并印已覆盖；init 仍跑 preflight（ensure_project）+ envcheck。build_parser 注册 --force。
+    scope: "Add --force (store_true) to the init subcommand; after preflight passes, _cmd_init calls agent_config.scaffold_default_config(path=ctx.repo_root/'.openagents'/'openagents.yml', force=args.force) and, based on the return value, prints “Generated / Overwritten / Already exists; skipped (use --force to overwrite)”. Leave the runtime override chain _effective_config unchanged."
+    acceptance: "pytest tests/test_cli.py passes: the first oa init in a temporary repo generates .openagents/openagents.yml and prints Generated; running it again is idempotent (does not overwrite and prints Already exists; skipped); oa init --force overwrites it and prints Overwritten; init still runs preflight (ensure_project) + envcheck. build_parser registers --force."
 ---
 
-# 0067 · oa init 自动生成默认 .openagents/openagents.yml（打包 template 作单一真源，vigil 运行时 flag 仍可覆盖）
+# 0067 · oa init automatically generates a default .openagents/openagents.yml (bundled template as the single source of truth; vigil runtime flags can still override it)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-`.openagents/openagents.yml` 是「用哪些 agent + 每道闸归谁把关」的声明式单一真源（Spec-0064）。它**整份可省**——文件不存在 → 全回落内建默认（全自动 / 全 agent / 单仓 / 间隔 60s），不写 YAML 的用户零感知。代价是**首次上手的用户看不到任何配置文件**：不知道有哪些旋钮、每道闸能配成 `agent`/`human`/`skip` 三态，只能翻源码或 README。
+`.openagents/openagents.yml` is the declarative single source of truth for “which agents to use + who controls each gate” (Spec-0064). It **can be omitted entirely**—if the file does not exist, everything falls back to the built-in defaults (fully automatic / all agents / single repository / 60s interval), transparently to users who do not write YAML. The tradeoff is that **first-time users see no configuration file at all**: they do not know which knobs are available or that each gate can be configured with the three states `agent`/`human`/`skip`, and can only consult the source code or README.
 
-本 spec 让 **`oa init` 幂等地生成一份默认 `.openagents/openagents.yml`**：内容来自一份**打包进包内的注释模板**（`openagents/data/openagents.yml.template`，从仓库根迁入、成为单一真源）。文件已存在则跳过（不覆盖用户改动），`oa init --force` 强制重写。生成物只是**声明式默认**——运行时的 `oa vigil --skip ci` / `--hold merge` / `--base` 等 flag 仍按既有 `_effective_config` 逻辑单次覆盖它，**这条覆盖链本 spec 不改**。
+This spec makes **`oa init` idempotently generate a default `.openagents/openagents.yml`**: its contents come from an **annotated template bundled in the package** (`openagents/data/openagents.yml.template`, moved from the repository root to become the single source of truth). If the file already exists, generation is skipped (preserving user changes); `oa init --force` forces a rewrite. The generated file contains only **declarative defaults**—runtime flags such as `oa vigil --skip ci` / `--hold merge` / `--base` still override it for a single invocation according to the existing `_effective_config` logic; **this spec does not change that override chain**.
 
-关键约束是**防漂移**：模板里写死的默认（stages 全 agent / claude_code / manual / interval 60 / base main / labels [openagents]）必须与 `agent_config` 的内建默认（`default_config()`）永远一致。用一条测试断言「打包模板被 `load_agent_config` 解析后语义等价于内建默认」把它从自觉变成 CI 硬闸。
+The key constraint is **preventing drift**: the hardcoded defaults in the template (all stages agent / claude_code / manual / interval 60 / base main / labels [openagents]) must always match the built-in defaults in `agent_config` (`default_config()`). A test asserting that “the bundled template, when parsed by `load_agent_config`, is semantically equivalent to the built-in defaults” turns this from a matter of diligence into a hard CI gate.
 
 ## Motivation
 
-### 现状：零配置友好，但零发现性
+### Current state: friendly to zero configuration, but no discoverability
 
-Spec-0064 把 stages 三态设计成「整份 YAML 可省」，这对**老手**是奥卡姆的胜利——不写就是全自动默认。但对**新手**是一堵墙：
+Spec-0064 designed the three stage states so that “the entire YAML file can be omitted.” For **experienced users**, this is a victory for Occam’s razor—omitting it means fully automatic defaults. But for **new users**, it is a wall:
 
-1. 项目里没有任何 `.openagents/openagents.yml` 实体，用户不知道它存在、也不知道能配什么；
-2. 每道闸的合法取值不一样（`conflict`/`merge` 不可 skip、`rfc` 只 agent/skip），这些约束只活在 `agent_config.py` 的 `_STAGE_VALID_OWNERS` 和 README 里，配置面前没有就地提示；
-3. 想开一个 `review: human`（合并前停等人审）这样的常见需求，得先知道有 `stages` 段、知道 `review` 键、知道 `human` 是合法值——三层门槛。
+1. There is no actual `.openagents/openagents.yml` file in the project, so users do not know it exists or what they can configure;
+2. Valid values differ by gate (`conflict`/`merge` cannot be skip; `rfc` allows only agent/skip). These constraints exist only in `_STAGE_VALID_OWNERS` in `agent_config.py` and in the README, with no guidance at the point of configuration;
+3. For a common requirement such as enabling `review: human` (pausing before merge to wait for human review), users must first know that the `stages` section exists, know the `review` key, and know that `human` is a valid value—three layers of prerequisites.
 
-仓库根已有一份带丰富中文注释、逐键讲解三态取值的 `openagents.yml.template`（commit 871ee6c），它正是为降这道门槛而生。但它**只是一份躺在仓库根的文档**：
+The repository root already contains an `openagents.yml.template` with extensive Chinese comments explaining the three-state values key by key (commit 871ee6c), created specifically to lower this barrier. But it is **merely a document sitting in the repository root**:
 
-- 装成 uv tool（`uv tool install`）后，仓库根不在运行时可达路径里，代码拿不到它；
-- 就算能拿到，用户仍需手动 `cp openagents.yml.template .openagents/openagents.yml` 才让它生效——「默认生成一下」这一步缺席。
+- After installation as a uv tool (`uv tool install`), the repository root is not on a path accessible at runtime, so the code cannot access it;
+- Even if it could, users would still have to manually run `cp openagents.yml.template .openagents/openagents.yml` for it to take effect—the “generate it by default” step is missing.
 
-### 为什么是 `oa init`
+### Why `oa init`
 
-`init` 是「绑定 / 初始化当前目录为 OpenAgents 项目」的自举命令（RFC-0001 决策 10），语义上就是「把这个目录准备好」。当前它只做 git/remote 就绪检查 + 环境体检，**不落任何项目文件**。补上「生成声明式配置默认」正是它该干的事——用户 `oa init` 一次，就同时拿到「就绪校验」与「一份可直接改的带注释配置」。放独立 `init-config` 子命令则要求用户多知道、多敲一条命令，与「默认生成一下」的诉求相悖。
+`init` is the bootstrap command for “binding / initializing the current directory as an OpenAgents project” (RFC-0001 decision 10); semantically, it means “prepare this directory.” Currently, it only checks git/remote readiness and runs an environment health check, **without writing any project files**. Adding “generate declarative configuration defaults” is exactly within its remit—running `oa init` once gives users both “readiness validation” and “an annotated configuration they can edit directly.” A separate `init-config` subcommand would require users to know and type one more command, contrary to the goal of “generate it by default.”
 
 ## Guide-level explanation
 
-一次 `oa init` 的新增行为：
+New behavior added to a single `oa init` invocation:
 
 ```
 $ oa init
-✓ 项目已就绪：/path/to/repo（远端：git@github.com:owner/repo.git）
-✓ 已生成默认配置 .openagents/openagents.yml（可编辑；oa vigil --skip/--hold 可单次覆盖）
+✓ Project ready: /path/to/repo (remote: git@github.com:owner/repo.git)
+✓ Generated default configuration .openagents/openagents.yml (editable; oa vigil --skip/--hold can override it for a single invocation)
 
-▶ 环境体检
+▶ Environment health check
   ...
 
-# 再跑一次（文件已存在）——幂等，不覆盖你的改动：
+# Run again (file already exists)—idempotent, preserving your changes:
 $ oa init
-✓ 项目已就绪：...
-· 配置已存在，跳过生成 .openagents/openagents.yml（--force 覆盖）
+✓ Project ready: ...
+· Configuration already exists; skipping generation of .openagents/openagents.yml (--force to overwrite)
   ...
 
-# 想用包内最新模板重置：
+# Reset using the latest template in the package:
 $ oa init --force
-✓ 已覆盖配置 .openagents/openagents.yml
+✓ Overwrote configuration .openagents/openagents.yml
 ```
 
-生成的文件就是包内 `openagents/data/openagents.yml.template` 的逐字拷贝——一份带中文注释、逐键讲三态取值的声明式默认。用户直接改它（如把 `review: agent` 改成 `review: human`），下次 `oa vigil` 读它生效。改坏了删掉即回落内建默认；想临时试某个闸而不改盘上文件，用 `oa vigil --skip`/`--hold` 单次覆盖。
+The generated file is a verbatim copy of the package’s `openagents/data/openagents.yml.template`—declarative defaults with Chinese comments explaining the three-state values key by key. Users edit it directly (for example, changing `review: agent` to `review: human`), and the next `oa vigil` invocation reads and applies it. If an edit breaks it, deleting the file restores the built-in defaults; to try a gate setting temporarily without changing the file on disk, use `oa vigil --skip`/`--hold` to override it for a single invocation.
 
-**「可被参数覆盖」= 运行时 flag 覆盖 YAML，这条链已存在**（`cli._effective_config`：`--hold`/`--skip` 改三态、`--base`/`--interval`/`--label` 改 defaults，且覆盖后重守「不许零闸」）。本 spec 只补「默认把 YAML 生成出来」，不碰覆盖链。
+**“Can be overridden by parameters” = runtime flags override YAML; this chain already exists** (`cli._effective_config`: `--hold`/`--skip` change the three-state settings, `--base`/`--interval`/`--label` change defaults, and the “zero gates are not allowed” constraint is enforced again after overrides). This spec only adds “generate the YAML by default” and leaves the override chain untouched.
 
-三态的层次关系：**内建默认（代码里的 `default_config()`）← 打包模板（init 生成的盘上 YAML，等价内建默认）← 运行时 flag（单次覆盖）**。三者语义一致、层层可覆盖，模板与内建默认的等价由测试钉死。
+The three-level hierarchy: **built-in defaults (`default_config()` in code) ← bundled template (the YAML on disk generated by init, equivalent to the built-in defaults) ← runtime flags (overrides for a single invocation)**. The three are semantically consistent, each successive level can override the previous one, and tests lock in the equivalence between the template and the built-in defaults.
 
 ## Reference-level explanation
 
-### 数据流
+### Data flow
 
 ```
-openagents/data/openagents.yml.template   ← 单一真源（从仓库根迁入，打包进 wheel）
-        │  scaffold_default_config(path=…, force=…)  读包内资源 → 写盘
+openagents/data/openagents.yml.template   ← Single source of truth (moved from repository root, bundled in wheel)
+        │  scaffold_default_config(path=…, force=…)  Read package resource → write to disk
         ▼
-<repo_root>/.openagents/openagents.yml     ← oa init 生成（幂等；--force 覆盖）
-        │  load_agent_config(path=…)                  既有加载器，不改
+<repo_root>/.openagents/openagents.yml     ← Generated by oa init (idempotent; --force overwrites)
+        │  load_agent_config(path=…)                  Existing loader, unchanged
         ▼
-AgentConfig（resolved）  ← _effective_config 叠加运行时 flag（既有，不改）
+AgentConfig (resolved)  ← _effective_config applies runtime flags (existing, unchanged)
 ```
 
-### 变更点
+### Changes
 
-**① 模板迁入包内（单一真源）。** 仓库根 `openagents.yml.template` → `openagents/data/openagents.yml.template`（逐字迁移，内容不变，仅更新头部注释指向 `oa init` 生成流程）。删除仓库根副本，避免两份漂移。**无需改 `pyproject.toml`**——hatchling 默认把包目录下所有文件纳入 wheel（现存 `openagents/utils/templates/board.html` 即先例，`uv build` 后 `unzip -l` 可验证模板已随包），奥卡姆下不增冗余打包配置。
+**① Move the template into the package (single source of truth).** Repository-root `openagents.yml.template` → `openagents/data/openagents.yml.template` (move verbatim, with contents unchanged except for updating the header comments to point to the `oa init` generation flow). Delete the repository-root copy to prevent drift between two copies. **No changes to `pyproject.toml` are needed**—hatchling includes all files under the package directory in the wheel by default (the existing `openagents/utils/templates/board.html` is a precedent; after `uv build`, `unzip -l` can verify that the template is included in the package). Following Occam’s razor, do not add redundant packaging configuration.
 
-**② `agent_config.scaffold_default_config`（新函数，纯 IO）。** 签名 `scaffold_default_config(*, path: Path, force: bool) -> bool`：
+**② `agent_config.scaffold_default_config` (new function, pure IO).** Signature: `scaffold_default_config(*, path: Path, force: bool) -> bool`:
 
-- 读包内模板走 `importlib.resources.files("openagents") / "data" / "openagents.yml.template"`（editable 与 wheel 两种安装都可达）；
-- `path` 已存在且 `not force` → 返回 `False`（幂等跳过，不碰用户文件）；
-- 否则 `mkdir(parents=True, exist_ok=True)` 建 `.openagents/` 目录后写入模板文本，返回 `True`；
-- 除写目标文件外无副作用（不读 git/gh/网络，理念 10 解耦）。
+- Read the bundled template through `importlib.resources.files("openagents") / "data" / "openagents.yml.template"` (accessible in both editable and wheel installations);
+- If `path` already exists and `not force` → return `False` (idempotently skip without touching the user’s file);
+- Otherwise, create the `.openagents/` directory with `mkdir(parents=True, exist_ok=True)`, write the template text, and return `True`;
+- No side effects other than writing the target file (no git/gh/network reads; decoupling per principle 10).
 
-**③ CLI 接线。** `init` 子命令加 `--force`（`store_true`）；`_cmd_init` 在 preflight 通过后调 `scaffold_default_config(path=ctx.repo_root/".openagents"/"openagents.yml", force=args.force)`，按返回值印「已生成 / 已覆盖 / 已存在跳过」。
+**③ CLI wiring.** Add `--force` (`store_true`) to the `init` subcommand; after preflight passes, `_cmd_init` calls `scaffold_default_config(path=ctx.repo_root/".openagents"/"openagents.yml", force=args.force)` and prints “generated / overwritten / already exists, skipped” according to the return value.
 
-**④ 防漂移测试。** 断言打包模板经 `load_agent_config` 解析后，7 道 stage 全 `agent`、各角色 backend 全 `claude_code`、release=manual、interval=60、base=main、labels=[openagents]——即语义等价 `default_config()` 的内建默认。任何一方改了默认而没同步另一方，CI 直接红。
+**④ Drift-prevention test.** Assert that, after the bundled template is parsed by `load_agent_config`, all 7 stages are `agent`, all role backends are `claude_code`, release=manual, interval=60, base=main, and labels=[openagents]—that is, it is semantically equivalent to the built-in defaults from `default_config()`. If either side changes its defaults without synchronizing the other, CI fails immediately.
 
-### DAG + 文件分配
+### DAG + file allocation
 
-| Task | 依赖 | 负责文件（两两不相交） |
+| Task | Dependencies | Assigned files (pairwise disjoint) |
 |---|---|---|
-| **T1** 模板迁入 + `scaffold_default_config` + 防漂移/幂等测试 | — | `openagents/data/openagents.yml.template`（新，自仓库根迁入）、`openagents.yml.template`（删）、`openagents/utils/agent_config.py`、`tests/test_agent_config.py` |
-| **T2** `oa init` 接线（`--force` + 生成 + 提示） | T1 | `openagents/cli.py`、`tests/test_cli.py` |
+| **T1** Move template into package + `scaffold_default_config` + drift-prevention/idempotency tests | — | `openagents/data/openagents.yml.template` (new, moved from repository root), `openagents.yml.template` (delete), `openagents/utils/agent_config.py`, `tests/test_agent_config.py` |
+| **T2** Wire up `oa init` (`--force` + generation + messages) | T1 | `openagents/cli.py`, `tests/test_cli.py` |
 
-T1 的 `scaffold_default_config` 是 T2 的依赖，故 T1 → T2 串行。文件清单两两不相交（T1 碰 data/agent_config/test_agent_config，T2 碰 cli/test_cli），协同模式无冲突。
+T1’s `scaffold_default_config` is a dependency of T2, so T1 → T2 runs sequentially. The file lists are pairwise disjoint (T1 touches data/agent_config/test_agent_config; T2 touches cli/test_cli), so the collaboration model has no conflicts.
 
-### e2e 验证脚本
+### e2e verification script
 
-`scripts/e2e-spec-0067-init-scaffold-config.sh`（离线，纯 CLI）：在一个临时 git 仓库里跑 `oa init` → 断言 `.openagents/openagents.yml` 生成且能被 `load_agent_config` 解析 → 再跑一次断言幂等（内容不变、印「已存在跳过」）→ 改一行后 `oa init --force` 断言被重置回模板。
+`scripts/e2e-spec-0067-init-scaffold-config.sh` (offline, CLI only): run `oa init` in a temporary git repository → assert that `.openagents/openagents.yml` is generated and can be parsed by `load_agent_config` → run it again and assert idempotency (contents unchanged, prints “already exists, skipped”) → change one line, then run `oa init --force` and assert that the file is reset to the template.
 
 ## Drawbacks
 
-- **多一份需与内建默认保持同步的产物。** 模板里的默认值与 `agent_config._DEFAULT_*` 是两处表述同一事实，天然有漂移风险。缓解：④ 的防漂移测试把它变成 CI 硬闸，改一方不同步另一方就红。（不选「模板从常量程序化 render」是因为会丢掉逐键中文注释这一核心价值，见 Rationale。）
-- **`init` 副作用变重。** 从「只读校验」变成「会写一个文件」。缓解：幂等 + 只在文件不存在时写，绝不覆盖用户改动；`--force` 才重写，且写的是 gitignored 的 `.openagents/`（不污染用户版本库）。
+- **One more artifact to keep in sync with the built-in defaults.** The defaults in the template and `agent_config._DEFAULT_*` express the same facts in two places, inherently risking drift. Mitigation: the drift-prevention test in ④ makes this a hard CI gate; changing either side without synchronizing the other causes a failure. (We do not choose “render the template programmatically from constants” because that would lose the core value of the Chinese comments explaining each key; see Rationale.)
+- **`init` has more substantial side effects.** It changes from “read-only validation” to “writes a file.” Mitigation: idempotent + writes only when the file does not exist, never overwriting user changes; rewriting requires `--force`, and the file is written under the gitignored `.openagents/` directory (without cluttering the user’s version-controlled repository).
 
 ## Rationale and alternatives
 
-**为什么打包模板拷贝，而非从常量程序化生成 YAML？** 备选是从 `agent_config._DEFAULT_STAGES`/`_ROLES` 等常量 `render` 出 YAML——好处是与内建默认零漂移。但它会丢掉模板里**逐键讲三态取值、约束、示例的中文注释**，而这正是本 feature 降新手门槛的核心价值：程序化 render 一堆无注释的 `key: value` 对发现性毫无帮助。选「打包注释模板 + 一条防漂移测试」：既保住注释，又用测试把漂移风险摁成 CI 硬闸，鱼与熊掌兼得。
+**Why copy a bundled template rather than generate YAML programmatically from constants?** The alternative is to `render` YAML from constants such as `agent_config._DEFAULT_STAGES`/`_ROLES`—with the benefit of zero drift from the built-in defaults. But this would lose the template’s **Chinese comments explaining the three-state values, constraints, and examples key by key**, which are precisely this feature’s core value in lowering the barrier for new users: programmatically rendering a pile of uncommented `key: value` pairs does nothing for discoverability. Choose “bundled annotated template + one drift-prevention test”: retain the comments while using a test to turn the risk of drift into a hard CI gate, getting both benefits.
 
-**为什么迁入包内并删仓库根副本，而非 force-include 仓库根文件？** hatchling 可 force-include 仓库根文件进 wheel，但 editable 安装（`uv sync` / 测试的 `pythonpath=.`）下 `importlib.resources` 解析的是源码树的 `openagents/` 包目录，仓库根文件不在其中，两种安装模式行为会分叉。迁入 `openagents/data/` 让源码树与 wheel 里路径一致，两模式同源。删仓库根副本是为守单一真源（两份注释模板必然漂移）。
+**Why move the template into the package and delete the repository-root copy rather than force-include the repository-root file?** hatchling can force-include a repository-root file in the wheel, but in editable installations (`uv sync` / tests with `pythonpath=.`), `importlib.resources` resolves to the source tree’s `openagents/` package directory, which does not contain the repository-root file, causing behavior to diverge between the two installation modes. Moving it into `openagents/data/` makes the path consistent between the source tree and the wheel, giving both modes the same source. Deleting the repository-root copy preserves the single source of truth (two annotated templates will inevitably drift).
 
-**为什么放 `oa init` 而非独立子命令？** 见 Motivation「为什么是 `oa init`」——`init` 语义即「准备好这个目录」，且「默认生成一下」要求零额外命令。
+**Why put this in `oa init` rather than a separate subcommand?** See “Why `oa init`” in Motivation—`init` means “prepare this directory,” and “generate it by default” requires zero additional commands.
+
 
 ## Prior art
 
-- **Spec-0064** 立了 `.openagents/openagents.yml` 声明式三态配置与「整份可省 → 内建默认」的加载器（`agent_config`）；本 spec 是它的上手补全（把「可省的默认」实体化成带注释的盘上文件）。
-- **`git init` 生成 `.git/config` 骨架**、**`npm init` 生成 `package.json`**、**`eslint --init` 生成配置**——脚手架工具「init 落一份带默认的可编辑配置」是通行实践。本 spec 取同一形态：init 落一份幂等、可编辑、带注释的默认配置。
-- **CI 幂等漂移检查**（`spec render` / `spec graph` 的 drift gate，见 `.github/workflows/ci.yml`）是本仓已有的「生成物与源不许漂移 → CI 红」范式；④ 的防漂移测试沿用同一思路。
+- **Spec-0064** established the declarative three-state configuration in `.openagents/openagents.yml` and the loader (`agent_config`) that allows the entire file to be omitted, falling back to built-in defaults; this spec completes its onboarding experience by materializing those optional defaults as a commented file on disk.
+- **`git init` generates a `.git/config` skeleton**, **`npm init` generates `package.json`**, and **`eslint --init` generates configuration**—having init write an editable configuration with defaults is standard practice for scaffolding tools. This spec follows the same pattern: init writes a default configuration that is idempotent, editable, and commented.
+- **Idempotent drift checks in CI** (the drift gate for `spec render` / `spec graph`; see `.github/workflows/ci.yml`) are an existing repository pattern: generated artifacts must not drift from their sources, or CI fails. The drift-prevention test in ④ follows the same approach.
 
 ## Unresolved questions
 
-无（触发点 = `oa init`、内容来源 = 打包模板、覆盖语义 = 既有运行时 flag，三个设计岔口已与需求方确认）。
+None (the three design choices—trigger = `oa init`, content source = packaged template, overwrite semantics = existing runtime flag—have all been confirmed with the requester).
 
 ## Future possibilities
 
-- **`oa init` 交互式选型**：生成前问「review 要 agent 还是 human 把关？」按答案调模板对应行（本 spec 只落静态默认模板，交互式选型是后续）。
-- **`oa doctor` / `oa config validate`**：对已存在的 `.openagents/openagents.yml` 跑 `load_agent_config` 并把错误友好化，作为独立体检命令。
-- **多后端模板变体**：当 `backends/` 真正支持 codex/nexau 后，`oa init --backend codex` 生成对应 `agents` 段默认。
-
+- **Interactive selection in `oa init`**: Before generation, ask, “Should an agent or a human handle review?” and adjust the corresponding template line based on the answer (this spec only writes a static default template; interactive selection is future work).
+- **`oa doctor` / `oa config validate`**: Run `load_agent_config` against an existing `.openagents/openagents.yml` and present errors in a user-friendly way, as a standalone diagnostic command.
+- **Template variants for multiple backends**: Once `backends/` actually supports codex/nexau, `oa init --backend codex` generates the corresponding defaults for the `agents` section.

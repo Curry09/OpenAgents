@@ -1,7 +1,7 @@
-"""Spec-0064/T4: recipes.backfill path 驱动追溯单测——假 backend + 假代码路径 + 打桩 github/worktree。
+"""Spec-0064/T4: recipes.backfill path driver retroactive singles -- false back+ false code path + peg github/worktree.
 
-证明：backfill 复用 stages.rfc（backfill mode）而非重复实现；validate 门控（delivered=false → 不开
-PR、抛 BackfillError）；delivered=true → 开 draft PR。不触发 vigil 发现段。全程不触真实仓库/网络。
+Proof: Backfill reuse stages.rfc (backfill mode) instead of duplicate; Validate door control (deleved=false)
+PR, Throw BackfillError; devered = true  → draft PR. Do not trigger vigil discovery. The whole process does not touch the real warehouse/network.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class _DrafterBackend:
         return AgentResult(
             changed=True,
             summary=json.dumps(
-                {"delivered": self._delivered, "head_sha": self._head, "summary": "反推"}
+                {"delivered": self._delivered, "head_sha": self._head, "summary": "Invert"}
             ),
         )
 
@@ -36,7 +36,7 @@ class _PR:
 
 
 def _patch(monkeypatch, *, head_seq):
-    # worktree 走假实现（不建真 git）；head_sha 按序返回区分交付前/后。
+    # Worktree go-facing (no real gent); head_sha returns in order before/after delivery.
     monkeypatch.setattr(backfill, "prepare_worktree", lambda *, work_dir, slug, branch, base: "/wt")
     seq = list(head_seq)
     box = {"last": seq[-1] if seq else ""}
@@ -62,8 +62,8 @@ def test_delivered_opens_draft_pr(monkeypatch):
     assert result["pr_number"] == 200
     assert result["reason"] == "backfilled"
     assert created["draft"] is True
-    # 复用 stages.rfc：drafter 被派、backfill mode。
-    assert "起草 agent" in backend.tasks[0]
+    # Re-use stages.rfc: Draffer was assigned,backfill Mode.
+    assert "You draft Specs" in backend.tasks[0]
     assert "mode=backfill" in backend.tasks[0]
 
 
@@ -71,7 +71,7 @@ def test_not_delivered_does_not_open_pr(monkeypatch):
     _patch(monkeypatch, head_seq=["SAME", "SAME"])
 
     def _no_pr(**kw):
-        raise AssertionError("未过 validate 不应开 PR")
+        raise AssertionError("Not before validate")
 
     monkeypatch.setattr(backfill.github, "create_pr", _no_pr)
     backend = _DrafterBackend(delivered=False, head="")

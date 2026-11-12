@@ -1,15 +1,15 @@
 ---
 number: "0069"
-title: 为 openagents CLI 接入 argcomplete Shell Tab 补全（读现成 argparse parser，单一真源，零副作用）
+title: "Integrate argcomplete Shell Tab completion into the openagents CLI (using the existing argparse parser as the single source of truth, with zero side effects)"
 issue: 151
 slug: argcomplete-shell-tab-completion
-summary: 在 cli.main() 的 parse_args 之前插一行 argcomplete.autocomplete(parser)，让 openagents/oa 直接从现成的 argparse parser 生成 zsh/bash Tab 补全，覆盖全部子命令与选项，无需手写维护第二份命令清单；argcomplete 对非补全调用零副作用（仅当 _ARGCOMPLETE 环境变量存在时介入），CLI 既有行为不变。配套加 argcomplete 运行时依赖 + README 文档给出用户侧一次性启用步骤。
+summary: "Insert argcomplete.autocomplete(parser) before parse_args in cli.main() so that openagents/oa generates zsh/bash Tab completion directly from the existing argparse parser, covering all subcommands and options without manually maintaining a second command list; argcomplete has zero side effects for non-completion invocations (it intervenes only when the _ARGCOMPLETE environment variable is present), preserving existing CLI behavior. Also add argcomplete as a runtime dependency and document the one-time user setup steps in the README."
 e2e:
-  intent: 证明「argcomplete 接现成 argparse parser 生成 Tab 补全」这一接线在离线确定性链路上成立且零回归——main() 在 parse_args 之前调 argcomplete.autocomplete(parser)（补全握手时介入、正常调用零副作用），全部子命令与 vigil 全部选项都进 parser（补全候选单一真源即 build_parser）；argcomplete 缺失时 CLI 优雅降级不崩；argcomplete 已作为运行时依赖声明。
-  method: "形态：纯 CLI/后端接线，无 product-facing 前端可导航；自检工具列表无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，改用离线确定性测法（沿用 Spec-0064/0066/0067 同款）：\n1. CLI 针对性 pytest（打桩 openagents.cli.argcomplete，hermetic 不触 shell/网络）：main([]) 在 parse_args 前调 argcomplete.autocomplete 恰一次且入参是 build_parser() 造出的 ArgumentParser，且 main([]) 仍返回 2（无命令）；把 openagents.cli.argcomplete 打成 None → main([]) 仍返回 2 不抛（优雅降级）；build_parser 注册的子命令全集与 vigil 全部选项仍在（补全候选覆盖面）。\n2. grep 锚点（e2e 脚本）：cli.py 存在 argcomplete 优雅降级 import 与 autocomplete(parser) 调用；pyproject.toml 的 dependencies 含 argcomplete。\n脚本：scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh（ruff check + ruff format --check + 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。\n"
+  intent: "Prove that the wiring in which argcomplete uses the existing argparse parser to generate Tab completion works in an offline, deterministic workflow with zero regressions—main() calls argcomplete.autocomplete(parser) before parse_args (intervening during the completion handshake, with zero side effects during normal invocation), and all subcommands and all vigil options are included in the parser (build_parser is the single source of truth for completion candidates); the CLI degrades gracefully without crashing when argcomplete is missing; argcomplete has been declared as a runtime dependency."
+  method: "Form: CLI/backend wiring only, with no navigable product-facing frontend; the self-check tool list contains neither Playwright nor Chrome DevTools MCP, so no browser e2e is specified. Offline, deterministic testing is used instead (following the same approach as Spec-0064/0066/0067):\n1. Targeted CLI pytest tests (stub openagents.cli.argcomplete; hermetic, with no shell/network access): main([]) calls argcomplete.autocomplete exactly once before parse_args, with the ArgumentParser created by build_parser() as its argument, and main([]) still returns 2 (no command); stub openagents.cli.argcomplete as None → main([]) still returns 2 without raising an exception (graceful degradation); the complete set of subcommands registered by build_parser and all vigil options remain present (completion candidate coverage).\n2. grep anchors (e2e script): cli.py contains the argcomplete import with graceful degradation and the autocomplete(parser) call; dependencies in pyproject.toml includes argcomplete.\nScript: scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh (ruff check + ruff format --check + targeted pytest tests + grep anchors), collected by the PR e2e signpost.\n"
 tasks:
   - id: T1
-    title: argcomplete 接线 + 依赖 + 文档 + 测试
+    title: "argcomplete wiring + dependency + documentation + tests"
     status: done
     priority: P1
     tags: []
@@ -21,65 +21,71 @@ tasks:
       - pyproject.toml
       - README.md
       - tests/test_cli.py
-    scope: cli.main() 在 parse_args 之前调 argcomplete.autocomplete(parser)（模块顶层 try/except ImportError 优雅降级导入，缺失置 None）；pyproject.toml dependencies 追加 argcomplete>=3.0；README 加 Shell Tab 补全一次性启用步骤（zsh/bash）；tests/test_cli.py 补 argcomplete 接线契约测试。
-    acceptance: uv run pytest tests/test_cli.py 通过：main([]) 在 parse_args 前调 argcomplete.autocomplete 恰一次、入参为 build_parser() 造出的 ArgumentParser 且 main([]) 返回 2；把 openagents.cli.argcomplete 打成 None 时 main([]) 仍返回 2 不抛（优雅降级）；build_parser 注册全部人面向子命令 + vigil 全部选项。ruff check/format 干净；pyproject.toml dependencies 含 argcomplete。
+    scope: "Call argcomplete.autocomplete(parser) before parse_args in cli.main() (import it at module level with try/except ImportError for graceful degradation, setting it to None if unavailable); append argcomplete>=3.0 to pyproject.toml dependencies; add one-time Shell Tab completion setup steps (zsh/bash) to the README; add argcomplete wiring contract tests to tests/test_cli.py."
+    acceptance: "uv run pytest tests/test_cli.py passes: main([]) calls argcomplete.autocomplete exactly once before parse_args, passing the ArgumentParser created by build_parser(), and main([]) returns 2; when openagents.cli.argcomplete is patched to None, main([]) still returns 2 without raising an exception (graceful degradation); build_parser registers all human-facing subcommands + all vigil options. ruff check/format are clean; pyproject.toml dependencies includes argcomplete."
 ---
 
-# 0069 · 为 openagents CLI 接入 argcomplete Shell Tab 补全（读现成 argparse parser，单一真源，零副作用）
+# 0069 · Integrate argcomplete Shell Tab Completion into the openagents CLI (Read the Existing argparse Parser, Single Source of Truth, Zero Side Effects)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level, nine-section rust-RFC overview. -->
 
 ## Summary
 
-`openagents`（安装后同名入口，README 里也叫 `oa`）CLI 完全由 `openagents/cli.py` 的 `argparse`
-（`build_parser`）搭起来。argparse **不提供任何 Shell Tab 补全**——它只在运行时解析已经敲进来的参数，
-和 zsh/bash 按 Tab 弹候选是两套完全不同的机制。于是今天 `openagents <Tab>`、`openagents vigil --<Tab>`
-都不补全，zsh 只能回退到文件名补全。
+The `openagents` CLI (installed under the same entry-point name, also called `oa` in the README) is built entirely with
+`argparse` (`build_parser`) in `openagents/cli.py`. argparse **provides no Shell Tab completion**—it only parses arguments
+already entered at runtime; displaying candidates when Tab is pressed in zsh/bash is an entirely separate mechanism.
+As a result, neither `openagents <Tab>` nor `openagents vigil --<Tab>` currently completes anything, and zsh can only fall
+back to filename completion.
 
-本 spec 接入 [`argcomplete`](https://github.com/kislyuk/argcomplete)：在 `cli.main()` 的
-`parser.parse_args()` **之前**插一行 `argcomplete.autocomplete(parser)`，让补全**直接读现成的 argparse
-parser** 生成候选，覆盖全部子命令（init/vigil/backfill-rfc/issue/release/board/report + 隐藏的
-reply-comment）与全部选项（如 `vigil --interval/--label/--base/--once/--parallel/--hold/--skip/--config`）。
-无需为补全另写、另维护一份 `_openagents` zsh 脚本或第二份命令清单（符合理念 1 奥卡姆剃刀：命令清单单一
-真源仍是 `build_parser`）。配套加 `argcomplete` 运行时依赖，并在 README 给出用户侧一次性启用步骤。
+This spec integrates [`argcomplete`](https://github.com/kislyuk/argcomplete): insert
+`argcomplete.autocomplete(parser)` **before** `parser.parse_args()` in `cli.main()`, so completion generates candidates
+by **reading the existing argparse parser directly**, covering all subcommands
+(init/vigil/backfill-rfc/issue/release/board/report + the hidden reply-comment) and all options
+(such as `vigil --interval/--label/--base/--once/--parallel/--hold/--skip/--config`).
+There is no need to write and maintain a separate `_openagents` zsh script or a second command list for completion
+(consistent with Principle 1, Occam's razor: `build_parser` remains the single source of truth for the command list).
+The accompanying changes add `argcomplete` as a runtime dependency and provide one-time user activation steps in the README.
 
-关键性质：`argcomplete.autocomplete()` **只在 shell 补全握手时（环境变量 `_ARGCOMPLETE` 存在）才介入**并
-`exit()`；正常 `openagents vigil ...` 调用下它立即返回、零副作用，CLI 既有行为逐字不变。
+Key property: `argcomplete.autocomplete()` **intervenes and calls `exit()` only during the shell completion handshake
+(when the `_ARGCOMPLETE` environment variable is present)**; during normal calls such as `openagents vigil ...`,
+it returns immediately with zero side effects, leaving existing CLI behavior unchanged down to the letter.
 
 ## Motivation
 
-### 现状核实
+### Verified current state
 
-- `pyproject.toml` 的 `dependencies` 只有 `ruamel.yaml` / `jsonschema`，**无 `argcomplete`**；`openagents/`
-  下也无任何补全接线或配套 `_openagents` 脚本。
-- `openagents/cli.py` 的 `main()` 是 `parser = build_parser(); args = parser.parse_args(argv)`，中间没有
-  任何补全钩子。
-- 因此 `openagents <Tab>`（补子命令）、`openagents vigil --<Tab>`（补选项）都不工作。这对**所有**子命令、
-  所有选项一致，不限于 `vigil`。
+- The `dependencies` in `pyproject.toml` contain only `ruamel.yaml` / `jsonschema`, **with no `argcomplete`**;
+  `openagents/` also contains no completion wiring or accompanying `_openagents` script.
+- `main()` in `openagents/cli.py` is `parser = build_parser(); args = parser.parse_args(argv)`, with no completion hook
+  between the two.
+- Consequently, neither `openagents <Tab>` (subcommand completion) nor `openagents vigil --<Tab>` (option completion)
+  works. This applies uniformly to **all** subcommands and all options, not just `vigil`.
 
-### 为什么要做
+### Why do this
 
-CLI 有 7 个人面向子命令 + 各自一串选项（`vigil` 一个就有 8 个 flag）。没有 Tab 补全时，用户要么背命令名、
-要么反复 `--help`。这既伤上手速度（对标 cursor/windsurf 的交互顺滑），也和「命令面已经声明式自描述」的现状
-不匹配——parser 里明明有全部信息，只是没接到 shell。argparse 生态的标准答案就是 argcomplete：它把 argparse
-parser 当补全的单一真源，不逼我们维护第二份会漂移的命令清单。
+The CLI has 7 user-facing subcommands, each with a set of options (`vigil` alone has 8 flags). Without Tab completion,
+users must either memorize command names or repeatedly invoke `--help`. This both slows onboarding (against the benchmark
+of cursor/windsurf's smooth interaction) and is inconsistent with the fact that the command interface is already
+declarative and self-describing—the parser already contains all the information; it simply is not connected to the shell.
+The standard answer in the argparse ecosystem is argcomplete: it treats the argparse parser as the single source of truth
+for completion, without forcing us to maintain a second command list that can drift.
 
 ## Guide-level explanation
 
-用户一次性启用（zsh，写进 `~/.zshrc`）：
+One-time user activation (zsh, add to `~/.zshrc`):
 
 ```zsh
 autoload -U bcompinit && compinit
 eval "$(register-python-argcomplete openagents)"
 ```
 
-bash（写进 `~/.bashrc`）：
+bash (add to `~/.bashrc`):
 
 ```bash
 eval "$(register-python-argcomplete openagents)"
 ```
 
-启用后：
+After activation:
 
 ```
 $ openagents <Tab>
@@ -88,89 +94,97 @@ $ openagents vigil --<Tab>
 --base  --config  --hold  --interval  --label  --once  --parallel  --skip
 ```
 
-不启用补全的用户完全无感：`argcomplete` 只在 shell 补全握手（`_ARGCOMPLETE` 环境变量存在）时介入，普通
-运行下 `argcomplete.autocomplete(parser)` 立即返回，CLI 行为逐字不变。
+Users who do not enable completion will notice no difference: `argcomplete` intervenes only during the shell completion
+handshake (when the `_ARGCOMPLETE` environment variable is present). During normal execution,
+`argcomplete.autocomplete(parser)` returns immediately, leaving CLI behavior unchanged down to the letter.
 
 ## Reference-level explanation
 
-### 接线（唯一改动点 `cli.py`）
+### Wiring (the only change point in `cli.py`)
 
-模块顶层做**优雅降级导入**——`argcomplete` 是声明依赖，正常一定装了；但万一环境缺失（老快照 / 精简安装），
-补全应静默不可用而非让整个 CLI 崩：
+Use an **import with graceful degradation** at module scope—`argcomplete` is a declared dependency and will normally
+be installed; however, if it is missing from the environment (an old snapshot / minimal installation), completion should
+be silently unavailable rather than crash the entire CLI:
 
 ```python
 try:
     import argcomplete
-except ImportError:  # argcomplete 是声明依赖；缺失时补全静默不可用，不拖垮 CLI
+except ImportError:  # argcomplete is a declared dependency; if missing, silently disable completion without breaking the CLI
     argcomplete = None
 ```
 
-`main()` 在 `parse_args` 之前插桩（`build_parser()` 与 `parse_args` 之间是 argcomplete 文档规定的唯一
-正确位置）：
+Insert the hook in `main()` before `parse_args` (between `build_parser()` and `parse_args` is the only correct location
+specified by the argcomplete documentation):
 
 ```python
 def main(argv=None) -> int:
     parser = build_parser()
     if argcomplete is not None:
-        argcomplete.autocomplete(parser)   # 仅 shell 补全握手时介入并 exit；正常调用零副作用
+        argcomplete.autocomplete(parser)   # Intervene and exit only during the shell completion handshake; zero side effects in normal calls
     args = parser.parse_args(argv)
     ...
 ```
 
-`argcomplete.autocomplete()` 的语义：仅当环境变量 `_ARGCOMPLETE` 被 shell 补全器设置时，它读 parser 生成
-候选、打印、并 `os._exit()`；否则直接 `return None`。因此对 `main([])` / `main(["vigil", ...])` 等所有正常
-调用它是**无操作**，既有分发/退出码/错误处理链全部不变。
+The semantics of `argcomplete.autocomplete()`: only when the shell completer has set the `_ARGCOMPLETE` environment
+variable does it read the parser to generate candidates, print them, and call `os._exit()`; otherwise, it simply executes
+`return None`. It is therefore a **no-op** for all normal calls, such as `main([])` / `main(["vigil", ...])`, leaving the
+existing dispatch / exit-code / error-handling chain entirely unchanged.
 
-### 依赖
+### Dependencies
 
-`pyproject.toml` 的 `[project].dependencies` 追加 `argcomplete>=3.0`（3.x 是当前主线，提供
-`register-python-argcomplete` 入口脚本）。
+Append `argcomplete>=3.0` to `[project].dependencies` in `pyproject.toml` (3.x is the current mainline and provides
+the `register-python-argcomplete` entry-point script).
 
-### DAG + 文件分配
+### DAG + file allocation
 
-单 Task（改动最小、四文件互不重叠、无内部依赖）：
+A single Task (minimal changes, four non-overlapping files, no internal dependencies):
 
-| Task | 标题 | files | depends-on |
+| Task | Title | files | depends-on |
 | --- | --- | --- | --- |
-| T1 | argcomplete 接线 + 依赖 + 文档 + 测试 | `openagents/cli.py`, `pyproject.toml`, `README.md`, `tests/test_cli.py` | — |
+| T1 | argcomplete wiring + dependency + documentation + tests | `openagents/cli.py`, `pyproject.toml`, `README.md`, `tests/test_cli.py` | — |
 
-### e2e 脚本
+### e2e script
 
-`scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh`（离线确定性：ruff check + ruff format --check
-+ 针对性 pytest + grep 锚点），被 PR e2e signpost 采集。形态为纯 CLI/后端接线，无 product-facing 前端可
-导航，故不设浏览器 e2e（见 frontmatter `e2e.method`）。
+`scripts/e2e-spec-0069-argcomplete-shell-tab-completion.sh` (offline and deterministic: ruff check + ruff format --check
++ targeted pytest + grep anchors), collected by the PR e2e signpost. This is purely CLI/backend wiring, with no
+product-facing frontend to navigate, so no browser e2e is specified (see frontmatter `e2e.method`).
 
 ## Drawbacks
 
-- 多一个运行时依赖 `argcomplete`（体积小、纯 Python、无二进制扩展，风险低）。
-- 补全需用户在 shell 里一次性 `eval "$(register-python-argcomplete openagents)"`；不启用则无补全（这是
-  argcomplete 的固有模型，非本接线可消除）。
+- One additional runtime dependency, `argcomplete` (small, pure Python, no binary extensions, low risk).
+- Completion requires users to run `eval "$(register-python-argcomplete openagents)"` in their shell as a one-time setup;
+  without activation, there is no completion (this is inherent in argcomplete's model and cannot be eliminated by this wiring).
 
 ## Rationale and alternatives
 
-- **选 argcomplete（本方案）**：直接读现成 argparse parser，命令清单单一真源仍是 `build_parser`，零第二份
-  维护，接线仅一行。
-- **备选①：手写 `_openagents` zsh 补全脚本**——要把全部子命令/选项在 zsh 脚本里再抄一遍，`build_parser`
-  一改就漂移，违背奥卡姆剃刀（理念 1）与单一真源，弃用。
-- **备选②：迁到 `click`/`typer`（自带补全）**——为补全重写整个 CLI 框架，改动面与回归风险远超收益，弃用。
-- **备选③：不做**——保持现状，交互体验差、与对标产品差距扩大，弃用。
+- **Choose argcomplete (this proposal)**: reads the existing argparse parser directly; `build_parser` remains the single
+  source of truth for the command list, with no second copy to maintain and just one line of wiring.
+- **Alternative ①: handwrite an `_openagents` zsh completion script**—requires copying all subcommands/options into a
+  zsh script; it drifts as soon as `build_parser` changes, violating Occam's razor (Principle 1) and the single source of
+  truth; rejected.
+- **Alternative ②: migrate to `click`/`typer` (with built-in completion)**—rewrites the entire CLI framework for
+  completion, with a scope of change and regression risk far exceeding the benefits; rejected.
+- **Alternative ③: do nothing**—retains the status quo, with poor interaction and a widening gap relative to benchmark
+  products; rejected.
 
 ## Prior art
 
-- [argcomplete](https://github.com/kislyuk/argcomplete)（官方文档：在 `parse_args` 前调
-  `argcomplete.autocomplete(parser)`，用 `register-python-argcomplete <prog>` 注册）是 argparse 生态补全的
-  事实标准，被 `pip`、`aws-cli`（早期）等广泛采用。
-- 本仓已有把「命令面信息收敛到 parser 单一真源」的取向（Spec-0064 把九条自动化命令并入 `vigil`），argcomplete
-  正是这一取向在 shell 交互层的自然延伸。
+- [argcomplete](https://github.com/kislyuk/argcomplete) (official documentation: call
+  `argcomplete.autocomplete(parser)` before `parse_args`, and register using `register-python-argcomplete <prog>`)
+  is the de facto standard for completion in the argparse ecosystem, widely adopted by `pip`, `aws-cli` (in its early
+  versions), and others.
+- This repository already favors consolidating command-interface information into the parser as the single source of
+  truth (Spec-0064 merged nine automation commands into `vigil`); argcomplete is a natural extension of this direction
+  to shell interaction.
 
 ## Unresolved questions
 
-- 是否要在 `oa init` 里自动往用户 shell rc 注入启用行？倾向不做——改用户 shell 配置副作用大、不同 shell 各异，
-  留给用户显式一次性启用更稳（本 spec 不含）。
+- Should `oa init` automatically inject the activation line into the user's shell rc file? The preference is not to do
+  this—modifying users' shell configuration has substantial side effects, and shells differ; leaving activation as an
+  explicit one-time user action is more reliable (not included in this spec).
 
 ## Future possibilities
 
-- 为特定参数加**自定义 completer**（如 `--label` 补全仓库现有标签、PR/issue 编号补全活跃项），argcomplete
-  支持给单个 `add_argument` 挂 `.completer`。
-- 给 `spec` 那个 console_script 同样接入 argcomplete（本 spec 只覆盖 `openagents` 入口）。
-
+- Add **custom completers** for specific arguments (for example, complete existing repository labels for `--label`,
+  or active items for PR/issue numbers); argcomplete supports attaching `.completer` to an individual `add_argument`.
+- Integrate argcomplete into the `spec` console_script as well (this spec covers only the `openagents` entry point).

@@ -2,7 +2,7 @@
   "name": "openagents",
   "version": "0.1.0",
   "private": true,
-  "description": "RFC 驱动的多 Agent 框架 —— 仅用于 git 钩子工具链（lefthook + commitlint）",
+  "description": "Git hook tooling for OpenAgents (Lefthook and Commitlint)",
   "scripts": {
     "prepare": "lefthook install"
   },

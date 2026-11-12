@@ -1,8 +1,8 @@
-"""RFC-0001 T2 + RFC-0003: ClaudeCodeBackend 适配器的单元测试。
+"""RFC-0001 T2 + RFC-0003: Module test for ClaudeCodeBackend adapter.
 
-所有子进程副作用一律 mock，不真实调用外部进程：
-- claude CLI 走 subprocess.Popen，输出为 stream-json 事件流（RFC-0003 决策 6）；
-- git status 走 subprocess.run。
+All sub-processes are all side effects mock, unreal calls to external processes:
+- CLI goes subprocess.Popen, output to stream-json event stream (RFC-0003 Decision 6);
+- Let’s go. - subprocess.run.
 """
 
 import io
@@ -34,20 +34,20 @@ from openagents.utils import proc
 
 
 def _assistant_text(text):
-    """构造一条 assistant 文本事件（stream-json 行）。"""
+    """Construct an asistant text event (stream-json row)."""
     return json.dumps(
         {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
     )
 
 
 def _assistant_tool(name, **inp):
-    """构造一条 assistant 工具调用事件。"""
+    """Construct an asistant tool to call an event."""
     block = {"type": "tool_use", "name": name, "input": inp}
     return json.dumps({"type": "assistant", "message": {"content": [block]}})
 
 
 def _assistant_usage(**usage):
-    """构造含中间轮 usage 的 assistant 事件；Spec-0079 要证明它不会被重复累计。"""
+    """Construct anasist event with intermediate wheel usage; Spec-0079 to prove that it will not be accumulated over time."""
     return json.dumps(
         {
             "type": "assistant",
@@ -65,7 +65,7 @@ def _system_init(model):
 
 
 def _result(text, *, usage=None, model_usage=None):
-    """构造最终 result 事件（摘要来源）。"""
+    """Constructs the final result event (summarized source)."""
     event = {"type": "result", "subtype": "success", "result": text, "is_error": False}
     if usage is not None:
         event["usage"] = usage
@@ -75,16 +75,16 @@ def _result(text, *, usage=None, model_usage=None):
 
 
 class _FakePopen:
-    """模拟 subprocess.Popen：stdout 为可迭代行序列，wait() 返回退出码。"""
+    """Simulates subprocess.Popen:stdout as an iterative line sequence, wait() returns the exit code."""
 
     def __init__(self, *, lines, returncode, pass_fds=()):
         self.stdout = iter(lines)
         self.stdin = _RecordingStdin()
         self._returncode = returncode
-        # Spec-0065/T2: 真 Popen 有 pid，后端要 proc_utils.publish(pid=proc.pid) 自报给认领桶。
+        # Spec-0065/T2: True Popen Yes. pid Backend proc_utils.publish(pid=proc.pid) Self-reported self-claimed barrel.
         self.pid = 4242
-        # Spec-0065/T2: 真 Popen 把 `pass_fds` 交给子进程继承（守夜传的是它那把 flock 存活证明）——
-        # 假 Popen 必须原样收下它，否则「锁跟着干活的进程走」这条唯一的存活证明链在测试里根本不可见。
+        # Spec-0065/T2: True Popen gave `pass_fds` to the sub-process to inherit.
+        # The fake Popen must take it as it is, otherwise the only survival chain, "lock the work process" is not visible in the test.
         self.pass_fds = pass_fds
 
     def wait(self):
@@ -101,7 +101,7 @@ class _RecordingStdin(io.StringIO):
 
 
 class _FakeCompleted:
-    """模拟 subprocess.run 的返回对象（用于 git status）。"""
+    """Simulates the return object for subprocess.run (for git status)."""
 
     def __init__(self, *, returncode, stdout):
         self.returncode = returncode
@@ -114,7 +114,7 @@ class _Calls(list):
 
 
 def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
-    """打桩 Popen(claude 事件流) 与 run(git)，记录调用以便断言。"""
+    """Poopen (claude event stream) and run (git) recorded calls for assertions."""
     popen_calls = _Calls()
     popen_instances = []
     run_calls = []
@@ -139,27 +139,27 @@ def _patch(monkeypatch, *, claude_lines, claude_returncode, git_porcelain):
     return popen_calls, run_calls
 
 
-# RFC-0016: 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`）。
+# RFC-0016: Backend prompt global hard-bar - forbids agent to change Claude Code's own configuration (`.claude/`).
 
 
 def test_prompt_starts_with_guardrail():
-    # RFC-0016: 约束前置——_build_prompt 输出以 _GUARDRAIL 开头。
-    prompt = _build_prompt(task="改 foo", context="issue 正文")
+    # RFC-0016: Contain pre-enactment - _build_prompt output starts with _GUARDRAIL.
+    prompt = _build_prompt(task="Change, foo.", context="- Yes, sir.")
     assert prompt.startswith(_GUARDRAIL)
 
 
 def test_prompt_contains_claude_config_guardrail():
-    # RFC-0016: 约束语义——明确禁止改 Claude Code 自身配置、不写 `.claude/`。
+    # RFC-0016: Compression syntax - explicitly prohibits changing Claude Code 's own configuration without writing `.claude/`.
     prompt = _build_prompt(task="t", context="c")
     assert ".claude/" in prompt
-    assert "禁止修改 Claude Code 自身" in prompt
+    assert "do not modify Claude Code configuration" in prompt
 
 
 def test_guardrail_does_not_drop_task_and_context():
-    # RFC-0016 回归保护：前置约束后，原有 task/context 仍完整出现（不破坏 RFC-0001 契约）。
-    prompt = _build_prompt(task="修复 bug", context="历史 comment")
-    assert "修复 bug" in prompt
-    assert "历史 comment" in prompt
+    # RFC-0016 Return Protection: The original task/context appears after pre-bargaining (without breaching the RFC-0001 contract).
+    prompt = _build_prompt(task="Fix bug", context="History")
+    assert "Fix bug" in prompt
+    assert "History" in prompt
 
 
 def test_backend_satisfies_protocol():
@@ -178,7 +178,7 @@ def test_summary_comes_from_result_event(monkeypatch, tmp_path):
         git_porcelain=" M foo.py\n",
     )
 
-    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="改 foo", context="issue 正文")
+    result = ClaudeCodeBackend().run(work_dir=tmp_path, task="Change, foo.", context="- Yes, sir.")
 
     assert isinstance(result, AgentResult)
     assert result.changed is True
@@ -346,13 +346,13 @@ def test_changed_false_when_git_clean(monkeypatch, tmp_path):
 
 
 def test_streams_text_and_tool_events_to_stdout(monkeypatch, tmp_path, capsys):
-    # RFC-0003 决策 6：助手文本与工具动作实时打印到 stdout。
+    # RFC-0003 Decision 6: Assistant Text and Tool Action Print to stdout in real time.
     _patch(
         monkeypatch,
         claude_lines=[
-            _assistant_text("开始改代码"),
+            _assistant_text("Start changing the code."),
             _assistant_tool("Edit", file_path="openagents/github.py"),
-            _result("完成"),
+            _result("Completed"),
         ],
         claude_returncode=0,
         git_porcelain=" M a.py\n",
@@ -361,7 +361,7 @@ def test_streams_text_and_tool_events_to_stdout(monkeypatch, tmp_path, capsys):
     ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
     out = capsys.readouterr().out
-    assert "开始改代码" in out
+    assert "Start changing the code." in out
     assert "🔧 Edit" in out
     assert "openagents/github.py" in out
 
@@ -374,16 +374,16 @@ def test_invokes_claude_stream_json_in_work_dir(monkeypatch, tmp_path):
         git_porcelain="",
     )
 
-    ClaudeCodeBackend().run(work_dir=tmp_path, task="修复 bug", context="历史 comment")
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="Fix bug", context="History")
 
     assert len(popen_calls) == 1
     cmd, kwargs = popen_calls[0]
     assert cmd[:2] == [CLAUDE_BIN, "-p"]
-    assert "修复 bug" not in cmd
-    assert "历史 comment" not in cmd
+    assert "Fix bug" not in cmd
+    assert "History" not in cmd
     assert kwargs["stdin"] == subprocess.PIPE
     assert "--permission-mode" in cmd and "acceptEdits" in cmd
-    # RFC-0003：实时事件流参数。
+    # RFC-0003: real-time event flow parameters.
     assert "--output-format" in cmd and "stream-json" in cmd and "--verbose" in cmd
     assert kwargs["cwd"] == tmp_path
 
@@ -418,12 +418,12 @@ def test_prompt_is_written_once_to_stdin_and_never_argv(monkeypatch, tmp_path):
         git_porcelain="",
     )
 
-    ClaudeCodeBackend().run(work_dir=tmp_path, task="任务", context=sentinel)
+    ClaudeCodeBackend().run(work_dir=tmp_path, task="task", context=sentinel)
 
     cmd, _ = popen_calls[0]
     assert all(sentinel not in arg for arg in cmd)
     written = popen_calls.instances[0].stdin.getvalue()
-    assert written == _build_prompt(task="任务", context=sentinel)
+    assert written == _build_prompt(task="task", context=sentinel)
     assert written.count(sentinel) == 1
     assert popen_calls.instances[0].stdin.close_calls == 1
 
@@ -447,7 +447,7 @@ def test_git_status_runs_against_work_dir(monkeypatch, tmp_path):
 def test_raises_when_claude_fails(monkeypatch, tmp_path):
     _patch(
         monkeypatch,
-        claude_lines=[_result("boom: 出错了")],
+        claude_lines=[_result("boom")],
         claude_returncode=2,
         git_porcelain="",
     )
@@ -459,7 +459,7 @@ def test_raises_when_claude_fails(monkeypatch, tmp_path):
 
 
 def test_non_json_line_passthrough_and_used_as_error_detail(monkeypatch, tmp_path):
-    # 异常：claude 直接吐非 JSON（如启动失败）→ 原样透传，并作为错误详情。
+    # Altitude: claude spits directly on not JSON (e.g. failure to start) as it is passed and as error details.
     _patch(
         monkeypatch,
         claude_lines=["fatal: not authenticated"],
@@ -486,21 +486,21 @@ def test_accepts_path_work_dir(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0065/T2：存活证明跟着干活的进程走——调用线程登记的 fd 必须进 `Popen(pass_fds=…)`
+# Spec-0065/T2: Survivor certificate following the process of working - fd calling thread registration must go to `Popen(pass_fds=…)`
 # --------------------------------------------------------------------------- #
 
 
 def test_popen_hands_the_calling_thread_registered_fd_to_the_child(monkeypatch, tmp_path):
-    """Spec-0065/T2：调用线程 `proc.hold_fd(fd=…)` 登记过的 fd，必须原样出现在 `Popen(pass_fds=…)` 里。
+    """Spec-0065/T2: The fd registered with the `proc.hold_fd(fd=…)` has to be in `Popen(pass_fds=…)` as it is.
 
-    这是守夜「零双跑」证明的**承重构件**：守夜给认领的 subject 持一把 flock，把那个 fd 传给 agent 子进程
-    继承 → 锁的语义从「守夜进程还活着」变成「守夜进程**或**它起的 agent 还有一个活着」。守夜被
-    SIGKILL / OOM / `docker stop` 打死时，claude 子进程是被**孤儿化**而不是被杀（它要到下次写 stdout 才发现
-    父亲没了——足够它把一次 `git push` 做完）；此刻若锁随守夜进程一起被内核收走，重启后的 `_reclaim_dead`
-    就会抢到锁、判「持有者已死」、把行打回 queued → 另一个 worker 领走同一个 subject → **双跑**。
+    This is a **replacement of the Night’s Watch **: the watch for the claim subproject holds a lock, passes the fd to agent subprocess
+    The semantic of succession, locking, has been transformed from ”the Vigil is alive” to ”the Vigil** or ”the Vigil**” or ”agent” where it starts.
+    When SIGKILL / OOM / `docker stop` was killed, the claude subprocess was orphaned** and not killed (it was not until next time it was written stdout that it discovered that the claude process was being killed)
+    Father is gone -- enough to finish `git push` once; if locked up with the Vigil, taken by the kernel, then re-started `_reclaim_dead`
+    The first time you get a new one, you get a lock, you get a ”possesser dead” and you hit the line back, and another worker takes the same subject ** running.**
 
-    整条链只在这一行 `pass_fds=` 上成立，而它在这里之外**没有任何测试覆盖**（删掉它，全仓依旧全绿）。
-    未登记的调用方 → 空元组 → 行为与本 spec 之前完全一致（见 `test_invokes_claude_stream_json_in_work_dir`）。
+    The whole chain is only set up on this line `pass_fds=`, and it has no test coverage** outside of here** (delete it, the whole warehouse remains green).
+    The unregistered caller  →  space meta group behaves exactly the same as before this spec (see `test_invokes_claude_stream_json_in_work_dir`).
     """
     popen_calls, _ = _patch(
         monkeypatch,
@@ -520,37 +520,39 @@ def test_popen_hands_the_calling_thread_registered_fd_to_the_child(monkeypatch, 
         os.close(fd)
 
     _, kwargs = popen_calls[0]
-    assert kwargs["pass_fds"] == (fd,), "登记的存活证明 fd 必须传给 agent 子进程继承"
-    # 自报的那个句柄**就是**收下这个 fd 的那个进程：认领桶（超时杀树用）与存活证明落在同一个 Popen 上。
+    assert kwargs["pass_fds"] == (fd,), (
+        "Registered survival certificate fd must be passed to agent subprocess succession"
+    )
+    # The self-reported ** is the process ** of taking this fd: the recognition that the barrel (overtime killing the tree) and the survival certificate fell on the same Popen.
     assert list(bucket) == [4242]
     assert bucket[4242].pass_fds == (fd,)
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0030/T1：权限模式最小 env 开关（默认 acceptEdits 不变 / 可经 env 覆写）
+# Spec-0030/T1: Allows the minimum power mode env switches (default acceptEdits unchanged/ recapable by env)
 # --------------------------------------------------------------------------- #
 
 
 def test_effective_permission_mode_defaults_accept_edits(monkeypatch):
-    # 未设 OPENAGENTS_PERMISSION_MODE → 回退缺省 acceptEdits（默认行为不变）。
+    # OPENAGENTS_PERMISSION_MODE Zulu returned default acceptEdits (the default is unchanged).
     monkeypatch.delenv(PERMISSION_MODE_ENV, raising=False)
     assert effective_permission_mode() == "acceptEdits"
 
 
 def test_effective_permission_mode_blank_falls_back(monkeypatch):
-    # 空白值视同未设 → 仍回退缺省（避免拿空串去拼命令行）。
+    # The blank value is considered as unset and still returns to default (avoids empty string to spell the command line).
     monkeypatch.setenv(PERMISSION_MODE_ENV, "   ")
     assert effective_permission_mode() == "acceptEdits"
 
 
 def test_effective_permission_mode_override(monkeypatch):
-    # 设为 bypassPermissions → 访问器随之返回该值。
+    # Sets the bypassPermissions Query accessor returns the value.
     monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
     assert effective_permission_mode() == "bypassPermissions"
 
 
 def test_command_line_uses_default_permission_mode(monkeypatch, tmp_path):
-    # 默认态：claude 命令行仍为 --permission-mode acceptEdits（默认不变）。
+    # Default state:claude Command line remains valid --permission-mode acceptEdits(Default remains unchanged).
     monkeypatch.delenv(PERMISSION_MODE_ENV, raising=False)
     popen_calls, _ = _patch(
         monkeypatch,
@@ -567,7 +569,7 @@ def test_command_line_uses_default_permission_mode(monkeypatch, tmp_path):
 
 
 def test_command_line_honors_permission_mode_override(monkeypatch, tmp_path):
-    # 覆写态：env 设为 bypassPermissions → 命令行随之变为 --permission-mode bypassPermissions。
+    # Overwrite: env set as bypassPermissions  →  and the command line becomes --permission-mode bypassPermissions.
     monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
     popen_calls, _ = _patch(
         monkeypatch,
@@ -694,22 +696,22 @@ def test_terminate_uses_captured_group_after_leader_was_reaped(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0046/T2：claude -p 流式读的 idle（停顿）看门狗——真静默/病态流触发、健康流零回归、访问器解析
+# Spec-0046/T2: claude-p fluent idle (stopping) watchdog - silent/pathic trigger, zero health flow back, access solver
 #
-# 全程假 Popen，不触真实 claude：`stdout` 是可控节奏行序列生成器，「长时间静默」用 threading.Event
-# 阻塞模拟读挂住，terminate()/kill() 置该 Event 解除阻塞 → 迭代结束（复刻「杀进程→管道关→for 退出」）。
-# 阈值走极小值（0.1s / 0.2s）使触发确定性、亚秒级，不真等。
+# Full-time Popen, untouched real claude: `stdout` is a controlled rhythm sequence generator with threading.Event
+# Blocking the simulation reading hang, terminate()/kill() remove the blocking and  →  end it in an iterative manner (repeated "killing process pipe shut-off  → for exit").
+# Thresholds are minimal (0.1s/0.2s) to trigger certainty, subseconds, not real.
 # --------------------------------------------------------------------------- #
 
 
 class _WatchdogPopen:
-    """Spec-0046/T2：可控节奏的假 Popen——覆盖看门狗的静默/病态/健康三种流形态。
+    """Spec-0046/T2 Controllable rhythm fake Popen——The silence over the watchdog./Sick/Health in three currents.
 
-    - `silence_after=True`：吐完 prelude 行后在 `threading.Event` 上阻塞，模拟「读挂住」（真僵死）；
-      terminate() **不**解除阻塞（模拟 SIGTERM 被卡死进程忽略），只有 kill() 置 Event → 迭代结束。
-    - `infinite=True`：循环吐 `lines`（每行前 `per_line_sleep`），模拟「每 tick 吐一行垃圾永不结束」的病态流；
-      killed 置位后下一轮退出（复刻管道关闭）。
-    - 皆为 False：吐完 `lines` 自然结束——健康连续流。
+    - `silence_after=True`: Blocking on `threading.Event` after the prelude line, simulated ”read and hang” (still dead);
+      terminate()** does not** unblock (simulate SIGTERM ignored by the card-killing process) only kill() ends with Event  →  an iterative end.
+    - `infinite=True`: Cirque `lines` (`per_line_sleep` per line) to simulate the pathological flow ”A line of garbage never ends per tick”;
+      Killed after position, exits in the next round (repeated pipe shut).
+    - All of them: after spitting out `lines`, it’s natural end - Health flow.
     """
 
     def __init__(
@@ -733,17 +735,17 @@ class _WatchdogPopen:
             for ln in self._lines:
                 if self._per_line_sleep:
                     time.sleep(self._per_line_sleep)
-                if self.killed:  # kill() 关闭管道 → 停止吐行
+                if self.killed:  # Kill() turn off the pipe, poach, stop throwing up.
                     return
                 yield ln
             if self._infinite and self._lines:
                 continue
             break
         if self._silence_after:
-            self._unblock.wait()  # 阻塞模拟「读挂住」，直到 kill() 置 Event
+            self._unblock.wait()  # Block simulation "read-and- hang" until (kill) set Event
 
     def terminate(self):
-        # 模拟真僵死进程忽略 SIGTERM：只记调用、不解除阻塞（逼看门狗走到 kill）。
+        # Simulation of a dead-end process ignores SIGTERM: only call, not unblock (pushing watchdogs to kill).
         self.terminated = True
 
     def kill(self):
@@ -751,14 +753,14 @@ class _WatchdogPopen:
         self._unblock.set()
 
     def wait(self, timeout=None):
-        # 带 timeout 且尚未 kill → 抛 TimeoutExpired（terminate 宽限内没退），复刻真 Popen 语义。
+        # With timeout and not kill throw TimeoutExpired (inside the grace limit), engraved the Popen syntax.
         if timeout is not None and not self.killed:
             raise subprocess.TimeoutExpired(cmd="claude", timeout=timeout)
         return self._returncode
 
 
 def _patch_popen(monkeypatch, *, fake, git_porcelain):
-    """Spec-0046/T2：把 subprocess.Popen 打桩成返回给定假进程，git status 走假 run。返回 popen 调用记录。"""
+    """Spec-0046/T2: Put subprocess.Popen The post is part of a process of returning to the plagiarization process.git status Fake. run。Back popen Call the record."""
     popen_calls = []
 
     def fake_popen(cmd, **kwargs):
@@ -775,9 +777,9 @@ def _patch_popen(monkeypatch, *, fake, git_porcelain):
 
 
 def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
-    # ① 连续静默超 idle → terminate 后 kill 被调，原因记录长时间无输出。
+    # 1 Silently and silently after idle terminate, bill was transferred for reasons documented no output.
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0.1")
-    monkeypatch.setenv(MAX_WALL_ENV, "0")  # 只测 idle，关墙钟兜底
+    monkeypatch.setenv(MAX_WALL_ENV, "0")  # Just test, idle, close the wall.
     fake = _WatchdogPopen(
         lines=[_assistant_text("thinking...") + "\n"], returncode=0, silence_after=True
     )
@@ -786,19 +788,21 @@ def test_idle_timeout_terminates_then_kills_and_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "长时间无输出" in str(exc.value)
-    assert "预算耗尽" not in str(exc.value)
-    assert "挂死" not in str(exc.value)
-    assert fake.terminated is True, "看门狗触发时应先 terminate()"
-    assert fake.killed is True, "SIGTERM 宽限内未退 → 应升级到 kill()"
+    assert "produced no output" in str(exc.value)
+    assert "Budget depletion" not in str(exc.value)
+    assert "Hang on." not in str(exc.value)
+    assert fake.terminated is True, "Watchdog trigger first"
+    assert fake.killed is True, "SIGTERM within the limit unrepeated should be upgraded to kill()"
 
 
 def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
-    # ② 持续吐行仍耗尽总时长预算，输出不能续时。
-    monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")  # 关 idle：病态流一直有「新行」，idle 判据被骗过
+    # 2 The continued outlet still consumes the total budget and the output cannot be renewed.
+    monkeypatch.setenv(
+        IDLE_TIMEOUT_ENV, "0"
+    )  # idle: There's always a "new line" in the pathological flow, and idle's been deceived.
     monkeypatch.setenv(MAX_WALL_ENV, "0.2")
     fake = _WatchdogPopen(
-        lines=[_assistant_text("垃圾") + "\n"],
+        lines=[_assistant_text("Garbage.") + "\n"],
         returncode=0,
         infinite=True,
         per_line_sleep=0.03,
@@ -808,21 +812,21 @@ def test_max_wall_timeout_on_pathological_stream_raises(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError) as exc:
         ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
 
-    assert "时间预算耗尽" in str(exc.value)
-    assert "长时间无输出" not in str(exc.value)
-    assert "挂死" not in str(exc.value)
+    assert "wall-clock budget" in str(exc.value)
+    assert "produced no output" not in str(exc.value)
+    assert "Hang on." not in str(exc.value)
     assert fake.killed is True
 
 
 def test_zero_regression_healthy_stream_watchdog_never_fires(monkeypatch, tmp_path, capsys):
-    # ③ 零回归：连续正常流 → 看门狗从不介入读、从不杀；输出/摘要/changed 与「看门狗全关」逐字节一致。
+    # A healthy stream is read normally, with its result and change state preserved.
     lines = [
-        _assistant_text("开始改代码") + "\n",
+        _assistant_text("Start changing the code.") + "\n",
         _assistant_tool("Edit", file_path="a.py") + "\n",
-        _result("完成") + "\n",
+        _result("Completed") + "\n",
     ]
 
-    # (A) 看门狗启用（默认阈值 300s/3600s，健康快流下永不触发）。
+    # (A) Watchdogs enabled (default threshold 300 s/3600s, never triggered by health rapids).
     monkeypatch.delenv(IDLE_TIMEOUT_ENV, raising=False)
     monkeypatch.delenv(MAX_WALL_ENV, raising=False)
     fake_on = _WatchdogPopen(lines=list(lines), returncode=0)
@@ -830,7 +834,7 @@ def test_zero_regression_healthy_stream_watchdog_never_fires(monkeypatch, tmp_pa
     res_on = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
     out_on = capsys.readouterr().out
 
-    # (B) 看门狗全关（env=0 → 压根不起线程，等价于本 spec 之前的读路径）。
+    # (B) The door dog is all off (env=0  →  cannot reach the thread and is equal to the path read before Ben spec).
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")
     monkeypatch.setenv(MAX_WALL_ENV, "0")
     fake_off = _WatchdogPopen(lines=list(lines), returncode=0)
@@ -838,20 +842,22 @@ def test_zero_regression_healthy_stream_watchdog_never_fires(monkeypatch, tmp_pa
     res_off = ClaudeCodeBackend().run(work_dir=tmp_path, task="t", context="c")
     out_off = capsys.readouterr().out
 
-    assert out_on == out_off, "看门狗启用与否，健康流的 stdout 必须逐字节一致"
-    assert res_on.summary == res_off.summary == "完成"
+    assert out_on == out_off, "The stdout of the healthy flow must be byte-like."
+    assert res_on.summary == res_off.summary == "Completed"
     assert res_on.changed is res_off.changed is True
-    assert fake_on.terminated is False and fake_on.killed is False, "健康流看门狗从不介入"
+    assert fake_on.terminated is False and fake_on.killed is False, (
+        "The health-care dogs never intervene."
+    )
 
 
 def test_effective_idle_timeout_defaults_to_300(monkeypatch):
-    # ④ 访问器：未设 → 缺省 300s（宽到不误杀正常长任务）。
+    # Accessor: No default 300s (wider than no kill for normal long mission).
     monkeypatch.delenv(IDLE_TIMEOUT_ENV, raising=False)
     assert effective_idle_timeout() == 300.0
 
 
 def test_effective_max_wall_defaults_to_3600(monkeypatch):
-    # ④ 访问器：未设 → 缺省 3600s（远大于 idle）。
+    # 4 Accessor: No default 3600s (mostly greater than idle).
     monkeypatch.delenv(MAX_WALL_ENV, raising=False)
     assert effective_max_wall() == 3600.0
 
@@ -864,7 +870,7 @@ def test_invalid_max_wall_falls_back_to_finite_budget(monkeypatch, raw):
 
 
 def test_effective_idle_timeout_blank_or_invalid_falls_back(monkeypatch):
-    # ④ 访问器：空白/非法值落缺省（不拿坏值去当阈值）。
+    # Accessors: Empty/illegal values are defaulted (no bad values are used as thresholds).
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "   ")
     assert effective_idle_timeout() == 300.0
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "not-a-number")
@@ -872,7 +878,7 @@ def test_effective_idle_timeout_blank_or_invalid_falls_back(monkeypatch):
 
 
 def test_effective_idle_timeout_zero_or_negative_disables(monkeypatch):
-    # ④ 访问器：<=0 视为关闭该看门狗（返回 0.0）。
+    # 4 Accessor: <=0 is considered to be closing the door dog (return 0.0).
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "0")
     assert effective_idle_timeout() == 0.0
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "-5")
@@ -880,7 +886,7 @@ def test_effective_idle_timeout_zero_or_negative_disables(monkeypatch):
 
 
 def test_effective_timeouts_honor_override(monkeypatch):
-    # ④ 访问器：合法覆写 → 随之返回该值。
+    # 4 Accessor: Legitimate overwrite  →  returns the value.
     monkeypatch.setenv(IDLE_TIMEOUT_ENV, "42")
     monkeypatch.setenv(MAX_WALL_ENV, "1234.5")
     assert effective_idle_timeout() == 42.0

@@ -1,7 +1,7 @@
 {
   "name": "openagents-desktop",
   "version": "0.1.0",
-  "description": "OpenAgents 桌面 app：并行看板 + 大窗流式 + tab 待看导航（Spec-0073）",
+  "description": "OpenAgents desktop dashboard with live streams and keyboard navigation (Spec-0073)",
   "main": "./out/main/index.js",
   "author": "OpenAgents",
   "license": "MIT",

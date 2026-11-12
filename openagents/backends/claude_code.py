@@ -1,14 +1,9 @@
-"""RFC-0001 T2 + RFC-0003: Claude Code 后端适配器。
+# RFC-0001, RFC-0003
+"""Run Claude Code in the assigned worktree and stream its progress.
 
-以子进程非交互（headless/print）方式调用 Claude Code CLI，在给定工作目录
-按任务描述改代码，再通过 `git status --porcelain` 判定是否产生改动，
-返回满足 `AgentBackend` 协议的 `AgentResult`（见 base.py，决策 2）。
-
-RFC-0003 决策 6：求解过程**实时透传**。`claude -p` 默认 `--output-format=text`
-会把输出整段缓冲到结束才吐（运行数分钟零反馈）；故改用
-`--output-format stream-json --verbose`，用 `Popen` 逐行读取 NDJSON 事件流，
-把助手文本与工具动作（如 `Edit foo.py`）即时格式化打印，并从 `result` 事件
-取最终文本作为 PR 摘要。
+The backend invokes headless Claude Code with stream-json and verbose output,
+reads events as they arrive, and extracts the result text. Git status provides
+change evidence. A watchdog supervises idle time and total wall-clock time.
 """
 
 from __future__ import annotations
@@ -28,25 +23,25 @@ from openagents.runtime.invocation import redact_text
 from openagents.utils import proc as proc_utils
 from openagents.utils import streams
 
-# RFC-0001 T2: claude 可执行名做成模块级常量，便于测试 mock / 替换。
+# RFC-0001 T2: claude can be tested as a modular level constant to allow the mock/ replacement.
 CLAUDE_BIN = "claude"
 
-# Spec-0030/T1: 权限模式的环境变量旋钮与缺省值。
-# 缺省 acceptEdits——headless 模式下必须显式放行编辑，否则 claude 不会落盘改动
-# （端到端验证发现：缺此参数 run 永远返回 changed=False，见 RFC-0001 T2）。
-# 与既有 OPENAGENTS_REVIEWERS 同款最小 env 旋钮（reviewer.py）：不引入配置文件、缺省取默认，
-# 让 envcheck 报告里「export OPENAGENTS_PERMISSION_MODE=bypassPermissions」真正可操作
-# （把 browser MCP 在 headless 下放行，见 Spec-0030 Reference-level (B)）。
+# Spec-0030/T1: The environment variable spin button and default values for permission mode.
+# Default Edits-headless mode must be clearly released for editing, otherwise the message will not be set to change
+# (end-to-end validation found: missing this parameter Run returns changed = False for good, see RFC-0001 T2).
+# And the old one. OPENAGENTS_REVIEWERS Minimum paragraph env Rotate button (%1)reviewer.py）: Do not include profiles, default default defaults, and do not include profiles.
+# Let the "export OPENAGENTS_PERMISSION_MODE =bypassPermissions" in the envcheck report be truly operational
+# (Delegate the Browner MCP in headless, see Spec-0030 Reference-level (B)).
 PERMISSION_MODE_ENV = "OPENAGENTS_PERMISSION_MODE"
 _DEFAULT_PERMISSION_MODE = "acceptEdits"
 
 
 def effective_permission_mode() -> str:
-    """Spec-0030/T1: 派 claude 时实际使用的权限模式（单一真相源）。
+    """Spec-0030/T1: The permission model (single truth source) that is actually used when sending claude.
 
-    读环境变量 ``OPENAGENTS_PERMISSION_MODE``，未设或为空白则回退缺省 ``acceptEdits``
-    （默认行为不变，非侵入）。envcheck 体检经此访问器读模式，保证「报告里告知的模式」
-    永远等于「派单实际用的模式」（否则告知会撒谎，见 Spec-0030 (A)）。
+    Read Environment Variables ’`OPENAGENTS_PERMISSION_MODE`’, not created or blanked or retired ’`acceptEdits`’
+    (Assault behaviour remains unchanged, non-intrusive). Envcheck examines the mode of reading from this access device, and ensures that ”the pattern of communication in the report”
+    It’s always the ”Peer-Sate-Performance Model” (or else, the message would lie, see Spec-0030 (A)).
     """
     value = os.environ.get(PERMISSION_MODE_ENV, "").strip()
     return value or _DEFAULT_PERMISSION_MODE
@@ -73,22 +68,22 @@ def _claude_child_env(*, advisory: bool) -> dict[str, str]:
     return env
 
 
-# Spec-0046/T1: claude -p 流式读的 idle（停顿）看门狗旋钮，镜像上面的 effective_permission_mode 最小 env 范式。
-# 静默只说明没有新输出，不证明挂死；每行输出刷新 idle，但不延长公共总时长预算。
+# Spec-0046/T1: claude -p It's a fluent reading. idle(suspend) Watch the dog's spin button, mirrors above. effective_permission_mode Min env Paradigm.
+# Silence only means that there are no new outputs and no evidence of hanging; each line of output is refreshed idle, but does not extend the total public time budget.
 IDLE_TIMEOUT_ENV = "OPENAGENTS_CLAUDE_IDLE_TIMEOUT"
 _DEFAULT_IDLE_TIMEOUT = 300.0
 
-# Spec-0046/T1: terminate→kill 之间的宽限秒数（SIGTERM 后等这么久仍不退 → SIGKILL）。
+# Spec-0046/T1: width seconds between metrine → kill (SIGTERM remains unchanged for so long).
 _TERMINATE_GRACE_SECONDS = 5.0
-# Spec-0046/T1: 看门狗轮询间隔上限；实际 poll 取「活跃阈值」与它的较小者，避免小阈值下轮询过疏而错过触发点。
+# Spec-0046/T1: Maximum limit for door-dog Query; actual pollell takes the `active threshold' from its smaller, avoiding a small threshold that is overt and misss the trigger point.
 _WATCHDOG_POLL_CAP = 5.0
 
 
 def _effective_timeout(*, env_name, default):
-    """Spec-0046/T1: 读某个「秒数」env、float 解析——非法/空白落缺省，``<=0`` 视为关闭（返回 ``0.0``）。
+    """Spec-0046/T1: Read a second number env、float Parsing——Illegal/The blogger says:’`<=0`’ Consider Closed (Return) ’`0.0`’）。
 
-    与 effective_permission_mode 同源同理：单一真相源访问器、不引入配置文件、缺省取安全值。缺省本身恒 ``>0``，
-    故空白/非法回退缺省即仍启用；只有显式设成 ``0``/负数才关闭对应看门狗（默认行为不变、非侵入）。
+    Same as effective_permission_mode: Single truth source accesser, non-inclusion of configuration file, default security value. The default itself is constant ’`>0` ’,
+    The blank/illegal retreat is therefore still active; only the visible ’`0` ’ / negative number will close the corresponding watchdog (the default behaviour remains unchanged, non-intrusive).
     """
     raw = os.environ.get(env_name, "").strip()
     if not raw:
@@ -102,14 +97,14 @@ def _effective_timeout(*, env_name, default):
 
 
 def effective_idle_timeout() -> float:
-    """Spec-0046/T1: idle 停顿超时秒数（单一真相源）；``<=0`` 关闭 idle 看门狗。"""
+    """Spec-0046/T1: idle paused for extra hours (single truth source); ’`<=0` ’ ’Close idle door dog."""
     return _effective_timeout(env_name=IDLE_TIMEOUT_ENV, default=_DEFAULT_IDLE_TIMEOUT)
 
 
 def _watchdog_poll_interval(*, idle, max_wall):
-    """Spec-0046/T1: 看门狗轮询间隔——取活跃阈值与 ``_WATCHDOG_POLL_CAP`` 的较小者；两者皆关闭 → ``None``。
+    """Spec-0046/T1: Watchdogs’ rounds of inquiry interval——Take active threshold and ’`_WATCHDOG_POLL_CAP`’ The smaller; both are closed. → ’`None`’。
 
-    返回 ``None`` 表示 idle 与墙钟都关了 → 压根不起看门狗线程（此时读路径与本 spec 之前逐字节一致）。
+    Returns ’`None` ’ means that idle and the wall clock are closed and cannot afford the watchdog thread (the reading path is consistent with the byte before this spec).
     """
     candidates = [v for v in (idle, max_wall) if v > 0]
     if not candidates:
@@ -118,12 +113,12 @@ def _watchdog_poll_interval(*, idle, max_wall):
 
 
 def _terminate_then_kill(*, proc):
-    """Spec-0046/T1: 终止 Claude 及其整个进程组。
+    """Spec-0046/T1: Termination of Claude and its entire process group.
 
-    杀掉子进程会关闭其 stdout 管道 → 主循环的 ``for raw in proc.stdout:`` 随即结束迭代（这是唤醒阻塞读的
-    唯一手段，故读路径零改动）。Claude 会再启动 shell/MCP 子进程；只调用 ``terminate()`` 会把这些子进程
-    留成孤儿，所以 backend 在启动时创建独立 session，并在这里先杀整个 process group，再用句柄作兜底。
-    尽力而为：各步吞异常，绝不把看门狗守护线程带崩（守夜第一要务是活着进下一轮）。
+    The kill child process closes its stdout pipe, and the main cycle of ’`for raw in proc.stdout:` ’ ends the trajectories.
+    Only means, so the path is read with zero changes. Claude will start shell/MCP subprocesses again; only `terminate()` ’ will call on these subprocesses
+    Staying orphans, so backend creates an independent session at startup, kills the whole procacy group here, then uses the handle to cover it.
+    Do your best: each step is abnormal and never leads to a breakdown in the guard dog’s line (the first priority of the Vigil is to go into the next round alive).
     """
     pgid = proc_utils.process_group(handle=proc)
     try:
@@ -169,44 +164,44 @@ def _terminate_then_kill(*, proc):
             pass
 
 
-# RFC-0003 决策 6: 实时事件流格式（stream-json 需配 --verbose 才输出完整事件）。
+# RFC-0003 Decision 6: Real-time Event Flow Format (sstream-json needs to be accompanied by --verbose to output the full event).
 _STREAM_ARGS = ["--output-format", "stream-json", "--verbose"]
 
-# 摘要截断长度，避免把超长 CLI 输出整段塞进 PR 正文。
+# Summary cut-off length to avoid plugging an overlong CLI output in the PR text.
 _SUMMARY_MAX_LEN = 2000
 
-# 工具动作里用于提取「一句话提示」的常见入参键（按优先级）。
+# The common input key (by priority) used in a tool action to extract a " one sentence hint " .
 _TOOL_HINT_KEYS = ("file_path", "path", "command", "pattern", "url", "query")
 
-# RFC-0016: 后端 prompt 全局硬约束——禁止 agent 改动 Claude Code 自身配置（`.claude/`）。
-# 前置到每条 prompt 开头，从源头避免无人值守循环走向 `.claude/` 写入而撞上权限门卡死。
+# RFC-0016: Backend prompt global hard-bar - forbids agent to change Claude Code's own configuration (`.claude/`).
+# Prefix to start with each prompt, avoids the `.claude/` writing from the source and crashes the access doorcard to death.
 _GUARDRAIL = (
-    "【全局硬约束】禁止修改 Claude Code 自身的任何配置。"
-    "不得写入或改动 `.claude/` 目录下的任何内容（包括 skills、hooks、settings、commands 等）。"
-    "如果遇到看似需要写入 `.claude/`（例如把某个 skill 写进 `.claude/skills/`）的任务，"
-    "必须跳过该步骤并在输出中说明原因，绝不尝试写入——这是不可违反的边界。"
+    "Global constraint: do not modify Claude Code configuration. "
+    "Do not write or change anything under `.claude/`, including skills, hooks, settings, or commands. "
+    "If a task appears to require writing under `.claude/` (for example, adding a skill to `.claude/skills/`), "
+    "skip that step and explain why in your output. Never attempt the write."
 )
 
 
 def _build_prompt(*, task, context):
-    """RFC-0001 T2: 把 task 与 context 拼成喂给 claude 的单条 prompt。
+    """RFC-0001 T2: Spell the task with constext as a single line of prompt for claude.
 
-    RFC-0016: 前置 `_GUARDRAIL` 全局硬约束，使「不可改 `.claude/`」出现在每条
-    prompt 的开头（所有原子操作的唯一收敛点），对所有调用方透明生效。
+    RFC-0016: Pre-`_GUARDRAIL` global hard-barrel, so that ”`.claude/`” appears in every article
+    The beginning of the prompt (the only condensation point for all atomic operations) is applied transparently to all callers.
     """
-    return f"{_GUARDRAIL}\n\n任务：\n{task}\n\n上下文：\n{context}"
+    return f"{_GUARDRAIL}\n\nTask:\n{task}\n\nContext:\n{context}"
 
 
 def _summarize(*, stdout, changed):
-    """RFC-0001 T2: 从最终结果文本生成简短摘要（供 PR 正文/评论使用）。"""
+    """RFC-0001 T2: Generates a short summary from the final result text (for PR body/comment)."""
     text = stdout.strip()
     if not text:
-        return "无改动。" if not changed else "已产生改动（CLI 无输出）。"
+        return "No changes." if not changed else "Changes detected (no CLI output)."
     return text[:_SUMMARY_MAX_LEN]
 
 
 def _parse_event(*, line):
-    """RFC-0003 决策 6: 把一行 stream-json 解析为 dict 事件；非 JSON 返回 None。"""
+    """RFC-0003 Decision 6: Resolve a line from stread-json to dict event; non-JSON returns None."""
     try:
         obj = json.loads(line)
     except json.JSONDecodeError:
@@ -215,7 +210,7 @@ def _parse_event(*, line):
 
 
 def _format_tool_use(*, block):
-    """RFC-0003 决策 6: 把一个 tool_use 块格式化成一行人类可读进度。"""
+    """RFC-0003 Decision 6: Format a tool_use block into a line of human readable progress."""
     name = block.get("name") or "tool"
     inp = block.get("input") or {}
     hint = ""
@@ -230,7 +225,7 @@ def _format_tool_use(*, block):
 
 
 def _lines_for_event(*, event):
-    """RFC-0003 决策 6: 从一条事件提取要打印的人类可读行（assistant 文本 + 工具动作）。"""
+    """RFC-0003 Decision 6: Extract a human readable line (assistant text + tool action) from an event."""
     if event.get("type") != "assistant":
         return []
     content = (event.get("message") or {}).get("content") or []
@@ -317,7 +312,7 @@ def _token_usage_for_result_event(
 
 
 class ClaudeCodeBackend:
-    """RFC-0001 T2: Claude Code coding agent 适配器，满足 AgentBackend 协议。"""
+    """RFC-0001 T2: Claude Code working ant adapter, meet the AgentBackend protocol."""
 
     name = "claude-code"
 
@@ -329,11 +324,11 @@ class ClaudeCodeBackend:
         return ClaudeCodeBackend(advisory=True)
 
     def run(self, *, work_dir: Path, task: str, context: str) -> AgentResult:
-        """RFC-0001 T2 + RFC-0003: 在 work_dir 内驱动 Claude Code 改代码并报告结果。
+        """RFC-0001 T2+RFC-0003: Driver Claude Code within work_dir to change the code and report the results.
 
-        以 `claude -p ... --output-format stream-json --verbose` 运行（cwd=work_dir），
-        事件实时透传到终端；调用后用 `git -C <work_dir> status --porcelain` 判定改动；
-        CLI 返回非零则抛 RuntimeError。
+        Runs as `claude -p ... --output-format stream-json --verbose` (cwd=work_dir).
+        Event is passed through terminal in real time; on call, the change is determined by `git -C <work_dir> status --porcelain`;
+        CLI returns non-zero-dot overruntimeError.
         """
         work_dir_str = str(work_dir)
         prompt = _build_prompt(task=task, context=context)
@@ -359,16 +354,16 @@ class ClaudeCodeBackend:
     def _run_claude_streaming(
         self, *, work_dir: Path, prompt: str
     ) -> tuple[str, tuple[str, ...], TokenUsage | None]:
-        """RFC-0003 决策 6: 逐行解析 stream-json 事件、实时打印进度，返回最终结果文本。
+        """RFC-0003 Decision 6: Parse the stream-json event, print progress in real time, and return the final result text.
 
-        stderr 合并进 stdout；从 `result` 事件取 `result` 文本作摘要；非零退出抛
-        RuntimeError（带已知错误详情）。
+        Stderr merge into stdout; extract `result` text from `result` event for summary; non-zero exit throw
+        RuntimeError (with known error details).
 
-        Spec-0046/T1: 阻塞式逐行读外挂一道 idle（停顿）看门狗守护线程——主循环每来一行只多刷一次
-        `last_activity`（monotonic）戳；看门狗轮询若发现「连续静默超 idle」或「总时长超 max_wall」，就
-        terminate()→kill() 子进程，管道随之关闭、主循环退出，收尾抛**既有的** `RuntimeError`（带无输出/预算
-        耗尽详情），交上游 per-issue/per-round try/except 隔离（这轮这个 agent 失败 → 跳过、下轮重试）。
-        新输出只刷新静默计时，不证明有效进展，也不延长总时长预算；已有流式读取路径保持不变。
+        Spec-0046/T1: Blocked line-by-line idle (stop) door-dog-protective thread - main cycle only brushes once more each line
+        `last_activity` (monotonic) jab; if a door-dog turns to find ”silent silence idle” or ”total time over max_wall”, then
+        terminate() → kill() subprocesses with pipe shut, main cycle exited, end-screwed** `RuntimeError` (with no output/budget)
+        Exhausted details) and submitted to upstream per-issue/per-round try/except quarantine (this round of agent failed to skip, retrace).
+        The new output will only be updated to the silent clock, will not prove effective progress and will not extend the total time-consuming budget; the current reading path remains unchanged.
         """
         proc = subprocess.Popen(
             [
@@ -400,9 +395,9 @@ class ClaudeCodeBackend:
             text=True,
             bufsize=1,
             start_new_session=True,
-            # Spec-0065/T2: 把调用方登记的 fd 传给子进程继承（守夜传的是它那把 flock 存活证明）。
-            # 于是「谁在干活谁持锁」——守夜进程被 SIGKILL 后，还在跑的 agent 孤儿仍持着锁，回收方抢不到、
-            # 那行就不会被打回队列重领（双跑的最后一个入口）。非守夜的调用方没登记 → 空元组 → 行为不变。
+            # Spec-0065/T2: Pass the fd registered by the caller to the child process to inherit (it's the flock survival certificate).
+            # So, "Who works and who holds the lock" -- the watch is still running after SIGKILL, and the orphan is still holding the lock, and the recycler can't take it.
+            # The line will not be pushed back to the queue re-lead (the last entry for double running). The non-night watch caller is not registered  →  empty element group  →  behavior is unchanged.
             pass_fds=proc_utils.inherited_fds(),
         )
         # Capture the session group before any watchdog/reaper can observe a dead leader.
@@ -410,28 +405,28 @@ class ClaudeCodeBackend:
             proc_utils.remember_process_group(handle=proc, pgid=os.getpgid(proc.pid))
         except OSError:
             pass
-        # Spec-0065/T2: 自报 PID + Popen 句柄给认领桶——守夜的 `_act` 硬超时据此**精确**杀掉这次调用起的
-        # 进程树；句柄用于验明正身（PID 被 reap 后可能已被复用，裸 PID 杀过去就是杀无辜者，见 utils.proc）。
+        # Spec-0065/T2: Self-reported PID + Popen handles the recognized collar - Vigil `_act` is hard-tempered ** precisely killed ** from this call
+        # Process tree; handles for the identification of body (PID may have been reused after recap, nud PID kills the innocent, see utils.proc).
         proc_utils.publish(pid=proc.pid, handle=proc)
 
-        # Spec-0081/T1: prompt 是可能超过 Linux 单参数上限的大载荷，只经 stdin 传一次；argv
-        # 只留控制参数。独立 writer 让主线程立即消费 stream-json，避免 stdin/stdout 管道互相背压。
+        # Spec-0081/T1: prompt is a large payload that may exceed the limit of Linux single parameter, transmitted only once by stdin; argv
+        # Only the control parameters are left. Independent Writer allows the main route to consume stream-json immediately, avoiding stdin/stdout pipes backsliding.
         stdin_errors: list[Exception] = []
 
         def _write_prompt() -> None:
             try:
                 if proc.stdin is None:
-                    raise RuntimeError("Claude Code CLI stdin pipe 未建立")
+                    raise RuntimeError("Claude Code CLI stdin pipe was not established")
                 proc.stdin.write(prompt)
                 proc.stdin.close()
-            except Exception as exc:  # noqa: BLE001 - 跨线程带回主调用边界统一报告
+            except Exception as exc:  # noqa: BLE001 - Cross-line to call the main line.
                 stdin_errors.append(exc)
 
         stdin_writer = threading.Thread(target=_write_prompt, daemon=True)
         stdin_writer.start()
 
-        # Spec-0046/T1: 起 idle 看门狗。last_activity 用单元素 list 做可变共享戳（monotonic，不受系统时间回拨
-        # 影响）；watchdog_reason 记录「长时间无输出」或「时间预算耗尽」，收尾据此抛 RuntimeError。
+        # Spec-0046/T1: Up idle watchdog. last_activity uses the mutated list to make a variable share stamp (monotonic, not called back by system time)
+        # Impact; watchdog_reason records "no output for long time" or "time budget run out" and ends with RuntimeError.
         idle = effective_idle_timeout()
         max_wall = effective_max_wall()
         poll = _watchdog_poll_interval(idle=idle, max_wall=max_wall)
@@ -441,15 +436,15 @@ class ClaudeCodeBackend:
         watchdog_reason: list[str] = []
 
         def _watch():
-            # Spec-0046/T1: 守护线程——不介入读，只轮询「上次进展戳」与墙钟；触发即杀子进程唤醒阻塞读。
+            # Spec-0046/T1: Guardian thread - without interrogating, only "last progress" and "wall clocks" are asked; triggers the killing process wakes up and blockes reading.
             while not stop_event.wait(poll):
                 now = time.monotonic()
                 if idle > 0 and now - last_activity[0] > idle:
-                    watchdog_reason.append(f"长时间无输出（连续 {idle:g}s 无新输出）")
+                    watchdog_reason.append(f"produced no output for {idle:g}s")
                     _terminate_then_kill(proc=proc)
                     return
                 if max_wall > 0 and now - start > max_wall:
-                    watchdog_reason.append(f"时间预算耗尽（单次调用总时长超 {max_wall:g}s）")
+                    watchdog_reason.append(f"exceeded its {max_wall:g}s wall-clock budget")
                     _terminate_then_kill(proc=proc)
                     return
 
@@ -465,22 +460,22 @@ class ClaudeCodeBackend:
         raw_tail: list[str] = []
         try:
             for raw in proc.stdout:
-                # Spec-0046/T1: 每来一行只多做这一件事——刷新「上次进展」戳（含随后被 continue 的空行，
-                # 空行也是进展）。事件解析/打印/result 提取全部原样，健康流输出路径不经过看门狗（零回归）。
+                # Spec-0046/T1: This is only one thing that happens in every line - to refresh the last progress stamp (including the subsequent empty line by continue) and to re-enact the "last progress" stamp.
+                # The empty line is progress./Print/result The whole of the health flow is extracted without going through the door dog (no behavior change).
                 last_activity[0] = time.monotonic()
                 line = redact_text(raw.rstrip("\n"))
                 if not line.strip():
                     continue
                 event = _parse_event(line=line)
                 if event is None:
-                    # 异常：非 JSON 行（如启动错误）——原样透传并留作兜底详情。
-                    # Spec-0073/T1: print 换成 streams.emit——照旧打 stdout（行为不变）+ 追加当前线程绑定
-                    # subject 的 ring buffer，供 daemon 的大窗 SSE 分流呈现。
+                    # Altitude: Non-JSON lines (e.g., startup errors) - originals are circulated and left as background details.
+                    # Spec-0073/T1: print for streams.emit - always hit stdout (behaviour unchanged)+ Add the current thread binding
+                    # The subproject's ring buffer, for the daemon's big window SSE diversion.
                     streams.emit(line=line)
                     raw_tail.append(line)
                     continue
                 for human in _lines_for_event(event=event):
-                    # Spec-0073/T1: 同上——事件文本落当前线程绑定 subject 的 buffer。
+                    # Spec-0073/T1: Idem - Event text is bound by the current line to the subject's buffer.
                     streams.emit(line=human)
                 tool_events.extend(_tool_names_for_event(event=event))
                 if (
@@ -497,21 +492,23 @@ class ClaudeCodeBackend:
                     )
             returncode = proc.wait()
         finally:
-            # Spec-0046/T1: 无论正常读完还是看门狗杀掉，都停表并回收看门狗线程（daemon，join 立即返回）。
+            # Spec-0046/T1: Stop the watch and recycle the door dog thread (daemon,join immediately returns) whether it is read properly or the watchdog is killed.
             stop_event.set()
             if watchdog is not None:
                 watchdog.join()
             stdin_writer.join(timeout=_TERMINATE_GRACE_SECONDS)
 
         if watchdog_reason:
-            # Spec-0046/T1: 复用既有 RuntimeError（不新增异常类型）——上游 try/except Exception 零改动接住。
+            # Spec-0046/T1: Re-use existing RunteError (no new abnormal type) - Upstream try/except Exchange ZEMPTION Zero Changes.
             raise RuntimeError(
-                f"Claude Code CLI 调用{watchdog_reason[0]}——已终止子进程"
+                f"Claude Code CLI {watchdog_reason[0]}; subprocess terminated"
                 f"（idle={idle:.0f}s, max_wall={max_wall:.0f}s）"
             )
         if returncode != 0:
             detail = result_text.strip() or "\n".join(raw_tail).strip()
-            raise RuntimeError(f"Claude Code CLI 调用失败（返回码 {returncode}）：{detail}")
+            raise RuntimeError(f"Claude Code CLI failed (exit code {returncode}): {detail}")
         if stdin_errors:
-            raise RuntimeError(f"Claude Code CLI prompt 写入 stdin 失败：{stdin_errors[0]}")
+            raise RuntimeError(
+                f"Failed to write the Claude Code prompt to stdin: {stdin_errors[0]}"
+            )
         return result_text or "\n".join(raw_tail), tuple(tool_events), result_usage

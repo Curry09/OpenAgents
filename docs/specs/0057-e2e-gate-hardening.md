@@ -1,12 +1,12 @@
 ---
 number: "0057"
-title: e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
+title: "e2e gate hardening: deterministic enforcement of e2e blocks at the RFC gate + cross-checking two layers of testing in code review"
 issue: 123
 slug: e2e-gate-hardening
-summary: 'wind-palace PR #19 暴露 e2e v2 被两道非确定 LLM 软闸绕过：RFC 闸没逼出结构化 e2e 块（被 spec 正文的 e2e 讨论骗过）→ run_e2e 空过；代码 review 把实现者自测（docs/evidence/ 自证）当成放行依据、没要求独立 executor 证据（docs/e2e-results/）。本组把这两条从软 rubric 硬化：T1 RFC 闸在调 LLM 前加一道确定性检查——改动 spec 缺真实 e2e 块（intent+method 非空）直接自动返工，不问 LLM；T2 代码 review rubric 明说运行时验证有两重（实现者自测=声明 / 独立 executor=裁判），要求交叉比对、独立证据缺失不得凭自测放行。两个证据目录保持分开（自证 vs 独立）。'
+summary: "wind-palace PR #19 exposed how e2e v2 was bypassed by two nondeterministic LLM soft gates: the RFC gate failed to require a structured e2e block (it was fooled by the e2e discussion in the spec body) → run_e2e passed without running anything; code review treated the implementer's own tests (self-provided evidence in docs/evidence/) as grounds for approval and did not require independent executor evidence (docs/e2e-results/). This group of changes hardens these two soft rubric requirements: T1 adds a deterministic check at the RFC gate before calling the LLM—if a modified spec lacks a genuine e2e block (with nonempty intent+method), it is automatically sent back for rework without consulting the LLM; T2 explicitly states in the code review rubric that runtime verification has two layers (the implementer's own tests = claims / the independent executor = referee), requires cross-checking, and prohibits approval based on the implementer's own tests when independent evidence is missing. The two evidence directories remain separate (self-provided vs. independent evidence)."
 tasks:
   - id: T1
-    title: RFC 闸确定性 e2e 块检查：缺真实 e2e{intent,method} 块自动返工，不问 LLM
+    title: "Deterministic e2e block check at the RFC gate: automatically send back for rework if a genuine e2e{intent,method} block is missing, without consulting the LLM"
     status: done
     priority: P1
     tags: []
@@ -18,10 +18,10 @@ tasks:
       - openagents/messages.py
       - tests/test_orchestrator.py
       - tests/test_messages.py
-    scope: orchestrator.e2e_block_missing(pr_number)->str|None（复用 _e2e_plan 读改动 spec 组 e2e 块，None/intent 空/method 空 → 返确定性返工文案）；messages._process_rfc_review 在 hold.at_spec 之后、review_rfc 之前插入：非 None 走 increment_rounds→超 K _block(rfc)/未超 refine_rfc，事件 reason=refine-e2e-block；has_label/skip.at_spec 仍旁路。_DRAFT_RFC_TASK 补「必须声明 e2e{intent,method} 块」软引导。
-    acceptance: 单测（假 orchestrator/github）：无 e2e 块的改动进 RFC 闸 → 走 refine-e2e-block（refine_rfc 被调、review_rfc 不被调）；有真实 e2e 块 → 照常调 review_rfc；超 K → _block(gate=rfc)。ruff + pytest 通过。
+    scope: "orchestrator.e2e_block_missing(pr_number)->str|None (reuse _e2e_plan to read e2e blocks from the set of modified specs; None/empty intent/empty method → return a deterministic rework message); insert a check in messages._process_rfc_review after hold.at_spec and before review_rfc: if the return value is not None, follow increment_rounds→_block(rfc) if K is exceeded/refine_rfc otherwise, with event reason=refine-e2e-block; has_label/skip.at_spec still bypass the check. Add soft guidance to _DRAFT_RFC_TASK: \"An e2e{intent,method} block must be declared.\""
+    acceptance: "Unit tests (fake orchestrator/github): a change without an e2e block enters the RFC gate → follows refine-e2e-block (refine_rfc is called, review_rfc is not called); with a genuine e2e block → review_rfc is called as usual; K exceeded → _block(gate=rfc). ruff + pytest pass."
   - id: T2
-    title: 代码 review 两重测试交叉比对：自测(声明) vs 独立 executor(裁判)，独立缺失不得凭自测放行
+    title: "Cross-checking two layers of testing in code review: the implementer's own tests (claims) vs. the independent executor (referee); approval must not be based on the implementer's own tests when independent evidence is missing"
     status: done
     priority: P1
     tags: []
@@ -31,159 +31,158 @@ tasks:
     files:
       - openagents/reviewer.py
       - tests/test_reviewer.py
-    scope: 重写 reviewer._EVIDENCE_RUBRIC：显式两重——第一重=实现者自测(docs/evidence/，声明/运动员)、第二重=独立 executor e2e(docs/e2e-results/<pr>/，裁判)；要求交叉比对，独立证据缺失（无 result.md/截图）仅有自测 → REWORK，两者矛盾以独立证据为准。仅改 rubric 文案，聚合/解析零改动。
-    acceptance: 单测：_CODE_REVIEW_TASK/_EVIDENCE_RUBRIC 含「两重 / 自测 / 独立 / 交叉比对 / 独立证据缺失…不得凭自测放行」关键字；两个证据目录都提及（docs/evidence + docs/e2e-results）；review 聚合解析零回归。ruff + pytest 通过。
+    scope: "Rewrite reviewer._EVIDENCE_RUBRIC: explicitly define two layers—first layer = the implementer's own tests (docs/evidence/, claims/athlete), second layer = independent executor e2e (docs/e2e-results/<pr>/, referee); require cross-checking; if independent evidence is missing (no result.md/screenshots) and only the implementer's own tests are available → REWORK; if the two contradict each other, independent evidence takes precedence. Only the rubric text changes; no changes to aggregation/parsing."
+    acceptance: "Unit tests: _CODE_REVIEW_TASK/_EVIDENCE_RUBRIC contain the keywords \"two layers / the implementer's own tests / independent / cross-checking / independent evidence missing…approval must not be based on the implementer's own tests\"; both evidence directories are mentioned (docs/evidence + docs/e2e-results); no regressions in review aggregation or parsing. ruff + pytest pass."
 ---
 
-# 0057 · e2e 门控硬化：RFC 闸确定性强制 e2e 块 + 代码 review 两重测试交叉比对
+# 0057 · e2e gate hardening: deterministic enforcement of e2e blocks at the RFC gate + cross-checking two layers of testing in code review
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-把 e2e 门控的两条关键约束从「埋在 LLM reviewer prompt 里的软 rubric」硬化成**确定性/结构化**检查：
+Harden two key e2e gating constraints from “soft rubrics buried in the LLM reviewer prompt” into **deterministic/structured** checks:
 
-- **T1（RFC 闸格式硬化）**：`_process_rfc_review` 在调 LLM reviewer 之前，先做一道**确定性**检查——本分支
-  改动的 spec 组必须在 frontmatter 声明真实的 `e2e{intent, method}` 测法块（去空白后非空）。缺则**不问
-  LLM，直接当 REWORK 自动返工**（refine_rfc 喂确定性文案，超 K 挂起）。这保证 `run_e2e` 永远有块可读、
-  e2e v2 链路不会被非确定软闸静默绕过。
-- **T2（代码 review 两重测试交叉比对）**：把 code reviewer 的证据 rubric 从「读 docs/e2e-results/」升级为
-  **显式两重**——第一重 = 写代码的人自己的测试/自测（docs/evidence/ 自证，运动员），第二重 = 独立 executor
-  的 e2e 证据（docs/e2e-results/，裁判）。要求 reviewer 交叉比对：**独立证据缺失时不得凭作者自测放行**。
+- **T1 (RFC gate format hardening)**: Before calling the LLM reviewer, `_process_rfc_review` performs a **deterministic** check—the spec groups
+  modified on this branch must declare an actual `e2e{intent, method}` testing block in their frontmatter (nonempty after trimming whitespace). If missing, **do not ask
+  the LLM; automatically send it back for rework as REWORK** (feed deterministic text to refine_rfc; suspend after exceeding K). This ensures that `run_e2e` always has a block to read
+  and that the e2e v2 workflow cannot be silently bypassed through a nondeterministic soft gate.
+- **T2 (cross-checking two layers of testing in code review)**: Upgrade the code reviewer's evidence rubric from “read docs/e2e-results/” to
+  **two explicit layers**—the first layer = the code author's own tests/self-tests (self-provided evidence in docs/evidence/, the athlete); the second layer = e2e evidence from an independent executor
+  (docs/e2e-results/, the referee). Require the reviewer to cross-check them: **when independent evidence is missing, approval must not be based on the author's self-tests**.
 
-两个证据目录**保持分开**（docs/evidence/ = 实现者自证 / docs/e2e-results/ = 独立裁判）——它们信任级别不同，
-合并会让自证混进独立证据、毁掉「运动员≠裁判」隔离（这是 Spec-0055 差点走错、经 wind-palace PR #19 实证纠正的）。
+The two evidence directories **remain separate** (docs/evidence/ = implementer's own evidence / docs/e2e-results/ = independent referee)—they have different trust levels;
+merging them would mix self-provided evidence into independent evidence and destroy the “athlete ≠ referee” separation (Spec-0055 nearly went down this wrong path, which was corrected through empirical evidence from wind-palace PR #19).
 
 ## Motivation
 
-**背景（就地复述）。** Spec-0055 把 e2e 重设计为：spec 声明 `e2e{intent,method}` → CI 绿后
-`orchestrator.run_e2e` 派**独立 executor** 真跑、把证据写进 `docs/e2e-results/<pr>/` → 现有 `review_code`
-读该证据判运行时行为。门控依赖两道 LLM 评审闸：RFC 闸判「spec 该不该有 e2e 块」、代码闸判「运行时行为达成没」。
+**Background (restated here).** Spec-0055 redesigned e2e as follows: the spec declares `e2e{intent,method}` → after CI turns green,
+`orchestrator.run_e2e` dispatches an **independent executor** to actually run the tests and write evidence to `docs/e2e-results/<pr>/` → the existing `review_code`
+reads that evidence to assess runtime behavior. Gating depends on two LLM review gates: the RFC gate determines “whether the spec should have an e2e block,” and the code gate determines “whether the runtime behavior has been achieved.”
 
-**实证暴露（wind-palace-of-cc PR #19，一个 UI 特性，OpenAgents 含 Spec-0055 跑出）。** 逐条核对该 PR 的
-agent 回执轨迹（`## 评审闸裁决(Spec) PASS → ## 实现自述 → ## 评审闸裁决(代码) PASS → 合并`，**无
-`## 证据执行`**）后确认：**e2e v2 全程没启动**，根因是两道 LLM 软闸都被表象骗过：
+**Empirical finding (wind-palace-of-cc PR #19, a UI feature, produced by running OpenAgents with Spec-0055 included).** Checking the PR's
+agent receipt trail entry by entry (`## Review gate verdict (Spec) PASS → ## Implementation report → ## Review gate verdict (code) PASS → Merge`, **with no
+`## Evidence execution`**) confirmed that **e2e v2 never started at any point**. The root cause was that both soft LLM gates were fooled by appearances:
 
-1. **RFC 闸没逼出结构化 e2e 块。** spec 0005 的 frontmatter **没有** `e2e:` 块，但正文/tasks 里满是 e2e
-   讨论（有一整个 Task 就是 `e2e/attention-terminal.spec.ts`）。单个非确定 reviewer（n=1）读到满眼 e2e，
-   按**语义**判「e2e 覆盖得挺好 → PASS」，没意识到要查的是那个**结构化 frontmatter 块**（`run_e2e` 唯一
-   读的东西）。→ 无块 → `run_e2e → _e2e_plan → None → 空过`，独立 executor 根本没跑。
-2. **代码闸把自测当放行依据。** 实现者交付了真的 Playwright 测试文件 + 自己在 `docs/evidence/` 截的图 +
-   实现自述里「自測全 green」。reviewer 看到「有测试、有截图、作者说测过」就 PASS，没去追 `docs/e2e-results/`
-   里有没有**独立**证据（空的）。→ 把**自证（运动员=裁判）**当成了独立验证。
+1. **The RFC gate failed to require a structured e2e block.** The frontmatter of spec 0005 **had no** `e2e:` block, but its body/tasks were full of e2e
+   discussion (one entire Task was `e2e/attention-terminal.spec.ts`). The single nondeterministic reviewer (n=1) saw e2e everywhere
+   and made a **semantic** judgment: “e2e is well covered → PASS,” without realizing that it needed to check the **structured frontmatter block** (the only thing
+   `run_e2e` reads). → No block → `run_e2e → _e2e_plan → None → silently skipped`; the independent executor never ran.
+2. **The code gate used self-tests as grounds for approval.** The implementer delivered a real Playwright test file + screenshots they had taken in `docs/evidence/` +
+   “self-tests all green” in the implementation report. The reviewer saw “there are tests, there are screenshots, the author says they tested it” and returned PASS, without checking whether `docs/e2e-results/`
+   contained **independent** evidence (it was empty). → It treated **self-provided evidence (athlete = referee)** as independent verification.
 
-**共同的根：这两条是「流程契约有没有被遵守」的结构性检查，恰是 LLM 最不擅长、最容易被「看起来测过了」
-骗过的**。Spec-0055 把 enforcement 放进 reviewer prompt 本身就是错配——该用机器硬判的东西交给了会被
-表象合理化的非确定判官。本组按 spec skill 的「软约定硬化」把这两条拎出 prompt、变成确定性/结构化门控。
+**The shared root cause: these two checks are structural checks of “whether the process contract was followed”—precisely what LLMs are worst at and where they are most easily fooled by “it looks tested.”**
+Putting enforcement in the reviewer prompt in Spec-0055 was itself a mismatch—something that should have been decided mechanically was handed to a nondeterministic judge susceptible to
+rationalizing appearances. Following the spec skill's “harden soft conventions” principle, this group takes these two constraints out of the prompt and turns them into deterministic/structured gates.
 
 ## Guide-level explanation
 
-**T1 后**：起草一个 UI/交互（乃至任何）spec 后进 RFC 闸，编排层**先自己**读改动 spec 组的 frontmatter——
-没有真实 `e2e{intent,method}` 块就**直接回一条确定性返工**「你的 spec 缺 e2e 测法块，请在 frontmatter 声明
-`e2e:` 含 intent（验什么）+ method（怎么测的 prose 步骤）；纯文档/无运行时行为的改动也要声明（method 写
-『无运行时行为可验』即可）」，让起草 agent 补上——**这一步不问 LLM，LLM 骗不过它**。补上后才进 LLM 评审
-判质量。于是 `run_e2e` 永远有块可跑，e2e v2 不再被「spec 忘了声明」静默绕过。
+**After T1**: Once a UI/interaction spec (or indeed any spec) is drafted and enters the RFC gate, the orchestration layer **first reads** the modified spec groups' frontmatter itself—
+if there is no actual `e2e{intent,method}` block, it **directly returns a deterministic rework message**: “Your spec is missing an e2e testing block. Declare
+`e2e:` in the frontmatter with intent (what to verify) + method (prose steps describing how to test it); documentation-only changes/changes with no runtime behavior must also declare it (write
+‘No runtime behavior to verify’ in method).” This makes the drafting agent add it—**this step does not ask an LLM, and an LLM cannot fool it**. Only after the block is added does the spec enter LLM review
+for a quality assessment. Thus `run_e2e` always has a block to execute, and e2e v2 can no longer be silently bypassed because “the spec forgot to declare it.”
 
-**T2 后**：代码闸的 reviewer 被明确告知「运行时验证有两重、都要看、交叉比对」：
-- 第一重是**写代码的人自己的测试**（单元测试、自己跑的截图，常在 `docs/evidence/`）——**作者的声明，不
-  单独构成放行**；
-- 第二重是**独立 executor 的 e2e**（`docs/e2e-results/<pr>/` 的 result.md + 截图）——**独立裁判的证据**。
-reviewer 交叉比对：独立证据在不在、印不印证作者自测所称的行为？**独立证据缺失（只有自证）→ 判 REWORK**。
-于是 PR #19 那种「只有自测、没独立证据也 PASS」的漏被堵上。
+**After T2**: The code gate's reviewer is explicitly told: “Runtime verification has two layers; inspect both and cross-check them”:
+- The first layer is **the code author's own tests** (unit tests, screenshots from their own runs, often in `docs/evidence/`)—**the author's claims, which do
+  not independently justify approval**;
+- The second layer is **the independent executor's e2e** (result.md + screenshots in `docs/e2e-results/<pr>/`)—**evidence from an independent referee**.
+The reviewer cross-checks: Is independent evidence present, and does it corroborate the behavior claimed by the author's self-tests? **Independent evidence missing (only self-provided evidence) → return REWORK**.
+This closes the gap seen in PR #19, where “only self-tests, no independent evidence” still received PASS.
 
 ## Reference-level explanation
 
-### T1 · RFC 闸确定性 e2e 块检查
+### T1 · Deterministic e2e block check at the RFC gate
 
-- `orchestrator.e2e_block_missing(*, pr_number) -> str | None`：ensure worktree → 复用 `_e2e_plan`
-  读改动 spec 组的 `metadata.e2e`；`None` 或 `intent`/`method` 去空白后为空 → 返回确定性返工文案
-  `_E2E_BLOCK_MISSING_MSG`；否则 `None`。纯读，不改状态。
-- `messages._process_rfc_review`：在 `hold.at_spec` 之后、`review_rfc`（LLM）之前插入——
-  `e2e_block_missing` 非 None → 走与 REWORK 同款的 `increment_rounds`（超 K → `_block(gate="rfc")`，
-  未超 → `refine_rfc(detail=文案)`，事件 `reason="refine-e2e-block"`）；为 None 才照常调 LLM 评审。
-  放在 `has_label`（2a 人工/上轮批准）与 `skip.at_spec`（人显式旁路）**之后**——那两条是明确的人工放行意图，
-  仍尊重；本检查只硬化**自动评审**路径。
-- `_DRAFT_RFC_TASK` 补一句「**必须在 frontmatter 声明 `e2e{intent,method}` 测法块**（纯文档改动也声明，
-  method 写『无运行时行为可验』）」，让起草 agent 一次到位、少一轮返工（软引导，非门控——门控在编排层确定性检查）。
+- `orchestrator.e2e_block_missing(*, pr_number) -> str | None`: ensure worktree → reuse `_e2e_plan`
+  to read `metadata.e2e` from the modified spec groups; if `None`, or if `intent`/`method` is empty after trimming whitespace → return the deterministic rework message
+  `_E2E_BLOCK_MISSING_MSG`; otherwise return `None`. Read-only; no state changes.
+- `messages._process_rfc_review`: Insert after `hold.at_spec` and before `review_rfc` (LLM)—
+  if `e2e_block_missing` is non-None → use the same `increment_rounds` path as REWORK (exceeding K → `_block(gate="rfc")`;
+  otherwise → `refine_rfc(detail=message)`, with event `reason="refine-e2e-block"`); call LLM review as usual only if it is None.
+  Place it **after** `has_label` (2a manual/previous-round approval) and `skip.at_spec` (explicit human bypass)—those two represent explicit human intent to approve,
+  which remains respected; this check hardens only the **automatic review** path.
+- Add a sentence to `_DRAFT_RFC_TASK`: “**You must declare an `e2e{intent,method}` testing block in the frontmatter** (declare it even for documentation-only changes;
+  write ‘No runtime behavior to verify’ in method),” so the drafting agent gets it right on the first attempt and avoids a rework round (soft guidance, not gating—the gate is the deterministic check in the orchestration layer).
 
-### T2 · 代码 review 两重测试交叉比对
+### T2 · Cross-checking two layers of testing in code review
 
-- 重写 `reviewer._EVIDENCE_RUBRIC`：显式声明两重（自测=声明 / 独立 executor=裁判）、要求交叉比对、
-  **独立证据缺失不得凭自测放行**、两者矛盾以独立证据为准。落点措辞：第一重指 `docs/evidence/`（自证），
-  第二重指 `docs/e2e-results/<pr>/`（独立）。仅改 rubric 文案，聚合/解析零改动。
+- Rewrite `reviewer._EVIDENCE_RUBRIC`: Explicitly declare two layers (self-tests = claims / independent executor = referee), require cross-checking,
+  state that **missing independent evidence must not be compensated for by approving based on self-tests**, and give independent evidence precedence if the two conflict. Specify the locations: the first layer points to `docs/evidence/` (self-provided evidence),
+  and the second to `docs/e2e-results/<pr>/` (independent evidence). Change only the rubric text; no changes to aggregation/parsing.
 
-### 状态机影响
+### State machine impact
 
-不新增 status / 字段 / 标签。T1 复用现成 `rounds`/`MAX_ROUNDS`/`refine_rfc`/`_block(gate="rfc")`；新增事件
-`reason` 值 `"refine-e2e-block"`（仅可观测，不参与路由）。
+No new status / fields / labels. T1 reuses the existing `rounds`/`MAX_ROUNDS`/`refine_rfc`/`_block(gate="rfc")`; add the event
+`reason` value `"refine-e2e-block"` (for observability only; does not participate in routing).
 
-### DAG 与文件分配
+### DAG and file allocation
 
 ```mermaid
 graph TD
-    T1[T1 RFC 闸确定性 e2e 块检查]
-    T2[T2 代码 review 两重测试交叉比对]
+    T1[T1 Deterministic e2e block check at the RFC gate]
+    T2[T2 Cross-checking two layers of testing in code review]
 ```
 
-| Task | 拥有文件（互斥） | depends-on |
+| Task | Owned files (mutually exclusive) | depends-on |
 |---|---|---|
 | T1 | `openagents/orchestrator.py`, `openagents/messages.py`, `tests/test_orchestrator.py`, `tests/test_messages.py` | — |
 | T2 | `openagents/reviewer.py`, `tests/test_reviewer.py` | — |
 
-（T1/T2 无依赖、文件互斥，可并行。）
+(T1/T2 have no dependencies and own mutually exclusive files, so they can run in parallel.)
 
-### 本组 e2e 测法
+### This group's e2e testing approach
 
-- **intent**：证明两道硬化真的挡得住 PR #19 那类漏——缺 e2e 块的 spec 在 RFC 闸被确定性返工（不靠 LLM）；
-  code reviewer rubric 明含两重交叉比对且「独立证据缺失不得凭自测放行」。
-- **method**（离线确定性，本组是纯后端编排无前端可导航）：单测（假 orchestrator/github）——喂「无 e2e 块」
-  的改动断言走 `refine-e2e-block`（不调 review_rfc）、喂「有真实 e2e 块」断言照常进 LLM 评审；grep 断言
-  `_EVIDENCE_RUBRIC` 含「两重 / 独立证据缺失 / 不得凭自测放行」关键字。脚本
-  `scripts/e2e-spec-0057-e2e-gate-hardening.sh`（ruff + pytest + grep 锚点）。
+- **intent**: Prove that the two hardening measures really prevent gaps like the one in PR #19—a spec missing an e2e block is deterministically sent back for rework at the RFC gate (without relying on an LLM);
+  the code reviewer rubric explicitly includes cross-checking two layers and “when independent evidence is missing, approval must not be based on self-tests.”
+- **method** (offline and deterministic; this group concerns backend orchestration only, with no frontend to navigate): Unit tests (fake orchestrator/github)—feed in a change “without an e2e block”
+  and assert that it takes the `refine-e2e-block` path (without calling review_rfc); feed in a change “with an actual e2e block” and assert that it enters LLM review as usual; use grep to assert
+  that `_EVIDENCE_RUBRIC` contains the keywords “two layers / independent evidence missing / must not approve based on self-tests.” Script:
+  `scripts/e2e-spec-0057-e2e-gate-hardening.sh` (ruff + pytest + grep anchors).
 
 ## Drawbacks
 
-- **每个 spec 都被强制声明 e2e 块**（纯文档/重构也要写 `method: 无运行时行为可验`）——多一点样板；但这正是
-  「每个 PR 都过一遍 e2e 意图」的显式化（Spec-0055 已定的方向），且确定性返工只多一轮 refine。
-- **确定性检查只判「块存在且非空」，判不了「块内容是否真的测到点」**——质量仍靠 LLM 评审 + T2 交叉比对。
-  硬化的是「有没有」，不是「够不够好」；二者分层。
-- **T2 仍是 LLM rubric**（reviewer 判两重比对）——比 T1 的确定性弱；但「独立证据文件在不在」这一半，reviewer
-  照 docs/e2e-results/ 有没有 result.md 判，接近确定；「印证不印证」才需判断力。
+- **Every spec is required to declare an e2e block** (even documentation-only changes/refactoring must write `method: No runtime behavior to verify`)—a little more boilerplate; but this is precisely
+  an explicit expression of “review the e2e intent of every PR” (the direction already established by Spec-0055), and deterministic rework adds only one refine round.
+- **The deterministic check only determines “whether the block exists and is nonempty”; it cannot determine “whether the block's contents actually test the right things”**—quality still depends on LLM review + T2 cross-checking.
+  The hardening concerns “whether it exists,” not “whether it is good enough”; these are separate layers.
+- **T2 is still an LLM rubric** (the reviewer judges the cross-check between the two layers)—weaker than T1's determinism; however, for the “whether independent evidence files exist” half, the reviewer
+  checks whether docs/e2e-results/ contains result.md, which is close to deterministic; only “whether it corroborates the claims” requires judgment.
 
 ## Rationale and alternatives
 
-**为什么 T1 放编排层而非 `spec validate`。** `spec validate` 是仓库级、会对**所有存量 spec** 生效——强制 e2e
-块要回填约 50 个历史 spec（低价值高噪声）。放 `_process_rfc_review` 只门控**走流程的新 spec**，无需回填，且
-「自动返工让 RFC 重改」正是编排层能做、CI 静态校验做不到的（CI 只能 fail、不能驱动 agent 补）。
+**Why T1 belongs in the orchestration layer rather than `spec validate`.** `spec validate` operates at repository level and applies to **all existing specs**—requiring an e2e
+block there would mean backfilling approximately 50 historical specs (low value, high noise). Placing it in `_process_rfc_review` gates only **new specs going through the workflow**, requires no backfilling, and
+“automatically sending the RFC back for revision” is exactly what the orchestration layer can do and static CI validation cannot (CI can only fail; it cannot drive an agent to add the missing content).
 
-**备选：只提高 RFC reviewer 票数（n>1）。** 多个 LLM 也可能同样被表象骗（相关性失效不是独立的），且不解决
-「该用机器判的交给了 LLM」的错配。确定性检查更省更稳。否决为主、可作正交增强。
+**Alternative: only increase the number of RFC reviewer votes (n>1).** Multiple LLMs may still be fooled by the same appearances (correlated failures are not independent), and this does not resolve
+the mismatch of “giving an LLM something that should be decided mechanically.” A deterministic check is cheaper and more reliable. Rejected as the primary approach; it could serve as an orthogonal enhancement.
 
-**为什么两个证据目录不合并（纠 Spec-0055 差点走错）。** docs/evidence（自证）与 docs/e2e-results（独立）
-信任级别不同；合并会让自证混进独立证据目录、reviewer 分不清可信度、自证冒充独立验证。分开 + T2 交叉比对
-才保住「运动员≠裁判」。（曾尝试合并写侧的 PR #142 已因此关闭。）
+**Why the two evidence directories are not merged (correcting the path Spec-0055 nearly took).** docs/evidence (self-provided evidence) and docs/e2e-results (independent evidence)
+have different trust levels; merging them would mix self-provided evidence into the independent evidence directory, prevent the reviewer from distinguishing credibility, and let self-provided evidence pass as independent verification. Keeping them separate + T2 cross-checking
+preserves “athlete ≠ referee.” (PR #142, which attempted to merge the write side, was closed for this reason.)
 
 ## Prior art
 
-- **Spec-0055**（直接前身）：e2e v2 能力感知重设计。本组补它的两个门控漏洞（RFC 软闸被绕过、代码闸认自证）。
-- **Spec-0044**：docs/evidence/ 实现者自证 + 「无证据=REWORK」。本组把它定位成「第一重（声明）」、与独立
-  executor 的「第二重（裁判）」分层交叉比对，而非合并。
-- **spec skill「软约定硬化」原则**：像 `files` 同组互斥那样，把「别违反」的软约定变成 validate/结构规则让它
-  **无法违反**。本组 T1 是这条原则在 e2e 块上的落地。
-- **CI required checks / 门控**：把结构性契约做成硬门而非人工叮嘱——本组把门内化进编排层的确定性检查。
+- **Spec-0055** (direct predecessor): capability-aware redesign of e2e v2. This group closes two gating loopholes in it (the RFC soft gate can be bypassed, and the code gate accepts self-attestation).
+- **Spec-0044**: implementer self-attestation in docs/evidence/ + “no evidence = REWORK.” This group positions it as the “first layer (declaration),” cross-checked against the independent
+  executor’s “second layer (judge)” as separate layers, rather than merging them.
+- **The spec skill’s principle of “hardening soft conventions”**: as with mutual exclusion for `files` within the same group, turn the soft convention of “do not violate this” into validation/structural rules that make it
+  **impossible to violate**. T1 in this group applies this principle to the e2e block.
+- **CI required checks / gating**: make structural contracts hard gates rather than reminders to people—this group embeds the gates into deterministic checks in the orchestration layer.
 
 ## Unresolved questions
 
-- **T1 是否也顺带做成 `spec validate` warning**（只对含 e2e 块的 spec 查非空，不强制存在）作双保险？本组先只
-  在编排层硬门，视实测再定要不要加 validate 侧。
-- **纯文档 spec 的 e2e 块样板**是否值得给 `spec new` 脚手架预填 `e2e{intent: "N/A", method: "无运行时行为可验"}`
-  减少返工？留 Future。
-- **Spec-0057 之外的死码清扫**（`worknote._RUNBOOK_HEADER`、`_REASON_LABELS["e2e"]`、`E2E_FORM_VALUES`）
-  与本组正交，另起收尾（不混进本组，保持单一意图）。
+- **Should T1 also be implemented as a `spec validate` warning** (check for nonempty content only in specs that contain an e2e block, without requiring the block to exist) as an additional safeguard? This group initially adds the hard gate only
+  at the orchestration layer; whether to add it on the validate side will depend on results from actual use.
+- **Would it be worthwhile for the `spec new` scaffolding to prefill an e2e block template for documentation-only specs**, `e2e{intent: "N/A", method: "No runtime behavior to verify"}`,
+  to reduce rework? Leave this for Future.
+- **Dead-code cleanup beyond Spec-0057** (`worknote._RUNBOOK_HEADER`, `_REASON_LABELS["e2e"]`, `E2E_FORM_VALUES`)
+  is orthogonal to this group and will be handled in a separate cleanup effort (keep it out of this group to maintain a single intent).
 
 ## Future possibilities
 
-- **RFC 闸再加「UI 改动的 method 必须要求真实截图」的半确定性检查**（现由 ui_capable 分流的 LLM rubric 判）。
-- **spec new 脚手架预填 e2e 块**减少 T1 返工。
-- **独立 executor 证据的机读校验**（result.md 结构化字段 + 截图存在性）让 T2 的「独立证据在不在」也变确定性。
-
+- **Add a semi-deterministic check to the RFC gate requiring that “the method for UI changes must require real screenshots”** (currently judged by the LLM rubric selected through ui_capable routing).
+- **Prefill the e2e block in spec new scaffolding** to reduce T1 rework.
+- **Machine-readable validation of independent executor evidence** (structured fields in result.md + screenshot existence checks) to make T2’s check for “whether independent evidence exists” deterministic as well.

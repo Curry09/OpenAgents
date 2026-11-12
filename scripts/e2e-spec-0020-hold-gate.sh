@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# Spec-0020/T5 端到端测试启动脚本：vigil --hold spec 分级监督闸——「停在 spec → 人批 → 继续」。
+# Spec-0020/T5 End-to-end test start script: vigil --hold spec monitoring gate - "Stop at spec Zentententententents to continue".
 #
-# 演示 issue #59 的核心时间线：流水线写完 spec 后以 `--hold spec` 停在 spec 闸等人；模拟
-# 人工给 PR 打上 rfc-approved label 后，下一轮 poll 流水线就继续进入 coding（implement）。
+# Demonstration of the core time line of issue #59: Waterlines are stopped at the `--hold spec` gate, etc., after spec; simulation
+# The next round of polll lines continues to enter the code after hand-on refc-approved label.
 #
-# 两段：
-#   1) 离线确定性验证（默认执行）—— ruff lint/format + pytest 全套，全程 mock，不触达真实
-#      gh/claude（覆盖 align / hold / 两道闸分流 / CLI 接线的单测）。
-#   2) 离线闸控时间线演示（默认执行）—— 用打桩 orchestrator/state + 内存 label 集合模拟
-#      GitHub，离线驱动 Messages.poll(hold=spec) 两轮，断言「停 → 批 → 继续」并打印轨迹。
-#      无需任何凭证、CI 可跑、可重复。
+# Two paragraphs:
+#   1) Offline certainty (default execution) - ruff lint/format + pytest package, full mock, untouched real
+#      gh/claude (single measurement over analign / hold / two gates split / CLI connection).
+#   2) Timeline Detached (Default Execution) - Simulate with a orchestrator/state + memory label
+#      GitHub, offline driver Messages.poll (hold=spec) two rounds, claiming "stop the batch and continue" and printing tracks.
+#      No proof, no CI can run, no repeat.
 #
-# 软依赖（Spec-0020/T3 待解问题）：真实场景里人批 spec 看的是 OVERVIEW 的人类可读 summary
-# （issue #58 / Spec-0014 体系提供）；本脚本聚焦闸控时间线，不实现 summary——#58 未就绪时
-# hold spec 仍能停/放行，只是人的阅读体验降级。merge 闸（--hold merge）分流由 T3 单测覆盖，
-# 本脚本聚焦 issue 验收点名的 spec 闸时间线。
+# Soft Dependence (Spec-0020/T3 to solve): Real scenes are spec-readable human readable from Overview
+# (issue #58 / Spec-0014 system); script focus timeline not achieved submary #58 not ready
+# hold spec It's still gonna stop./Released, just a downgrading of a person's reading experience.merge Gate--hold merge）Diversion T3 Single-scale coverage,
+# This script focuses on the end of the receipt call spec time line.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0020-hold-gate.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + (Modular Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 echo
-echo "==> [2/2] 离线闸控时间线演示：vigil --hold spec 停在 spec → 人批 rfc-approved → 继续 coding"
+echo "==> [2/2] Offline gate timeline demonstration:vigil --hold spec Stop in spec → Granted rfc-approved → Go on. coding"
 uv run python - <<'PY'
-# Spec-0020/T5：离线驱动 Messages.poll(hold=spec) 两轮，断言 spec 闸的「停 → 批 → 继续」。
+# Spec-0020/T5: Offline driver Messages.poll(hold=spec) Two rounds, for sure. spec "Stop the gate." → Batch → Go on."
 from openagents import messages as messages_module
 from openagents.hold import parse_hold
 from openagents.messages import APPROVAL_LABEL, Messages
@@ -38,7 +38,7 @@ from openagents.state import STATUS_RFC_REVIEW, RunRecord
 
 
 class FakeOrchestrator:
-    """记录 implement / review_rfc 调用，不真实调起后端。"""
+    """Records implement / review_rfc Call, not really call backend."""
 
     def __init__(self):
         self.implement_calls = []
@@ -47,13 +47,13 @@ class FakeOrchestrator:
     def implement(self, *, pr_number):
         self.implement_calls.append(pr_number)
 
-    def review_rfc(self, *, pr_number):  # spec 闸 hold 下不该被调到
+    def review_rfc(self, *, pr_number):  # spec The gate. hold I shouldn’t have been transferred down there.
         self.review_rfc_calls.append(pr_number)
-        raise AssertionError("hold spec 下不应触发自动 reviewer")
+        raise AssertionError("hold spec Down should not trigger automatic reviewer")
 
 
 class FakeState:
-    """内存维护单个 run，记录状态更新。"""
+    """Memory Maintenance Individual run, record status update."""
 
     def __init__(self, *, runs):
         self._runs = list(runs)
@@ -75,7 +75,7 @@ class FakeState:
         pass
 
 
-# 内存 label 集合模拟 GitHub PR 标签；人工打 rfc-approved 即往集合里加。
+# Memory label assembly simulation GitHub PR tag; manual rifc-approved is to the assembly Riga.
 pr_labels = set()
 messages_module.github.is_merged = lambda *, pr_number: False
 messages_module.github.is_closed = lambda *, pr_number: False
@@ -94,26 +94,26 @@ state = FakeState(runs=[record])
 msgs = Messages(orchestrator=orch, state=state, agent_id="agent-e2e")
 hold = parse_hold(raw="spec")
 
-# --- 第 1 轮：spec 写完、无 rfc-approved label、--hold spec → 停在 spec 闸 ---
+# --- Round 1: completed spec, no rfc-approved label, --hold spec stopped at spec gate ---
 events = msgs.poll(hold=hold)
-assert orch.review_rfc_calls == [], "停在 spec 闸不应自动评审"
-assert orch.implement_calls == [], "停在 spec 闸不应 implement"
-assert record.status == STATUS_RFC_REVIEW, "状态应仍停在 rfc-review"
-assert any(e["reason"] == "hold-spec" for e in events), "应产出 hold-spec 事件"
-print("  [停] 第 1 轮：--hold spec → 未自动评审、未打 label、未 implement，停在 spec 闸等人批")
+assert orch.review_rfc_calls == [], "Stop in spec The gate should not be automatically reviewed."
+assert orch.implement_calls == [], "Stop in spec The gate should not. implement"
+assert record.status == STATUS_RFC_REVIEW, "We should still stop. rfc-review"
+assert any(e["reason"] == "hold-spec" for e in events), "Due outputs hold-spec Events"
+print("  [Stop.] I’m not sure. 1 Round:--hold spec → Not automatically evaluated, not called labelNo, I don’t. implementStop at spec The gate and others.")
 
-# --- 人批：模拟人工给 PR 打上 rfc-approved label ---
+# --- person batch: Simulation manual to rifc-Approved label ---
 pr_labels.add(APPROVAL_LABEL)
-print(f"  [批] 人工给 PR #5 打上 {APPROVAL_LABEL} label（真实场景下人对照 OVERVIEW summary 点头，#58）")
+print(f"  [Batch] Manual PR #5 Hit it. {APPROVAL_LABEL} label”The real scene is a comparison.” OVERVIEW summary Nod, nod.#58）")
 
-# --- 第 2 轮：带人工 label → 继续进入 coding（implement）---
+# --- Round 2: Carrying hand-held label Zulu Continues to enter the codement ---
 events = msgs.poll(hold=hold)
-assert orch.implement_calls == [5], "带人工 rfc-approved label 应继续 implement 进 coding"
-assert any(e["reason"] == "approved" for e in events), "应产出 approved 事件"
-print("  [继续] 第 2 轮：检出人工 rfc-approved label → implement 进 coding")
+assert orch.implement_calls == [5], "Bringing a hand. rfc-approved label Continue implement In coding"
+assert any(e["reason"] == "approved" for e in events), "Due outputs approved Events"
+print("  [Go on.] I’m not sure. 2 Wheel: Check out manual rfc-approved label → implement In coding")
 
-print("✓ 闸控时间线断言全部通过：停在 spec → 人批 → 继续。")
+print("✓ All the timelines are passed: stop at spec → Granted → Go on.")
 PY
 
 echo
-echo "✓ Spec-0020/T5 端到端演示完成（离线、可重复）。"
+echo "✓ Spec-0020/T5 End-to-end demonstration complete (offline, repeatable)."
