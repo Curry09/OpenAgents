@@ -1,47 +1,47 @@
 ---
 number: "0087"
-title: 制品观测证据交接与开发补强回路
+title: "Artifact observation evidence handoff and development reinforcement loop"
 issue: 0
 slug: artifact-observation-delivery
-summary: 按 issue 获取版本匹配的受限诊断证据包；开发分别维护用户反馈与诊断观测影响并独立验收，仅维护者诊断缺口经认证运行器回传补强。
+summary: "Obtain a version-matched, restricted diagnostic evidence bundle by issue; developers separately maintain the impacts on user feedback and diagnostic observations and validate each independently against its acceptance criteria. Only gaps in maintainer diagnostics are reported back through an authenticated runner for reinforcement."
 architecture:
-  objective: 让开发各阶段按当前 issue 的授权范围读取历史版本观测，并可靠回传具体诊断缺口。
+  objective: "Enable each development stage to read observations from historical versions within the authorization scope of the current issue and reliably report specific diagnostic gaps."
   constraints:
-    - 不解析制品事件字段，不扩展 issue 的 session 权限，不改变冻结目标。
-    - 历史证据只读副本与当前测试结果分开，不以日志存在代替行为验收。
-    - 用户反馈与维护者诊断按服务对象和判断目标区分，可共享实现但独立验收，不按类别自动建立依赖。
+    - "Do not parse artifact event fields, expand the issue's session permissions, or change the frozen target."
+    - "Keep read-only copies of historical evidence separate from current test results; do not use the existence of logs as a substitute for behavioral acceptance."
+    - "Distinguish user feedback from maintainer diagnostics by whom they serve and what they aim to assess. They may share an implementation but must undergo independent acceptance, and dependencies must not be established automatically based on category."
   non-goals:
-    - 不引入日志专职角色或运行时事件统一 schema。
+    - "Do not introduce a dedicated logging role or a unified schema for runtime events."
   candidates:
     - id: scoped-forge-attachment
       layer: delivery runtime
       boundary: [configured Gitea origin, current issue attachment membership]
       evidence: [runtime.engine role binding, Gitea issue assets API, content digests]
-      tradeoffs: 有界下载与副本开销；运输故障显式降级，保留其它证据路径。
+      tradeoffs: "Keep download and copy overhead bounded; explicitly degrade on transport failures while retaining other evidence paths."
   selected: scoped-forge-attachment
   affected-components: [runtime.engine, utils.gitea, observations.evidence, observations.gaps]
   failure-modes:
-    - 外链、摘要不匹配或版本错配必须拒绝，不伪装成功。
-    - 离线回传保留 outbox，同 ID 重试不能重复提交。
+    - "External links, digest mismatches, or version mismatches must be rejected; do not present them as successes."
+    - "Retain the outbox for offline reporting; retries with the same ID must not submit duplicates."
 verification:
   behavior-cases:
     - id: BC1
       polarity: positive
-      stimulus: 授权 issue 带新格式观测包，开发角色启动。
-      expected: 角色得到对应版本的阅读入口；可写具体缺口由运行器回传。
-      observation: test_observation_evidence.py 与 auto-designer 受控跨版本实验。
+      stimulus: "An authorized issue carries an observation package in the new format, and the development role starts."
+      expected: "The role receives an entry point for reading the corresponding version; the runner reports specific gaps that can be written."
+      observation: "test_observation_evidence.py and controlled cross-version experiments with auto-designer."
     - id: BC2
       polarity: negative
-      stimulus: 外部路径、跨 issue 包、篡改摘要或未授权的 session 请求。
-      expected: 拒绝扩权或坏包，不能作为原始事实，也不生成越权补强。
-      observation: 测试覆盖路径、摘要、身份和引用检查。
+      stimulus: "External paths, packages from other issues, tampered digests, or unauthorized session requests."
+      expected: "Reject privilege expansion or invalid packages; they must not be treated as original facts or used to generate supplementary evidence beyond the authorized scope."
+      observation: "Tests cover path, digest, identity, and reference checks."
   repository-invariants:
-    - GitHub 无此附件契约时不启动 Gitea 取证。
-    - 制品内部事件字典不进入运行器解析逻辑。
+    - "Do not initiate evidence collection from Gitea when GitHub has no such attachment contract."
+    - "The artifact's internal event dictionary must not enter the runner's parsing logic."
   exemptions: []
 tasks:
   - id: T1
-    title: 受限附件读取、角色职责和补强回传
+    title: "Restricted attachment access, role responsibilities, and reinforcement reporting"
     status: done
     priority: P1
     tags: []
@@ -58,90 +58,124 @@ tasks:
       - openagents/v02/openagents_adapter.py
       - openagents/runtime/context.py
       - tests/test_observation_evidence.py
-    scope: 代码修改完毕。固定传输壳，不解释制品事件；仅当前 issue 证据，维护者诊断缺口经认证运行器回传；角色契约区分用户反馈目标和诊断目标。
-    acceptance: 格式更换、版本保留、无外链、篡改与越权负例通过；真实启用角色收到证据入口和补强路径。
+    scope: "Code changes are complete. Fix the transport shell without interpreting artifact events; include evidence for the current issue only, and report gaps in maintainer diagnostics back through an authenticated runner; role contracts distinguish user feedback objectives from diagnostic objectives."
+    acceptance: "Checks for format changes, version retention, and the absence of external links, as well as negative tests for tampering and unauthorized access, pass; roles actually enabled receive the evidence entry point and reinforcement path."
 ---
 
-# 0087 · 制品观测证据交接与开发补强回路
+# 0087 · Artifact Observation Evidence Handoff and Development Enhancement Loop
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-代码修改完毕。配合 auto-designer spec-0061，开发运行器从当前 issue 的受限附件中取证，
-为既有 Spec Writer/Drafter、Architect、Developer/Executor、Reviewer/Acceptance 提供
-版本匹配的阅读入口和补强请求路径。不新增角色，不改变 Objective Contract 的冻结语义。
+Code changes are complete. In conjunction with auto-designer spec-0061, the development runner gathers evidence
+from the current issue's restricted attachments, providing version-matched reading entry points and enhancement
+request paths for the existing Spec Writer/Drafter, Architect, Developer/Executor, and Reviewer/Acceptance.
+No roles are added, and the freezing semantics of the Objective Contract remain unchanged.
 
-2026-09-08 全量回归 1196 passed；功能代码提交为 `1dda04ab2de550685b7bc181f6b61b26f8972b51`。
-固定镜像 `auto-designer-vigil:observability-spec61-1dda04a` 已在无宿主挂载容器中验证私有 Gitea
-附件读取；需求与开发两侧补强经过受控 Owner、真实 PR 合并及新版会话复查。角色决策使用脚本，
-不等同于真实模型自主采用观测或完整 vigil 工程闸验证。详细结果见 auto-designer
-`docs/audits/0061-observation-lifecycle-validation.md`，旧实验和 latest 镜像未替换。
+The full regression run on 2026-09-08 had 1196 passed; the functional code commit is `1dda04ab2de550685b7bc181f6b61b26f8972b51`.
+The pinned image `auto-designer-vigil:observability-spec61-1dda04a` has been verified to read private Gitea
+attachments in a container with no host mounts; enhancements on both the requirements and development sides
+have undergone validation with a controlled Owner, an actual PR merge, and review in a new-version session.
+Role decisions were scripted; this does not amount to actual models autonomously adopting observations or
+validation of the full Vigil engineering gates. For detailed results, see auto-designer
+`docs/audits/0061-observation-lifecycle-validation.md`; the old experiments and latest image have not been replaced.
 
-后续目标边界澄清已更新公共开发上下文，现有观测回归 15 项通过，覆盖所有接入角色的
-上下文交接与诊断回传。该回归不证明真实模型已稳定区分用户反馈与诊断目标；上段镜像与
-全量回归是此前生命周期实现的验证，边界澄清的新镜像以 auto-designer 部署 pin 为准。
+Subsequent clarifications of the boundaries between objectives have updated the shared development context.
+All 15 existing observation regression checks pass, covering context handoff and diagnostic reporting for all
+integrated roles. These regressions do not prove that actual models reliably distinguish user feedback from
+diagnostic objectives; the image and full regression run in the preceding paragraph validate the earlier
+lifecycle implementation. The new image containing the boundary clarifications is determined by the
+auto-designer deployment pin.
 
 ## Motivation
 
-开发容器看不到宿主日志路径；源码当前版本也不等于历史事件版本。只改 prompt 或让 agent
-自行搜索全部 session 既不可靠，也突破证据范围。功能开发必须同时维护诊断能力与随版说明。
+Development containers cannot see host log paths; the current source version does not necessarily match
+the version associated with historical events. Merely changing prompts or having agents search all sessions
+on their own is unreliable and exceeds the evidence scope. Feature development must maintain both diagnostic
+capabilities and the accompanying version-specific documentation.
 
 ## Guide-level explanation
 
-两类目标按信息服务谁、支持什么判断区分，与发现者角色和底层事件来源无关：
+The two types of objectives are distinguished by whom the information serves and what judgments it supports,
+regardless of the role that discovers the need or the underlying event source:
 
-- 用户侧状态反馈：用户在使用中理解当前状况并决定下一步。验收检查决策时刻真实可见的
-  信息是否准确、及时、支持所需判断；后台日志或事后解释不能替代。需求沿用普通产品提案。
-- 设计开发侧诊断观测：维护者还原经过、区分原因、验证改动。有具体问题时先读随版说明
-  和获准记录；验收检查对应版本证据能否回答该诊断问题，进度提示存在不能替代。
+- User-facing status feedback: users understand the current situation during use and decide what to do next.
+  Acceptance checks whether the information actually visible at the decision point is accurate, timely, and
+  supports the required judgment; backend logs or after-the-fact explanations cannot substitute for it.
+  Requirements follow the ordinary product proposal process.
+- Design and development diagnostics and observation: maintainers reconstruct what happened, distinguish
+  causes, and verify changes. When there is a specific question, first read the version-specific documentation
+  and authorized records; acceptance checks whether evidence from the corresponding version can answer that
+  diagnostic question. The presence of progress indicators cannot substitute for it.
 
-Spec 在既有章节内分别说明“用户反馈影响”（何时知道什么、支持什么决定）和“诊断观测
-影响”（需还原/区分什么、现有证据是否足够）及各自验证，无影响可简短说明理由。实现同步
-维护受影响的用户输出/帮助、诊断记录/阅读说明和测试。可在同一票或交付中共享实现，但
-保留独立验收及关联票各自状态；不能用一项通过关闭另一项，不强制拆票。
+Within its existing sections, the Spec separately describes “user feedback impact” (when users learn what,
+and which decisions this supports) and “diagnostic observation impact” (what needs to be reconstructed or
+distinguished, and whether existing evidence is sufficient), along with their respective verification.
+If there is no impact, a brief explanation is sufficient. Implementation must also maintain the affected
+user output/help, diagnostic records/reading instructions, and tests. The two may share an implementation
+within the same issue or delivery, but retain independent acceptance and the individual statuses of linked
+issues; passing one cannot be used to close the other, and splitting them into separate issues is not mandatory.
 
-请求文件专用于维护者诊断取证缺口。question、impact、verification 应明确维护者的问题、
-判断影响和诊断验证；开发角色发现用户反馈不足，在既有交付报告中保留具体需求及关联，
-交由需求面按普通产品提案处理，不伪装为日志缺口，不宣称报告已经建票。若目标已在冻结
-契约内则正常实现，否则不自行扩展冻结目标。两类需求不互相设前置门槛；只有实际无法
-选方案或验证时才明确阻塞。
-运行器校验诊断请求引用后通过认证 Gitea 注释回传，临时故障留 outbox，下一次调用重试。
-`observation-gap` 与请求格式保留兼容；不新增语义分类器，不宣称文本校验能自动识别误投。
+Request files are dedicated to gaps in evidence gathering for maintainer diagnostics. question, impact, and
+verification should clearly state the maintainer's question, its impact on judgment, and diagnostic verification.
+When development roles discover insufficient user feedback, they retain the specific requirement and its links
+in the existing delivery report and pass it to the requirements side for handling as an ordinary product
+proposal. They must not disguise it as a logging gap or claim that the report has already created an issue.
+If the objective is already within the frozen contract, implement it normally; otherwise, do not independently
+expand the frozen objectives. Neither type of requirement imposes a prerequisite gate on the other; explicitly
+mark a blocker only when choosing an approach or verifying it is actually impossible.
+After validating the references in a diagnostic request, the runner reports it through an authenticated Gitea
+comment. Transient failures remain in the outbox and are retried on the next invocation.
+`observation-gap` and the request format remain compatible; no semantic classifier is added, and no claim is
+made that text validation can automatically identify misrouted requests.
 
 ## Reference-level explanation
 
-固定外壳为 `auto-designer:observation-evidence-v1`：issue body 中的机器句柄指定该 issue
-附件 ID、摘要和大小。下载只向配置 Gitea origin 请求该 issue 的成员附件 UUID，不使用外链，
-禁止重定向；压缩和解压均有界。JSON 包只包含获准 session 的文本文件、版本和摘要，不执行文件。
-每次角色调用前验证缓存，隔离保存，不写 harness main。内部日志格式由制品决定。
+The fixed envelope is `auto-designer:observation-evidence-v1`: a machine handle in the issue body specifies
+that issue's attachment ID, digest, and size. Downloads request only UUIDs of attachments belonging to that
+issue from the configured Gitea origin, use no external links, and prohibit redirects; both compression and
+decompression are bounded. The JSON package contains only text files, versions, and digests from authorized
+sessions; files are not executed. The cache is validated before each role invocation and stored in isolation,
+without writing to harness main. The internal log format is determined by the artifact.
 
-缺口包含问题、已查范围、未知、影响、期望能力、验证和授权引用。运行器绑定真实 role/issue，
-回传带稳定 request_id 的签名注释；auto-designer 只接收认证自动化身份并重新校验授权，落普通
-proposal。framework scope 仅记基础设施诊断，实验中框架固定，不生成 harness 交付票。
+A gap includes the question, scope already examined, unknowns, impact, expected capability, verification, and
+authorization references. The runner binds the actual role/issue and reports back with a signed comment
+containing a stable request_id; auto-designer accepts only authenticated automation identities, revalidates
+authorization, and records an ordinary proposal. framework scope records infrastructure diagnostics only;
+the framework remains fixed during the experiment, and no harness delivery issues are generated.
 
-重启和空闲时，vigil 的常规 tick / v0.2 adapter 启动触发单个有界后台补交，不等待新 agent
-任务才有机会恢复，也不阻塞调度。回传去重按认证账号检查所有必要评论页；扫描触顶时保留 pending，
-不猜测不存在而重复提交。运行器缓存通过 Git 本地 exclude 与制品源码隔离，不依赖制品的 .gitignore。
+On restart and while idle, Vigil's regular tick / v0.2 adapter startup triggers a single bounded background
+retry of pending reports, providing a recovery opportunity without waiting for a new agent task and without
+blocking scheduling. Report deduplication checks all necessary comment pages by authenticated account;
+when the scan limit is reached, the report remains pending, rather than assuming it does not exist and
+submitting it again. The runner cache is isolated from the artifact source through Git's local exclude
+mechanism and does not depend on the artifact's .gitignore.
 
 ## Drawbacks
 
-取证增加有界 I/O；附件不可用时明确降级到其它证据，不伪装空日志。私有实验仓的身份边界不等于多租户隔离。
+Evidence gathering adds bounded I/O; when attachments are unavailable, the system explicitly falls back to
+other evidence rather than pretending the logs are empty. Identity boundaries in a private experimental
+repository do not amount to multitenant isolation.
 
 ## Rationale and alternatives
 
-复用已有 forge 和角色，不引入公网日志服务、不挂载全量宿主 session、不强制共享事件字典。
-运行器处理传输和校验，agent 保留按需读取和判断权。
+Reuse the existing forge and roles without introducing a public internet logging service, mounting all host
+sessions, or mandating a shared event dictionary. The runner handles transport and validation, while agents
+retain discretion over reading and judgment as needed.
 
 ## Prior art
 
-0074 提供 Gitea 边界，0078 记录调用审计，0082/0083 保留独立目标验收；auto-designer 0059/0060
-定义原生日志读取与双轨输入隔离，0061 定义制品自有日志的跨轮生命周期。
+0074 provides the Gitea boundary, 0078 records invocation audits, and 0082/0083 retain independent objective
+acceptance; auto-designer 0059/0060 define native log reading and dual-track input isolation, and 0061 defines
+the lifecycle of artifact-owned logs across rounds.
 
 ## Unresolved questions
 
-发布壳版本变动须双方兼容测试；部署必须更新镜像 pin，源码修改不代表运行中容器更新。
+Changes to the published envelope version require compatibility testing on both sides; deployment must
+update the image pin, since source changes do not mean that running containers have been updated.
 
 ## Future possibilities
 
-比较具体诊断问题的可回答程度，不以日志数量衡量质量；更换 harness 无需改此传输层。
+Compare how well specific diagnostic questions can be answered, rather than measuring quality by log volume;
+replacing the harness requires no changes to this transport layer.

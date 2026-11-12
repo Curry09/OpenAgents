@@ -1,8 +1,8 @@
-"""spec.ownership 单元测试 —— 单一 writer 索引 + 越权写守卫（Spec-0071/T1）。
+"""spec.ownership unit test - Single Writer Index + Excessive Guard (Spec-0071/T1).
 
-覆盖：build_index 把 files 声明映射到唯一 owner（首个声明者胜）；generated_artifacts 恒含本组
-spec md + OVERVIEW + ARCHITECTURE；unowned_writes 判无主写（放行声明文件与生成物、拦无主文件、
-排序去重、空 changeset 返空）。纯函数、零 IO。
+Overwrite: build_index maps the file statements to the only owner (first speaker wins); generated_artifacts constant group
+Spec md + Overseas + ARCHETECTURE; unowned_writes unauthorised (Leave declaration file and generator, stop owner file,
+Sorts to weight, empty changeset back. Pure function, zero IO.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from openagents.spec.model import Group, Metadata, Task
 
 
 def _group(*, number: str = "0071", slug: str = "single-writer-ownership-guard") -> Group:
-    """一个双 Task 组：T1 占 a.py/b.py，T2 占 c.py。"""
+    """A double Task group: T1 for a.py/b.py, T2 for c.py."""
     return Group(
         number=number,
         metadata=Metadata(title=slug, issue=71, slug=slug, summary="tl;dr"),
@@ -38,7 +38,7 @@ def test_owner_of_unknown_path_is_none() -> None:
 
 
 def test_build_index_first_declarer_wins_on_duplicate() -> None:
-    """同文件被两个 Task 声明（validate 的 error）时，索引取首个 owner，确定性、不 raise。"""
+    """When the same document is declared by two Tasks (error of validate), the index takes the first owner, certainty, no raise."""
     group = Group(
         number="0071",
         metadata=Metadata(title="s", issue=71, slug="s", summary="x"),
@@ -87,7 +87,7 @@ def test_unowned_writes_empty_changeset_is_clean() -> None:
 
 
 def test_unowned_writes_respects_custom_specs_root() -> None:
-    """specs_root 变了，生成物路径随之变；旧默认路径就不再被当生成物放行。"""
+    """specs_root has changed the path of the generator; the old default path is no longer released as the generator."""
     offenders = ownership.unowned_writes(
         group=_group(),
         changed_paths=["docs/specs/OVERVIEW.md"],

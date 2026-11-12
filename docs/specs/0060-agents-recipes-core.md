@@ -1,28 +1,15 @@
 ---
 number: "0060"
-title: 架构重构（批次一）：核心收敛为 agents（提示词）+ recipes（编排），操作下放 agent，仅留最小硬闸 + runtime/utils 确定性层
+title: "Architecture refactoring (batch one): consolidate the core into agents (prompts) + recipes (orchestration), delegate operations to agents, and retain only minimal hard gates + a deterministic runtime/utils layer"
 issue: 145
 slug: agents-recipes-core
-summary: '把「一切需判断的操作走 agent、人只做宏观」的初心从 #140 的 git 特例上升为架构总原则：核心只留 agents（string.Template 提示词，零逻辑）+ recipes（纯控制流编排）；agent 返回结构化裁决，recipe 只按裁决路由（顺序/循环/分支），自己不做任何业务判断；runtime 是唯一机制层（run_agent 引擎 + 最小硬闸：head 前移断言/轮次上限/PR 存在性/证据溯源戳），确定性非 agent 操作归 utils。本组是分批交付的批次一：additive 立起新栈（runtime/agents/recipes/utils 骨架）并让 solve_issue recipe（plan→implement→review 循环 while REWORK→deliver）端到端跑通一个真实 issue 验证契约成立，不动旧 orchestrator/messages/vigil（其删除与旧 spec 作废留后续批次）。'
+summary: "Elevate the original intent that “all operations requiring judgment go through agents; humans handle only the big picture” from the git special case in #140 to an overarching architectural principle: the core retains only agents (string.Template prompts, zero logic) + recipes (pure control-flow orchestration); agents return structured decisions, and recipes route solely on those decisions (sequence/loop/branch), making no business judgments themselves; runtime is the sole mechanism layer (the run_agent engine + minimal hard gates: head advancement assertions/round limits/PR existence/evidence provenance stamps), and deterministic non-agent operations belong in utils. This group is batch one of a phased delivery: additively establish the new stack (runtime/agents/recipes/utils scaffolding) and run the solve_issue recipe (plan→implement→review loop while REWORK→deliver) end to end on one real issue to verify that the contract holds, without touching the old orchestrator/messages/vigil (their removal and the invalidation of the old spec are deferred to later batches)."
 e2e:
-  intent: 证明架构契约在真实链路上成立——solve_issue recipe 只按 agent 的结构化裁决路由（PASS→next / REWORK→loop）、自身零业务判断；最小硬闸真能兜底（head 未前移 / 超轮次 → raise）；agents/* 确无逻辑、recipes/* 确无 git/gh/subprocess 直接调用。
-  method: |
-    本组是纯后端编排，无前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP，
-    故不设浏览器 e2e，改用离线确定性测法：
-    1. 契约路由单测（tests/test_recipe_solve_issue.py，假 backend 喂 canned 结构化输出）：
-       reviewer 连回两次 {"verdict":"REWORK"} 再一次 {"verdict":"PASS"} → 断言 implementer
-       被迭代调用 2 次、循环在 PASS 后 next；deliver 报告 head 未前移 → assert_head_advanced
-       raise；reviewer 恒 REWORK → round_cap 到上限 raise。
-    2. 零逻辑 / 零 IO grep 锚点（e2e 脚本）：agents/*.py 只含 Template( + OUTPUT_SCHEMA 且无
-       def / import subprocess / gh / git 调用；recipes/solve_issue.py 无 subprocess / "gh" /
-       "git" / 直接 import github|workspace（只经 runtime.run_agent + gates）。
-    3. 真实 issue 冒烟（dogfood，Phase-3 人验 / runbook，非 CI 确定性闸）：oa solve <真实 issue>
-       走新栈跑通、PR CI 全绿——issue 第 5 条验收，作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。
-    脚本：scripts/e2e-spec-0060-agents-recipes-core.sh（ruff check + ruff format --check +
-    针对性 pytest + grep 锚点），被 PR e2e signpost 采集。
+  intent: "Prove that the architectural contract holds in a real execution flow—the solve_issue recipe routes solely according to the agent's structured verdict (PASS→next / REWORK→loop), with zero business judgment of its own; the minimal hard gates really provide a backstop (head has not advanced / round limit exceeded → raise); agents/* truly contains no logic, and recipes/* truly contains no direct git/gh/subprocess calls."
+  method: "This group consists purely of backend orchestration, with no frontend to navigate; the tool list has been checked: no Playwright / Chrome DevTools MCP is available,\nso no browser e2e is specified; deterministic offline testing is used instead:\n1. Contract routing unit tests (tests/test_recipe_solve_issue.py, with a fake backend supplying canned structured outputs):\n   reviewer returns {\"verdict\":\"REWORK\"} twice in succession, then {\"verdict\":\"PASS\"} once → assert that implementer\n   is called iteratively 2 times and that the loop proceeds to next after PASS; deliver reports that head has not advanced → assert_head_advanced\n   raises; reviewer always returns REWORK → raises when round_cap reaches its limit.\n2. Zero-logic / zero-IO grep anchors (e2e script): agents/*.py contains only Template( + OUTPUT_SCHEMA and no\n   def / import subprocess / gh / git calls; recipes/solve_issue.py contains no subprocess / \"gh\" /\n   \"git\" / direct import github|workspace (only through runtime.run_agent + gates).\n3. Smoke test on a real issue (dogfood, Phase-3 human verification / runbook, not a deterministic CI gate): oa solve <real issue>\n   runs successfully through the new stack, with all PR CI checks green—the issue's fifth acceptance criterion, recorded in the runbook as outcome acceptance (principle 8), not put into the offline script.\nScript: scripts/e2e-spec-0060-agents-recipes-core.sh (ruff check + ruff format --check +\ntargeted pytest + grep anchors), collected by the PR e2e signpost.\n"
 tasks:
   - id: T1
-    title: utils 确定性最小面：git + github 薄再导出
+    title: "Minimal deterministic utils surface: thin re-exports for git + github"
     status: done
     priority: P1
     tags: []
@@ -35,10 +22,10 @@ tasks:
       - openagents/utils/github.py
       - tests/test_utils_git.py
       - tests/test_utils_github.py
-    scope: 立 utils/ 包：utils/git.py 薄封装现有 workspace.py 原语（head-sha/porcelain/worktree），utils/github.py 薄封装现有 github.py 原语（gh pr 读 + 机器评论写）。给新栈稳定 import 面，不复制/不改旧模块（奥卡姆，理念1）。
-    acceptance: from openagents.utils import git, github 可导入；git.head_sha/git.porcelain 等 + github.pr 读/评论写透传到旧原语、行为等价；ruff + pytest（针对性单测断言透传）通过；不改动 workspace.py/github.py 任何一行。
+    scope: "Establish the utils/ package: utils/git.py thinly wraps existing workspace.py primitives (head-sha/porcelain/worktree), and utils/github.py thinly wraps existing github.py primitives (gh pr reads + machine comment writes). Provide a stable import surface for the new stack without copying or modifying the old modules (Occam, principle 1)."
+    acceptance: "from openagents.utils import git, github is importable; git.head_sha/git.porcelain and similar operations + github.pr reads/comment writes pass through to the old primitives with equivalent behavior; ruff + pytest (targeted unit tests asserting pass-through behavior) pass; do not change a single line in workspace.py/github.py."
   - id: T2
-    title: runtime.engine：run_agent 引擎（填占位符→派 backend→收结构化输出）
+    title: "runtime.engine: run_agent engine (fill placeholders→dispatch to backend→collect structured output)"
     status: done
     priority: P1
     tags: []
@@ -49,10 +36,10 @@ tasks:
       - openagents/runtime/__init__.py
       - openagents/runtime/engine.py
       - tests/test_runtime_engine.py
-    scope: runtime/ 包标记 + engine.run_agent(agent_module, *, backend, **placeholders)->dict：读 agent_module.PROMPT（string.Template）→ substitute(**placeholders)→ backend.run(work_dir, task=prompt, context=...) → 解析 agent 输出末行 JSON、按 agent_module.OUTPUT_SCHEMA 校验键/类型 → 返回 dict。engine 不认识任何具体流程（换 agent/recipe 零改动，理念10）。
-    acceptance: 假 backend（回可控字符串）驱动：Template 占位符被正确填充进 task；末行 JSON 被解析成 dict 且键/类型符合 OUTPUT_SCHEMA；坏 JSON/缺键有明确失败语义（raise）；ruff + pytest 通过。
+    scope: "runtime/ package marker + engine.run_agent(agent_module, *, backend, **placeholders)->dict: read agent_module.PROMPT (string.Template)→ substitute(**placeholders)→ backend.run(work_dir, task=prompt, context=...) → parse the final line of agent output as JSON, validate keys/types against agent_module.OUTPUT_SCHEMA → return a dict. The engine knows nothing about any specific workflow (changing agents/recipes requires zero changes, principle 10)."
+    acceptance: "Driven by a fake backend (returning controllable strings): Template placeholders are correctly substituted into task; the final-line JSON is parsed into a dict whose keys/types conform to OUTPUT_SCHEMA; invalid JSON/missing keys have explicit failure semantics (raise); ruff + pytest pass."
   - id: T3
-    title: runtime.gates：最小硬闸（head 前移/轮次上限/PR 存在/证据溯源戳）
+    title: "runtime.gates: minimal hard gates (head advancement/round limits/PR existence/evidence provenance stamps)"
     status: done
     priority: P1
     tags: []
@@ -63,10 +50,10 @@ tasks:
     files:
       - openagents/runtime/gates.py
       - tests/test_runtime_gates.py
-    scope: gates.py 最小硬闸，只验客观事实不含业务判断：assert_head_advanced(*, before, workspace)（head 未前移→raise，兜底#140空转）、round_cap(*, max_rounds)（计数/生成器，超限→raise 防死循环）、assert_pr_exists(*, pr_number)、assert_evidence_stamp(*, head_sha, claimed)（不匹配→raise，Spec-0055）。经 utils.git/github 读客观事实。
-    acceptance: 单测：head 未前移→assert_head_advanced raise、前移→通过；round_cap 超 max_rounds→raise；PR 不存在→assert_pr_exists raise；head_sha 不匹配→assert_evidence_stamp raise。无任何业务判断（不判 PASS/REWORK）。ruff + pytest 通过。
+    scope: "gates.py provides minimal hard gates that check only objective facts and contain no business judgment: assert_head_advanced(*, before, workspace) (head has not advanced→raise, a backstop against the no-progress looping in #140), round_cap(*, max_rounds) (counter/generator, limit exceeded→raise to prevent infinite loops), assert_pr_exists(*, pr_number), assert_evidence_stamp(*, head_sha, claimed) (mismatch→raise, Spec-0055). Read objective facts through utils.git/github."
+    acceptance: "Unit tests: head has not advanced→assert_head_advanced raises, head has advanced→passes; round_cap exceeds max_rounds→raises; PR does not exist→assert_pr_exists raises; head_sha mismatch→assert_evidence_stamp raises. No business judgments whatsoever (does not decide PASS/REWORK). ruff + pytest pass."
   - id: T4
-    title: agents 提示词 5 个：planner/implementer/reviewer/deliver/tester（零逻辑）
+    title: "Five agent prompts: planner/implementer/reviewer/deliver/tester (zero logic)"
     status: done
     priority: P1
     tags: []
@@ -81,10 +68,10 @@ tasks:
       - openagents/agents/deliver.py
       - openagents/agents/tester.py
       - tests/test_agents_prompts.py
-    scope: 每个 agent 一个模块，仅含 PROMPT（string.Template，$占位符）+ OUTPUT_SCHEMA（键→类型 dict），零逻辑。planner=起草/精炼 RFC；implementer=按 RFC 实现/按反馈迭代；reviewer=评审→{verdict:PASS|REWORK,reason}；deliver=git 提交/推送/解冲突→结构化交付报告（吸收 conflict/conflictdiag 判断）；tester=独立 e2e 执行+判读。文案从旧 orchestrator/reviewer/executor/conflict 内联串降为 prompt 字符串。
-    acceptance: 每个模块仅暴露 PROMPT（isinstance string.Template）+ OUTPUT_SCHEMA（dict）；模块内无 def（除无）/无 import subprocess/无 gh/git 调用（grep 锚点+单测断言）；reviewer.OUTPUT_SCHEMA 含 verdict/reason 键。ruff + pytest 通过。
+    scope: "One module per agent, containing only PROMPT (string.Template, $placeholders) + OUTPUT_SCHEMA (a key→type dict), with zero logic. planner=draft/refine the RFC; implementer=implement according to the RFC/iterate on feedback; reviewer=review→{verdict:PASS|REWORK,reason}; deliver=git commit/push/resolve conflicts→structured delivery report (incorporating conflict/conflictdiag judgments); tester=independent e2e execution+interpretation. Convert the inline strings in the old orchestrator/reviewer/executor/conflict into prompt strings."
+    acceptance: "Each module exposes only PROMPT (isinstance string.Template) + OUTPUT_SCHEMA (dict); no def in the module (none excepted)/no import subprocess/no gh/git calls (grep anchors + unit-test assertions); reviewer.OUTPUT_SCHEMA contains the verdict/reason keys. ruff + pytest pass."
   - id: T5
-    title: runtime.context + runtime.state：占位符组装 + 新栈 run 状态
+    title: "runtime.context + runtime.state: placeholder assembly + run state for the new stack"
     status: done
     priority: P2
     tags: []
@@ -96,10 +83,10 @@ tasks:
       - openagents/runtime/context.py
       - openagents/runtime/state.py
       - tests/test_runtime_context.py
-    scope: context.py 组装占位符的值（issue 正文/PR 历史注入，读侧调 utils.github）供 recipe 传给 run_agent；state.py 持久化 issue→run 状态 + comment 游标，用独立状态文件命名空间（新栈自成一套），不碰旧 state.py（439 行被多测试桩打）。
-    acceptance: context 能产出 solve_issue 各阶段占位符 dict（for_plan/for_review/... 键齐全，PR 历史经 utils.github 注入）；state 读写走独立命名空间、与旧 state.py 文件零冲突；ruff + pytest 通过；不改动旧 state.py。
+    scope: "context.py assembles placeholder values (injecting the issue body/PR history, with reads calling utils.github) for recipes to pass to run_agent; state.py persists issue→run state + comment cursors, using a separate state-file namespace (the new stack has its own set), without touching the old state.py (439 lines, targeted by multiple test stubs)."
+    acceptance: "context can produce placeholder dicts for each stage of solve_issue (all keys present for for_plan/for_review/...; PR history injected through utils.github); state reads/writes use a separate namespace, with zero file conflicts with the old state.py; ruff + pytest pass; do not modify the old state.py."
   - id: T6
-    title: recipe solve_issue + cli 子命令 + e2e 脚本（竖切端到端）
+    title: "solve_issue recipe + cli subcommand + e2e script (end-to-end vertical slice)"
     status: done
     priority: P0
     tags: []
@@ -116,202 +103,202 @@ tasks:
       - openagents/cli.py
       - tests/test_recipe_solve_issue.py
       - scripts/e2e-spec-0060-agents-recipes-core.sh
-    scope: recipes/solve_issue.py：plan→implement→review(loop while REWORK，round_cap 兜底)→deliver(assert_head_advanced 兜底)，只有控制流 + runtime.run_agent 调用，零 git/gh/subprocess 直接调用。cli.py additive 加一个走新栈的子命令（旧子命令路由不动）。e2e 脚本 = ruff+pytest+grep 锚点。
-    acceptance: 假 backend 契约路由单测：reviewer 连回 REWORK,REWORK,PASS → implementer 迭代 2 次后 next；deliver head 未前移→assert_head_advanced raise；reviewer 恒 REWORK→round_cap raise。grep 锚点：recipes/solve_issue.py 无 subprocess/gh/git 直接调用。scripts/e2e-spec-0060-agents-recipes-core.sh 全绿。ruff + pytest 通过。
+    scope: "recipes/solve_issue.py: plan→implement→review(loop while REWORK, with round_cap as a backstop)→deliver(with assert_head_advanced as a backstop), containing only control flow + runtime.run_agent calls, with zero direct git/gh/subprocess calls. Add a subcommand to cli.py that uses the new stack (leave routing for the old subcommands untouched). e2e script = ruff+pytest+grep anchors."
+    acceptance: "Contract-routing unit tests with a fake backend: reviewer returns REWORK,REWORK,PASS in succession → proceed to next after 2 implementer iterations; deliver head has not advanced→assert_head_advanced raises; reviewer always returns REWORK→round_cap raises. grep anchors: recipes/solve_issue.py has no direct subprocess/gh/git calls. scripts/e2e-spec-0060-agents-recipes-core.sh is all green. ruff + pytest pass."
 ---
 
-# 0060 · 架构重构（批次一）：核心收敛为 agents（提示词）+ recipes（编排），操作下放 agent，仅留最小硬闸 + runtime/utils 确定性层
+# 0060 · Architecture Refactoring (Batch One): Consolidate the Core into agents (Prompts) + recipes (Orchestration), Delegate Operations to Agents, and Retain Only Minimal Hard Gates + a Deterministic runtime/utils Layer
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is the group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-把 OpenAgents 的核心**反转并收敛**回初心——「一切需要判断的操作都通过 agent 完成，人只做宏观把控」——
-落成两类代码：**agents（提示词）** 与 **recipes（编排）**。核心契约：
+**Invert and consolidate** the OpenAgents core back to its original intent—“all operations requiring judgment are performed through agents; humans provide only high-level oversight”—
+and realize it as two categories of code: **agents (prompts)** and **recipes (orchestration)**. The core contract:
 
-> **Agent 负责所有需要判断的操作（实现 / 评审判定 / git 交付 / 解冲突 / e2e 判读）并返回结构化裁决；
-> recipe 只根据裁决路由（顺序 / 循环 / 分支），自己不做任何业务判断。**
+> **Agents handle all operations requiring judgment (implementation / review decisions / git delivery / conflict resolution / e2e interpretation) and return structured verdicts;
+> recipes route solely on those verdicts (sequence / loops / branches) and make no business judgments themselves.**
 
-- `agents/*.py`：每个 agent 一个模块，只有一段 `string.Template` 提示词（`PROMPT`）+ 一个
-  `OUTPUT_SCHEMA`，**零逻辑**。
-- `recipes/*.py`：每个 flow 只有控制流 + `runtime.run_agent` 调用，**无任何 git/gh/subprocess 直接调用**。
-- `runtime/`：唯一允许的「机制代码」——`engine.run_agent`（填占位符 → 派 backend → 收结构化输出）+
-  `gates.py`**最小硬闸**（只验客观事实、不含业务判断：head 前移断言、循环轮次上限、PR 存在性、证据溯源戳）。
-- `utils/`：所有确定性、非 agent 的原语（git / gh 读写、发版等）。
+- `agents/*.py`: one module per agent, containing only a `string.Template` prompt (`PROMPT`) + an
+  `OUTPUT_SCHEMA`, with **zero logic**.
+- `recipes/*.py`: each flow contains only control flow + `runtime.run_agent` calls, with **no direct git/gh/subprocess calls whatsoever**.
+- `runtime/`: the only permitted “mechanism code”—`engine.run_agent` (fill placeholders → dispatch to backend → collect structured output) +
+  `gates.py` **minimal hard gates** (verify only objective facts, with no business judgment: assertions that head has advanced, loop iteration caps, PR existence, evidence provenance stamps).
+- `utils/`: all deterministic, non-agent primitives (git / gh reads and writes, releases, etc.).
 
-本组是**分批交付的批次一**（issue「分批交付」约束）：**additive** 立起新栈骨架，让 `solve_issue`
-recipe（`plan → implement → review(loop while REWORK) → deliver`）**端到端跑通一个真实 issue**，证明契约成立；
-**不动**旧 `orchestrator/messages/vigil/github/workspace`（它们的删除、`vigil/poll_comments/fleet` 迁移、
-旧 spec 作废，留后续批次）。
+This group is **batch one of an incremental delivery** (the issue's “incremental delivery” constraint): **additively** establish the skeleton of the new stack and make the `solve_issue`
+recipe (`plan → implement → review(loop while REWORK) → deliver`) **run end to end on a real issue**, proving that the contract holds;
+**leave** the old `orchestrator/messages/vigil/github/workspace` **untouched** (their deletion, migration of `vigil/poll_comments/fleet`,
+and invalidation of old specs are deferred to later batches).
 
 ## Motivation
 
-**初心（CLAUDE.md 理念 5–6）。** OpenAgents 的定位是多 agent 去中心化协作：需要判断的事交给 agent，人只做
-宏观把控、面向成果验收（理念 8）。但当前代码走向了反面：业务逻辑绝大部分**硬编码在 Python 里**，agent 只被
-薄薄地调用一下。
+**Original intent (CLAUDE.md principles 5–6).** OpenAgents is positioned as decentralized collaboration among multiple agents: agents handle matters requiring judgment, while humans provide only
+high-level oversight and accept results based on outcomes (principle 8). The current code, however, has gone in the opposite direction: the vast majority of business logic is **hardcoded in Python**, with agents receiving only
+a thin layer of calls.
 
-**现状证据（本仓 `openagents/`，2026-07-09 实测）。**
-- 全包 **~8970 行 Python、40 个模块**（`find openagents -name '*.py' | xargs wc -l` = 8968 total）。
-- 最大的几个模块全是「操作」：`messages.py`(950)、`github.py`(870)、`orchestrator.py`(781)、`reviewer.py`(510)、
-  `state.py`(439)，另有 `conflict.py`(234)、`conflictdiag.py`(210)、`executor.py`(174) 等。
-- git/gh/subprocess 硬编码操作散落各处（issue 记 **92 处**；本人 spot-check `grep -nE 'subprocess\.|"gh"|"git"'`
-  在非 spec 模块即命中 **34 处直接字面量调用**，加上经 `github.py`/`workspace.py` 原语的间接调用与 issue 计数一致）。
-- 真正「调 agent」的代码只有薄薄两层：`backends/base.py`（`AgentBackend` Protocol：`run(*, work_dir, task,
-  context) -> AgentResult`）+ `backends/claude_code.py`（把 prompt 喂给 `claude -p`）。
-- **根本没有 `agents/` 提示词目录**（`ls openagents/agents` = No such file）：所有 prompt 都是 Python 里内联
-  拼出来的 task 字符串（`orchestrator.py` 里的 `_DRAFT_RFC_TASK` / refine / implement / iterate 文案、
-  `reviewer.py` 的 rubric……），散落各处、既不统一也难复用。
+**Evidence of the current state (`openagents/` in this repository, measured on 2026-07-09).**
+- The entire package contains **~8970 lines of Python across 40 modules** (`find openagents -name '*.py' | xargs wc -l` = 8968 total).
+- The largest modules are all “operations”: `messages.py`(950), `github.py`(870), `orchestrator.py`(781), `reviewer.py`(510),
+  `state.py`(439), plus `conflict.py`(234), `conflictdiag.py`(210), `executor.py`(174), and others.
+- Hardcoded git/gh/subprocess operations are scattered throughout (the issue records **92 occurrences**; my spot check with `grep -nE 'subprocess\.|"gh"|"git"'`
+  found **34 direct literal calls** in non-spec modules alone; adding indirect calls through the `github.py`/`workspace.py` primitives is consistent with the issue's count).
+- The code that actually “calls agents” consists of only two thin layers: `backends/base.py` (`AgentBackend` Protocol: `run(*, work_dir, task,
+  context) -> AgentResult`) + `backends/claude_code.py` (feeds the prompt to `claude -p`).
+- **There is no `agents/` prompt directory at all** (`ls openagents/agents` = No such file): all prompts are task strings assembled
+  inline in Python (the `_DRAFT_RFC_TASK` / refine / implement / iterate text in `orchestrator.py`,
+  the rubric in `reviewer.py`, etc.), scattered throughout, inconsistent, and difficult to reuse.
 
-结论：**90% 的 Python 是「操作」而非「编排」，与初心背离。**
+Conclusion: **90% of the Python is “operations” rather than “orchestration,” contrary to the original intent.**
 
-**为什么现在做（把 #140 的教训上升为总原则）。** issue #140 的血泪教训（本仓 `git-in-harness-responsibility-
-vacuum` 记录）：**git 全 harness 写死 → 分叉后空转（PR#127 干净工作区被当作「已交付」而实际 head 没前移）→
-决策：把 git 交付/冲突下放 agent（agent 自己 rebase、`force-with-lease` 仅本分支），harness 只留一道「head
-到底有没有前移」的确定性硬闸**（`assert_delivered_or_fail`，见 Spec-0056）。这条教训不是 git 特例，而是整个
-架构的缩影：**凡「需要判断」的操作，硬编码进 harness 都会在边界情况下空转或撒谎；应下放 agent + 留最小客观硬闸
-兜底。** 本组把这条从一个特例上升为**架构总原则**，一次性重排目录与职责边界。
+**Why do this now (elevate the lesson from #140 into a general principle).** The painful lesson of issue #140 (recorded in this repository's `git-in-harness-responsibility-
+vacuum`): **all git behavior hardcoded into the harness → spinning without progress after divergence (PR#127's clean working tree was treated as “delivered” even though head had not advanced) →
+decision: delegate git delivery/conflicts to agents (agents perform their own rebases; `force-with-lease` only on their own branch), leaving the harness with just one deterministic hard gate checking “has head
+actually advanced?”** (`assert_delivered_or_fail`, see Spec-0056). This lesson is not specific to git; it is a microcosm of the entire
+architecture: **hardcoding any operation “requiring judgment” into the harness will lead to spinning without progress or lying in edge cases; delegate it to an agent + retain minimal objective hard gates
+as a backstop.** This group elevates that lesson from a single special case into an **overarching architectural principle**, reorganizing directories and responsibility boundaries in one pass.
 
-**核心契约为何必要。** 编排里的循环要判断「评审过了没」才知道要不要再转一圈。若 Python 不许含业务判断，则
-**分支条件必须来自 agent 的结构化输出**：reviewer agent 返回 `{"verdict": "PASS" | "REWORK", "reason": "..."}`，
-recipe 只看 `verdict` 决定 loop 还是 next。没有结构化裁决，「零硬编码业务判断」无法成立——这是本重构的技术支点。
+**Why the core contract is necessary.** An orchestration loop must determine “did the review pass?” to know whether to run another iteration. If Python is forbidden from containing business judgments, then
+**branch conditions must come from agents' structured output**: the reviewer agent returns `{"verdict": "PASS" | "REWORK", "reason": "..."}`,
+and the recipe looks only at `verdict` to decide whether to loop or proceed. Without structured verdicts, “zero hardcoded business judgment” cannot hold—this is the technical foundation of the refactoring.
 
 ## Guide-level explanation
 
-**一个 agent 长什么样（`agents/reviewer.py`）——只有字符串和占位符，零逻辑：**
+**What an agent looks like (`agents/reviewer.py`)—only strings and placeholders, zero logic:**
 
 ```python
 # openagents/agents/reviewer.py   # Spec-0060/T4
 from string import Template
 
-PROMPT = Template("""你是评审 agent。审查 PR #$pr_number 的改动，对照验收标准逐条检查。
-最后只输出一行 JSON：{"verdict": "PASS" | "REWORK", "reason": "..."}
-issue 原文：
+PROMPT = Template("""You are a reviewer agent. Review the changes in PR #$pr_number and check each acceptance criterion.
+At the end, output only one line of JSON: {"verdict": "PASS" | "REWORK", "reason": "..."}
+Original issue text:
 $issue_body
 """)
 OUTPUT_SCHEMA = {"verdict": str, "reason": str}
 ```
 
-用 `string.Template`（`$占位符`）**不用 f-string / `.format` / `.md`**：f-string 无法当值存起来延后填充；
-`.format` 的 `{}` 会和 prompt 里 JSON 示例的 `{}` 打架；`.md` 分不清占位符也没 schema。`Template` 的 `$name`
-既能延后 `substitute`、又与 JSON 的 `{}` 井水不犯河水。
+Use `string.Template` (`$placeholder`), **not f-strings / `.format` / `.md`**: an f-string cannot be stored as a value for later substitution;
+the `{}` in `.format` conflicts with the `{}` in JSON examples in prompts; `.md` cannot distinguish placeholders and has no schema. `Template`'s `$name`
+supports deferred `substitute` without interfering with JSON's `{}`.
 
-**一个 recipe 长什么样（`recipes/solve_issue.py`）——纯控制流，只按裁决路由：**
+**What a recipe looks like (`recipes/solve_issue.py`)—pure control flow, routing only on verdicts:**
 
 ```python
-# openagents/recipes/solve_issue.py   # Spec-0060/T6（示意，非最终实现）
+# openagents/recipes/solve_issue.py   # Spec-0060/T6 (illustrative, not the final implementation)
 from openagents.runtime import engine, gates
 from openagents import agents
 
 def solve_issue(*, issue_number, backend, ctx):
     engine.run_agent(agents.planner,     backend=backend, **ctx.for_plan(issue_number))
     engine.run_agent(agents.implementer, backend=backend, **ctx.for_implement(issue_number))
-    for _ in gates.round_cap():                        # 硬闸：轮次上限，防死循环
+    for _ in gates.round_cap():                        # Hard gate: iteration cap to prevent infinite loops
         v = engine.run_agent(agents.reviewer, backend=backend, **ctx.for_review(issue_number))
         if v["verdict"] == "PASS":
             break
         engine.run_agent(agents.implementer, backend=backend, feedback=v["reason"], **ctx.for_iterate(issue_number))
     d = engine.run_agent(agents.deliver, backend=backend, **ctx.for_deliver(issue_number))
-    gates.assert_head_advanced(before=d["base_sha"], workspace=ctx.workspace)   # 硬闸：真交付了？
+    gates.assert_head_advanced(before=d["base_sha"], workspace=ctx.workspace)   # Hard gate: was it really delivered?
     return d
 ```
 
-recipe **自己不判**「代码对不对 / 评审过没 / 冲突怎么解」——它只读 agent 返回的 `verdict`/裁决字段决定
-loop-or-next，并在关键处调**最小硬闸**兜底 agent 的自述（防撒谎、防死循环）。`github.py` / `evidence_gate` /
-`conflict` 这些整体「消失」：变成对应 agent 提示词里的一段指令 + agent 自己用工具执行。
+The recipe **does not itself judge** “is the code correct / did the review pass / how should conflicts be resolved”—it only reads the `verdict`/decision fields returned by the agent to decide
+loop-or-next, and calls **minimal hard gates** at key points to backstop the agent's own claims (preventing lies and infinite loops). `github.py` / `evidence_gate` /
+`conflict` “disappear” as whole components: they become instructions in the corresponding agent prompts + tool operations performed by the agents themselves.
 
-**最小硬闸的分界线（与 agent 分工完全一致）：**
-- **属于硬闸（`runtime/gates.py`，确定性 Python）**：head 有没有前移（真交付了？，#140 的 `assert_delivered`）、
-  循环轮次上限（防死循环）、PR 号 / 分支存在性、证据溯源戳（`head_sha` 匹配，Spec-0055）。
-- **属于 agent**：代码写得对不对、评审 PASS/REWORK、冲突怎么解、e2e 结果如何判读。
-- 一句话：**需要判断 → agent；客观机械 → 确定性代码。** 发版（从 HEAD 切 tag + 生成 changelog）机械零判断，
-  恰恰**不该**交给 agent——归 `utils/release.py`，与「最小硬闸」是同一条分界线，不是破例。
+**The boundary for minimal hard gates (fully consistent with the division of responsibilities with agents):**
+- **Belongs in hard gates (`runtime/gates.py`, deterministic Python)**: whether head has advanced (was it really delivered?, #140's `assert_delivered`),
+  loop iteration caps (prevent infinite loops), PR number / branch existence, evidence provenance stamps (`head_sha` matching, Spec-0055).
+- **Belongs to agents**: whether code is correct, review PASS/REWORK, how to resolve conflicts, how to interpret e2e results.
+- In one sentence: **requires judgment → agent; objectively mechanical → deterministic code.** Releasing (creating a tag from HEAD + generating a changelog) is mechanical and requires zero judgment,
+  so it precisely **should not** be delegated to an agent—it belongs in `utils/release.py`, following the same boundary as “minimal hard gates,” rather than constituting an exception.
 
-**本批次交付后你能做的事**：`oa solve <issue>`（或等价子命令）走**新栈** `solve_issue` recipe 跑通一个真实
-issue、CI 全绿——证明「recipe 零业务判断 + agent 出裁决 + 最小硬闸兜底」这条契约在真实链路上成立。旧命令
-（`vigil` 等）本批次照旧走老代码，零回归。
+**What you can do after this batch is delivered**: `oa solve <issue>` (or an equivalent subcommand) uses the **new stack** and the `solve_issue` recipe to run through a real
+issue, with all CI checks green—proving that the contract of “zero business judgment in recipes + verdicts from agents + minimal hard gates as a backstop” holds in a real end-to-end flow. Old commands
+(`vigil`, etc.) continue using the old code in this batch, with zero regressions.
 
 ## Reference-level explanation
 
-### 目标架构（总原则；本组只落其中的 additive 骨架 + solve_issue 竖切）
+### Target architecture (general principle; this group implements only the additive skeleton + the solve_issue vertical slice)
 
 ```
 openagents/
-  cli.py          # 薄入口：解析命令 → 调 recipe 或 utils，本身零业务逻辑
-  agents/         # ① 提示词：python + string.Template，零逻辑，只有字符串和占位符
-  recipes/        # ② 编排：纯控制流，只调 runtime.run_agent，按顺序/循环/分支串 agent
-  runtime/        # ③ 引擎 + 最小硬闸：唯一允许的「机制代码」
-    engine.py     #   run_agent：读 agents.PROMPT → 填占位符 → 派 backend → 收结构化输出
-    gates.py      #   最小硬闸：head 前移断言、循环轮次上限、PR 存在性、证据溯源戳
-    context.py    #   组装占位符的值：PR 历史注入等（调 utils.github 读）
-    state.py      #   issue→run 状态 + comment 游标持久化
-  backends/       # ④ CLI 适配：base.py / claude_code.py / codex.py（本组不动）
-  utils/          # ⑤ 所有确定性、非 agent 的东西：github / git / release / notes / spec/ …
+  cli.py          # Thin entry point: parse commands → call recipes or utils; contains zero business logic
+  agents/         # ① Prompts: python + string.Template, zero logic, only strings and placeholders
+  recipes/        # ② Orchestration: pure control flow, calls only runtime.run_agent, chains agents through sequences/loops/branches
+  runtime/        # ③ Engine + minimal hard gates: the only permitted “mechanism code”
+    engine.py     #   run_agent: read agents.PROMPT → fill placeholders → dispatch to backend → collect structured output
+    gates.py      #   Minimal hard gates: assertions that head has advanced, loop iteration caps, PR existence, evidence provenance stamps
+    context.py    #   Assemble placeholder values: PR history injection, etc. (read through utils.github)
+    state.py      #   Persist issue→run state + comment cursors
+  backends/       # ④ CLI adapters: base.py / claude_code.py / codex.py (untouched in this group)
+  utils/          # ⑤ Everything deterministic and non-agent: github / git / release / notes / spec/ …
 ```
 
-### 40 个旧模块的最终归宿（迁移映射；**删除动作留后续批次**）
+### Final destinations of the 40 legacy modules (migration mapping; **deletions deferred to later batches**)
 
-| 归宿 | 来自哪些旧模块 | 变化 |
+| Destination | Source legacy modules | Change |
 |---|---|---|
-| **agents/**（提示词） | orchestrator 内联的 refine/implement/iterate 文案、reviewer、executor、conflict、conflictdiag、align、issuecheck、backfill 的判断部分 | 从 Python 逻辑**降为 prompt 字符串**，判断交给 agent |
-| **recipes/**（编排） | orchestrator 的阶段串联、vigil、fleet、messages 的路由 | 只留**控制流**，操作全下放 agent |
-| **runtime/**（引擎+硬闸） | backends 调用逻辑、agentcontext、state、evidence_gate 的客观校验部分、#140 的 assert_delivered | 硬闸只留客观事实核验 |
-| **backends/** | backends/ 原样 | 基本不动，后续加 codex |
-| **utils/**（确定性） | github、workspace→git、identity、config、envcheck、release、hold、skip、blocknote/worknote/replynote→notes、results、spec/、templates | 机械操作，不派 agent |
+| **agents/** (prompts) | Inline refine/implement/iterate text in orchestrator; reviewer, executor, conflict, conflictdiag, align, issuecheck; the decision-making portion of backfill | **Reduce Python logic to prompt strings**, delegating decisions to the agent |
+| **recipes/** (orchestration) | Stage sequencing in orchestrator; vigil, fleet; routing in messages | Retain only **control flow**, delegating all operations to agents |
+| **runtime/** (engine + hard gates) | Backend invocation logic, agentcontext, state, the objective validation portion of evidence_gate, assert_delivered from #140 | Hard gates retain only objective fact verification |
+| **backends/** | backends/ unchanged | Largely unchanged; add codex later |
+| **utils/** (deterministic) | github, workspace→git, identity, config, envcheck, release, hold, skip, blocknote/worknote/replynote→notes, results, spec/, templates | Mechanical operations; no agent dispatch |
 
-### 本组交付边界（批次一 = additive 竖切，不做大爆炸）
+### Delivery scope for this batch (batch one = additive vertical slice, no big-bang refactor)
 
-为兑现 issue「不做一次性大爆炸重构，按 recipe 逐条切」+「测试迁移风险」（下放 git 曾打断 ~6 个 test git-fakes，
-见 #140），本组**只新增文件、不改/不删任何旧模块**：新栈与旧栈并存，`cli.py` 加一个走新栈的子命令。这样：
-① 旧 orchestrator/messages/vigil 及其 11 个测试桩零回归；② 契约在真实 issue 上验证成立后，后续批次再逐个
-recipe 迁移并删除对应旧模块 + 作废其 spec。
+To fulfill the issue's requirements to “avoid a one-shot big-bang refactor; migrate one recipe at a time” and address “test migration risks” (delegating git previously broke ~6 test git-fakes,
+see #140), this batch **only adds files, without modifying/deleting any legacy modules**: the new and legacy stacks coexist, and `cli.py` gains a subcommand that uses the new stack. Thus:
+① Zero regressions for the legacy orchestrator/messages/vigil and their 11 test stubs; ② Once the contracts have been validated on a real issue, later batches will migrate
+recipes one by one, delete the corresponding legacy modules, and retire their specs.
 
-- **`runtime.engine.run_agent(agent_module, *, backend, **placeholders) -> dict`**：读 `agent_module.PROMPT`
-  → `Template.substitute(**placeholders)` → `backend.run(work_dir, task=prompt, context=...)` → 解析 agent
-  输出末尾那行 JSON、按 `agent_module.OUTPUT_SCHEMA` 校验键与类型 → 返回 dict。**engine 不认识任何具体流程**
-  （换套 agent/recipe 零改动，理念 10 解耦）。
-- **`runtime.gates`**：`snapshot_head(*, workspace)`（**由 recipe 在派 deliver 前调用**，确定性记录客观
-  基点 `before`——绝不取 agent 自述的 `base_sha`，否则 agent 报个假基点即可让闸恒放行，见 #140）、
-  `assert_head_advanced(*, before, workspace)`（head 未前移 → raise，兜底 #140 空转；返回实际 after）、
-  `round_cap(*, max_rounds)`（生成器/计数器，超限 → raise，防死循环）、`assert_pr_exists(*, pr_number)`、
-  `assert_evidence_stamp(*, head_sha, claimed)`（证据溯源戳不匹配 → raise，Spec-0055）。**只验客观事实，不含
-  业务判断**——这是「兜底 agent 自述、防撒谎/死循环」的最后一道确定性防线。solve_issue 本组接线三闸
-  （`round_cap` + `assert_head_advanced` + `assert_evidence_stamp`，`before` 经 `snapshot_head` 确定性取）；
-  `assert_pr_exists` 待「开 PR 环节」批次接线（见本组交付边界的「无开 PR 环节」条与 Unresolved）。
-- **`runtime.context` / `runtime.state`**：`context` 组装占位符的值（PR 历史/issue 正文注入，读侧调 `utils.github`）；
-  `state` 持久化 issue→run 状态 + comment 游标。为不碰旧 `state.py`（439 行、被多测试桩打），新 `runtime/state.py`
-  用**独立的状态文件命名空间**（新栈自成一套），旧 `state.py` 原地不动。
-- **`agents/`（本组 5 个，solve_issue 所需）**：`planner`（起草/精炼 RFC）、`implementer`（按 RFC 实现 / 按反馈迭代）、
-  `reviewer`（评审 → `{verdict, reason}`）、`deliver`（git 提交/推送/解冲突 → 结构化交付报告，吸收 conflict/
-  conflictdiag 的判断）、`tester`（独立 e2e 执行 + 判读）。`triager`/`replier` 属 `vigil`/`poll_comments`，留后续批次。
-- **`utils/`（本组只立 solve_issue 依赖的最小面）**：`utils/git.py`（head-sha / porcelain / worktree，薄封装现有
-  `workspace.py` 原语）、`utils/github.py`（gh pr 读 + 机器评论写，薄封装现有 `github.py` 原语）。**薄再导出**为的是
-  给新栈一个稳定 import 面而**不复制** 870 行 github.py（奥卡姆，理念 1）；旧模块整体搬进 utils/ 及 release/notes/
-  spec/ 归位留后续批次。
-- **`recipes/solve_issue.py`**：`plan → implement → review(loop while REWORK, round_cap 兜底) → deliver
-  (snapshot_head 确定性记 before → assert_head_advanced + assert_evidence_stamp 兜底)`，只有控制流 +
-  `run_agent`/`gates` 调用，**零 git/gh/subprocess 直接调用**（`before` 亦经 `gates.snapshot_head` 取，不在
-  recipe 里碰 git）。
-- **本组交付假定：无「开 PR」环节，PR 号可缺（`pr_number=0` 兜底）**：本组竖切聚焦 `plan→…→deliver` 的裁决
-  路由与硬闸，**不含 `gh pr create`**——planner/implementer 只 commit+push，deliver 只推分支。故对**已有 PR**
-  的 issue（如本 issue #145）端到端成立；对**全新、尚无 PR** 的 issue，reviewer/deliver 面对 `pr_number=0`、
-  context 退化为「仅 issue 正文」，需承接「开 PR」的批次补齐（故 `assert_pr_exists` 本组先不接线）。这也是三处
-  推分支（planner/implementer/deliver）与「deliver 才是收口交付」注释的张力来源——**单一交付点收敛**同样留后续
-  批次（见 Unresolved / Future possibilities）。
-- **`cli.py`**：加一个走新栈 `solve_issue` 的子命令（additive；旧子命令路由不动）。
+- **`runtime.engine.run_agent(agent_module, *, backend, **placeholders) -> dict`**: Read `agent_module.PROMPT`
+  → `Template.substitute(**placeholders)` → `backend.run(work_dir, task=prompt, context=...)` → Parse the JSON on the final line
+  of the agent output, validate keys and types against `agent_module.OUTPUT_SCHEMA` → Return a dict. **The engine knows nothing about any specific workflow**
+  (swapping in a different set of agents/recipes requires zero changes; decoupling under principle 10).
+- **`runtime.gates`**: `snapshot_head(*, workspace)` (**called by the recipe before dispatching deliver**, deterministically records the objective
+  baseline `before`—never use the agent's self-reported `base_sha`, otherwise the agent could report a fake baseline and make the gate always pass; see #140),
+  `assert_head_advanced(*, before, workspace)` (head has not advanced → raise, guarding against the no-op behavior in #140; returns the actual after),
+  `round_cap(*, max_rounds)` (generator/counter; limit exceeded → raise, preventing infinite loops), `assert_pr_exists(*, pr_number)`,
+  `assert_evidence_stamp(*, head_sha, claimed)` (evidence provenance stamp mismatch → raise, Spec-0055). **Only verifies objective facts; contains no
+  business judgments**—this is the final deterministic line of defense for checking agent self-reports and preventing lies/infinite loops. This batch wires three gates into solve_issue
+  (`round_cap` + `assert_head_advanced` + `assert_evidence_stamp`, with `before` obtained deterministically via `snapshot_head`);
+  `assert_pr_exists` will be wired in during the batch that adds the “open PR step” (see the “no open PR step” item in this batch's delivery scope and Unresolved).
+- **`runtime.context` / `runtime.state`**: `context` assembles placeholder values (injecting PR history/issue body, calling `utils.github` for reads);
+  `state` persists issue→run state + comment cursors. To avoid touching the legacy `state.py` (439 lines, targeted by multiple test stubs), the new `runtime/state.py`
+  uses an **independent state-file namespace** (the new stack has its own set), leaving the legacy `state.py` in place unchanged.
+- **`agents/` (5 in this batch, required by solve_issue)**: `planner` (draft/refine RFCs), `implementer` (implement according to the RFC / iterate based on feedback),
+  `reviewer` (review → `{verdict, reason}`), `deliver` (git commit/push/resolve conflicts → structured delivery report, absorbing the decision-making from conflict/
+  conflictdiag), `tester` (independent e2e execution + interpretation). `triager`/`replier` belong to `vigil`/`poll_comments` and are deferred to later batches.
+- **`utils/` (this batch establishes only the minimal surface required by solve_issue)**: `utils/git.py` (head-sha / porcelain / worktree, thin wrappers around existing
+  `workspace.py` primitives), `utils/github.py` (gh pr reads + machine comment writes, thin wrappers around existing `github.py` primitives). **Thin re-exports** provide
+  a stable import surface for the new stack **without copying** the 870-line github.py (Occam's razor, principle 1); moving entire legacy modules into utils/ and putting release/notes/
+  spec/ in their proper locations are deferred to later batches.
+- **`recipes/solve_issue.py`**: `plan → implement → review(loop while REWORK, round_cap as a safeguard) → deliver
+  (snapshot_head deterministically records before → assert_head_advanced + assert_evidence_stamp as safeguards)`, containing only control flow +
+  `run_agent`/`gates` calls, with **zero direct git/gh/subprocess calls** (`before` is also obtained through `gates.snapshot_head`; the
+  recipe does not touch git).
+- **Delivery assumption for this batch: no “open PR” step; the PR number may be absent (`pr_number=0` as a fallback)**: This vertical slice focuses on decision
+  routing and hard gates for `plan→…→deliver`, and **does not include `gh pr create`**—planner/implementer only commit+push, and deliver only pushes the branch. Thus, it works end to end for issues
+  **with an existing PR** (such as this issue, #145); for **brand-new issues without a PR yet**, reviewer/deliver receive `pr_number=0`,
+  and context falls back to “issue body only.” The batch that adds “open PR” must complete this support (hence `assert_pr_exists` is not wired in for this batch). This is also
+  the source of tension between the three branch-push locations (planner/implementer/deliver) and the comment that “deliver is the final delivery step”—**consolidation into a single delivery point** is likewise deferred to later
+  batches (see Unresolved / Future possibilities).
+- **`cli.py`**: Add a subcommand that uses the new-stack `solve_issue` (additive; existing subcommand routing remains unchanged).
 
-### DAG 与文件分配
+### DAG and file allocation
 
 ```mermaid
 graph TD
-    T1[T1 utils 确定性最小面 git+github] --> T3[T3 runtime 最小硬闸 gates]
+    T1[T1 utils minimal deterministic surface git+github] --> T3[T3 runtime minimal hard gates gates]
     T1 --> T5[T5 runtime context+state]
     T2[T2 runtime engine run_agent] --> T6
-    T3 --> T6[T6 recipe solve_issue + cli 子命令 + e2e]
-    T4[T4 agents 提示词 5 个] --> T6
+    T3 --> T6[T6 recipe solve_issue + cli subcommand + e2e]
+    T4[T4 agents 5 prompts] --> T6
     T5 --> T6
 ```
 
-| Task | 拥有文件（组内互斥） | depends-on |
+| Task | Owned files (exclusive within this batch) | depends-on |
 |---|---|---|
 | T1 | `openagents/utils/__init__.py`, `openagents/utils/git.py`, `openagents/utils/github.py`, `tests/test_utils_git.py`, `tests/test_utils_github.py` | — |
 | T2 | `openagents/runtime/__init__.py`, `openagents/runtime/engine.py`, `tests/test_runtime_engine.py` | — |
@@ -320,100 +307,98 @@ graph TD
 | T5 | `openagents/runtime/context.py`, `openagents/runtime/state.py`, `tests/test_runtime_context.py` | T1 |
 | T6 | `openagents/recipes/__init__.py`, `openagents/recipes/solve_issue.py`, `openagents/cli.py`, `tests/test_recipe_solve_issue.py`, `scripts/e2e-spec-0060-agents-recipes-core.sh` | T2, T3, T4, T5 |
 
-（`runtime/__init__.py` 归 T2、内容只作包标记；下游用 `from openagents.runtime.engine import run_agent` /
-`from openagents.runtime import gates, context, state` 分模块导入，避免 `__init__` 成为跨 Task 的共写点。）
+(`runtime/__init__.py` belongs to T2 and serves only as a package marker; downstream code uses `from openagents.runtime.engine import run_agent` /
+`from openagents.runtime import gates, context, state` to import individual modules, preventing `__init__` from becoming a shared write target across Tasks.)
 
-### 本组 e2e 测法
+### e2e testing approach for this batch
 
-- **intent**：证明架构契约在**真实链路**上成立——`solve_issue` recipe 只按 agent 的结构化裁决路由（PASS→next /
-  REWORK→loop）、自己零业务判断；最小硬闸真的能兜底（head 未前移 / 超轮次 → raise）；`agents/*` 确无逻辑、
-  `recipes/*` 确无 git/gh/subprocess 直接调用。
-- **method（离线确定性——本组是纯后端编排，无前端可导航；本人已自检工具列表：无 Playwright / Chrome DevTools
-  MCP，故不设浏览器 e2e）**：
-  1. **契约路由单测**（`tests/test_recipe_solve_issue.py`，假 backend 喂 canned 结构化输出）：reviewer 连回
-     两次 `{"verdict":"REWORK"}` 再 `{"verdict":"PASS"}` → 断言 implementer 被迭代调用 2 次、循环在 PASS 后
-     next；deliver 报告 head 未前移 → `assert_head_advanced` raise；reviewer 恒 REWORK → `round_cap` 到上限 raise。
-  2. **零逻辑/零 IO grep 锚点**（e2e 脚本）：`agents/*.py` 只含 `Template(` + `OUTPUT_SCHEMA` 且**无 `def `/
-     `import subprocess`/`gh`/`git` 调用**；`recipes/solve_issue.py` **无 `subprocess`/`"gh"`/`"git"`/直接
-     `import ... github`/`workspace`**（只经 `runtime.run_agent` + `gates`）。
-  3. **真实 issue 冒烟（dogfood，Phase-3 人验/runbook，非 CI 确定性闸）**：`oa solve <一个真实 issue>` 走新栈
-     跑通、PR CI 全绿——这是 issue 第 5 条验收，作为成果验收（理念 8）在 runbook 记录，不塞进离线脚本。
-- **脚本**：`scripts/e2e-spec-0060-agents-recipes-core.sh`（ruff check + ruff format --check + 针对性 pytest +
-  grep 锚点），被 PR e2e signpost 采集。
+- **intent**: Demonstrate that the architectural contracts hold along the **actual execution path**—the `solve_issue` recipe routes solely according to agents' structured decisions (PASS→next /
+  REWORK→loop), making zero business judgments itself; the minimal hard gates actually provide safeguards (head has not advanced / round limit exceeded → raise); `agents/*` truly contains no logic,
+  and `recipes/*` truly contains no direct git/gh/subprocess calls.
+- **method (offline and deterministic—this batch is purely backend orchestration, with no frontend to navigate; I have checked the tool list myself: no Playwright / Chrome DevTools
+  MCP, so no browser e2e is planned)**:
+  1. **Contract routing unit tests** (`tests/test_recipe_solve_issue.py`, with a fake backend supplying canned structured output): reviewer returns
+     `{"verdict":"REWORK"}` twice in succession, then `{"verdict":"PASS"}` → Assert that implementer is called for 2 iterations and the loop
+     proceeds to next after PASS; deliver reports that head has not advanced → `assert_head_advanced` raises; reviewer always returns REWORK → `round_cap` raises at the limit.
+  2. **Zero-logic/zero-IO grep anchors** (e2e script): `agents/*.py` contains only `Template(` + `OUTPUT_SCHEMA` and **no `def `/
+     `import subprocess`/`gh`/`git` calls**; `recipes/solve_issue.py` contains **no `subprocess`/`"gh"`/`"git"`/direct
+     `import ... github`/`workspace`** (only through `runtime.run_agent` + `gates`).
+  3. **Real-issue smoke test (dogfood, Phase-3 human acceptance/runbook, not a deterministic CI gate)**: `oa solve <a real issue>` successfully runs through the new stack,
+     with all PR CI checks green—this is the issue's 5th acceptance criterion, recorded in the runbook as outcome acceptance (principle 8), rather than included in the offline script.
+- **Script**: `scripts/e2e-spec-0060-agents-recipes-core.sh` (ruff check + ruff format --check + targeted pytest +
+  grep anchors), collected by the PR e2e signpost.
 
 ## Drawbacks
 
-- **新旧并存的过渡期**：批次一 additive 立新栈、旧栈仍在，短期内仓库同时有两套调用路径（`orchestrator` vs
-  `recipes`），行数不降反略升。这是「不做大爆炸、逐 recipe 切」的必要代价；收敛（删旧模块、行数大降）在后续批次。
-- **`utils/git`·`utils/github` 是薄再导出**：本批次没真把 `workspace.py`/`github.py` 搬进 `utils/`，只包了一层
-  稳定 import 面。有「两个名字指同一实现」的临时冗余，直到后续批次真正搬迁。
-- **最小硬闸判不了「对不对」**：`assert_head_advanced` 只证「head 前移了」，证不了「交付内容正确」；正确性仍靠
-  reviewer agent。硬化的是「有没有真交付/有没有死循环」这类客观事实，不是质量——二者分层，符合设计。
-- **agent 结构化输出可能不合 schema**：把业务判断挪进 agent 后，`run_agent` 依赖 agent 吐出合法 JSON；agent
-  跑偏吐坏 JSON 时 engine 需有明确失败语义（见 Unresolved）。
+- **A transition period with both old and new stacks**: Batch one establishes the new stack additively while retaining the old stack, so the repository temporarily has two invocation paths (`orchestrator` vs
+  `recipes`), and the line count rises slightly instead of falling. This is the necessary cost of “avoiding a big bang and switching one recipe at a time”; consolidation (deleting old modules and substantially reducing the line count) comes in later batches.
+- **`utils/git` and `utils/github` are thin re-exports**: This batch does not actually move `workspace.py`/`github.py` into `utils/`; it only wraps them in
+  a stable import interface. This creates temporary redundancy in which “two names refer to the same implementation,” until the actual move in a later batch.
+- **Minimal hard gates cannot determine “correctness”**: `assert_head_advanced` only proves that “head has advanced”; it cannot prove that “the delivered content is correct.” Correctness still relies on
+  the reviewer agent. What is hardened is objective facts such as “whether anything was actually delivered/whether there is an infinite loop,” rather than quality—the two belong to separate layers, as designed.
+- **Agent structured output may not conform to the schema**: After business judgments move into agents, `run_agent` depends on agents producing valid JSON; when an agent
+  goes off track and emits invalid JSON, the engine needs explicit failure semantics (see Unresolved).
 
 ## Rationale and alternatives
 
-**为什么提示词用 Python `string.Template` 而非 `.md`。** `.md` 无法声明 `OUTPUT_SCHEMA`、无占位符类型、要额外
-loader；Python 模块天然可 `import`、可和 schema 同居、可被测试直接断言「无逻辑」。`Template` 的 `$name` 相比
-f-string（无法存值延后填充）、`.format`（`{}` 与 prompt 内 JSON 示例打架）是唯一同时满足「可存储、可延后填充、
-不与 JSON `{}` 冲突」的选择。
+**Why prompts use Python `string.Template` rather than `.md`.** `.md` cannot declare `OUTPUT_SCHEMA`, has no placeholder types, and requires an additional
+loader; Python modules are inherently importable, can coexist with schemas, and can be directly asserted by tests to contain “no logic.” Compared with
+f-strings (which cannot be stored as values for deferred substitution) and `.format` (whose `{}` conflicts with JSON examples in prompts), `Template` with its `$name` syntax is the only choice that simultaneously supports “storage, deferred substitution,
+and no conflict with JSON `{}`.”
 
-**为什么保留「最小硬闸」而非追求绝对零硬编码。** #140 已实证：全靠 agent 自述会在边界情况空转/撒谎（干净工作区
-被当已交付）。留一道**只验客观事实**的确定性闸兜底，成本极小、收益是防空转/防死循环/防撒谎。分界线严格等于
-agent 分工：客观机械留代码，需判断下放 agent。
+**Why retain “minimal hard gates” instead of pursuing absolutely zero hardcoding.** #140 has already demonstrated that relying entirely on agents' own reports can lead to spinning without progress/lying in edge cases (a clean workspace
+being treated as a completed delivery). Retaining a deterministic fallback gate that **checks only objective facts** costs very little and prevents spinning without progress/infinite loops/lying. The boundary precisely follows
+the division of responsibilities with agents: objective, mechanical work stays in code; work requiring judgment is delegated to agents.
 
-**备选 A：一次性大爆炸重构（直接搬 40 模块、删旧栈）。** 否决——issue 明列「分批交付」；#140 下放 git 就打断了
-~6 个 test git-fakes，40 模块一次搬会同时打断 11 个测试桩 + 让 PR 巨大不可评审、契约未验证就先毁旧栈，风险失控。
-本组选 additive 竖切：先用真实 issue 证契约成立，再逐 recipe 迁移删旧。
+**Alternative A: A one-shot big-bang refactor (move 40 modules directly and delete the old stack).** Rejected—the issue explicitly requires “delivery in batches”; delegating git in #140 alone broke
+~6 test git-fakes. Moving 40 modules at once would break 11 test stubs simultaneously + make the PR too large to review, destroying the old stack before the contracts are verified and making the risk unmanageable.
+This batch chooses an additive vertical slice: first validate the contracts with a real issue, then migrate and delete the old code one recipe at a time.
 
-**备选 B：`utils/git`·`utils/github` 直接把旧模块搬过来（而非薄再导出）。** 否决（本批次）——搬 `github.py`(870)/
-`workspace.py`(122) 会改动被 11 个测试桩引用的 import 路径，触发本组明确想避开的测试迁移风险。薄再导出把「搬迁」
-与「立契约」解耦，搬迁留后续批次单独承受回归成本。
+**Alternative B: Move the old modules directly into `utils/git` and `utils/github` (instead of thin re-exports).** Rejected (for this batch)—moving `github.py`(870)/
+`workspace.py`(122) would change import paths referenced by 11 test stubs, triggering exactly the test-migration risk this batch explicitly seeks to avoid. Thin re-exports decouple “moving”
+from “establishing contracts,” leaving later batches to bear the regression cost of the move separately.
 
-**备选 C：分支条件靠 recipe 自己 grep agent 的自然语言输出（不要结构化 schema）。** 否决——那等于把业务判断
-（"这段话算不算 PASS"）又搬回 Python，正是本重构要消灭的东西。结构化 `OUTPUT_SCHEMA` 是「recipe 零业务判断」
-的技术前提。
+**Alternative C: Let recipes grep agents' natural-language output for branch conditions (without structured schemas).** Rejected—that would move business judgments
+(“does this passage count as PASS?”) back into Python, which is precisely what this refactor aims to eliminate. Structured `OUTPUT_SCHEMA` is the technical prerequisite for “zero business judgment in recipes.”
 
 ## Prior art
 
-- **issue #140 / Spec-0056（直接思想来源）**：git 交付/冲突下放 agent（agent 自 rebase、`force-with-lease` 仅本
-  分支）+ harness 只留 `assert_delivered_or_fail`「head 前移」硬闸。本组把这条**从 git 特例上升为架构总原则**，
-  `gates.assert_head_advanced` 即其一般化。
-- **Spec-0055（e2e 能力感知 + 证据溯源戳）**：`head_sha` 匹配的确定性核验。本组 `gates.assert_evidence_stamp`
-  沿用之。
-- **Spec-0057「软约定硬化」**：把「别违反」的软约定变成确定性/结构规则。本组的「recipe 零业务判断」正是把它推到
-  架构层——业务判断在结构上只能出现在 agent 里。
-- **rust-lang/rfcs**（本 spec 的 9 段形态本身）；**Unix「机制与策略分离」**：`runtime` 是机制、`recipes`+`agents`
-  是策略，换套策略零改机制。
-- **LangChain / CrewAI 等 agent 编排框架**：prompt 与编排分离是通行实践；本组的差异化在「recipe 严格零业务判断、
-  一切判断经 agent 结构化裁决 + 最小客观硬闸兜底」这条硬契约。
+- **issue #140 / Spec-0056 (the direct source of the idea)**: Delegate git delivery/conflict handling to agents (agents perform their own rebases; `force-with-lease` is restricted to the current
+  branch) + retain only the `assert_delivered_or_fail` “head has advanced” hard gate in the harness. This batch **elevates this from a git-specific case to an overarching architectural principle**;
+  `gates.assert_head_advanced` is its generalization.
+- **Spec-0055 (e2e capability awareness + evidence provenance stamps)**: Deterministic verification of `head_sha` matches. This batch's `gates.assert_evidence_stamp`
+  follows that approach.
+- **Spec-0057 “Hardening soft conventions”**: Turn soft “do not violate this” conventions into deterministic/structural rules. This batch's “zero business judgment in recipes” takes this to
+  the architectural level—structurally, business judgments can only appear in agents.
+- **rust-lang/rfcs** (the nine-section form of this spec itself); **Unix “separation of mechanism and policy”**: `runtime` is mechanism, and `recipes`+`agents`
+  are policy; replacing the policy requires zero changes to the mechanism.
+- **Agent orchestration frameworks such as LangChain / CrewAI**: Separating prompts from orchestration is common practice; this batch differs in its strict contract of “strictly zero business judgment in recipes,
+  all judgments made through structured agent decisions + minimal objective hard gates as a fallback.”
 
 ## Unresolved questions
 
-- **engine 遇到 agent 吐坏 JSON / 不合 `OUTPUT_SCHEMA` 时的失败语义**：直接 raise（交给上层 recipe 当一轮
-  REWORK 处理）还是有限重试？本组倾向「raise + recipe 层按轮次消化」，实现时定死。
-- **`OUTPUT_SCHEMA` 的表达力**：本组用「键→Python 类型」的极简 dict（`{"verdict": str}`）够不够，还是需要枚举
-  取值约束（`verdict ∈ {PASS,REWORK}`）？先极简，值域校验留 agent prompt 自述 + 后续按需硬化。
-- **`runtime/state` 与旧 `state.py` 的最终合并方式**：本组用独立命名空间并存；两套状态最终如何统一（迁移还是
-  弃旧）留承接 `vigil` 迁移的批次决定。
-- **子命令命名**：走新栈的入口叫 `oa solve` 还是复用 `oa run`？由用户在评审时定；不影响本组文件分配。
-- **「开 PR」环节 + `assert_pr_exists` 接线**（评审 #2/#3）：本组 solve_issue 不含 `gh pr create`，故 `pr_number`
-  可为 0、`assert_pr_exists` 定义并单测但**未接进 recipe**（对全新无 PR 的 issue，接了反而恒 raise）。承接「开 PR」
-  的批次补上 `gh pr create` 后再把 `assert_pr_exists` 接进 deliver 前置闸。
-- **单一交付点收敛**（评审 #4）：现 planner/implementer/deliver 三处都 commit+push，与「deliver 收口交付」有张力；
-  后续批次把中途推分支收敛到唯一交付点（deliver），planner/implementer 只落本地提交。
+- **Failure semantics when the engine encounters invalid JSON from an agent / output that does not conform to `OUTPUT_SCHEMA`**: Raise immediately (letting the higher-level recipe handle it as one
+  REWORK round), or retry a limited number of times? This batch leans toward “raise + let the recipe layer handle it through rounds”; settle this definitively during implementation.
+- **The expressiveness of `OUTPUT_SCHEMA`**: Is the minimal “key → Python type” dict (`{"verdict": str}`) used in this batch sufficient, or are enumerated
+  value constraints (`verdict ∈ {PASS,REWORK}`) needed? Start minimally, leaving value-domain validation to instructions in the agent prompt + later hardening as needed.
+- **How `runtime/state` and the old `state.py` will ultimately merge**: This batch keeps them alongside each other in separate namespaces; how the two state systems will eventually be unified (migration or
+  discarding the old one) is left to the batch that takes on the `vigil` migration.
+- **Subcommand naming**: Should the entry point for the new stack be called `oa solve`, or reuse `oa run`? The user will decide during review; this does not affect this batch's file allocation.
+- **The “open a PR” step + wiring up `assert_pr_exists`** (reviews #2/#3): This batch's solve_issue does not include `gh pr create`, so `pr_number`
+  may be 0, and `assert_pr_exists` is defined and unit-tested but **not wired into the recipe** (for a brand-new issue with no PR, wiring it in would always raise). The batch that takes on “opening a PR”
+  will add `gh pr create` and then wire `assert_pr_exists` into the gates preceding deliver.
+- **Consolidation into a single delivery point** (review #4): Currently, planner/implementer/deliver all commit+push, which is in tension with “centralizing delivery in deliver”;
+  a later batch will consolidate intermediate branch pushes into a single delivery point (deliver), leaving planner/implementer to create local commits only.
 
 ## Future possibilities
 
-- **后续批次（本组之后）**：`recipes/vigil.py`（循环 poll issues → solve_issue，吸收旧 vigil）、
-  `recipes/poll_comments.py`（拉每个 PR 新 comment → 按阶段路由到对应 agent，吸收 `messages` 路由）、
-  `recipes/fleet.py`（多仓库/同 worktree 多 agent 认领）；`agents/triager`（align+issuecheck）、`agents/replier`。
-  每迁一条 recipe 就删对应旧模块 + **作废其 spec**（旧代码还活着时不能先作废其 spec，故作废动作绑定删除批次）。
-- **`utils/` 完整归位**：`workspace→git`、`github`、`release`、`blocknote/worknote/replynote→notes`、`hold`/`skip`、
-  `results`/`board`、`spec/`、`templates` 全部实搬进 `utils/`；`runtime/`+`backends/`+`recipes/` 压到几百行。
-- **`backends/codex.py`**：新增 Codex 适配，验证 backend 抽象对异构 CLI-agent 的通用性（理念：兼容 claude code /
-  codex / nexau）。
-- **issue #71 运行期 owner 检查**：`files` 互斥是设计期所有权；把它硬化成运行期 lease/CAS，与本重构的「结构上
-  无法违反」一脉相承。
-
+- **Later batches (after this batch)**: `recipes/vigil.py` (repeatedly poll issues → solve_issue, absorbing the old Vigil),
+  `recipes/poll_comments.py` (fetch new comments on each PR → route to the corresponding agent by stage, absorbing `messages` routing),
+  `recipes/fleet.py` (multiple repositories/multiple agents claiming work in the same worktree); `agents/triager` (align+issuecheck), `agents/replier`.
+  Each recipe migration deletes the corresponding old modules + **invalidates their specs** (a spec cannot be invalidated while its old code is still alive, so invalidation is tied to the deletion batch).
+- **Complete relocation into `utils/`**: Actually move all of `workspace→git`, `github`, `release`, `blocknote/worknote/replynote→notes`, `hold`/`skip`,
+  `results`/`board`, `spec/`, and `templates` into `utils/`; reduce `runtime/`+`backends/`+`recipes/` to a few hundred lines.
+- **`backends/codex.py`**: Add a Codex adapter to validate the backend abstraction's generality across heterogeneous CLI agents (the principle: compatibility with claude code /
+  codex / nexau).
+- **issue #71 runtime owner checks**: `files` mutual exclusion represents design-time ownership; hardening it into runtime lease/CAS follows the same principle as this refactor's “structurally impossible
+  to violate.”

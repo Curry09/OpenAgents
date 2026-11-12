@@ -1,25 +1,5 @@
-"""Spec-0023/T3: release 模块 —— 把持续推进的 main 物化成一个版本（人唯一的宏观决策点）。
-
-test 分支门控退役后（Spec-0023），main 成为日常自动流转分支、经 reviewer 闸+CI 全绿持续向前
-推进；人不再每次"把 test 上线到 main"，而是在满意时跑 `openagents release` 发一个版本。release
-预检通过则读取最新 vX.Y.Z tag，按 bump 语义化递增出新版本号，把 main 当前 HEAD 物化为一条
-release/vX.Y.Z 分支并打不可变 tag。
-
-预检（照搬 RFC-0012 决策 7「全过才扬升」，只把取绿对象从 test 换成 main）：
-  ① 无 STATUS_FAILED 的 run —— 没有已终止的自动化失败被悄悄带进发布；
-  ② 无带 automation-failed 标签的 open PR —— 同①，从 GitHub 真源再确认一次；
-  ③ github.branch_ci_green(main) —— main 分支 HEAD CI 全绿。
-通过 → ensure_prerequisites() 兜底流程标签 → 物化版本：
-  · git push origin main:refs/heads/release/vX.Y.Z  （以 main HEAD 新建发布分支）
-  · git tag vX.Y.Z main && git push origin vX.Y.Z    （钉死不可变快照）
-
-版本号（语义化三段 vX.Y.Z）：读 `git tag --list 'v*'` 取已发布的最大版本（**语义化**排序而非
-字典序，避免 v0.10.0 < v0.9.0 之误），按 bump∈{patch,minor,major} 递增；仓库无任何版本 tag 时
-首发起点 v0.1.0。版本号计算抽成纯函数，便于 hermetic 单测。
-
-解耦设计（CLAUDE.md 理念 10）：以模块函数方式调 github.* 与注入的 state，git 操作走
-subprocess——便于单测打桩三者保持 hermetic（不触达真实 gh/git）。
-"""
+# Spec-0023/T3
+"""Publish a versioned branch and tag after checking main for release readiness."""
 
 from __future__ import annotations
 
@@ -27,19 +7,19 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-# Spec-0063/T3: 发布预检从 runtime 权威词表读自动化失败状态。
-# BLOCKED_LABEL 从 utils.github 权威源直取（旧 state.py 只是再导出，随其删除退役）。
+# Spec-0063/T3: The automated failure of the pre-check from the runtime authoritative vocabulary.
+# BLOCKED_LABEL is taken from utils.github authoritative source (old state.py is simply re-exported and removed from retirement).
 from openagents.runtime.state import STATUS_FAILED, RuntimeState
 
-# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+# Spec-0074/T1: arias-import switch - Platform operations are configured by github/gitea driver to call zero changes.
 from openagents.utils import forge as github
 from openagents.utils.github import AUTOMATION_FAILED_LABEL
 
-# Spec-0035/T3: 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
-# 三模块各持一份（git.py/workspace.py/release.py），换零 import 耦合（见 spec Rationale 备选 1）。
+# Spec-0035/T3: The number of hours of time-out seconds for the sub-process network (coordinate github._GH_TIMEOUT_SECONDS = 30; only triggered when the real card is stuck).
+# Each of the three modules has one (git.py/workspace.py/release.py) and is replaced by zero import coupling (see spec Nationale Option 1).
 _GIT_NET_TIMEOUT_SECONDS = 30
 
-# Spec-0023/T3：语义化版本三段 vX.Y.Z；仓库无任何版本 tag 时的首发起点。
+# Spec-0023/T3: The starting point for a sumanized version of three paragraphs vX.Y.Z; a repository without any version of tag.
 _INITIAL_VERSION = (0, 1, 0)
 _VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 _BUMPS = ("patch", "minor", "major")
@@ -47,11 +27,11 @@ _BUMPS = ("patch", "minor", "major")
 
 @dataclass(frozen=True)
 class ReleaseResult:
-    """Spec-0023/T3：一次 release 的结果。
+    """Spec-0023/T3: a result of a releasing.
 
-    released: 是否完成发布（预检全过且分支/tag 推送成功）。
-    version: 本次发布的版本号 "vX.Y.Z"；未发布为 ""。
-    reason: 失败时指明被哪个预检拦下（或 git 失败原因）；成功为 "ok"。
+    Released: Is the release complete (pre-screened and branch/tag successfully) completed?
+    version: This release is ” vX.Y.Z ” ; not published as ””.
+    Reason: Identify which pre-check stopped it (or why it failed); succeed as ”ok”.
     """
 
     released: bool
@@ -60,17 +40,19 @@ class ReleaseResult:
 
 
 def release(*, state: RuntimeState, bump: str = "patch", source: str = "main") -> ReleaseResult:
-    """Spec-0023/T3：预检通过则把 source（main）当前 HEAD 物化为新版本分支 + tag。
+    """Spec-0023/T3: Pre-checking translates the current HEAD object of source (main) into a new version of branch + tag.
 
-    预检任一不过即返回 released=False 且 reason 指明原因，不建任何分支/tag（决策照搬
-    RFC-0012 决策 7，只把取绿对象从 test 换成 main）。
+    Pre-check any but returning response = False and reason given, no branch/tag (decision-making = copy)
+    RFC-0012 Decision 7, replaces green objects only from test with main.
     """
-    # Spec-0063/T3: list_runs() 返回 dict 记录（非 RunRecord），故用下标取 status/issue_number；
+    # Spec-0063/T3: list_runs() returns the dict record (not RunRecord) and therefore uses the status/issue_number to mark it down;
     failed = [r for r in state.list_runs() if r["status"] == STATUS_FAILED]
     if failed:
         issues = ", ".join(f"#{r['issue_number']}" for r in failed)
         return ReleaseResult(
-            released=False, version="", reason=f"存在自动化失败（{STATUS_FAILED}）的 run：{issues}"
+            released=False,
+            version="",
+            reason=f"There is automation failure (%1){STATUS_FAILED}* And I’m not gonna let you go *{issues}",
         )
 
     automation_failed = [
@@ -83,24 +65,26 @@ def release(*, state: RuntimeState, bump: str = "patch", source: str = "main") -
         return ReleaseResult(
             released=False,
             version="",
-            reason=f"存在自动化失败（{AUTOMATION_FAILED_LABEL}）的 open PR：{prs}",
+            reason=f"There is automation failure (%1){AUTOMATION_FAILED_LABEL})’s open PR:{prs}",
         )
 
     if not github.branch_ci_green(branch=source):
-        return ReleaseResult(released=False, version="", reason=f"{source} 分支 CI 未全绿")
+        return ReleaseResult(
+            released=False, version="", reason=f"{source} branch has not passed CI"
+        )
 
     version = _next_version(latest=_latest_version(), bump=bump)
-    # 兜底流程标签就位（与原 promote 一致，幂等 no-op）；test 分支自举已随 Spec-0023 移除。
+    # Bottom flow label in position (with original) promote - Yes, sir. no-op）；test The branch is ready. Spec-0023 Remove.
     github.ensure_prerequisites()
     _materialize_release(source=source, version=version)
     return ReleaseResult(released=True, version=version, reason="ok")
 
 
 def _latest_version() -> tuple[int, int, int] | None:
-    """已发布的最大语义化版本 (X, Y, Z)；仓库无任何 vX.Y.Z tag 时返回 None。
+    """The largest sumanized version (X, Y, Z) has been published; the repository returns None when no vX.Y.Z tag is available.
 
-    按整数三元组比较取 max（语义化排序），而非字符串字典序——否则 v0.10.0 会被误判小于
-    v0.9.0。非 vX.Y.Z 形态的 tag 一律忽略。
+    Compare max (synthic sorting) by integer tri-dimensional group, instead of string dictionaries -- otherwise v0.10.0 will be misjudged less than
+    v0.9.0. All tags in non-vX.Y.Z form are ignored.
     """
     versions: list[tuple[int, int, int]] = []
     for tag in _list_version_tags():
@@ -111,13 +95,13 @@ def _latest_version() -> tuple[int, int, int] | None:
 
 
 def _next_version(*, latest: tuple[int, int, int] | None, bump: str) -> str:
-    """按 bump 从 latest 递增出下一个版本号字符串 "vX.Y.Z"（纯函数）。
+    """Press the button to add the next version string ” vX.Y.Z ” (purity function) from the last.
 
-    latest=None（仓库无任何版本 tag）→ 起点 v0.1.0（忽略 bump：首发即起点）。
-    bump=patch → Z+1；minor → Y+1 且 Z 归零；major → X+1 且 Y、Z 归零。
+    latest=None (no version of the store is available atg) v0.1.0 (ignore bump: Start is the start).
+    Butmp=Patch Z+1; Minor Z Z +1 and Z to zero; Major Z Z +1 and Y Z to zero.
     """
     if bump not in _BUMPS:
-        raise ValueError(f"未知 bump：{bump!r}（应为 {', '.join(_BUMPS)} 之一）")
+        raise ValueError(f"Unknown bmp:{bump!r}(renumbered {', '.join(_BUMPS)} One of them)")
     if latest is None:
         major, minor, patch = _INITIAL_VERSION
         return f"v{major}.{minor}.{patch}"
@@ -132,7 +116,7 @@ def _next_version(*, latest: tuple[int, int, int] | None, bump: str) -> str:
 
 
 def _list_version_tags() -> list[str]:
-    """`git tag --list 'v*'` → 非空 tag 名列表。隔离 subprocess 便于打桩。"""
+    """`git tag --list 'v*'`  →  non-empty tag list. Separating subprocess allows for the pegging."""
     result = subprocess.run(
         ["git", "tag", "--list", "v*"],
         capture_output=True,
@@ -140,34 +124,34 @@ def _list_version_tags() -> list[str]:
         check=False,
     )
     if result.returncode != 0:
-        reason = result.stderr.strip() or f"git tag --list 返回码 {result.returncode}"
-        raise RuntimeError(f"读取已发布 tag 失败：{reason}")
+        reason = result.stderr.strip() or f"git tag --list Return Code {result.returncode}"
+        raise RuntimeError(f"Failed to read published tag:{reason}")
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def _materialize_release(*, source: str, version: str) -> None:
-    """把 source 当前 HEAD 物化为 release/<version> 分支并打不可变 tag <version>。
+    """Turn the current HEAD object into rebase/ <version> branch and play unchangeable tag <version>.
 
-    三步 git（均走 subprocess，便于打桩；分支与 tag 都基于同一个 source 提交，保证一致）：
-      ① git push origin <source>:refs/heads/release/<version> —— 以 source HEAD 新建发布分支；
-      ② git tag <version> <source>                            —— 在 source HEAD 上打 tag（本地）；
-      ③ git push origin <version>                             —— 推送 tag，钉死远端不可变快照。
-    任一步非零退出抛 RuntimeError（CLI 层转成干净一行提示）。
+    Three steps glt (both go subproces, easy to stick; branches and tag are submitted on the same basis as source, ensuring consistency):
+      1 gint push origin<source>: refs/heads/release/<version> - create a new distribution branch with source HEAD;
+      2 gt tag <version> >_ play tag on source HEAD (local);
+      3 gush origin <version> -- push tag, nail to the far end, and no scrambling.
+    The CLI layer is a clean line of tips.
     """
     _git(
         args=["push", "origin", f"{source}:refs/heads/release/{version}"],
-        action=f"物化发布分支 release/{version}",
+        action=f"Publish release branch {version}",
     )
-    _git(args=["tag", version, source], action=f"打 tag {version}")
-    _git(args=["push", "origin", version], action=f"推送 tag {version}")
+    _git(args=["tag", version, source], action=f"Hit the tag. {version}")
+    _git(args=["push", "origin", version], action=f"Pushing tag {version}")
 
 
 def _git(*, args: list[str], action: str) -> None:
-    """跑一条 git 子命令；非零退出抛 RuntimeError，附带 action 语境与 stderr。
+    """Run a guit sub-command; non-zero exit to RunmeError, with action context and stderr.
 
-    # Spec-0035/T3: 传 timeout=_GIT_NET_TIMEOUT_SECONDS——网络 git（push 分支 / push tag）卡满即中断，
-    # 归一为既有 RuntimeError（携 action 语境，CLI 层转成干净一行提示，不掀翻进程）；本地 git（tag）
-    # 只随共享 helper 拿到无害上限。_list_version_tags 的 `tag --list` 走独立 subprocess、为本地读，不加超时。
+    #Spec-0035/T3: Pass = _GIT_NET_TIMEOUT_SECONDS — Internet git (push branch/ push tag) is broken and the #system #sympics are broken.
+    # Add the old RuntimeError (with action, CLI layers into a clean line of tips without turning the process); local git(tag)
+    # Only share the helper to get the no harm limit. _list_version_tags `tag --list` goes independent subproces, read locally, without timeout.
     """
     try:
         result = subprocess.run(
@@ -179,8 +163,8 @@ def _git(*, args: list[str], action: str) -> None:
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
-            f"{action}失败：git {' '.join(args)} 超时（{_GIT_NET_TIMEOUT_SECONDS}s）"
+            f"{action}while running  ”%s” {' '.join(args)} timeout after {_GIT_NET_TIMEOUT_SECONDS}s）"
         ) from None
     if result.returncode != 0:
-        reason = result.stderr.strip() or f"git {' '.join(args)} 返回码 {result.returncode}"
-        raise RuntimeError(f"{action}失败：{reason}")
+        reason = result.stderr.strip() or f"git {' '.join(args)} Return Code {result.returncode}"
+        raise RuntimeError(f"{action}Failed:{reason}")

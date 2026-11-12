@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Spec-0068 端到端测试启动脚本：并行守夜 worktree prepare 共享 .git 锁竞争消除。
+# Spec-0068 end-to-end test start script: parallel night watche worktree prepare share.git lock competition is eliminated.
 #
-# 纯内部并发正确性修复、无 product-facing 前端可导航，故按取证纪律「纯内部 → 相称自动化测试」，
-# 用 hermetic 离线并发回归测法（不触真实 LLM / GitHub / 网络，只用本地临时 git 仓）：
-#   1) T1 单测（tests/test_workspace.py）：prepare / ensure 的整段共享 .git 变更在持
-#      _GIT_MUTATION_LOCK 下执行；assert_delivered（纯读）不进锁；锁为模块级 threading.Lock。
-#   2) T2 并发回归（tests/test_workspace_concurrency.py）：起 N(≥4) 线程对同一临时 git 仓并发调
-#      prepare（各带不同 issue_number/branch），断言全部建成 worktree、零 WorkspaceError、
-#      git stderr 不含 'cannot lock ref' / 'could not lock working tree'，且变更段观测最大并发度=1。
-#      对照（文档化、不长期跑）：去掉锁则该测试转 flaky/失败——正是本锁要消除的竞态。
+# The evidence discipline is based on the "pure internal automation test" ("pure internal automation test"), which is a "no produd-facing front end of the system.
+# Offline with hermetic and re-entry (without real LLM/ GitHub/ network, only with local temporary guit warehouse):
+#   1) T1 Single Detect (tests/test_workspace.py): share the whole part of prepare / ensure.git changes are holding
+#      _GIT_MUTATION_LOCK; assert_delivered (pure read) does not lock; lock is the modular threading.Lock.
+#   2) T2 Conduit (tests/test_workspace_concurrency.py): Start N( → 4) thread to the same temporary guit warehouse and retweet
+#      Prepare (different issue_number/branch), claims to be all worktree, zero WorkspaceError,
+#      gtstderr does not include 'cannot lock ref'/ 'cannot lock working tree' and maximum co-length of the change segment = 1.
+#      Contrast (documentation, no long run): remove the lock and turn the test to flaky/fail - the competition that this lock is about to be removed.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0068-parallel-worktree-git-lock.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 定向验证 Spec-0068 T1+T2（hermetic 离线并发回归，只用本地临时 git 仓）"
+echo "==> [1/2] Orientation Authentication Spec-0068 T1+T2（hermetic Offline and back, only temporary local. git (Kilo)"
 uv run --extra dev pytest -q \
   tests/test_workspace.py \
   tests/test_workspace_concurrency.py
 
 echo
-echo "==> [2/2] 全量 lint + format（确认零回归）"
+echo "==> [2/2] Full lint + format(Acknowledging no behavior change)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "✓ Spec-0068 离线验证通过：K worker 并发建 worktree 零 git 锁竞争，prepare/ensure 变更段串行、纯读路径不进锁。"
+echo "✓ Spec-0068 Offline authentication passes:K worker Created worktree nil git Lock the competition,prepare/ensure Change a line line, a pure read path, without locking."

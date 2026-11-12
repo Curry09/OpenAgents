@@ -1,9 +1,9 @@
-"""Spec-0032/T2：github.remove_label 幂等封装单元测试。
+"""Spec-0032/T2: github.remove_label encapsulation unit test.
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh。覆盖：
-- 调 `gh pr edit <n> --remove-label <name>`；
-- 标签本不在时（"not found" / "does not have label" / "does not exist"）幂等返回不抛；
-- 其它 gh 错误照常抛 GithubError。
+All gh subprocesses are always mock (monkeywatch subprocess.run), not actually called gh. Overwrite:
+- `gh pr edit <n> --remove-label <name>`;
+- The label returns in its absence;
+- Other gh mistakes routinely throw GithubError.
 """
 
 import subprocess
@@ -50,7 +50,7 @@ def test_remove_label_ignores_not_found(monkeypatch):
         "run",
         _fake_run(returncode=1, stderr="could not remove label: 'needs-human' not found"),
     )
-    # 标签本不在 → 幂等 no-op，不抛。
+    # The label was not in the t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t-t
     assert remove_label(pr_number=7, name="needs-human") is None
 
 

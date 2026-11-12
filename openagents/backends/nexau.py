@@ -168,7 +168,7 @@ def _positive_int(name: str, default: int) -> int:
 def _required_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"缺少 NexAU backend 环境变量 {name}")
+        raise RuntimeError(f"Missing NexAU backend environment variable {name}")
     return value
 
 
@@ -176,21 +176,21 @@ def _bind_sandbox_work_dir(*, config: Any, work_dir: Path) -> None:
     """Bind one agent config to its worktree without mutating process-global state."""
     sandbox = getattr(config, "sandbox_config", None)
     if sandbox is None:
-        raise RuntimeError("NexAU AgentConfig 缺少 sandbox_config，无法隔离工作区")
+        raise RuntimeError("NexAU AgentConfig lacks sandbox_config; cannot isolate the worktree")
     if hasattr(sandbox, "model_copy"):
         config.sandbox_config = sandbox.model_copy(update={"work_dir": str(work_dir)})
     elif hasattr(sandbox, "copy"):  # pragma: no cover - NexAU 0.4 uses Pydantic v2
         config.sandbox_config = sandbox.copy(update={"work_dir": str(work_dir)})
     else:
-        raise RuntimeError("NexAU sandbox_config 不支持不可变 work_dir 绑定")
+        raise RuntimeError("NexAU sandbox_config does not support immutable work_dir binding")
 
 
 def _prompt(*, task: str, context: str) -> str:
     return (
-        "严格执行下面的 OpenAgents 角色契约。当前 Agent sandbox work_dir 是唯一可写工作区；"
-        "不得访问父目录、其它 worktree、宿主路径或挂载外路径。最终必须调用 complete_task，"
-        "并把角色要求的单行 JSON 原样放入 result，不要加 Markdown 围栏。\n\n"
-        f"任务：\n{task}\n\n上下文：\n{context}"
+        "Follow the OpenAgents role contract below. The agent sandbox work_dir is the only writable workspace. "
+        "Do not access parent directories, other worktrees, host paths, or paths outside the mount. "
+        "Finish by calling complete_task with the required one-line JSON in result, without Markdown fences.\n\n"
+        f"Task:\n{task}\n\nContext:\n{context}"
     )
 
 

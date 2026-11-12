@@ -1,15 +1,15 @@
 ---
 number: "0035"
-title: 裸 git 网络调用统一硬超时（fail-open）+ 发现段慢检查进度日志
+title: "Uniform hard timeouts for raw git network calls (fail-open) + progress logs for slow checks in the discovery phase"
 issue: 147
 slug: git-net-timeout-and-discovery-progress
-summary: 所有走网络的裸 git 子进程调用都没有 timeout=，任一被网络抖动挂死的半开 socket 卡住就无限 poll，同步跑在守夜主循环里会整轮冻死；且发现段的慢检查过程无日志，卡住时看不出停在哪。对齐既有 github.py 的 _GH_TIMEOUT_SECONDS，给三个 git 运行 helper（utils/git.py、utils/workspace.py、utils/release.py）加统一子进程超时常量 _GIT_NET_TIMEOUT_SECONDS + TimeoutExpired 处理，按 fail-open 收口：去重探针超时保守返回 True（可能在途、跳过下轮重试），fetch/push 超时抛既有 WorkspaceError/RuntimeError 由既有 per-issue try/except 隔离，绝不无限阻塞、绝不因单点网络抖动阵亡整轮；再给发现段（_intake 拉带标签 issue 前 / _admit 调 LLM 分诊前）补 stderr 进度日志，任一检查卡住时输出明确停在对应行。默认网络正常路径行为逐字节不变。
+summary: "None of the raw git subprocess calls that access the network have timeout=. If any one gets stuck on a half-open socket hung by a network disruption, it polls indefinitely; because these calls run synchronously in the Vigil main loop, this freezes the entire round. Moreover, slow checks in the discovery phase produce no logs, so when they hang, there is no way to tell where execution stopped. Align with the existing _GH_TIMEOUT_SECONDS in github.py by adding a uniform subprocess timeout constant, _GIT_NET_TIMEOUT_SECONDS, and TimeoutExpired handling to the three git execution helpers (utils/git.py, utils/workspace.py, utils/release.py), with fail-open handling: a deduplication probe conservatively returns True on timeout (possibly in flight; skip retrying in the next round); fetch/push timeouts raise the existing WorkspaceError/RuntimeError and are isolated by the existing per-issue try/except, ensuring that execution never blocks indefinitely and that a single network disruption never kills the entire round. Also add stderr progress logs to the discovery phase (before _intake fetches labeled issues / before _admit calls the LLM for triage), so that if either check hangs, the output clearly identifies the corresponding line where execution stopped. Default behavior on the normal network path remains byte-for-byte unchanged."
 e2e:
-  intent: 证明网络 git 超时 fail-open 真的有牙——卡住的裸 git 不再无限阻塞，去重探针超时保守判 True（不重复派单）、fetch/push 超时转既有 WorkspaceError/RuntimeError 被 per-issue/per-round 隔离（不掀翻整轮）；且发现段两个慢检查有 stderr 进度日志（卡住时输出停在对应行）。
-  method: "纯内部可靠性改动、无 UI，e2e 为 hermetic 离线脚本 scripts/e2e-spec-0035-git-net-timeout.sh：\n1. 打桩 subprocess.run 抛 TimeoutExpired，跑 T1/T2 的去重探针 → 断言返回 True（fail-open「可能在途」），不触真实 git/网络。\n2. 打桩 subprocess.run 抛 TimeoutExpired，跑 T2 fetch（prepare/ensure/assert_delivered）→ 断言抛 WorkspaceError；跑 T3 push（release）→ 断言抛 RuntimeError。\n3. 断言 T4 发现段两行进度日志（拉带标签 issue 前 / 调 LLM 分诊前）落 stderr。\n4. 断言网络正常路径（subprocess 正常返回）行为逐字节不变：返回值/退出码不改。\n"
+  intent: "Prove that fail-open handling of network git timeouts really has teeth—stuck bare git commands no longer block indefinitely; deduplication probe timeouts conservatively return True (avoiding duplicate dispatches), and fetch/push timeouts are converted to the existing WorkspaceError/RuntimeError and isolated per issue/per round (without bringing down the entire round); also, the two slow checks in the discovery phase have stderr progress logs (when a check hangs, output stops at the corresponding line)."
+  method: "A purely internal reliability change with no UI; the e2e test is the hermetic offline script scripts/e2e-spec-0035-git-net-timeout.sh:\n1. Stub subprocess.run to raise TimeoutExpired and run the T1/T2 deduplication probes → assert that they return True (fail-open: \"possibly in flight\"), without touching real git or the network.\n2. Stub subprocess.run to raise TimeoutExpired and run T2 fetch (prepare/ensure/assert_delivered) → assert that it raises WorkspaceError; run T3 push (release) → assert that it raises RuntimeError.\n3. Assert that the two T4 discovery-phase progress log lines (before retrieving labeled issues / before calling the LLM for triage) go to stderr.\n4. Assert that behavior on the normal network path (subprocess returns normally) remains unchanged byte for byte: return values/exit codes do not change.\n"
 tasks:
   - id: T1
-    title: git.py 去重探针加固：超时 fail-open 返回 True + ls-remote 前进度面包屑
+    title: "Harden git.py deduplication probes: return True on timeout (fail-open) + a progress breadcrumb before ls-remote"
     status: done
     priority: P1
     tags: []
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/utils/git.py
       - tests/test_utils_git.py
-    scope: utils/git.py 新增 _GIT_NET_TIMEOUT_SECONDS（=30，对齐 github._GH_TIMEOUT_SECONDS）；_git helper 的 subprocess.run 传 timeout=；remote_branch_exists 在跑 ls-remote 前打一行 stderr 面包屑（… 查远端分支去重…），并 except subprocess.TimeoutExpired 保守返回 True（fail-open「可能在途」，绝不误判无分支重复派单）。head_sha/porcelain 本地操作只随共享 _git 拿无害上限、不加超时处理。
-    acceptance: pytest tests/test_utils_git.py 通过：打桩 subprocess.run 抛 TimeoutExpired → remote_branch_exists 返回 True（不触真实 git/网络）；正常返回路径 bool(stdout) 语义逐字节不变（有输出 True / 无输出 False）；_git 调用带 timeout=_GIT_NET_TIMEOUT_SECONDS；ls-remote 前有 stderr 面包屑输出。
+    scope: "Add _GIT_NET_TIMEOUT_SECONDS (=30, aligned with github._GH_TIMEOUT_SECONDS) to utils/git.py; pass timeout= to subprocess.run in the _git helper; have remote_branch_exists print one stderr breadcrumb line before running ls-remote (… Checking remote branches for deduplication…), and conservatively return True in except subprocess.TimeoutExpired (fail-open: “possibly in flight,” never incorrectly conclude that no branch exists and dispatch duplicate work). Local head_sha/porcelain operations simply inherit a harmless upper bound through the shared _git helper, with no added timeout handling."
+    acceptance: "pytest tests/test_utils_git.py passes: stub subprocess.run to raise TimeoutExpired → remote_branch_exists returns True (without accessing real git/the network); bool(stdout) semantics on the normal return path remain byte-for-byte unchanged (output present: True / no output: False); _git calls include timeout=_GIT_NET_TIMEOUT_SECONDS; a stderr breadcrumb is emitted before ls-remote."
   - id: T2
-    title: workspace.py fetch 加固：_git 超时抛 WorkspaceError + 去重探针超时 fail-open 返回 True
+    title: "Harden workspace.py fetch: _git raises WorkspaceError on timeout + deduplication probes return True on timeout (fail-open)"
     status: done
     priority: P1
     tags: []
@@ -32,10 +32,10 @@ tasks:
     files:
       - openagents/utils/workspace.py
       - tests/test_workspace.py
-    scope: utils/workspace.py 新增 _GIT_NET_TIMEOUT_SECONDS（=30）；Workspace._git 的 subprocess.run 传 timeout= 且 except subprocess.TimeoutExpired 时 raise WorkspaceError（超时归一为既有错误，覆盖 prepare/ensure/assert_delivered 三个 fetch 调用方 → 落既有 per-issue/per-round 隔离）；Workspace.remote_branch_exists（check=False）自包一层 try/except WorkspaceError → return True（check=False 下 WorkspaceError 唯一来源即超时转换，故精确等价「超时→True」、不误吞真实失败）。
-    acceptance: pytest tests/test_workspace.py 通过：打桩 subprocess.run 抛 TimeoutExpired → prepare/ensure/assert_delivered 抛 WorkspaceError、remote_branch_exists 返回 True；check=False 下普通非零退出仍走 bool(stdout)='' → False（既有路径不变）；worktree add/rev-parse/diff 等既有断言全绿；_git 带 timeout=_GIT_NET_TIMEOUT_SECONDS。
+    scope: "Add _GIT_NET_TIMEOUT_SECONDS (=30) to utils/workspace.py; pass timeout= to subprocess.run in Workspace._git, and raise WorkspaceError in except subprocess.TimeoutExpired (normalize timeouts to the existing error, covering all three fetch callers—prepare/ensure/assert_delivered—so they fall within the existing per-issue/per-round isolation). Wrap Workspace.remote_branch_exists (check=False) in its own try/except WorkspaceError → return True (with check=False, timeout conversion is the only source of WorkspaceError, so this is precisely equivalent to “timeout → True” and does not inadvertently swallow real failures)."
+    acceptance: "pytest tests/test_workspace.py passes: stub subprocess.run to raise TimeoutExpired → prepare/ensure/assert_delivered raise WorkspaceError, and remote_branch_exists returns True; with check=False, an ordinary nonzero exit still follows bool(stdout)='' → False (existing path unchanged); existing assertions for worktree add/rev-parse/diff and other operations all pass; _git includes timeout=_GIT_NET_TIMEOUT_SECONDS."
   - id: T3
-    title: release.py push 加固：_git 超时抛 RuntimeError（覆盖 push 分支 + push tag）
+    title: "Harden release.py push: _git raises RuntimeError on timeout (covering branch push + tag push)"
     status: done
     priority: P2
     tags: []
@@ -45,10 +45,10 @@ tasks:
     files:
       - openagents/utils/release.py
       - tests/test_release.py
-    scope: utils/release.py 新增 _GIT_NET_TIMEOUT_SECONDS（=30）；_git 的 subprocess.run 传 timeout= 且 except subprocess.TimeoutExpired 时 raise RuntimeError（附 action 语境，覆盖 _materialize_release 的 push 发布分支 + push tag 两处网络调用）。_list_version_tags 的 tag --list 为本地操作、随共享 _git 拿无害上限、不加超时处理。
-    acceptance: pytest tests/test_release.py 通过：打桩 subprocess.run 抛 TimeoutExpired → _materialize_release 抛 RuntimeError（携 action 语境）；正常发布路径（预检全过 + push 成功）行为不变；_git 带 timeout=_GIT_NET_TIMEOUT_SECONDS。
+    scope: "Add _GIT_NET_TIMEOUT_SECONDS (=30) to utils/release.py; pass timeout= to subprocess.run in _git, and raise RuntimeError in except subprocess.TimeoutExpired (including action context, covering both network calls in _materialize_release: pushing the release branch + pushing the tag). The tag --list call in _list_version_tags is a local operation; it inherits a harmless upper bound through the shared _git helper, with no added timeout handling."
+    acceptance: "pytest tests/test_release.py passes: stub subprocess.run to raise TimeoutExpired → _materialize_release raises RuntimeError (with action context); behavior on the normal release path (all preflight checks pass + push succeeds) remains unchanged; _git includes timeout=_GIT_NET_TIMEOUT_SECONDS."
   - id: T4
-    title: 发现段慢检查进度日志：_intake 拉 issue 前 + _admit 调 LLM 前两行 stderr
+    title: "Progress logs for slow checks in the discovery phase: two stderr lines, before _intake fetches issues + before _admit calls the LLM"
     status: done
     priority: P2
     tags: []
@@ -58,244 +58,197 @@ tasks:
     files:
       - openagents/recipes/vigil.py
       - tests/test_recipe_vigil_discovery.py
-    scope: 'recipes/vigil.py 在发现段两个 LIVE 慢检查点用既有 _log 补进度：_intake 拉 github.list_issues(labels=config.labels) 前打「▶ 发现段：拉取带标签 issue…」；_admit 调 stages.triage(LLM) 前打「… issue #N 自检分诊方向(LLM)…」。仅新增 stderr 进度行，不改任何返回值/退出码/控制流。'
-    acceptance: pytest tests/test_recipe_vigil_discovery.py 通过（新增聚焦测试文件，与既有 test_recipe_vigil*.py 不相交）：断言 _intake 在拉 issue 前、_admit 在调 triager 前各有对应 stderr 进度行；派单/准入的既有返回值与副作用不变（打桩 github/backend，不触真实网络/LLM）。
+    scope: "In recipes/vigil.py, use the existing _log to add progress messages at two LIVE slow-check points in the discovery phase: before _intake fetches github.list_issues(labels=config.labels), print “▶ Discovery phase: fetching labeled issues…”; before _admit calls stages.triage(LLM), print “… Issue #N: self-checking the triage direction (LLM)…”. Only stderr progress lines are added; no return values/exit codes/control flow are changed."
+    acceptance: "pytest tests/test_recipe_vigil_discovery.py passes (a new focused test file that does not overlap with the existing test_recipe_vigil*.py): assert that _intake emits the corresponding stderr progress line before fetching issues, and _admit emits its corresponding line before calling the triager; existing return values and side effects for dispatch/admission remain unchanged (stub github/backend, without accessing the real network/LLM)."
 ---
 
-# 0035 · 裸 git 网络调用统一硬超时（fail-open）+ 发现段慢检查进度日志
+# 0035 · Uniform hard timeouts for bare git network calls (fail-open) + progress logging for slow discovery-stage checks
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine rust-RFC sections. -->
 
 ## Summary
 
-给所有走网络的**裸 `git` 子进程调用**统一加子进程硬超时，并按 **fail-open** 收口，让守夜（vigil）在
-单点网络抖动下永远「活着进下一轮」而非无限阻塞整轮；同时给发现段的慢检查补 stderr 进度日志，让任一
-检查卡住时输出明确停在对应那行。手段对齐仓内既有 `github.py` 的 `_GH_TIMEOUT_SECONDS` 做法：给三个仍在
-跑网络 git 的模块（`utils/git.py` / `utils/workspace.py` / `utils/release.py`）各一个模块级常量
-`_GIT_NET_TIMEOUT_SECONDS`，收敛到各自的 `_git` helper 上传 `timeout=`，再在各网络调用边界处理
-`subprocess.TimeoutExpired`——去重探针超时**保守返回 True**（视作「可能在途」→ 本轮跳过、下轮重试），
-fetch/push 超时**抛既有 `WorkspaceError` / `RuntimeError`**（由既有 per-issue / per-round `try/except`
-隔离）。默认（网络正常）路径行为逐字节不变，超时只在真卡住时触发；不引入任何网络库 / 重试框架。
+Add a uniform subprocess hard timeout to all **bare `git` subprocess calls that access the network**, with **fail-open** handling, so that Vigil always “stays alive and proceeds to the next round” under an isolated network disruption instead of blocking the entire round indefinitely. Also add stderr progress logs for slow discovery-stage checks so that, when any check gets stuck, the output clearly stops at its corresponding line. Align the approach with the existing `_GH_TIMEOUT_SECONDS` pattern in the repository’s `github.py`: give each of the three modules that still run network git operations (`utils/git.py` / `utils/workspace.py` / `utils/release.py`) a module-level constant, `_GIT_NET_TIMEOUT_SECONDS`; centralize passing `timeout=` in each module’s `_git` helper; then handle `subprocess.TimeoutExpired` at each network call boundary—deduplication probes **conservatively return True** on timeout (treat as “possibly in flight” → skip this round and retry next round), while fetch/push timeouts **raise the existing `WorkspaceError` / `RuntimeError`** (isolated by the existing per-issue / per-round `try/except`). Behavior on the default path (normal network conditions) remains byte-for-byte unchanged; timeouts trigger only when a call actually gets stuck. Introduce no network libraries / retry frameworks.
 
 ## Motivation
 
-**现状：`openagents vigil` 会完全无输出地卡死。** 进程还活着，但一整轮不打任何日志、不再前进。根因是
-发现段某个走网络的**裸 `git` 子进程调用没有超时**——底层 TLS 连接被网络抖动（网络切换 / 睡眠唤醒 /
-VPN flap 留下的半开 socket）挂死后，git 在 `poll()` 里**无限等待**。该调用同步跑在守夜主循环里，于是
-整轮冻死；且这道检查**过程无任何日志**，卡住时看不出停在哪。
+**Current behavior: `openagents vigil` can hang completely without any output.** The process remains alive, but an entire round produces no logs and makes no further progress. The root cause is that a **bare `git` subprocess call that accesses the network has no timeout** in the discovery stage—after a network disruption (network switching / waking from sleep / a half-open socket left by a VPN flap) stalls the underlying TLS connection, git **waits indefinitely** in `poll()`. This call runs synchronously in the Vigil main loop, freezing the entire round; moreover, this check **logs nothing while running**, so there is no indication of where it is stuck.
 
-排查后确认这不是孤例——**所有走网络的裸 `git` 子进程调用都没有传 `timeout=`**，任何一个都能以同样
-方式挂死 vigil / CLI。对比之下，只有 `gh` 封装设了超时：`utils/github.py` 有模块级
-`_GH_TIMEOUT_SECONDS = 30`，其唯一收口点 `_run_gh` 对 `subprocess.run` 传 `timeout=`、并 `except
-subprocess.TimeoutExpired` 归一化处理（见该文件决策 4 / RFC-0010）。裸 git 缺的正是这一层。
+Investigation confirmed that this is not an isolated case—**none of the bare `git` subprocess calls that access the network pass `timeout=`**, and any of them can hang vigil / the CLI in the same way. By comparison, only the `gh` wrapper sets a timeout: `utils/github.py` has a module-level `_GH_TIMEOUT_SECONDS = 30`, and its sole central execution point, `_run_gh`, passes `timeout=` to `subprocess.run` and normalizes handling with `except subprocess.TimeoutExpired` (see decision 4 in that file / RFC-0010). This is precisely the layer missing from bare git.
 
-**证据（本仓当前无超时的网络 git 调用点）。** issue #147 的原始行号引用的是**收敛前的扁平层**
-（`openagents/vigil.py` / `workspace.py` / `conflict.py` / `conflictdiag.py` / `release.py`）；
-Spec-0062–0065 的收敛弧线（recipes 6→3、图驱动并行 vigil、flat 层删除）已把这些搬迁/删除。下表按
-**当前收敛后的真实代码**列出仍在跑网络 git 的调用点（证据驱动，理念 7/8——已逐一 `grep` 核对）：
+**Evidence (network git call sites in this repository that currently lack timeouts).** The original line-number references in issue #147 refer to the **flat layer before consolidation** (`openagents/vigil.py` / `workspace.py` / `conflict.py` / `conflictdiag.py` / `release.py`); the consolidation work across Spec-0062–0065 (recipes 6→3, graph-driven parallel vigil, removal of the flat layer) has moved/deleted these. The following table lists the call sites that still run network git operations in the **actual current code after consolidation** (evidence-driven, principles 7/8—each verified individually with `grep`):
 
-| # | 当前位置 | git 操作 | 走网络 | 归属 helper |
+| # | Current location | git operation | Accesses the network | Owning helper |
 |---|---|---|---|---|
-| 1 | `utils/git.py::remote_branch_exists`（`git.py:55`） | `ls-remote --heads origin <branch>` | 是（去重探针，issue 原文点名的卡死点） | `git.py::_git` |
-| 2 | `utils/workspace.py::Workspace.remote_branch_exists`（`workspace.py:138`） | `ls-remote --heads origin <branch>` | 是（去重探针） | `Workspace._git` |
-| 3 | `utils/workspace.py::Workspace.prepare`（`workspace.py:55`） | `fetch origin <base>` | 是 | `Workspace._git` |
-| 4 | `utils/workspace.py::Workspace.ensure`（`workspace.py:75`） | `fetch origin <branch>` | 是 | `Workspace._git` |
-| 5 | `utils/workspace.py::Workspace.assert_delivered`（`workspace.py:95`） | `fetch origin <branch>`（`check=False`） | 是 | `Workspace._git` |
-| 6 | `utils/release.py::_materialize_release`（`release.py:151`） | `push origin <source>:refs/heads/release/<version>` | 是 | `release.py::_git` |
-| 7 | `utils/release.py::_materialize_release`（`release.py:155`） | `push origin <version>`（tag） | 是 | `release.py::_git` |
+| 1 | `utils/git.py::remote_branch_exists` (`git.py:55`) | `ls-remote --heads origin <branch>` | Yes (deduplication probe; the hang site explicitly named in the original issue) | `git.py::_git` |
+| 2 | `utils/workspace.py::Workspace.remote_branch_exists` (`workspace.py:138`) | `ls-remote --heads origin <branch>` | Yes (deduplication probe) | `Workspace._git` |
+| 3 | `utils/workspace.py::Workspace.prepare` (`workspace.py:55`) | `fetch origin <base>` | Yes | `Workspace._git` |
+| 4 | `utils/workspace.py::Workspace.ensure` (`workspace.py:75`) | `fetch origin <branch>` | Yes | `Workspace._git` |
+| 5 | `utils/workspace.py::Workspace.assert_delivered` (`workspace.py:95`) | `fetch origin <branch>` (`check=False`) | Yes | `Workspace._git` |
+| 6 | `utils/release.py::_materialize_release` (`release.py:151`) | `push origin <source>:refs/heads/release/<version>` | Yes | `release.py::_git` |
+| 7 | `utils/release.py::_materialize_release` (`release.py:155`) | `push origin <version>` (tag) | Yes | `release.py::_git` |
 
-**与 issue 原表 10 行的对账（诚实映射，不凭空编造）：** 原 #1 `vigil.py:249` ls-remote → 本表 #1
-（收敛后落到 `git.remote_branch_exists`，仍是 `__all__` 导出的稳定 git import 面函数）；原 #2 → 本表 #2；
-原 #3/#4 workspace fetch → 本表 #3/#4/#5；原 #5 `workspace push -u`、原 #6/#7 `conflict.py`、原 #8
-`conflictdiag.py` 的调用点**已随收敛删除**（`commit_and_push` 于 Spec-0056/T4 删除、`conflict.py` /
-`conflictdiag.py` 整文件在 0062–0065 收敛中删除，harness 不再代 agent push）；原 #9/#10 release push →
-本表 #6/#7。**不在此列的本地 git**（不走网络）：`git.py::head_sha`（rev-parse）/ `porcelain`（status）、
-`workspace` 的 worktree add / rev-parse / diff / branch -D、`release._list_version_tags`（tag --list）、
-`config.py` rev-parse / init / remote add、`backends/claude_code.py` status --porcelain——本地操作不挂死，
-不加超时处理（只会随共享 `_git` 拿到一个无害的时间上限）。
+**Reconciliation with the original issue’s 10-row table (an honest mapping, without fabrication):** Original #1, `vigil.py:249` ls-remote → #1 in this table (moved to `git.remote_branch_exists` after consolidation, still a function exported through `__all__` on the stable git import surface); original #2 → #2 in this table; original #3/#4 workspace fetch → #3/#4/#5 in this table; the call sites for original #5 `workspace push -u`, original #6/#7 `conflict.py`, and original #8 `conflictdiag.py` **were deleted during consolidation** (`commit_and_push` was deleted in Spec-0056/T4, and the entire `conflict.py` / `conflictdiag.py` files were deleted during the 0062–0065 consolidation; the harness no longer pushes on the agent’s behalf); original #9/#10 release push → #6/#7 in this table. **Local git operations not listed here** (no network access): `git.py::head_sha` (rev-parse) / `porcelain` (status), workspace worktree add / rev-parse / diff / branch -D, `release._list_version_tags` (tag --list), `config.py` rev-parse / init / remote add, and `backends/claude_code.py` status --porcelain—local operations do not hang, so no timeout handling is added for them (they merely receive a harmless time limit through the shared `_git`).
 
-**收敛后去重探针的现状（重要事实，避免读者误解）：** 图驱动的并行 vigil（Spec-0065）的每-tick 派单
-去重已改由 **SQLite 认领队列 + `ready`/claim label**，`remote_branch_exists` 当前在 recipe 里**无活跃
-调用方**（`grep` 仅命中定义与 `__all__`）。但它仍是 issue 点名的卡死点、仍在稳定 git import 面上导出、
-一旦被接回热路径就会以同样方式挂死，故一并加固（超时 + fail-open + 进度面包屑），是「据实反推 + 面向
-未来最小加固」的取舍，而非编造调用。
+**Current state of deduplication probes after consolidation (an important fact to avoid misleading readers):** Per-tick dispatch deduplication in graph-driven parallel vigil (Spec-0065) has switched to a **SQLite claim queue + `ready`/claim label**. `remote_branch_exists` currently has **no active callers** in recipes (`grep` matches only its definitions and `__all__`). However, it remains the hang site named in the issue, is still exported on the stable git import surface, and would hang in the same way if reconnected to the hot path. It is therefore hardened as well (timeout + fail-open + progress breadcrumbs). This is a tradeoff of “reasoning backward from the facts + minimal hardening for future use,” not an invented call.
 
-**可观测性缺口。** 发现段目前只在**结果**出来时才打日志，网络 / LLM 过程全哑（`_intake` 拉带标签
-issue、`_admit` 调 triager LLM 分诊都无「检查中…」进度）。任一道检查卡住时，最后一行日志停在上一步的
-**结果**行，看不出正卡在哪一步。
+**Observability gap.** The discovery stage currently logs only when **results** become available; network / LLM operations are entirely silent (`_intake` fetching labeled issues and `_admit` calling the triager LLM for triage both lack “Checking…” progress messages). When any check gets stuck, the last log line remains the previous step’s **result**, giving no indication of which step is currently stuck.
 
 ## Guide-level explanation
 
-站在跑 `openagents vigil` 的人视角，这个改动改变的是「卡住时会发生什么」与「卡住时你看得见什么」。
+From the perspective of someone running `openagents vigil`, this change affects “what happens when it gets stuck” and “what you can see when it gets stuck.”
 
-**改动前。** 一次网络抖动就能让守夜整轮无声冻死：终端最后一行可能是上一轮的「守夜中，Ns 后再扫一轮」，
-之后再无输出、进程活着但永不前进，只能 `Ctrl-C`。
+**Before the change.** A single network disruption can silently freeze an entire Vigil round: the terminal’s last line might be the previous round’s “Keeping vigil; scanning again in Ns,” followed by no further output. The process stays alive but never advances, leaving `Ctrl-C` as the only option.
 
-**改动后。**
+**After the change.**
 
-1. **超时兜底（可靠性）。** 任何一条网络 git 调用卡满 `_GIT_NET_TIMEOUT_SECONDS`（30s，与 gh 同款）
-   就会被子进程超时中断，绝不无限等：
-   - 若卡住的是**去重探针**（`remote_branch_exists`），超时按「保守可能在途」返回 `True`——本轮**跳过**
-     这个 subject、下一轮重试，绝不误判成「远端没这个分支」而重复派单。
-   - 若卡住的是 **fetch / push**，超时抛既有的 `WorkspaceError` / `RuntimeError`，被既有的 per-issue /
-     per-round `try/except` 兜住——**跳过 + 下轮重试**，整个守夜进程照常活着进下一轮。
-2. **进度日志（可观测性）。** 发现段的慢检查现在会先打一行「检查中…」到 stderr，卡住时输出会明确停在
-   对应那行，一眼定位。典型一轮：
+1. **Timeout fallback (reliability).** Any network git call that remains stuck for `_GIT_NET_TIMEOUT_SECONDS` (30s, the same as gh) is interrupted by a subprocess timeout and never waits indefinitely:
+   - If the stuck call is a **deduplication probe** (`remote_branch_exists`), the timeout conservatively returns `True` to mean “possibly in flight”—**skip** this subject this round and retry next round, never incorrectly conclude that “the remote branch does not exist” and dispatch it twice.
+   - If the stuck call is **fetch / push**, the timeout raises the existing `WorkspaceError` / `RuntimeError`, caught by the existing per-issue / per-round `try/except`—**skip + retry next round**, while the entire Vigil process stays alive and proceeds to the next round as usual.
+2. **Progress logs (observability).** Slow discovery-stage checks now first write a “Checking…” line to stderr. When a check gets stuck, output clearly stops at the corresponding line, making the location immediately apparent. A typical round:
 
    ```
-   ▶ 发现段：拉取带标签 issue…
-   … issue #147 自检分诊方向(LLM)…
-   ✓ issue #147：过准入门控，已打 openagents:ready
+   ▶ Discovery stage: fetching labeled issues…
+   … issue #147 self-checking triage direction (LLM)…
+   ✓ issue #147: passed the admission gate, applied openagents:ready
    ```
 
-   若卡在拉 issue，输出停在第一行；若卡在 LLM 分诊，停在第二行——不再是「最后一行是上一步的结果」。
+   If fetching issues gets stuck, output stops at the first line; if LLM triage gets stuck, it stops at the second—no longer leaving “the previous step’s result as the last line.”
 
-**逐字节不变的承诺。** 网络正常时，`timeout=` 永不触发、返回值 / 退出码一字不改；新增的只是几行 stderr
-进度面包屑，不改任何业务返回值。
+**The byte-for-byte unchanged promise.** Under normal network conditions, `timeout=` never triggers, and return values / exit codes remain entirely unchanged. The only additions are a few stderr progress breadcrumbs; no business return values change.
 
 ## Reference-level explanation
 
-### 1. 超时常量（三模块各一份，对齐 github.py）
+### 1. Timeout constants (one in each of three modules, aligned with github.py)
 
-每个仍跑网络 git 的模块新增一个模块级常量，紧挨其 `_git` helper：
+Add a module-level constant to each module that still runs network git operations, immediately next to its `_git` helper:
 
 ```python
-# 子进程网络 git 超时秒数（对齐 github._GH_TIMEOUT_SECONDS = 30；只在真卡住时触发）。
+# Subprocess network git timeout in seconds (aligned with github._GH_TIMEOUT_SECONDS = 30; triggers only when actually stuck).
 _GIT_NET_TIMEOUT_SECONDS = 30
 ```
 
-**为何不抽成一份共享常量：** `utils/git.py` 已 `from openagents.utils.workspace import Workspace,
-WorkspaceError`（`git.py:23`），若把常量放 `git.py` 再让 `workspace.py` 反向 import 会成**循环依赖**；
-放 `workspace.py` 又让与 worktree 无关的 `release.py` 去 import 它，语义别扭。三份 `= 30` 的重复是奥卡姆
-下的最小代价（与 `github._GH_TIMEOUT_SECONDS` 同为模块局部常量，风格一致），换来零 import 耦合、零新模块
-（备选见 Rationale）。
+**Why not extract a single shared constant:** `utils/git.py` already has `from openagents.utils.workspace import Workspace,
+WorkspaceError` (`git.py:23`); placing the constant in `git.py` and having `workspace.py` import it in the reverse direction would create a **circular dependency**. Placing it in `workspace.py` would require `release.py`, which has nothing to do with worktrees, to import it, which is semantically awkward. Duplicating `= 30` three times is the smallest cost under Occam’s razor (consistent in style with `github._GH_TIMEOUT_SECONDS`, also a module-local constant), in exchange for zero import coupling and zero new modules (see Rationale for alternatives).
 
-### 2. 收敛点 + fail-open 矩阵
+### 2. Central execution points + fail-open matrix
 
-**收敛点：** 每个模块的 `_git` helper 在 `subprocess.run(...)` 上多传一个 `timeout=_GIT_NET_TIMEOUT_SECONDS`
-——这是每模块**唯一**加超时的地方（issue 要求的「收敛到 helper、避免逐点散设」）。本地 git 也经同一
-helper，拿到的只是一个永不触发的无害上限。
+**Central execution points:** Each module’s `_git` helper passes one additional argument, `timeout=_GIT_NET_TIMEOUT_SECONDS`, to `subprocess.run(...)`—this is the **only** place in each module that adds a timeout (meeting the issue’s requirement to “centralize in helpers and avoid setting it separately at each call site”). Local git also goes through the same helper, receiving only a harmless limit that never triggers.
 
-**fail-open 动作按调用类别分（动作天生不同，故必须落在各调用边界，这不算「散设 timeout 值」）：**
+**Fail-open actions differ by call category (the actions inherently differ, so they must reside at the respective call boundaries; this does not count as “scattering timeout values”):**
 
-| 类别 | 调用点 | 超时动作 | 依据 |
+| Category | Call sites | Timeout action | Basis |
 |---|---|---|---|
-| 去重探针 | `git.remote_branch_exists` / `Workspace.remote_branch_exists` | `except subprocess.TimeoutExpired: return True` | 误判「无分支」会重复派单（不可接受）；保守判「可能在途」→ 跳过本轮、下轮重试（可接受） |
-| fetch | `Workspace.prepare` / `ensure` / `assert_delivered` | `Workspace._git` `except TimeoutExpired: raise WorkspaceError(…超时)` | 转既有错误 → 落既有 per-issue / per-round `try/except` 隔离，不掀翻整轮 |
-| push / tag push | `release._materialize_release` | `release._git` `except TimeoutExpired: raise RuntimeError(…超时)` | 转既有错误 → CLI 层转成干净一行提示，不掀翻进程 |
+| Deduplication probe | `git.remote_branch_exists` / `Workspace.remote_branch_exists` | `except subprocess.TimeoutExpired: return True` | Incorrectly concluding “no branch” causes duplicate dispatch (unacceptable); conservatively concluding “possibly in flight” → skip this round and retry next round (acceptable) |
+| fetch | `Workspace.prepare` / `ensure` / `assert_delivered` | In `Workspace._git`, `except TimeoutExpired: raise WorkspaceError(…timeout)` | Convert to the existing error → isolated by the existing per-issue / per-round `try/except`, without bringing down the entire round |
+| push / tag push | `release._materialize_release` | In `release._git`, `except TimeoutExpired: raise RuntimeError(…timeout)` | Convert to the existing error → the CLI layer turns it into a clean one-line message, without bringing down the process |
 
-**workspace 的精确处理（唯一需要说明的细节）：** `Workspace._git` 在 `except TimeoutExpired` 时 `raise
-WorkspaceError`——这一步同时覆盖 `prepare`（`check=True`）/ `ensure` / `assert_delivered`（`check=False`）
-三个 fetch 调用方，全部转成 `WorkspaceError` 落既有隔离。而 `Workspace.remote_branch_exists`（`check=False`）
-需要的是超时→`True` 而非抛错，故它**自己**包一层 `try: … except WorkspaceError: return True`：因为
-`check=False` 时 `_git` 的 `WorkspaceError` **唯一来源就是这次超时转换**（普通非零退出在 `check=False` 下
-正常返回 CompletedProcess、不抛），所以这层 catch 精确等价于「超时→True」，不会误吞真实 git 失败（真实
-失败仍走 `bool(stdout)=""` → `False` 的既有路径）。此不变量是本设计的关键前提，写进验收断言。
+**Precise workspace handling (the only detail requiring explanation):** `Workspace._git` uses `raise
+WorkspaceError` in `except TimeoutExpired`—this covers all three fetch callers, `prepare` (`check=True`) / `ensure` / `assert_delivered` (`check=False`), converting all of them to `WorkspaceError` for the existing isolation handling. However, `Workspace.remote_branch_exists` (`check=False`) needs timeout→`True` rather than an exception, so it **itself** adds a surrounding `try: … except WorkspaceError: return True`: because under `check=False`, **the only source** of `WorkspaceError` from `_git` **is this timeout conversion** (an ordinary nonzero exit under `check=False` returns CompletedProcess normally without raising), this catch is precisely equivalent to “timeout→True” and will not inadvertently swallow real git failures (real failures still follow the existing `bool(stdout)=""` → `False` path). This invariant is a key premise of the design and is included in the acceptance criteria assertions.
 
-`git.remote_branch_exists`（自由函数，`git.py::_git` 不做 `check`）则直接 `except
-subprocess.TimeoutExpired: return True`。
+`git.remote_branch_exists` (a free function; `git.py::_git` does not perform a `check`) instead directly uses `except
+subprocess.TimeoutExpired: return True`.
 
-### 3. 发现段进度日志（stderr，与既有 `_log` 一致）
+### 3. Discovery-phase progress logs (stderr, consistent with the existing `_log`)
 
-`recipes/vigil.py` 已有 `_log(*, message)`（`print(message, file=sys.stderr, flush=True)`，`vigil.py:3081`）。
-在发现段两个 LIVE 慢检查点各补一行进度：
+`recipes/vigil.py` already has `_log(*, message)` (`print(message, file=sys.stderr, flush=True)`, `vigil.py:3081`).
+Add one progress line at each of the two slow LIVE checkpoints in the discovery phase:
 
-- `_intake` 拉带标签 issue 前（`github.list_issues(labels=config.labels)`，`vigil.py:1605`）：
-  `▶ 发现段：拉取带标签 issue…`
-- `_admit` 调 triager LLM 分诊前（`stages.triage(...)`，`vigil.py:1629`）：
-  `… issue #{issue.number} 自检分诊方向(LLM)…`
+- Before `_intake` fetches labeled issues (`github.list_issues(labels=config.labels)`, `vigil.py:1605`):
+  `▶ Discovery: fetching labeled issues…`
+- Before `_admit` calls the triager LLM for triage (`stages.triage(...)`, `vigil.py:1629`):
+  `… issue #{issue.number}: self-checking the triage direction (LLM)…`
 
-去重探针的第三点：收敛后 recipe 不在发现段内联跑 ls-remote（见 Motivation），故把它的「查远端分支去重…」
-面包屑落在 `git.remote_branch_exists` 内部（T1，跑 ls-remote 前打 stderr）——该函数一旦被接回热路径即自
-announce，卡住时输出停在这行。这是对 issue「三个慢点」意图的忠实落地，而非编造一个不存在的 recipe 调用。
+The third checkpoint, the deduplication probe: after consolidation, the recipe no longer runs ls-remote inline during discovery (see Motivation), so place its “Checking remote branches for deduplication…” breadcrumb
+inside `git.remote_branch_exists` (T1, print to stderr before running ls-remote). Once this function is reconnected to the hot path, it announces itself automatically;
+if it hangs, output stops at this line. This faithfully implements the issue’s intent of covering “three slow points,” rather than inventing a recipe call that does not exist.
 
-### 4. Task DAG + 文件分配
+### 4. Task DAG + file allocation
 
-四个 Task 各占一组不相交文件，彼此无依赖、可完全并行（协同模式单一 writer 所有权，理念 6）：
+Each of the four Tasks owns a disjoint set of files. They have no dependencies on one another and can run fully in parallel (single-writer ownership in collaborative mode, principle 6):
 
 ```mermaid
 graph LR
-  T1[T1 git.py 去重探针加固]
-  T2[T2 workspace.py fetch 加固]
-  T3[T3 release.py push 加固]
-  T4[T4 发现段进度日志]
+  T1[T1 git.py deduplication probe hardening]
+  T2[T2 workspace.py fetch hardening]
+  T3[T3 release.py push hardening]
+  T4[T4 Discovery-phase progress logs]
 ```
 
-| Task | 拥有文件 | 干什么 |
+| Task | Owned files | Work |
 |---|---|---|
-| T1 | `openagents/utils/git.py`, `tests/test_utils_git.py` | `_GIT_NET_TIMEOUT_SECONDS` + `_git` 传 `timeout=` + `remote_branch_exists` 超时 fail-open 返回 True + 跑 ls-remote 前 stderr 面包屑 |
-| T2 | `openagents/utils/workspace.py`, `tests/test_workspace.py` | `_GIT_NET_TIMEOUT_SECONDS` + `Workspace._git` 传 `timeout=` 且超时 `raise WorkspaceError` + `remote_branch_exists` 超时 fail-open 返回 True |
-| T3 | `openagents/utils/release.py`, `tests/test_release.py` | `_GIT_NET_TIMEOUT_SECONDS` + `_git` 传 `timeout=` 且超时 `raise RuntimeError`（覆盖 push 分支 + push tag） |
-| T4 | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil_discovery.py` | `_intake` 拉 issue 前 + `_admit` 调 LLM 前两行 stderr 进度日志（新增聚焦测试文件，与既有 vigil 测试文件不相交） |
+| T1 | `openagents/utils/git.py`, `tests/test_utils_git.py` | `_GIT_NET_TIMEOUT_SECONDS` + pass `timeout=` in `_git` + `remote_branch_exists` fails open on timeout by returning True + stderr breadcrumb before running ls-remote |
+| T2 | `openagents/utils/workspace.py`, `tests/test_workspace.py` | `_GIT_NET_TIMEOUT_SECONDS` + pass `timeout=` in `Workspace._git` and `raise WorkspaceError` on timeout + `remote_branch_exists` fails open on timeout by returning True |
+| T3 | `openagents/utils/release.py`, `tests/test_release.py` | `_GIT_NET_TIMEOUT_SECONDS` + pass `timeout=` in `_git` and `raise RuntimeError` on timeout (covering branch push + tag push) |
+| T4 | `openagents/recipes/vigil.py`, `tests/test_recipe_vigil_discovery.py` | Two stderr progress lines: before `_intake` fetches issues + before `_admit` calls the LLM (add a focused test file that does not overlap with existing vigil test files) |
 
-### 5. e2e 脚本路径
+### 5. e2e script path
 
-纯内部可靠性改动（无 UI），e2e 为 hermetic 离线脚本 `scripts/e2e-spec-0035-git-net-timeout.sh`——打桩
-`subprocess.run` 抛 `TimeoutExpired`，跑 T1–T4 的定向 pytest 子集，断言三类 fail-open 分支 + 两行进度
-日志落 stderr，不触真实 git / 网络（frontmatter `e2e:` 块声明 intent + method）。
+This is a purely internal reliability change (no UI). The e2e is a hermetic offline script, `scripts/e2e-spec-0035-git-net-timeout.sh`: stub
+`subprocess.run` to raise `TimeoutExpired`, run targeted pytest subsets for T1–T4, and assert that the three categories of fail-open branches work and that the two progress
+log lines go to stderr, without invoking real git or accessing the network (the frontmatter `e2e:` block declares intent + method).
 
 ## Drawbacks
 
-- **常量三份重复。** `_GIT_NET_TIMEOUT_SECONDS = 30` 在三个模块各写一次（DRY 小代价，为换零 import 耦合）。
-- **本地 git 拿到无害上限。** 本地操作也经共享 `_git`、也带上 30s ceiling——正常永不触发，但一个真卡死的
-  本地 rev-parse（损坏仓库）会在 30s 后被中断，语义上是把「本地也不无限等」当作副带收益，非本 issue 目标。
-- **去重超时→True 会拖慢一轮派单。** 网络抖动瞬间恰好落在 `remote_branch_exists` 上时，一个**真的不存在**
-  的分支也会被判「可能在途」→ 该 subject 本轮被跳过、下轮才派——用一轮的派单延迟换「绝不重复派单」的安全，
-  是刻意取舍。
-- **`git.py` 打 stderr 面包屑。** 「只懂 git」的确定性层里出现一行 stderr 进度输出，是轻微的分层让步（面包屑
-  仅是 `print(..., file=sys.stderr)`，与业务判断无关，可接受）。
+- **The constant is duplicated three times.** `_GIT_NET_TIMEOUT_SECONDS = 30` is defined once in each of three modules (a small DRY cost in exchange for zero import coupling).
+- **Local git operations receive a harmless upper bound.** Local operations also use the shared `_git` and receive the 30s ceiling. Under normal conditions it never triggers, but a truly hung
+  local rev-parse (a corrupted repository) will be interrupted after 30s. Semantically, “local operations do not wait forever either” is treated as a side benefit, not the goal of this issue.
+- **Deduplication timeout → True delays dispatch by one round.** If a network fluctuation happens to affect `remote_branch_exists`, even a branch that **really does not exist**
+  will be judged “possibly in flight” → that subject is skipped this round and dispatched next round. Trading one round of dispatch latency for the safety of “never dispatching duplicates”
+  is a deliberate choice.
+- **`git.py` prints a stderr breadcrumb.** A line of stderr progress output in the deterministic layer that “only understands git” is a minor layering concession (the breadcrumb
+  is only `print(..., file=sys.stderr)`, unrelated to business decisions, and is acceptable).
 
 ## Rationale and alternatives
 
-**为何这样做。** issue 的约束是「奥卡姆：不引入网络库 / 重试框架，只在现有 git helper 上加 `timeout=` +
-`TimeoutExpired` 处理，常量与 github.py 同款」。本设计逐条照做：三个模块局部常量镜像 `_GH_TIMEOUT_SECONDS`、
-timeout 收敛到各 `_git`、fail-open 动作按类别落在调用边界。守夜第一要务是「活着进下一轮」，故超时一律转成
-「跳过 + 重试」，绝不无限阻塞。
+**Why this approach.** The issue’s constraint is “Occam’s razor: introduce no networking library / retry framework; only add `timeout=` +
+`TimeoutExpired` handling to the existing git helpers, using constants in the same style as github.py.” This design follows each point: module-local constants in three modules mirror `_GH_TIMEOUT_SECONDS`,
+timeouts are centralized in each `_git`, and fail-open actions are placed at call boundaries according to category. Vigil’s first priority is “staying alive to reach the next round,” so timeouts always become
+“skip + retry,” never an indefinite block.
 
-**备选 1：抽一个共享 `_GIT_NET_TIMEOUT_SECONDS`（单一真源）。** 更 DRY，但 `git.py` 已 import
-`workspace.py`，反向 import 成循环依赖；新开一个 `utils/git_constants.py` 又是为一个 int 增实体（违奥卡姆）。
-取舍：接受三份重复，换零耦合零新模块。与 github.py 的模块局部常量风格也一致。
+**Alternative 1: extract a shared `_GIT_NET_TIMEOUT_SECONDS` (single source of truth).** More DRY, but `git.py` already imports
+`workspace.py`, so importing in the reverse direction creates a circular dependency; adding a new `utils/git_constants.py` creates another entity for a single int (contrary to Occam’s razor).
+Tradeoff: accept three copies in exchange for zero coupling and zero new modules. This also matches github.py’s module-local constant style.
 
-**备选 2：像 gh 那样加指数退避重试（`_GH_RETRY_*`）。** 拒绝。git 网络操作（fetch 半程、push）盲目
-重试不安全、且 issue 明确「不引入重试框架」。守夜循环本身就是天然的重试粒度——fail-open「跳过 + 下轮
-再来」等价于「在 vigil tick 尺度上重试」，无需在 git 层再叠一层。
+**Alternative 2: add exponential-backoff retries like gh (`_GH_RETRY_*`).** Rejected. Blindly
+retrying git network operations (a partially completed fetch, push) is unsafe, and the issue explicitly says “do not introduce a retry framework.” The Vigil loop itself provides the natural retry granularity: fail-open “skip + try again
+next round” is equivalent to “retry at the vigil tick timescale,” with no need to add another layer in git.
 
-**备选 3：用线程 / 信号 / async 看门狗做超时。** 拒绝。`subprocess.run(timeout=)` 是标准库内建、零依赖、
-与 github.py 已验证的做法完全一致；自造看门狗是增实体。
+**Alternative 3: implement timeouts with a thread / signal / async watchdog.** Rejected. `subprocess.run(timeout=)` is built into the standard library, has zero dependencies,
+and exactly matches the proven approach in github.py; building a custom watchdog adds entities.
 
-**为何去重探针 fail-open 到 `True` 而非 `False`。** 两种误判的代价不对称：判 `False`（无分支）→ 重复派
-单，多个 agent 抢同一个 issue（不可接受）；判 `True`（可能在途）→ 本轮跳过、下轮重试（只损失一轮延迟）。
-守夜宁可慢一轮，不可重复干活。
+**Why the deduplication probe fails open to `True` rather than `False`.** The costs of the two misclassifications are asymmetric: returning `False` (no branch) → duplicate
+dispatch, with multiple agents competing for the same issue (unacceptable); returning `True` (possibly in flight) → skip this round and retry next round (only one round of latency is lost).
+Vigil would rather be one round slower than do duplicate work.
 
 ## Prior art
 
-- **同仓 `utils/github.py`（RFC-0010 决策 4）。** `_GH_TIMEOUT_SECONDS = 30` + `_run_gh` 的
-  `subprocess.run(timeout=)` + `except subprocess.TimeoutExpired` 归一化——本 spec 是把这套已验证的做法
-  从 gh 平移到裸 git，常量名 / 值 / 处理风格刻意同款。
-- **k8s level-triggered reconcile（Spec-0065 已引为守夜模型）。** 「本轮读不到就下轮再来」是 reconcile
-  循环的原生语义；fail-open 跳过 + 下轮重试正是这一模型下的自然容错，无需边沿捕获。
-- **Python 标准库 `subprocess` 文档。** `run(..., timeout=N)` 到点杀子进程并抛 `TimeoutExpired`，是本
-  设计唯一依赖的机制，无第三方库。
+- **`utils/github.py` in the same repository (RFC-0010 decision 4).** `_GH_TIMEOUT_SECONDS = 30` + `_run_gh`’s
+  `subprocess.run(timeout=)` + normalization through `except subprocess.TimeoutExpired`: this spec transfers that proven approach
+  from gh to bare git, deliberately matching the constant naming / value / handling style.
+- **k8s level-triggered reconcile (already cited in Spec-0065 as the Vigil model).** “If it cannot be read this round, try again next round” is native to the semantics of a reconcile
+  loop; fail-open skipping + retrying next round is natural fault tolerance under this model, with no need for edge capture.
+- **Python standard-library `subprocess` documentation.** `run(..., timeout=N)` kills the child process when the time limit is reached and raises `TimeoutExpired`. This is the
+  only mechanism this design depends on; there are no third-party libraries.
 
 ## Unresolved questions
 
-- **30s 是否对所有网络 git 都合适？** 这些操作是浅 fetch / ls-remote / 推小 ref（非全量 clone），30s
-  远够；但极慢链路下的大 fetch 理论上可能触碰上限（届时 fail-open 跳过 + 下轮重试，不致命）。是否需要
-  可配置留待观察（见 Future）。
-- **`Workspace.remote_branch_exists` catch `WorkspaceError` 的不变量。** 依赖「`check=False` 时 `_git` 的
-  `WorkspaceError` 唯一来源是超时转换」——本 spec 将其固化为验收断言；若未来给 `check=False` 增加别的抛错
-  路径，需同步复核这层 catch（备选是直接 catch `subprocess.TimeoutExpired`，代价是 `_git` 不能在 helper 里
-  转换 timeout，转换点要下放到各 fetch 调用方）。
-- **`claude_code.py` 的 `claude -p` 流式 `Popen` 无超时**——issue 附注明确**不在本 spec 内**：它是长时
-  运行的 agent 调用，不能用硬超时，需要的是 idle/stall 超时（一段时间无输出才判死），机制不同，留作单独
-  issue（见 Future）。
+- **Is 30s appropriate for all network git operations?** These operations are shallow fetch / ls-remote / pushing small refs (not full clones), so 30s
+  is more than sufficient. However, a large fetch over an extremely slow connection could theoretically hit the limit (in that case, fail open, skip, and retry next round; it is not fatal). Whether this needs
+  to be configurable remains to be seen (see Future).
+- **The invariant behind `Workspace.remote_branch_exists` catching `WorkspaceError`.** This depends on “when `check=False`, the
+  only source of `WorkspaceError` in `_git` is timeout conversion.” This spec enshrines that as an acceptance assertion; if other error-raising
+  paths are added for `check=False` in the future, this catch must be reviewed accordingly (the alternative is to catch `subprocess.TimeoutExpired` directly, at the cost of `_git` being unable to
+  convert timeouts inside the helper, requiring conversion to move down to each fetch caller).
+- **The streaming `Popen` for `claude -p` in `claude_code.py` has no timeout**: the issue’s addendum explicitly places this **outside this spec’s scope**. It is a long-running
+  agent invocation and cannot use a hard timeout; it needs an idle/stall timeout (declare it stalled only after a period without output). This is a different mechanism and is left for a separate
+  issue (see Future).
 
 ## Future possibilities
 
-- **合并三个 `_git` helper 为单一共享确定性 git 运行器**（收敛后的清理）——届时 `_GIT_NET_TIMEOUT_SECONDS`
-  自然归一为一份，本 spec 的三份重复随之消解。
-- **给长时 agent `Popen` 加 idle/stall 超时**（issue 附注的单独议题）：一段时间无 stdout 输出才判死并杀树，
-  与本 spec 的硬超时机制互补。
-- **超时值可配置**（`.openagents/openagents.yml`）——若出现极慢链路用户，把 30s 提到声明式配置里；当前按
-  奥卡姆先硬编码常量。
-
+- **Merge the three `_git` helpers into a single shared deterministic git runner** (cleanup after consolidation): `_GIT_NET_TIMEOUT_SECONDS`
+  will then naturally become a single definition, eliminating this spec’s three copies.
+- **Add idle/stall timeouts to long-running agent `Popen` calls** (a separate topic in the issue’s addendum): declare the process stalled and kill its process tree only after a period without stdout output,
+  complementing this spec’s hard-timeout mechanism.
+- **Configurable timeout value** (`.openagents/openagents.yml`): if users with extremely slow connections emerge, move 30s into declarative configuration; for now,
+  follow Occam’s razor and hardcode the constant.

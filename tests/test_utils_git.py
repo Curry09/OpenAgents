@@ -1,7 +1,7 @@
-"""Spec-0060/T1: utils.git 稳定面单测——透传 workspace 原语 + 只读 head_sha/porcelain。
+"""Spec-0060/T1: utils.git stability monometry - telemetry workspace + read only head_sha/porcelain.
 
-不触真实仓库：subprocess.run 打桩，断言 head_sha/porcelain 拼对 git 子命令、strip stdout；
-断言 Workspace/WorkspaceError 就是 workspace.py 的同一对象（薄再导出、行为等价）。
+Without touching the real warehouse: subprocess.run stakes, head_sha/porcelain adamant to git sub-command, strip stdout;
+Workspace/WorkspaceError is asserted to be the same object (sand export, behavioral equivalent) of workspace.py.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class _FakeProc:
 
 
 def test_workspace_reexport_is_same_object():
-    # 薄再导出：utils.git.Workspace / WorkspaceError 必须就是 workspace.py 的同一对象（零复制）。
+    # Thin re-export: utils.git.Workspace / WorkspaceError must be the same object (zero copy) as workspace.py.
     assert git.Workspace is workspace_module.Workspace
     assert git.WorkspaceError is workspace_module.WorkspaceError
 
@@ -57,11 +57,11 @@ def test_head_sha_empty_when_no_output(monkeypatch):
     assert git.head_sha(work_dir=Path(".")) == ""
 
 
-# --- Spec-0035/T1: 网络 git 超时 fail-open + ls-remote 进度面包屑 ---------------------
+# --- Spec-0035/T1: network guit timeout fail-open + ls-remote progress bread crumbs ---------------------
 
 
 def test_git_helper_passes_net_timeout(monkeypatch):
-    # _git 必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS（收敛到唯一 helper）。
+    # _git must pass subprocess.run timeout = _GIT_NET_TIMEOUT_SECONDS (conduce to the only helper).
     captured = {}
 
     def _fake_run(argv, **kwargs):
@@ -74,7 +74,7 @@ def test_git_helper_passes_net_timeout(monkeypatch):
 
 
 def test_remote_branch_exists_true_on_output(monkeypatch):
-    # 正常路径逐字节不变：ls-remote 有输出 → True。
+    # Normal path by bytes: ls-remote has output True.
     monkeypatch.setattr(
         git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout="abc123\trefs/heads/x\n")
     )
@@ -82,13 +82,13 @@ def test_remote_branch_exists_true_on_output(monkeypatch):
 
 
 def test_remote_branch_exists_false_on_empty(monkeypatch):
-    # 正常路径逐字节不变：ls-remote 无输出 → False（远端确无该分支）。
+    # Normal path by bytes unchanged: ls-remote does not output  →  False (near end does not have that branch).
     monkeypatch.setattr(git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout="\n"))
     assert git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="x") is False
 
 
 def test_remote_branch_exists_fail_open_true_on_timeout(monkeypatch):
-    # fail-open：ls-remote 超时 → 保守返回 True（「可能在途」→ 本轮跳过、不重复派单）。
+    # Fail-open: ls-remote timeout  →  conservatively returns True ( "possibly" ) This round skips, does not repeat the pie sheets.
     def _boom(argv, **kwargs):
         raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
 
@@ -97,9 +97,9 @@ def test_remote_branch_exists_fail_open_true_on_timeout(monkeypatch):
 
 
 def test_remote_branch_exists_logs_breadcrumb_before_ls_remote(monkeypatch, capsys):
-    # 跑 ls-remote 前有一行 stderr 面包屑（卡住时输出停在这行）。
+    # Runs the ls-remote front line of stderr bread crumbs (the output stops in this line when stuck).
     monkeypatch.setattr(git.subprocess, "run", lambda argv, **kw: _FakeProc(stdout=""))
     git.remote_branch_exists(work_dir=Path("/tmp/wt"), branch="openagents/issue-9")
     err = capsys.readouterr().err
-    assert "查远端分支去重" in err
+    assert "Checking whether the remote branch exists" in err
     assert "openagents/issue-9" in err

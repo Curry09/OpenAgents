@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Spec-0045/T5：文档口径清理的成果测试——lint/格式/测试全绿 + 死口径 grep 归零。
+# Spec-0045/T5: result test for document calibration cleanup——lint/Format/Test All Green + Dead caliber grep Zero.
 uv run --extra dev ruff check openagents tests
 uv run --extra dev ruff format --check openagents tests
 uv run --extra dev pytest -q
 
-echo "== 死口径 grep 归零校验 =="
-# 已删符号绝不应再作为「当前实现」出现在代码/测试里。
+echo "== Dead caliber grep Zero Validation =="
+# The deleted symbol should never be in code/test as "Current Realization " again.
 ! grep -rn "rebase_open_prs\|rebase\.CONFLICT_COMMENT" openagents tests
-# indexheal.py 已删，openagents 源里不应再出现该模块名。
+# indexheal.py has been deleted and the module name should not be present again in the openomics source.
 ! grep -rn "indexheal" openagents
-# sync-prs 命令已删，测试注释里不应再把它当活着的构造路径。
+# The sync-prs command has been deleted and should no longer be considered a living construction path in the test note.
 ! grep -rn "sync-prs" tests
-echo "ALL GREEN: 无残留死口径"
+echo "ALL GREEN: No residual lethal caliber"

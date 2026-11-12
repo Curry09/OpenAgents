@@ -1,7 +1,7 @@
-"""Spec-0054/T1: --skip 配置模型 skip 的单元测试（纯函数，无 I/O）。
+"""Spec-0054/T1: Unit test for --skip configuration model sskip (sole function, no I/O).
 
-覆盖：空/None → 默认全不关；单闸 / 多闸 / all 的布尔置位；未知 token（含已不合法的
-'merge'）抛 ValueError 且信息列出合法值；多余空格 / 大小写归一化；Skip 为不可变值对象；
+Overwrite: empty/None  →  Default All Off; Booleaning of Single / Multiple / All; unknown token (includes invalid)
+’merge’) throws ValueError and the information lists the valid values; excess spaces/ case-in-cases are standardized; Skip is a non-variable object;
 """
 
 import dataclasses
@@ -14,7 +14,7 @@ from openagents.utils.skip import NONE, Skip, parse_skip
 def test_empty_and_none_default_to_no_skip():
     assert parse_skip(raw=None) == NONE
     assert parse_skip(raw="") == NONE
-    # 默认全不关：五道闸都不跳（等价现状全闸开启的 vigil）。
+    # The default is not closed: five gates are not jumped (the current price is all open for the vigil).
     default = parse_skip(raw=None)
     assert (
         default.at_issue
@@ -53,13 +53,13 @@ def test_unknown_token_raises_with_valid_values_listed():
         parse_skip(raw="spc")
     message = str(exc.value)
     assert "spc" in message
-    # 报错信息列出合法取值，含 all，不含 merge。
+    # Error message lists the valid take-off values, which contain all, excluding merge.
     assert "all" in message
     assert "issue" in message and "evidence" in message
 
 
 def test_merge_is_not_a_valid_skip_token():
-    # merge 是不可跳过的动作 → 未知 token 报错（防止悄悄放行合并语义）。
+    # MERGE is an inert action  →  unknown token to report errors (preventing the silent release of the merge semantic).
     with pytest.raises(ValueError) as exc:
         parse_skip(raw="merge")
     assert "merge" in str(exc.value)

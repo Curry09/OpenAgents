@@ -1,9 +1,9 @@
-"""Spec-0064/T6: CLI 收敛后（vigil/issue/backfill-rfc/release + init/board + 隐藏 reply-comment）
-子命令注册与分发契约测试。
+"""Spec-0064/T6: CLI after condense (vigil/issue/backfill-rfc/release + init/board + hide reply-comment)
+The sub-orders are registered and distributed in contract tests.
 
-九条自动化环切片命令（rfc/refine-rfc/implement/iterate/solve/poll/watch/vigil-all/fleet）已并入
-vigil、随两栈合一删除，本文件不再断言它们。保留对留存命令（init/issue/board/release/reply-comment/
-vigil/backfill-rfc）的路由 + 错误处理契约（打桩工厂/recipe，hermetic 不触真实 gh/后端）。
+Nine automated cystlic commands (rfc/refine-rfc/implement/iterate/solve/poll/watch/vigil-all/fleet) have been incorporated
+vigil, delete them with two stacks, and this document will not assert them. Retain the retention order (init/issue/board/release/reply-comment/)
+vigil/backfill-rfc) + Error management contract (poster/recide, hermetic without touching the real gh/backend).
 """
 
 from pathlib import Path
@@ -16,8 +16,8 @@ from openagents.utils.align import Alignment
 from openagents.utils.config import ProjectContext
 from openagents.utils.github import Issue
 
-# Spec-0064/T6：收敛后人面向留存命令集（init/board 观测·自举，issue/backfill-rfc/vigil/release 触发，
-# reply-comment 隐藏内部）。
+# Spec-0064/T6: The Retention Order Collection (init/board observation & self-activation, issue/backfill-rfc/vigil/release trigger,
+# Reply-comment hides inside.
 COMMANDS = ["init", "issue", "backfill-rfc", "vigil", "v02", "release", "board", "reply-comment"]
 
 
@@ -78,7 +78,7 @@ def _patch_ensure(monkeypatch, *, repo_root="/tmp/x"):
 
 
 # --------------------------------------------------------------------------- #
-# vigil：读 config（缺省默认）→ 单仓走 run_vigil
+# vigil: Read config (default default) single-silo run_vigil
 # --------------------------------------------------------------------------- #
 
 
@@ -100,13 +100,13 @@ def test_vigil_dispatches_to_run_vigil(monkeypatch, tmp_path):
     code = main(["vigil", "--once"])
     assert code == 0
     assert seen["once"] is True
-    assert seen["concurrency"] == 1  # Spec-0065/T2：缺省 K=1，即退化串行
+    assert seen["concurrency"] == 1  # Spec-0065/T2: default K=1, or degradation string
     assert seen["agent_id"] == "AID"
-    assert seen["merge_owner"] == "agent"  # 缺省 YAML → 默认 merge=agent
+    assert seen["merge_owner"] == "agent"  # Default YaML  → merge=att
 
 
 def test_vigil_parallel_flag_sets_concurrency(monkeypatch, tmp_path):
-    """Spec-0065/T2：`--parallel K` 直接落到 `run_vigil(concurrency=K)`（并发上限，不是另一种模式）。"""
+    """Spec-0065/T2: `--parallel K` falls directly to `run_vigil(concurrency=K)` (the concurring cap, not another mode)."""
     _patch_ensure(monkeypatch, repo_root=str(tmp_path))
     monkeypatch.setattr("openagents.cli._vigil_deps_for", lambda *, ctx: ("BE", "ST", "AID"))
     seen = {}
@@ -135,7 +135,7 @@ def test_vigil_invalid_config_errors_cleanly(monkeypatch, tmp_path):
     d.mkdir()
     (d / "openagents.yml").write_text(
         "stages:\n  merge: skip\n", encoding="utf-8"
-    )  # 非法：merge 不可 skip
+    )  # Illegal: merge not skip
     code = main(["vigil", "--once"])
     assert code == 1
 
@@ -204,16 +204,16 @@ def test_backfill_rfc_reports_error_cleanly(monkeypatch, tmp_path, capsys):
     from openagents.recipes.backfill import BackfillError
 
     def _boom(**kw):
-        raise BackfillError("路径不存在：nope")
+        raise BackfillError("Path does not exist:nope")
 
     monkeypatch.setattr(backfill_mod, "backfill_rfc", _boom)
     code = main(["backfill-rfc", "nope"])
     assert code == 1
-    assert "路径不存在" in capsys.readouterr().err
+    assert "Path does not exist" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------- #
-# issue（对齐 / 标签）
+# Issue(Signature/ Tab)
 # --------------------------------------------------------------------------- #
 
 
@@ -247,7 +247,7 @@ def test_issue_alignment_declined_does_not_create(monkeypatch):
         "openagents.utils.github.create_issue",
         lambda *, title, body, labels: created.append(title),
     )
-    assert main(["issue", "登录功能"]) == 1
+    assert main(["issue", "Login function"]) == 1
     assert created == []
 
 
@@ -266,9 +266,9 @@ def test_reply_comment_posts_signed(monkeypatch):
             pr_number=pr_number, body=body, agent_id=agent_id
         ),
     )
-    code = main(["reply-comment", "--pr", "5", "--body", "已解冲突"])
+    code = main(["reply-comment", "--pr", "5", "--body", "Solved Conflict"])
     assert code == 0
-    assert seen == {"pr_number": 5, "body": "已解冲突", "agent_id": "agent-x"}
+    assert seen == {"pr_number": 5, "body": "Solved Conflict", "agent_id": "agent-x"}
 
 
 def test_release_success(monkeypatch):
@@ -293,11 +293,11 @@ def test_release_precheck_fail_nonzero(monkeypatch, capsys):
     monkeypatch.setattr(
         "openagents.utils.release.release",
         lambda *, state, bump: ReleaseResult(
-            released=False, version="", reason="main 分支 CI 未全绿"
+            released=False, version="", reason="main branch has not passed CI"
         ),
     )
     assert main(["release"]) == 1
-    assert "CI 未全绿" in capsys.readouterr().err
+    assert "has not passed CI" in capsys.readouterr().err
 
 
 def test_board_skips_preflight(monkeypatch):
@@ -312,20 +312,22 @@ def test_init_runs_preflight_and_envcheck(monkeypatch, tmp_path):
     calls = _patch_ensure(monkeypatch, repo_root=str(tmp_path))
     monkeypatch.setattr("openagents.utils.github.ensure_prerequisites", lambda: None)
     monkeypatch.setattr(
-        "openagents.utils.envcheck.check", lambda: SimpleNamespace(text="▶ 体检", all_ok=True)
+        "openagents.utils.envcheck.check",
+        lambda: SimpleNamespace(text="Medical examination", all_ok=True),
     )
     assert main(["init"]) == 0
     assert calls == [True]
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0067/T2：init 顺手 scaffold 默认 .openagents/openagents.yml（幂等 / --force 覆盖）
+# Spec-0067/T2: init & scafferdold default. openagents/openagents.yml (Quest / --force overwrite)
 # --------------------------------------------------------------------------- #
 
 
 def _quiet_envcheck(monkeypatch):
     monkeypatch.setattr(
-        "openagents.utils.envcheck.check", lambda: SimpleNamespace(text="▶ 体检", all_ok=True)
+        "openagents.utils.envcheck.check",
+        lambda: SimpleNamespace(text="Medical examination", all_ok=True),
     )
 
 
@@ -345,7 +347,7 @@ def test_init_generates_default_config_first_run(monkeypatch, tmp_path, capsys):
     from openagents.utils.agent_config import _default_template_text
 
     assert cfg.read_text(encoding="utf-8") == _default_template_text()
-    assert "已生成默认配置" in capsys.readouterr().out
+    assert "Wrote .openagents/openagents.yml" in capsys.readouterr().out
 
 
 def test_init_is_idempotent_and_preserves_user_edits(monkeypatch, tmp_path, capsys):
@@ -356,7 +358,7 @@ def test_init_is_idempotent_and_preserves_user_edits(monkeypatch, tmp_path, caps
     cfg.write_text("stages:\n  review: human\n", encoding="utf-8")
     assert main(["init"]) == 0
     assert cfg.read_text(encoding="utf-8") == "stages:\n  review: human\n"
-    assert "已存在" in capsys.readouterr().out
+    assert "Kept the existing .openagents/openagents.yml" in capsys.readouterr().out
 
 
 def test_init_force_overwrites_config(monkeypatch, tmp_path, capsys):
@@ -369,7 +371,7 @@ def test_init_force_overwrites_config(monkeypatch, tmp_path, capsys):
     from openagents.utils.agent_config import _default_template_text
 
     assert cfg.read_text(encoding="utf-8") == _default_template_text()
-    assert "已用包内模板覆盖" in capsys.readouterr().out
+    assert "Replaced .openagents/openagents.yml" in capsys.readouterr().out
 
 
 def test_missing_dependency_hint(monkeypatch, capsys):
@@ -398,7 +400,7 @@ def test_internal_module_error_reraises(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# agent_id 接线一致性（RFC-0011 T6）
+# agent_id connection consistency (RFC-0011 T6)
 # --------------------------------------------------------------------------- #
 
 
@@ -420,22 +422,22 @@ def test_agent_id_env_override(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0065/T2：`--parallel K` 的入参校验（1..32，非法当场 argparse 报错，不静默钳位）
+# Spec-0065/T2: `--parallel K` entry and verification (1.32, illegal on-site aggparse error, silent plier)
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.parametrize("value", ["1", "2", "32"])
 def test_parallel_accepts_valid_k(value):
-    """Spec-0065/T2：1..{_MAX_PARALLEL} 合法；边界 1（串行）与 32（上限）都必须过。"""
+    """Spec-0065/T2 1: {_MAX_PARALLEL} is legal; the 1 (serial) and 32 (ceiling) borders are required to pass."""
     args = build_parser().parse_args(["vigil", "--once", "--parallel", value])
     assert args.parallel == int(value)
 
 
 @pytest.mark.parametrize("value", ["0", "-3", "33", "99999", "abc", "1.5", ""])
 def test_parallel_rejects_invalid_k(value):
-    """Spec-0065/T2：越界/非整数 → argparse 当场退出（code 2）。
+    """Spec-0065/T2: Cross-border/non-integer  →  argparse exits on the spot (code 2).
 
-    不静默钳位（早前是 `max(1, K)`）：`--parallel 0` 悄悄给成 1 会把输入错误变成性能谜题。
+    Unquieted pliers (`max(1, K)` earlier): `--parallel 0` quietly gives one to turn input errors into performance puzzles.
     """
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(["vigil", "--once", "--parallel", value])
@@ -443,28 +445,28 @@ def test_parallel_rejects_invalid_k(value):
 
 
 def test_parallel_invalid_k_via_main_exits_two(monkeypatch):
-    """Spec-0065/T2：走 `main()` 全路径也一样（校验在 parser 里，早于任何 preflight / 后端接线）。"""
+    """Spec-0065/T2: The same is true of the `main()` path (check in parser, before any preflight/ backend)."""
     with pytest.raises(SystemExit) as exc:
         main(["vigil", "--once", "--parallel", "99999"])
     assert exc.value.code == 2
 
 
 def test_parallel_max_is_thirty_two():
-    """Spec-0065/T2：护栏常量与用例同源——上限改了这里就该跟着改（别偷偷放大）。"""
+    """Spec-0065/T2: The constant of the guard column is the same as the one used - the ceiling is changed here and then it should be changed (do not snuck up)."""
     from openagents.cli import _MAX_PARALLEL
 
     assert _MAX_PARALLEL == 32
 
 
 # --------------------------------------------------------------------------------------------------
-# Spec-0069/T1：argcomplete Shell Tab 补全接线契约。补全直接读现成 argparse parser（build_parser），
-# 命令清单单一真源不复制；autocomplete 必须在 parse_args 之前调、仅补全握手时介入、正常调用零副作用；
-# argcomplete 缺失时优雅降级不崩。
+# Spec-0069/T1: argcomplete Shell Tab Comply with the Connector Compact. Read the complete as build_parser.
+# The list of commands is not copied; autocomplete must be transposed before parse_args, intervene when handshake is completed and normally call zero side effects;
+# Argcomplete is not lost when it is missing.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_main_calls_argcomplete_before_parse(monkeypatch):
-    """main() 在 parse_args 之前调 argcomplete.autocomplete(parser) 恰一次，入参是 argparse parser。"""
+    """Main() parse_args is tuned to argcomplete.autocomplete (parser) just once, with argparse parser."""
     import argparse
 
     calls = []
@@ -474,20 +476,20 @@ def test_main_calls_argcomplete_before_parse(monkeypatch):
             calls.append(parser)
 
     monkeypatch.setattr("openagents.cli.argcomplete", _FakeArgcomplete())
-    # 无命令：parse_args 成功但 args.command 为 None → 打印帮助、返回 2，不触任何 gh/后端。
+    # No command: parse_args succeeded but args.command is None  →  Print Help, returns 2, without touching any gh/backend.
     assert main([]) == 2
     assert len(calls) == 1
     assert isinstance(calls[0], argparse.ArgumentParser)
 
 
 def test_argcomplete_missing_degrades_gracefully(monkeypatch):
-    """argcomplete 缺失（顶层 import 失败 → None）时 CLI 不崩，行为逐字不变。"""
+    """CLI does not fall when argcomplete is missing (top level Import failed None), and the behaviour remains the same word for word."""
     monkeypatch.setattr("openagents.cli.argcomplete", None)
     assert main([]) == 2
 
 
 def test_completion_covers_vigil_options():
-    """补全候选覆盖面：vigil 子命令的全部选项都在 parser 里（argcomplete 据此生成候选）。"""
+    """Complete the candidate coverage: all options for the vigil sub-command are in parser (argecomplete is the basis for the candidate)."""
     subparsers = next(a for a in build_parser()._actions if getattr(a, "choices", None))
     vigil = subparsers.choices["vigil"]
     options = {opt for action in vigil._actions for opt in action.option_strings}

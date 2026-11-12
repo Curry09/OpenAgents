@@ -88,7 +88,7 @@ def test_rebase_failure_is_bounded_and_keeps_a_diagnostic(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(vigil, "_log", lambda **_: None)
 
-    with pytest.raises(WorkspaceError, match="冲突恢复暂未完成"):
+    with pytest.raises(WorkspaceError, match="conflict recovery pending"):
         vigil._do_rebase(backend=object(), work_dir=tmp_path, base="main", facts=_facts())
 
     assert len([call for call in workspace.calls if call[0] == "prepare"]) == 3

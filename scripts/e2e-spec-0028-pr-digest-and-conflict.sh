@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# Spec-0028 端到端测试启动脚本：PR 自动化两处改进的 hermetic 闭环演练。
+# Spec-0028 end-to-end test start script: PR Automation of two improved hermetic closed loop exercises.
 #
-# 改进 1：spec 草稿 PR 正文内嵌组级 9 段总览的三段摘要（Summary / Motivation / Reference-level）。
-# 改进 2：merge 真冲突派 coding agent 语义解冲突，分层降级 indexheal → agent → 人工。
+# Improve the three-part summary of the summary of the 9-part of the embedded group level in the text of the draft 1: spec / Reference-level.
+# Improvement 2: Merage Real Conflicting Convention andent semantic conflict resolution, downgraded by indexheal  →  andent  →  manual.
 #
-# 两段，全程**不触网、不调真实 LLM、不碰真实 gh**：
-#   1) 离线确定性验证（默认执行）—— ruff lint/format + pytest 全套，覆盖 digest 抽取、conflict
-#      resolve_branch 三分支、rebase/messages 分层降级接线的单测。
-#   2) 离线闭环演练（默认执行）—— 用真实落盘的 spec 组演练 overview_digest_for_group 抽三段，
-#      再用 fake backend / fake run 驱动 conflict.resolve_branch 的「干净合并 / agent 解决 / 残留
-#      冲突回落」三条路径。无需任何凭证、CI 可跑、可重复。
+# Two segments, full ** netless, no real LLM, no real gh**:
+#   1) Offline certainty (default) - ruff lint/format + pytest package, overdigest extraction, conflict
+#      Single measurements of the resolve_branch tri-branch, rebase/messages stratification downlink.
+#   2) Offline Cyclops (default execution) - three parts of a real drop-out spec group of overview_digest_for_group,
+#      Use conflict.resolve_branch 'clean merge/ agent to solve / residue
+#      The conflict is back on three paths. No proof, no CI, can run, can repeat.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0028-pr-digest-and-conflict.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + (Modular Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 echo
-echo "==> [2/2] 离线闭环演练：digest 抽三段 + resolve_branch 分层降级（fake backend / fake run）"
+echo "==> [2/2] Offline closed loop:digest Three. + resolve_branch Decline in tiered (%2)fake backend / fake run）"
 uv run --extra dev python - <<'PY'
-# Spec-0028/T4：hermetic 演练——不触网、不调真实 LLM、不碰真实 gh。
+# Spec-0028/T4: Hermetic exercise - netless, LLM untouched, real untouched.
 import tempfile
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -36,20 +36,20 @@ from openagents.spec import model as spec_model
 from openagents.spec.model import Group, Metadata, Overview, Task
 from openagents.spec.signpost import overview_digest_for_group
 
-# --- 改进 1：把一份真实 spec 组落盘，再抽组级总览三段摘要 -------------------- #
+# --- Improvements 1: Disassembly a real spec group, draw a three-part summary of the --------------------#
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     group = Group(
         number="0028",
         metadata=Metadata(
-            title="PR 自动化两处改进", issue=79, slug="pr-digest-and-conflict-agent", summary="TL;DR"
+            title="PR Automation of two improvements", issue=79, slug="pr-digest-and-conflict-agent", summary="TL;DR"
         ),
         tasks=[Task(id="T1", title="digest", status="done", priority="P1")],
         overview=Overview(
-            summary="源自实跑 PR #76 的两个相互独立的观察。",
-            motivation="两个痛点都在 PR 自动化链路上：正文读不到设计、冲突一律甩人工。",
-            reference_level="离线跑 `scripts/e2e-spec-0028-pr-digest-and-conflict.sh`（ruff + pytest）。",
-            drawbacks="这一段不应进 digest（只取三段）。",
+            summary="It’s from the field. PR #76 Two independent observations.",
+            motivation="Both of them. PR Automation chain road: design is not read in the body, conflict is manual.",
+            reference_level="Offline. `scripts/e2e-spec-0028-pr-digest-and-conflict.sh`（ruff + pytest）。",
+            drawbacks="This part should not go in. digest(twelfth only).",
         ),
     )
     path = spec_model.group_path(
@@ -58,24 +58,24 @@ with tempfile.TemporaryDirectory() as tmp:
     spec_model.dump_group(group=group, path=path)
 
     digest = overview_digest_for_group(group_path=path)
-    assert digest is not None, "digest 不应为 None"
-    assert digest.startswith("## spec 总览（摘自 docs/specs/0028-pr-digest-and-conflict-agent.md）")
-    assert "### Summary" in digest and "源自实跑 PR #76 的两个相互独立的观察。" in digest
+    assert digest is not None, "digest No, it’s not. None"
+    assert digest.startswith("## spec Overview (from docs/specs/0028-pr-digest-and-conflict-agent.md）")
+    assert "### Summary" in digest and "It’s from the field. PR #76 Two independent observations." in digest
     assert "### Motivation" in digest and "### Reference-level explanation" in digest
-    # 只取三段，不含 Drawbacks。
-    assert "Drawbacks" not in digest and "不应进 digest" not in digest
-    # spec 不可读 → None（零回归）。
+    # Take only three paragraphs, excluding Drawbacks.
+    assert "Drawbacks" not in digest and "You shouldn’t have come in. digest" not in digest
+    # Spec is not readable  → None (zero returns).
     assert overview_digest_for_group(group_path=root / "missing.md") is None
-    print("  ✓ 改进 1：overview_digest 抽取 Summary/Motivation/Reference-level 三段、缺失返 None")
+    print("  ✓ Improvements 1：overview_digest Extract Summary/Motivation/Reference-level Three paragraphs. Missing. None")
 
 
-# --- 改进 2：fake backend / fake run 驱动 resolve_branch 分层降级三条路径 ----- #
+# --- Improvements 2：fake backend / fake run Driver resolve_branch Decline 3 Paths ----- #
 def cp(*, returncode=0, stdout=""):
     return CompletedProcess(args=["git"], returncode=returncode, stdout=stdout, stderr="")
 
 
 class FakeGit:
-    """伪 git：按命令分发；conflicts 可变，供 fake backend 解完冲突后清空。"""
+    """Hypocrisy. git: distributed by order;conflicts Variable, supply fake backend We’ll clear the air after the conflict."""
 
     def __init__(self, *, merge_rc, conflicts):
         self.merge_rc = merge_rc
@@ -92,7 +92,7 @@ class FakeGit:
 
 
 class FakeBackend:
-    """伪 coding 后端：调 on_run 模拟 agent 语义解冲突（绝不调真实 LLM）。"""
+    """Hypocrisy. coding Backend: Tones on_run Simulation agent Semantic Conflict LLM）。"""
 
     name = "fake"
 
@@ -107,13 +107,13 @@ class FakeBackend:
 with tempfile.TemporaryDirectory() as tmp:
     wt = Path(tmp)
 
-    # 路径 A：干净合并（无需 agent）→ True。
+    # Path A: Clean Merge (no entry) True.
     git_a = FakeGit(merge_rc=0, conflicts=[])
     assert resolve_branch(worktree=wt, base="main", backend=FakeBackend(on_run=lambda d: None), run=git_a) is True
     assert ["merge", "origin/main", "--no-edit"] in git_a.calls
-    print("  ✓ 改进 2 路径 A：干净合并 → resolved（不调 agent）")
+    print("  ✓ Improvements 2 Path A: Clean Merge → resolved(No tunes) agent）")
 
-    # 路径 B：冲突 → agent 解干净 + 自测过 → add/commit → True。
+    # Path B: Conflict → agent Clean it up. + Self-surveyed. → add/commit → True。
     git_b = FakeGit(merge_rc=1, conflicts=["a.py"])
 
     def resolve_clean(d):
@@ -122,9 +122,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
     assert resolve_branch(worktree=wt, base="main", backend=FakeBackend(on_run=resolve_clean), run=git_b) is True
     assert ["add", "-A"] in git_b.calls and ["commit", "--no-edit"] in git_b.calls
-    print("  ✓ 改进 2 路径 B：agent 语义解决 + 自测过 → add/commit → resolved")
+    print("  ✓ Improvements 2 Path B：agent Semantic Resolution + Self-surveyed. → add/commit → resolved")
 
-    # 路径 C：冲突 → agent 留残标（自测失败）→ merge --abort → False（回落人工）。
+    # Path C: Conflict  →  agent left (self-successful)  → merge --abort  →  False (returning manual).
     git_c = FakeGit(merge_rc=1, conflicts=["a.py"])
 
     def leave_marker(d):
@@ -133,11 +133,11 @@ with tempfile.TemporaryDirectory() as tmp:
 
     assert resolve_branch(worktree=wt, base="main", backend=FakeBackend(on_run=leave_marker), run=git_c) is False
     assert ["merge", "--abort"] in git_c.calls and ["commit", "--no-edit"] not in git_c.calls
-    print("  ✓ 改进 2 路径 C：残留冲突标记 / 自测失败 → merge --abort → 回落人工")
+    print("  ✓ Improvements 2 Path C: Residual conflict markers / Self-measure failure → merge --abort → Backwards")
 
 print()
-print("✓ Spec-0028 hermetic 演练通过：改进 1 digest 抽取 + 改进 2 resolve 分层降级，全程不触网/无 LLM/无 gh。")
+print("✓ Spec-0028 hermetic Exercise through: Improvement 1 digest Extract + Improvements 2 resolve Decline in layers, and you’re not going to touch the net./None LLM/None gh。")
 PY
 
 echo
-echo "✓ Spec-0028 端到端脚本完成（离线确定性 + 闭环演练两段全过）。"
+echo "✓ Spec-0028 End-to-end script complete (delineal certainty) + The two-part closed-ring exercise is over."

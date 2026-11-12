@@ -97,7 +97,7 @@ def test_developer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
     spec.parent.mkdir(parents=True)
     spec.write_text("frozen", encoding="utf-8")
     (tmp_path / "META_SPEC.md").write_text(
-        "# Harness Meta-Spec\n\n双方仓库均可修改。", encoding="utf-8"
+        "# Harness Meta-Spec\n\nBoth repositories may be modified.", encoding="utf-8"
     )
     node = SpecNode(
         issue=IssueInput(1, "title", "body"),
@@ -148,11 +148,13 @@ def test_developer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
 
     assert result.status == "DELIVERED"
     assert "project Meta-Spec" in received["context"]
-    assert "双方仓库均可修改" in received["context"]
+    assert "Both repositories may be modified." in received["context"]
 
 
 def test_spec_writer_receives_target_meta_spec_as_context(monkeypatch, tmp_path):
-    (tmp_path / "META_SPEC.md").write_text("# Harness Meta-Spec\n\n因果链优先。", encoding="utf-8")
+    (tmp_path / "META_SPEC.md").write_text(
+        "# Harness Meta-Spec\n\nThe chain of causation is the priority.", encoding="utf-8"
+    )
     received = {}
 
     monkeypatch.setattr(
@@ -172,7 +174,7 @@ def test_spec_writer_receives_target_meta_spec_as_context(monkeypatch, tmp_path)
 
     assert result.status == "BLOCKED"
     assert "project Meta-Spec" in received["context"]
-    assert "因果链优先" in received["context"]
+    assert "The chain of causation is the priority." in received["context"]
 
 
 def _acceptance_fixture(tmp_path: Path) -> tuple[SpecNode, DevelopmentResult]:

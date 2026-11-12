@@ -1,9 +1,9 @@
-"""Spec-0023/T3: release 模块（预检 + 物化版本分支/tag + 版本递增）的单元测试。
+"""Spec-0023/T3: test the unit of the module (pre-check + PHP branch/tag + version incremental).
 
-打桩 github.* / state / subprocess（git tag/push），保持 hermetic（不触达真实 gh/git）。
-覆盖：有 BLOCKED run → False；有 needs-human PR → False；main CI 非绿 → False；
-全过 → 建 release/vX.Y.Z 分支 + 打 tag + 推送且 released=True（版本号语义化递增）；
-无 tag → v0.1.0；bump=minor/major 生效；语义化排序（v0.10.0 > v0.9.0）；push 失败抛错。
+Prick a gitthub.* / state / subproces (git tag/push), keep hermetic (untouching the real gh/git).
+Coverage: BLONKED run  →  False; needs-human PR  →  False; Main CI non-green  →  False;
+ →  Build release/vX.Y.Z branch + hit tag + push and released =True (enhancement of version numbers);
+No tag v0.1.0; bump=minor/major effective; semantic sorting (v0.10.0 > v0.9.0 > ); push failed to drop the error.
 """
 
 import subprocess
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-# Spec-0063/T3: STATUS_* 从 runtime 权威词表、State→RuntimeState（set_run 写 dict 记录）。
+# Spec-0063/T3: STATUS_* From Runtime authoritative vocabulary, StateQruntestate (set_run writing dict records).
 from openagents.runtime.state import STATUS_FAILED, STATUS_PR_OPEN, RuntimeState
 from openagents.utils import release as release_module
 from openagents.utils.github import PR
@@ -19,7 +19,7 @@ from openagents.utils.release import ReleaseResult, _next_version, release
 
 
 def _state(tmp_path, *, runs=()):
-    # Spec-0063/T3: 用 RuntimeState.set_run 写 run 记录（status/branch/pr_number）。
+    # Spec-0063/T3: Write run logs (status/branch/pr_number) in RuntimeState.set_run.
     state = RuntimeState(path=tmp_path / ".openagents" / "runtime-state.json")
     for issue_number, status in runs:
         state.set_run(
@@ -32,7 +32,7 @@ def _state(tmp_path, *, runs=()):
 
 
 def _patch_github(monkeypatch, *, open_prs=(), labeled=(), ci_green=True):
-    """打桩 github：open PR 列表、带 needs-human 的 PR 集合、分支 CI 绿否。"""
+    """Pocket g Thub: open PR list, PR collection with needs-human, branch CI Green."""
     monkeypatch.setattr(
         release_module.github,
         "list_open_prs",
@@ -54,9 +54,9 @@ def _patch_github(monkeypatch, *, open_prs=(), labeled=(), ci_green=True):
 
 
 def _patch_git(monkeypatch, *, tags=(), push_returncode=0, stderr=""):
-    """打桩 subprocess.run：`git tag --list v*` 返回 tags，其余（push/tag）记录并按结果返回。
+    """Pile subprocess.run: `git tag --list v*` returns tags, the rest (push/tag) records and returns as a result.
 
-    返回 calls 列表，供断言依次发生了哪些 git 调用。
+    Returns the calles list for the claim which git calls in turn.
     """
     calls = []
 
@@ -66,13 +66,13 @@ def _patch_git(monkeypatch, *, tags=(), push_returncode=0, stderr=""):
         class _Proc:
             pass
 
-        # 读取已发布 tag：返回换行分隔的 tags（始终成功）。
+        # Read published tags: returns separated tags (always successful).
         if args[:3] == ["git", "tag", "--list"]:
             _Proc.returncode = 0
             _Proc.stdout = "\n".join(tags)
             _Proc.stderr = ""
             return _Proc()
-        # 物化动作（push 分支 / 打 tag / push tag）：按预设结果返回。
+        # Graphical action (push branch / punch tag / push tag): returns with the preset result.
         _Proc.returncode = push_returncode
         _Proc.stdout = ""
         _Proc.stderr = stderr
@@ -83,12 +83,12 @@ def _patch_git(monkeypatch, *, tags=(), push_returncode=0, stderr=""):
 
 
 # --------------------------------------------------------------------------- #
-# _next_version：版本递增纯函数
+# _next_version: An incremental purity function for version
 # --------------------------------------------------------------------------- #
 
 
 def test_next_version_no_tag_starts_at_initial():
-    # 无任何版本 tag → 首发 v0.1.0（忽略 bump）。
+    # No version available tag → Start v0.1.0(neglect) bump）。
     assert _next_version(latest=None, bump="patch") == "v0.1.0"
     assert _next_version(latest=None, bump="major") == "v0.1.0"
 
@@ -105,7 +105,7 @@ def test_next_version_rejects_unknown_bump():
 
 
 # --------------------------------------------------------------------------- #
-# 预检拦截
+# Pre-screen intercept.
 # --------------------------------------------------------------------------- #
 
 
@@ -120,7 +120,7 @@ def test_failed_run_blocks_release(tmp_path, monkeypatch):
     assert result.released is False
     assert result.version == ""
     assert "#3" in result.reason
-    assert git_calls == []  # 预检未过 → 完全不碰 git
+    assert git_calls == []  # No pre-test. No touch.
 
 
 def test_needs_human_pr_blocks_release(tmp_path, monkeypatch):
@@ -149,7 +149,7 @@ def test_main_ci_not_green_blocks_release(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# 预检全过 → 物化版本
+# Pre-inspection complete.
 # --------------------------------------------------------------------------- #
 
 
@@ -158,13 +158,13 @@ def test_all_checks_pass_materializes_branch_and_tag(tmp_path, monkeypatch):
     bootstrapped = _patch_github(monkeypatch, open_prs=[8], labeled=[])
     git_calls = _patch_git(monkeypatch, tags=["v1.2.3"])
 
-    result = release(state=state)  # 默认 bump=patch
+    result = release(state=state)  # Default butmp=Patch
 
     assert result.released is True
     assert result.version == "v1.2.4"
     assert result.reason == "ok"
-    assert bootstrapped == [True]  # 物化前先兜底流程标签
-    # 依次：读 tag → push 发布分支 → 打 tag → push tag。
+    assert bootstrapped == [True]  # Run a process label before you can get anything.
+    # In turn: Read tag poush distribution branch jab tag poush tag.
     assert git_calls == [
         ["git", "tag", "--list", "v*"],
         ["git", "push", "origin", "main:refs/heads/release/v1.2.4"],
@@ -176,7 +176,7 @@ def test_all_checks_pass_materializes_branch_and_tag(tmp_path, monkeypatch):
 def test_first_release_without_tags_is_v0_1_0(tmp_path, monkeypatch):
     state = _state(tmp_path)
     _patch_github(monkeypatch)
-    git_calls = _patch_git(monkeypatch, tags=[])  # 仓库无任何 tag
+    git_calls = _patch_git(monkeypatch, tags=[])  # There's no tag in the warehouse.
 
     result = release(state=state)
 
@@ -187,7 +187,7 @@ def test_first_release_without_tags_is_v0_1_0(tmp_path, monkeypatch):
 def test_bump_minor_and_semantic_ordering(tmp_path, monkeypatch):
     state = _state(tmp_path)
     _patch_github(monkeypatch)
-    # 语义化排序：最新应取 v0.10.0（而非字典序的 v0.9.0）。
+    # Semantic Sorting: The latest v0.10.0 (rather than v0.9.0 for dictionary).
     _patch_git(monkeypatch, tags=["v0.9.0", "v0.10.0"])
 
     result = release(state=state, bump="minor")
@@ -215,12 +215,12 @@ def test_push_failure_raises(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0035/T3: 网络 git（push）超时 → RuntimeError（携 action 语境）；_git 传 timeout=
+# Spec-0035/T3: Network git(push) timeout  →  RuntemeError (with action); _git pass timeout=
 # --------------------------------------------------------------------------- #
 
 
 def test_push_timeout_raises_runtime_error_with_action(tmp_path, monkeypatch):
-    # push 走网络：tag --list 正常返回，push 一抛 TimeoutExpired → RuntimeError（携 action 语境）。
+    # Push-on-line: Tag --list returns normally, Push-on TimeoutExpired  →  RuntimeError (with action)
     state = _state(tmp_path)
     _patch_github(monkeypatch)
 
@@ -232,12 +232,12 @@ def test_push_timeout_raises_runtime_error_with_action(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", runner)
     with pytest.raises(RuntimeError) as excinfo:
         release(state=state)
-    assert "物化发布分支" in str(excinfo.value)
-    assert "超时" in str(excinfo.value)
+    assert "Publish release branch" in str(excinfo.value)
+    assert "timeout" in str(excinfo.value)
 
 
 def test_release_git_passes_net_timeout(tmp_path, monkeypatch):
-    # _git（push 分支/tag/push tag）必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS。
+    # _git (push branch /tag/push tag) must pass timeout = _GIT_NET_TIMEOUT_SECONDS to subprocess.run.
     state = _state(tmp_path)
     _patch_github(monkeypatch)
     seen = []
@@ -250,5 +250,5 @@ def test_release_git_passes_net_timeout(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", runner)
     release(state=state)
-    assert seen  # 至少一次 push
+    assert seen  # At least once.
     assert all(t == release_module._GIT_NET_TIMEOUT_SECONDS for t in seen)

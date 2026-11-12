@@ -1,4 +1,4 @@
-// Spec-0073/T4: 看板小窗单测（vitest + jsdom + testing-library）。
+// Spec-0073/T4: Check board cards, statuses, and selection.
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { DesktopContext, type DesktopContextValue } from '../App'
@@ -21,7 +21,7 @@ function renderBoard(value: DesktopContextValue): void {
 }
 
 describe('Board', () => {
-  it('渲染 N 张卡，状态/徽标正确', () => {
+  it('renders one card per entry with the right status and badge', () => {
     const board: BoardEntry[] = [
       { subject: 'issue:1', status: 'claimed', pending: 'automation-failed', automation_failed: true },
       { subject: 'pr:2', status: 'claimed', pending: 'pr-to-merge', pr: 2, pr_ready_to_merge: true }
@@ -30,10 +30,10 @@ describe('Board', () => {
     expect(screen.getByText('issue:1')).toBeInTheDocument()
     expect(screen.getByText('pr:2')).toBeInTheDocument()
     expect(screen.getByText('automation-failed')).toBeInTheDocument()
-    expect(screen.getByText('✅ PR#2 等合并')).toBeInTheDocument()
+    expect(screen.getByText('✅ PR#2 awaiting merge')).toBeInTheDocument()
   })
 
-  it('点击卡片触发 onOpen(subject)', () => {
+  it('opens the subject when its card is clicked', () => {
     const open = vi.fn()
     const board: BoardEntry[] = [{ subject: 'issue:1', status: 'claimed', pending: null }]
     renderBoard(provide(board, open))
@@ -41,19 +41,19 @@ describe('Board', () => {
     expect(open).toHaveBeenCalledWith('issue:1')
   })
 
-  it('空态渲染不报错', () => {
+  it('renders the empty state', () => {
     renderBoard(provide([]))
-    expect(screen.getByText(/暂无并行 subject/)).toBeInTheDocument()
+    expect(screen.getByText(/No active subjects/)).toBeInTheDocument()
   })
 })
 
 describe('stageLabel', () => {
-  it('automation-failed 优先于其它阶段', () => {
+  it('prioritizes automation failure over other statuses', () => {
     expect(stageLabel({ subject: 'issue:1', status: 'claimed', pending: null, automation_failed: true })).toContain(
       'automation-failed'
     )
   })
-  it('无 PR 且排队 → 排队中', () => {
-    expect(stageLabel({ subject: 'issue:1', status: 'queued', pending: null })).toContain('排队中')
+  it('labels an entry without a PR as queued', () => {
+    expect(stageLabel({ subject: 'issue:1', status: 'queued', pending: null })).toContain('Queued')
   })
 })

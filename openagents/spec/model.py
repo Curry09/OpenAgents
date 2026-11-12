@@ -1,15 +1,8 @@
-"""spec 数据层：Task / Overview / Metadata / Group 模型与 **markdown 单文件** round-trip 读写。
+"""Read and write numbered Markdown Specs with structured YAML frontmatter.
 
-issue #69 rust-RFC 形态（总览先行 + 单 spec 自包含）：
-一个 spec 组 = 一个 markdown 文件 `docs/specs/NNNN-slug.md`：
-- **YAML frontmatter**（机器读）：组元数据 number/title/issue/slug/summary + tasks 列表
-  （结构化字段 + scope/acceptance；`files` = 单一 writer 所有权声明，为 issue #71 留源）。
-- **Markdown 正文**（人/agent 读）：组级 rust-RFC 9 段总览（Summary…Future possibilities），
-  feature 全貌自包含地讲一遍，DAG + 文件分配收进 Reference-level；不再有 per-Task 小节。
-
-只懂 docs/specs/ 源数据结构的纯模块（理念 10 解耦），不感知 git / GitHub。
-per-task 版本历史机制退役（决策 D3），历史交给 git + dated 设计文档，Group.history 恒为空。
-Spec-0088/T1: 设计审批摘要区分明确的自引用身份与设计语义，保留旧摘要算法。
+The frontmatter stores group metadata and Tasks. Nine canonical RFC-style
+headings divide the design overview. Dated design records and generated views
+are not numbered groups.
 """
 
 from __future__ import annotations
@@ -25,16 +18,16 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-# 统一的 YAML round-trip 实例（用于 frontmatter）。
+# Uniform YaML round-trip example (for frontmotter).
 _yaml = YAML()
 _yaml.preserve_quotes = True
 _yaml.width = 4096
 _yaml.indent(mapping=2, sequence=4, offset=2)
 
-# frontmatter 里每个 Task 的结构化字段顺序（yaml_key, attr）。dump 一律按此序，键序稳定。
-# 注意：version/lineage/change-reason 等随历史机制退役（决策 D3），不再进 frontmatter。
-# issue #69：scope/acceptance 由正文 prose 改为 frontmatter 短字段（Task 退化成工作分解行，
-# 重 prose 上移到组级 Overview）。
+# frontmatter Every one of them. Task Structure field order (yaml_key, attr）。dump always follow this order, and the key is stable.
+# Note: version/lineage/change-reason, etc., retired from the historical mechanism (decision D3), no longer going to frontmotter.
+# The scope/acceptance is changed from text prose to frontmatter (Task is degraded into a task breakup).
+# Heavy prose up to group Overview.
 _TASK_FM_ORDER: tuple[tuple[str, str], ...] = (
     ("id", "id"),
     ("title", "title"),
@@ -49,8 +42,8 @@ _TASK_FM_ORDER: tuple[tuple[str, str], ...] = (
     ("acceptance", "acceptance"),
 )
 
-# issue #69：组级正文 = rust-RFC 9 段总览（markdown 标题, Overview 属性），dump 按此序。
-# 一个 spec 单独可读、总览先行：feature 全貌在这 9 段讲一遍，Task 只是 frontmatter 工作分解行。
+# Assue #69: The body of the group = rust-RFC 9 paragraph overview (markdown title, Overview property), dump in this order.
+# A single read-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-up-out-out-up-out-out-up-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-out-
 _OVERVIEW_SECTIONS: tuple[tuple[str, str], ...] = (
     ("Summary", "summary"),
     ("Motivation", "motivation"),
@@ -64,48 +57,48 @@ _OVERVIEW_SECTIONS: tuple[tuple[str, str], ...] = (
 )
 _SECTION_BY_HEADING = {heading: attr for heading, attr in _OVERVIEW_SECTIONS}
 
-# 正文切分用：组级段标题 `## Summary` / `## Reference-level explanation` …
+# Body-toe split: group header `## Summary` / `## Reference-level explanation`...
 _SECTION_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
 
-# spec new 脚手架占位：非空（让段标题成型），但 _strip_placeholder 归一为空串。
-_PLACEHOLDER = "<!-- 待填 -->"
+# Spec new scaffolding: non-empty (to make a paragraph title), but _strip_placeholder is one empty string.
+_PLACEHOLDER = "<!-- TODO -->"
 
 
 @dataclass(frozen=True)
 class RelatesTo:
-    """非阻塞的跨 feature 关联（render 里画虚线）。"""
+    """Non-blocked crossfeature association (render drawing of a dash)."""
 
-    # 跨组限定 ID，如 "0012/T2"
+    # Cross-group restricted ID, e. g. "0012/T2"
     ref: str
-    # 关联类型 extends | supersedes | note
+    # Association type
     type: str
 
 
 @dataclass
 class Task:
-    """A single spec Task —— DAG + 文件分配的工作分解行（issue #69 后退化为结构化为主）。
+    """A single spec Task — a breakout line for DAG+ file distribution (issue #69 has been reduced to structuralized).
 
-    结构化字段（status/priority/depends-on/files…）放 frontmatter、可机器校验；
-    issue #69 起，feature 设计叙述上移到组级 Overview，Task 只留两个一行短 prose
-    （scope/acceptance），且二者也放 frontmatter——`files` 是单一 writer 所有权声明
-    （理念 6 / issue #71 运行期 owner 检查的结构化源）。
+    Structured fields (status/priority/depends-on/files...) with frontmatter, machine-readable;
+    Asset #69, feature design description up to group Overview, Task leaves only two short lines prose
+    (scope/acceptance) and both also put frontmotter -- `files` is a single Writer ownership declaration
+    (Structural source of 6 /issue #71 run-time owner check).
 
-    version/lineage 字段保留在数据类里（带默认值）以最小化 render 改动（决策 D2），
-    但历史机制退役后不再由 frontmatter 写入、Group.history 恒空。
+    version/lineage Fields to be kept in the data class (with default values) to minimize render Change (decision-making) D2），
+    But the historical mechanism is no longer written by frontmatter, Group.history.
     """
 
-    # ── 身份与状态 ──
+    # Identities and status ─
     id: str
     title: str
     status: str
     priority: str
     tags: list[str] = field(default_factory=list)
-    # ── 关系 ──
+    # ─ Relationship ─ ─
     depends_on: list[str] = field(default_factory=list)
     relates_to: list[RelatesTo] = field(default_factory=list)
     parallel: bool = False
     files: list[str] = field(default_factory=list)
-    # ── 演化 / 血缘（保留默认值，决策 D3 后不活跃）──
+    # ─ Evolution / blood (retain default, D3 decision not active) _
     version: int = 1
     updated: str = ""
     change_reason: str = ""
@@ -113,17 +106,17 @@ class Task:
     split_from: str | None = None
     merged_from: list[str] = field(default_factory=list)
     derived_from: list[str] = field(default_factory=list)
-    # ── 工作分解短 prose（进 frontmatter；重设计叙述见组级 Overview）──
+    # ─ Work decomposition short prose (in front matter; re-design description in group Overview) -
     scope: str = ""
     acceptance: str = ""
 
 
 @dataclass(frozen=True)
 class Overview:
-    """组级 rust-RFC 9 段总览（issue #69）—— feature 全貌的自包含叙述，放 markdown 正文。
+    """Group Rust-RFC 9 Summary (issue #69) - full self-inclusion description of feature, in markdown text.
 
-    单 spec 自包含：读完这 9 段即理解本 feature，无需打开其它 spec；DAG + 文件分配
-    收进 reference_level。字段名与 `_OVERVIEW_SECTIONS` 的 attr 一一对应。
+    Single spec self: read this 9 paragraph to understand this feature without opening other specs; DAG+file distribution
+    reference_level. Field names correspond to the attr of `_OVERVIEW_SECTIONS`.
     """
 
     summary: str = ""
@@ -139,12 +132,12 @@ class Overview:
 
 @dataclass(frozen=True)
 class E2EPlan:
-    """Spec-0055/T2：组级 e2e 测法——RFC 阶段声明「验什么 + 怎么测」，executor 运行时直接照它跑。
+    """Spec-0055/T2: Group e2e Measurement - RFC stage states ”What + How to do it”, and executo runs directly following it.
 
-    承载「要不要验、验什么、怎么测」：`intent` 一句话意图（RFC 闸批准后冻结，tautology guard 支点），
-    `method` 一段 prose 测法（怎么测的人话步骤，**不含精确命令**——命令由 executor 运行时自己敲）。
-    从 0040 的 {form,intent,acceptance[]} 瘦身而来：砍掉 form（executor 运行时自检工具选路）与
-    acceptance（并进 method）。整块可选（Metadata.e2e 默认 None）——非交互 PR 不声明即零回归。
+    The `intent` message (freezing after the RFC gate, tautology gard feed point) is a ”dating, checking, what, how”:
+    `method` a prose measurement (how to measure human voice steps,** does not contain precise orders** - orders are to be knocked by executor when running).
+    Skinned from {form,intent,acceptance[]}: cut off form
+    Acceptance (and go to method). The whole block is optional (Metadata.e2e default None) - Non-interactive PR does not declare or zero returns.
     """
 
     intent: str = ""
@@ -197,19 +190,19 @@ class VerificationPlan:
 
 @dataclass(frozen=True)
 class Metadata:
-    """组级元数据（一个 spec 组 = 一个 issue/feature）。"""
+    """Group metadata (a spec group = a issue/feature)."""
 
     title: str
     issue: int
     slug: str
-    # Spec-0015：组级人话 TL;DR（整个 feature 的「是啥/为什么/产出什么」）。
-    # 默认空串兼容旧调用点；非空由 validate 的 _summary_checks 强制。
+    # Spec-0015: Summarize the feature in plain language for the overview.
+    # Default empty string compatible with old call points; non-empty validate It's... _summary_checks Forced.
     summary: str = ""
-    # Spec-0072/T1：组级「原子交付」声明（可选）。默认空串 = 未声明（既有 spec 零回归）；
-    # 非空即声明本组是一次原子交付，豁免 >6 Task 软上限的 warning（validate._task_count_checks）。
+    # Spec-0072/T1: Group-level "Atom Delivery" declaration (optional). Default empty string = undeclared (existing spec no behavior change);
+    # The non-empty-estate declaration group is an atomic delivery, exempting >6 Task soft caps from the warning (validate._task_count_checks).
     oversized_rationale: str = ""
-    # Spec-0040/T1：组级 e2e 粗规划（可选）。None = 未声明（既有 spec 零回归）；非 None 时由
-    # validate._e2e_checks 强制 form 合法 / intent 非空 / acceptance≥1。
+    # Spec-0040/T1: Group e2e rough plan (optional). None = undeclared (spec zero returns); non-None by
+    # validate._e2e_checks forces form/ inent non-empty/ acceptance1.
     e2e: E2EPlan | None = None
     architecture: ArchitectureDecision | None = None
     verification: VerificationPlan | None = None
@@ -217,16 +210,16 @@ class Metadata:
 
 @dataclass(frozen=True)
 class Group:
-    """一个 spec 组的全部源数据。markdown 形态下 history 恒为空（决策 D3）。"""
+    """All source data for a spec group. Always empty in the markdown form (decision D3)."""
 
-    # 四位编号 "0009"（与旧 RFC 编号 1:1 兼容）
+    # Four-digit "0009" (compatible with old RFC number 1:1)
     number: str
     metadata: Metadata
-    # 当前版 Task 快照（status 含 done，做完不离开快照）
+    # Current Task Scatter
     tasks: list[Task]
-    # issue #69：组级 rust-RFC 9 段总览（feature 全貌，放正文）
+    # Missue #69: Group Rust-RFC 9 Summary (feature full, text)
     overview: Overview = field(default_factory=Overview)
-    # 退役：保留字段让 render/validate 无需改动，恒为空 dict
+    # Decommission: Keep field to keep render/validate unchanged, always empty
     history: dict[str, list[Task]] = field(default_factory=dict)
 
 
@@ -236,15 +229,15 @@ def qualified_id(*, group: str, task_id: str) -> str:
 
 
 def group_path(*, specs_root: Path, number: str, slug: str) -> Path:
-    """组 markdown 文件路径 docs/specs/NNNN-slug.md。"""
+    """Group markdown file path docs/specs/NNNN-slug.md."""
     return specs_root / f"{number}-{slug}.md"
 
 
 def load_group(*, path: Path) -> Group:
     """Load one spec group from a markdown file (frontmatter + body).
 
-    frontmatter 提供组元数据与各 Task 结构化字段；正文按 `## <rust 段名>` 切出组级
-    Overview 9 段（issue #69）。
+    frontmatter Provide cluster metadata and other data Task structured fields; text by ’## <rust Section Name>’ Cut out the group
+    Overview, paragraph 9 (issue #69).
     """
     text = path.read_text(encoding="utf-8")
     meta, body = _split_frontmatter(text=text)
@@ -254,9 +247,9 @@ def load_group(*, path: Path) -> Group:
         issue=int(meta.get("issue", 0)),
         slug=str(meta.get("slug", "")),
         summary=str(meta.get("summary", "")),
-        # Spec-0072/T1：缺失即空串（既有 spec 零回归）。
+        # Spec-0072/T1: Missing or empty string (established spec zero returns).
         oversized_rationale=str(meta.get("oversized-rationale", "")),
-        e2e=e2e_from_mapping(data=meta.get("e2e")),  # Spec-0040/T1：无 e2e 块 → None。
+        e2e=e2e_from_mapping(data=meta.get("e2e")),  # Spec-0040/T1: No e2e block none.
         architecture=architecture_from_mapping(data=meta.get("architecture")),
         verification=verification_from_mapping(data=meta.get("verification")),
     )
@@ -270,8 +263,8 @@ def load_group(*, path: Path) -> Group:
 def load_all(*, specs_root: Path) -> list[Group]:
     """Load every spec group markdown file under specs_root (sorted by number).
 
-    只认组文件 `NNNN-slug.md`（slug 以字母起，排除 dated 设计文档 `YYYY-MM-DD-*.md`
-    与 OVERVIEW.md / ARCHITECTURE.md / README.md）；空仓库返回 []。
+    Only group files `NNNN-slug.md` (slug as letter, exclude deded design document `YYYY-MM-DD-*.md`
+    With OVERVIEW.md / ARCHITECTURE.md / README.md; empty warehouse returns [].
     """
     if not specs_root.is_dir():
         return []
@@ -296,12 +289,12 @@ def render_group(*, group: Group) -> str:
     fm["issue"] = group.metadata.issue
     fm["slug"] = group.metadata.slug
     fm["summary"] = group.metadata.summary
-    # Spec-0072/T1：oversized-rationale 仅在声明（非空）时写入，夹在 summary 之后、e2e/tasks 之前；
-    # 未声明即整键不出现，保持既有 spec 逐字节不变、零回归。
+    # Spec-0072/T1: Oversized-rationale only writes at the time of the declaration (not empty), and is attached to e2e/tasks after the summy;
+    # Do not declare or the whole key appears, keeping the spec byte and no behavior change.
     if group.metadata.oversized_rationale:
         fm["oversized-rationale"] = group.metadata.oversized_rationale
-    # Spec-0040/T1：e2e 粗规划仅在声明时写入 frontmatter（None 即整块不出现，保持既有 spec 逐字节
-    # 不变、零回归）。夹在 summary 之后、tasks 之前，与其组级元数据身份一致。
+    # Spec-0040/T1:e2e Crude plan only writes frontmatter (None, whole block does not appear, maintains an existing spec byte) when making the statement
+    # No change, no return. The group metadata identity is the same after the summary and before the tasks.
     if group.metadata.e2e is not None:
         fm["e2e"] = _e2e_frontmatter(e2e=group.metadata.e2e)
     if group.metadata.architecture is not None:
@@ -318,8 +311,8 @@ def render_group(*, group: Group) -> str:
     head = (
         f"---\n{fm_text}---\n\n"
         f"# {group.number} · {title}\n\n"
-        "<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），"
-        "正文为组级 rust-RFC 9 段总览。 -->\n"
+        "<!-- The spec CLI maintains this file. Frontmatter contains metadata and the task DAG; "
+        "the body is a nine-section Rust RFC-style overview. -->\n"
     )
     body = _render_body(group=group)
     return head + ("\n" + body if body else "") + "\n"
@@ -359,10 +352,10 @@ def task_from_mapping(*, data: object) -> Task:
 
 
 def e2e_from_mapping(*, data: object) -> E2EPlan | None:
-    """Spec-0055/T2：frontmatter 的 e2e 映射 → E2EPlan；缺失（None）返回 None（既有 spec 零回归）。
+    """Spec-0055/T2: FrontMatter e2e map  →  E2Eplan; Missing (None) returns None (both spec no behavior change).
 
-    宽松归一化（与 task_from_mapping 同风格）：intent/method 转 str；非空由 validate._e2e_checks 强制，
-    本函数不判空。旧 {form,acceptance} 键被忽略（additionalProperties=False 会在 validate 报，迁移交 Spec-0056）。
+    Easier integration (similar to task_from_mapping): intent/method rotation st; non-empty forced by validate._e2e_checks,
+    This function does not render emptiness. The old {form,acceptance} key is ignored (additionalProperties =False reports in validate, moving to Spec-0056).
     """
     if data is None:
         return None
@@ -533,7 +526,7 @@ def _plain_verification(*, value: VerificationPlan | None) -> dict | None:
 
 
 def _e2e_frontmatter(*, e2e: E2EPlan) -> CommentedMap:
-    """E2EPlan → frontmatter CommentedMap（固定键序 intent/method）。"""
+    """E2Eplan  → frontmetter CommentedMap (fixed key order intent/method)."""
     out = CommentedMap()
     out["intent"] = e2e.intent
     out["method"] = e2e.method
@@ -541,7 +534,7 @@ def _e2e_frontmatter(*, e2e: E2EPlan) -> CommentedMap:
 
 
 def _task_frontmatter(*, task: Task) -> CommentedMap:
-    """Task → frontmatter CommentedMap（仅结构化字段，固定键序）。"""
+    """Task curtmetter CommentedMap (structured fields only, fixed keys)."""
     out = CommentedMap()
     for yaml_key, attr in _TASK_FM_ORDER:
         value = getattr(task, attr)
@@ -555,9 +548,9 @@ def _task_frontmatter(*, task: Task) -> CommentedMap:
 
 
 def _render_body(*, group: Group) -> str:
-    """组级 rust-RFC 9 段总览（issue #69）：永远输出全部 `## <段名>`，空段填占位。
+    """Group rust-RFC 9 Summary of paragraphs (%2)issue #69）: always output all ’## <Section Name>’, empty slot fills.
 
-    始终成型 9 段既给作者脚手架（spec new），又让「总览先行」结构稳定可断言/可校验。
+    The Scaffolding (spec new) is always in shape, and the ”sum-head” structure is acclaimable/verifiable.
     """
     chunks: list[str] = []
     for heading, attr in _OVERVIEW_SECTIONS:
@@ -567,7 +560,7 @@ def _render_body(*, group: Group) -> str:
 
 
 def _split_frontmatter(*, text: str) -> tuple[dict, str]:
-    """拆出 YAML frontmatter（首段 --- … ---）与其后正文。无 frontmatter 则返回 ({}, text)。"""
+    """Removes the YaML frontmatter (first paragraph ---... ---) and the subsequent body. No frontmatter returns ((), text)."""
     if not text.startswith("---"):
         return {}, text
     lines = text.split("\n")
@@ -585,7 +578,7 @@ def _split_frontmatter(*, text: str) -> tuple[dict, str]:
 
 
 def _parse_body(*, body: str) -> Overview:
-    """正文 → 组级 Overview（issue #69）。按 `## <rust 段名>` 切段；占位段归一为空串。"""
+    """Text → Group Overview（issue #69）。Press ’## <rust Section Name>’ Cut; placeholder is empty."""
     sections: dict[str, str] = {}
     current_attr: str | None = None
     buffer: list[str] = []
@@ -607,20 +600,20 @@ def _parse_body(*, body: str) -> Overview:
 
 
 def _strip_placeholder(*, text: str) -> str:
-    """占位 `<!-- 待填 -->`-only 的段归一为空串（spec new 脚手架与真实空段等价）。"""
+    """The slots of `<!-- TODO -->`-only are empty (spec new scaffolds and real empty segments)."""
     return "" if text.strip() == _PLACEHOLDER else text
 
 
 def _is_group_file(*, name: str) -> bool:
-    """文件名是否组文件 `NNNN-slug.md`（四位数字 + '-' + 字母起的 slug）。
+    """Whether or not the filename groups the `NNNN-slug.md` files (slug from four-digit + ’-’+ letters).
 
-    排除 dated 设计文档 `YYYY-MM-DD-*.md`（第 6 位是数字）与生成物/README。
+    Exclude dated Design Document `YYYY-MM-DD-*.md`(No.) 6 Bits are numbers) and the generator/README。
     """
     return bool(re.match(r"^\d{4}-[A-Za-z][^/]*\.md$", name))
 
 
 def _str_list(*, value: object) -> list[str]:
-    """列表字段统一成 list[str]；None → []。"""
+    """List fields are unified into list[str]; None  →  []."""
     if value is None:
         return []
     return [str(item) for item in value]

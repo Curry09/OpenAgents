@@ -1,4 +1,4 @@
-/* Spec-0073/T3: 桌面看板基础样式（暗色，成果呈现优先）。字段配色以 board.html 为起点。 */
+/* Spec-0073/T3: Shared dark dashboard styles. */
 :root {
   --bg: #0e1116;
   --panel: #161b22;

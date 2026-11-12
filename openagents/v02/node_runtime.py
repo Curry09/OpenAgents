@@ -112,10 +112,10 @@ def _merge() -> None:
     record = json.loads((_EXPORT / "development.json").read_text(encoding="utf-8"))
     acceptance = record.get("acceptance") or {}
     if acceptance.get("verdict") != "PASS":
-        raise RuntimeError("Acceptance 未 PASS，拒绝合并")
+        raise RuntimeError("Acceptance did not PASS; merge refused")
     development = DevelopmentResult(**_tuple_development(record["development"]))
     if acceptance.get("head_sha") != development.head_sha:
-        raise RuntimeError("Acceptance PASS 未绑定 Developer 当前 HEAD")
+        raise RuntimeError("Acceptance PASS is not bound to the current Developer HEAD")
     _configure_forge()
     _adapter().merge(node=node, development=development)
     _write_json(
@@ -140,7 +140,7 @@ def _backend() -> ClaudeCodeBackend | NexAUBackend:
         return ClaudeCodeBackend()
     if name == "nexau":
         return NexAUBackend()
-    raise ValueError(f"未知 V02_BACKEND：{name}")
+    raise ValueError(f"Unknown V02_BACKEND: {name}")
 
 
 def _node(*, payload: dict) -> SpecNode:

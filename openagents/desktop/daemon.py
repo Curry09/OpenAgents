@@ -1,17 +1,9 @@
-"""# Spec-0073/T2: 本地 daemon 接口（HTTP + SSE），只听 127.0.0.1。
+# Spec-0073/T2
+"""Serve the desktop dashboard over local HTTP and server-sent events.
 
-两个端点：
-- `GET /board` → 读 `vigil-queue.db` 的 `work_queue`（subject/status/worker/attempts）+ 可选 GitHub 富化 +
-  每个 subject 的**待看类别**（见 `pending_category`），返回 JSON 数组。前端轮询它渲染 N 个小窗看板。
-- `GET /stream/<subject>` → **SSE**（`text/event-stream`）：先把该 subject 的 ring buffer 已有行补发，
-  再按 `?follow=1`（默认）持续增量续推。大窗订它看实时 agent 会话流。
-
-**奥卡姆（理念 1）**：用 stdlib `http.server`，不引 web 框架。请求处理里的**纯逻辑**（`read_work_queue` /
-`build_board` / `pending_category`）与 socket 解耦，可脱离 HTTP 直接单测；HTTP 层只做路由与序列化。
-
-**待看优先级（与前端 `nav/pending.ts` 同序）**：① `automation-failed` 挂起 > ② PR 等合并 > ③ 人类新评论待回 >
-④ 刚变状态。无类别 → 不在待看集（`pending=None`）。GitHub 富化是**可选钩子**：离线（`enrich=None`）时
-只凭 work_queue 出 board，富化字段缺省即各 pending 判据为假——退化为「只呈现队列状态」，行为明确不静默。
+Board entries combine the work queue with available forge data. Pending items
+are ordered by automation failure, awaiting merge, new human comments, then
+recent changes. The renderer shares that priority order.
 """
 
 from __future__ import annotations
@@ -26,7 +18,7 @@ from pathlib import Path
 
 from openagents.utils import streams
 
-# 待看四类（高→低优先级）。
+# Four categories (high and low priority) to be observed.
 PENDING_AUTOMATION_FAILED = "automation-failed"
 PENDING_PR_TO_MERGE = "pr-to-merge"
 PENDING_NEW_COMMENT = "new-comment"
@@ -38,12 +30,12 @@ PENDING_ORDER = [
     PENDING_JUST_CHANGED,
 ]
 
-# SSE 续推轮询间隔（秒）：follow 模式下无新行时的休眠。
+# SSE continues the interrogation interval (sec): hibernation in the non-new line in the follow mode.
 _POLL_INTERVAL = 0.5
 
 
 class DaemonError(RuntimeError):
-    """daemon 起服务失败（如端口占用）——CLI 据此打一行干净错误、非零退出。"""
+    """Daemon failed to get up (e.g. port occupation) - CLI thus made a clean mistake and did not quit."""
 
 
 def pending_category(
@@ -53,7 +45,7 @@ def pending_category(
     has_new_human_comment: bool,
     just_changed: bool,
 ) -> str | None:
-    """按四级优先级把一个 subject 的状态归到一个待看类别；都不满足返回 None（不在待看集）。"""
+    """The status of a subproject is classified as a category to be watched in a 4th priority; neither returns None (not in the set to be read)."""
     if automation_failed:
         return PENDING_AUTOMATION_FAILED
     if pr_ready_to_merge:
@@ -66,7 +58,7 @@ def pending_category(
 
 
 def read_work_queue(*, db_path: Path) -> list[dict]:
-    """读 `work_queue` 一行一 subject 的快照；DB 不存在（vigil 没跑过）返回空列表，不抛。"""
+    """Read a snapshot of `work_queue` for a line of subsubject; DB does not exist (vigil did not run) returns an empty list without dropping."""
     path = Path(db_path)
     if not path.exists():
         return []
@@ -82,10 +74,10 @@ def read_work_queue(*, db_path: Path) -> list[dict]:
 
 
 def build_board(*, rows: list[dict], enrich: Callable[[str], dict] | None) -> list[dict]:
-    """把 work_queue 行 + 可选 GitHub 富化合成 board 条目，并算每 subject 的待看类别。纯函数、易测。
+    """work_queue Line + Optional GitHub eutrophication of the board entry and counting as a category to be looked at for each subproject. Pure function, easy to measure.
 
-    `enrich(subject)` 返回一个 dict，可含 `pr` / `labels` / `automation_failed` / `pr_ready_to_merge` /
-    `has_new_human_comment` / `just_changed` 等前端字段；`None` = 离线，全部缺省为假。
+    `enrich(subject)` returns a dict that contains `pr`/ `labels`/ `automation_failed`/ `pr_ready_to_merge`/
+    `has_new_human_comment` / `just_changed`, etc. frontend field; `None` = offline, all of which are not siphoned.
     """
     board: list[dict] = []
     for row in rows:
@@ -111,7 +103,7 @@ def build_board(*, rows: list[dict], enrich: Callable[[str], dict] | None) -> li
 def default_board_fn(
     *, db_path: Path, enrich: Callable[[str], dict] | None
 ) -> Callable[[], list[dict]]:
-    """CLI 用：绑定 db_path（+可选富化钩子）成一个无参 board 提供函数，供 handler 每次请求现读。"""
+    """CLI provides a function by binding db_path (+ Emancipated Hook) to an unsqualid board for handler to read at request."""
 
     def _fn() -> list[dict]:
         rows = read_work_queue(db_path=db_path)
@@ -121,13 +113,13 @@ def default_board_fn(
 
 
 def make_handler(*, board_fn: Callable[[], list[dict]]) -> type[BaseHTTPRequestHandler]:
-    """造一个闭包住 `board_fn` 的请求处理类。只认 GET，其余路径 404 JSON。"""
+    """Creates a request processing class for `board_fn` in a closed package. Only the GET, the rest of the path 404 JSON."""
 
     class _DesktopHandler(BaseHTTPRequestHandler):
-        def log_message(self, *args) -> None:  # noqa: A002 —— 静音 http.server 默认 stderr 访问日志
+        def log_message(self, *args) -> None:  # noqa: A002 —_ Mute http.server Default stderr Access Log
             return
 
-        def do_GET(self) -> None:  # noqa: N802 —— BaseHTTPRequestHandler 约定方法名
+        def do_GET(self) -> None:  # noqa: N802 —— BaseHTTPRequesthandler
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             if path == "/board":
@@ -164,7 +156,9 @@ def make_handler(*, board_fn: Callable[[], list[dict]]) -> type[BaseHTTPRequestH
                 return
             while follow:
                 more = streams.read_since(subject=subject, after_seq=last_seq)
-                if more is None:  # subject 的 buffer 被清（vigil 复位）→ 收流
+                if (
+                    more is None
+                ):  # The project's buffer is cleared (vigil is restored) and collected
                     return
                 lines, last_seq = more
                 if lines:
@@ -174,7 +168,7 @@ def make_handler(*, board_fn: Callable[[], list[dict]]) -> type[BaseHTTPRequestH
                     time.sleep(_POLL_INTERVAL)
 
         def _emit_lines(self, *, lines: list[str]) -> bool:
-            """把每行按 SSE `data:` 帧写出；客户端断开（BrokenPipe）返回 False 让上层收流。"""
+            """Writes each line by the SSE `data:` frame; the client breakup (BrokenPipe) returns False to get the upper stream."""
             try:
                 for line in lines:
                     for part in line.split("\n"):
@@ -189,23 +183,23 @@ def make_handler(*, board_fn: Callable[[], list[dict]]) -> type[BaseHTTPRequestH
 
 
 def serve(*, host: str, port: int, board_fn: Callable[[], list[dict]]) -> ThreadingHTTPServer:
-    """在 host:port 起一个线程化 HTTP server（不阻塞）。端口占用等 OSError → `DaemonError`。"""
+    """Start a linear HTTP server (without blocking) at host:port. Port occupation, etc. OSERrror `DaemonError`."""
     handler = make_handler(board_fn=board_fn)
     try:
         return ThreadingHTTPServer((host, port), handler)
     except OSError as exc:
-        raise DaemonError(f"无法在 {host}:{port} 起 desktop daemon（端口占用？）：{exc}") from exc
+        raise DaemonError(f"Could not start the desktop daemon at {host}:{port}: {exc}") from exc
 
 
 def run(*, host: str, port: int, board_fn: Callable[[], list[dict]]) -> None:
-    """前台常驻：起服务并 `serve_forever`，Ctrl-C 干净收尾。"""
+    """Front desk permanent: `serve_forever`, Ctrl-C clean-out."""
     server = serve(host=host, port=port, board_fn=board_fn)
     bound_port = server.server_address[1]
-    print(f"✓ desktop daemon: http://{host}:{bound_port}  (Ctrl-C 停止)", flush=True)
+    print(f"✓ desktop daemon: http://{host}:{bound_port}  (press Ctrl-C to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n✓ desktop daemon 已停止", flush=True)
+        print("\n✓ Desktop daemon stopped", flush=True)
     finally:
         server.shutdown()
         server.server_close()

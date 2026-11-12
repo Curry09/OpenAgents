@@ -1,8 +1,8 @@
-"""Spec-0030/T2: envcheck 体检模块单测。
+"""Spec-0030/T2: envcheck medical check module single test.
 
-打桩 HOME（让 ~/.claude.json 指向 tmp_path）+ env 覆盖各分支；断言 detect_browser_mcp
-对含 / 缺 mcpServers、缺文件、非法 JSON 各返回正确在册标志且不抛，render_report 在缺失 /
-满足两态输出正确文本，且模块从不修改 ~/.claude.json。
+Pile a hoME (Jean ~/. claude.json to tmp_path) + env over branches; assert that detect_browser_mcp
+Whether mcpServers is in place, missing files, illegal JSON returns the correct and undiscarded mark, render_report is missing/
+Meets the two-state output of the correct text and the module never changes ~/. claude.json.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from openagents.utils import envcheck
 
 
 def _write_claude_json(home, payload):
-    """在打桩 HOME 下写一份 ~/.claude.json。"""
+    """Write a copy of ~/. claude.json under a stake HOME."""
     path = home / ".claude.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -25,7 +25,7 @@ def _patch_home(monkeypatch, home):
 
 
 # --------------------------------------------------------------------------- #
-# detect_browser_mcp：各数据分支
+# detect_browser_mcp: Data branches
 # --------------------------------------------------------------------------- #
 
 
@@ -60,7 +60,7 @@ def test_detect_no_mcp_servers_key(monkeypatch, tmp_path):
 
 
 def test_detect_missing_file(monkeypatch, tmp_path):
-    # ~/.claude.json 不存在 → 视为均未注册，不抛。
+    # ~. claude.json does not exist  →  and is considered not registered, not dropped.
     _patch_home(monkeypatch, tmp_path)
     status = envcheck.detect_browser_mcp()
     assert status.all_present is False
@@ -68,7 +68,7 @@ def test_detect_missing_file(monkeypatch, tmp_path):
 
 
 def test_detect_invalid_json(monkeypatch, tmp_path):
-    # 非法 JSON → 视为均未注册，不抛。
+    # Illegal JSON Zone is considered not registered, not dropped.
     _patch_home(monkeypatch, tmp_path)
     (tmp_path / ".claude.json").write_text("{ not valid json", encoding="utf-8")
     status = envcheck.detect_browser_mcp()
@@ -77,7 +77,7 @@ def test_detect_invalid_json(monkeypatch, tmp_path):
 
 
 def test_detect_mcp_servers_not_dict(monkeypatch, tmp_path):
-    # mcpServers 是 list 而非 dict → 视为均未注册，不抛。
+    # mcpServers is listed instead of dict thi is considered not registered, not dropped.
     _patch_home(monkeypatch, tmp_path)
     _write_claude_json(tmp_path, {"mcpServers": ["playwright"]})
     status = envcheck.detect_browser_mcp()
@@ -85,7 +85,7 @@ def test_detect_mcp_servers_not_dict(monkeypatch, tmp_path):
 
 
 def test_detect_does_not_modify_claude_json(monkeypatch, tmp_path):
-    # 体检只读不写：调用前后 ~/.claude.json 字节不变。
+    # Medical examination is not read or written: no bytes change before or after ~/.claude.json.
     _patch_home(monkeypatch, tmp_path)
     path = _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}}})
     before = path.read_bytes()
@@ -94,7 +94,7 @@ def test_detect_does_not_modify_claude_json(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# render_report：缺失 / 满足两态
+# render_report: Missing / Satisfactory
 # --------------------------------------------------------------------------- #
 
 
@@ -103,7 +103,7 @@ def test_render_missing_state_has_install_and_export_hints():
     report = envcheck.render_report(mcp=mcp, permission_mode="acceptEdits")
     assert report.all_ok is False
     text = report.text
-    # 安装命令与 export 设置方式都在缺失态报告里。
+    # The installation command and the export settings are both in the missing report.
     assert "claude mcp add playwright" in text
     assert f"export {PERMISSION_MODE_ENV}=bypassPermissions" in text
     assert "⚠" in text
@@ -120,7 +120,7 @@ def test_render_satisfied_state_two_checks_no_install():
 
 
 def test_render_partial_mcp_present_but_not_full_access():
-    # MCP 全在册但权限非全放行 → 仍非全通过、仍提示 export。
+    # MCP is fully registered but not fully released is still not fully adopted and still alerts to the report.
     mcp = envcheck.BrowserMcpStatus(registered=("playwright", "chrome-devtools"), missing=())
     report = envcheck.render_report(mcp=mcp, permission_mode="acceptEdits")
     assert report.all_ok is False
@@ -128,7 +128,7 @@ def test_render_partial_mcp_present_but_not_full_access():
 
 
 def test_check_integrates_detection_and_mode(monkeypatch, tmp_path):
-    # check() 串起检测 + 权限读取：满足态两条 ✓。
+    # Check() Thread + Permission to Read: two bares of content.
     _patch_home(monkeypatch, tmp_path)
     _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}, "chrome-devtools": {}}})
     monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
@@ -138,7 +138,7 @@ def test_check_integrates_detection_and_mode(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0055/T1: ui_capable —— browser MCP 在册 ∧ 权限全放行 才为 True
+# Spec-0055/T1: ui_capable - Browner MCP Book  →  All permissions are granted only to True
 # --------------------------------------------------------------------------- #
 
 
@@ -151,7 +151,7 @@ def test_ui_capable_true_when_mcp_and_full_access(monkeypatch, tmp_path):
 
 def test_ui_capable_false_when_missing_mcp(monkeypatch, tmp_path):
     _patch_home(monkeypatch, tmp_path)
-    _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}}})  # 缺 chrome-devtools
+    _write_claude_json(tmp_path, {"mcpServers": {"playwright": {}}})  # Chrome-devtools missing
     monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
     assert envcheck.ui_capable() is False
 
@@ -164,6 +164,6 @@ def test_ui_capable_false_when_not_full_access(monkeypatch, tmp_path):
 
 
 def test_ui_capable_false_when_no_claude_json(monkeypatch, tmp_path):
-    _patch_home(monkeypatch, tmp_path)  # 无 ~/.claude.json
+    _patch_home(monkeypatch, tmp_path)  # None ~/. claude.json
     monkeypatch.setenv(PERMISSION_MODE_ENV, "bypassPermissions")
     assert envcheck.ui_capable() is False

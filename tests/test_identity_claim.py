@@ -1,10 +1,10 @@
-"""Spec-0049/T2：identity 认领便签标记 + 归属/年龄解析（latest_claim / build_claim_note）单测。
+"""Spec-0049/T2:identity recognition tag + attribution/age resolution (latest_claim/build_claim_note) is a single measure.
 
-纯函数（唯一的「现在」来自 datetime.now，用于算年龄）：不触网、不调 gh。覆盖：
-- build_claim_note → latest_claim 往返保真（owner 还原）；
-- latest_claim 只认「含 claim 标记 + 有签名」的评论，滤掉 precheck 署名评论 / 无签名人类评论；
-- 多条认领便签按 created_at 取最新一条的 owner 与年龄；
-- 无有效认领便签 → None；created_at 空/不可解析 → 保守 age=0.0（未过期）。
+Pure function (the only ”now” from datetime.now, for age calculation): netless, gh. Overwrite:
+- build_claim_note → latest_claim To-to-to-to-Pass (to-Pass)owner Revert;
+- latest_claim only recognises comments with ”claim tag + signed” and filters out precheck signed comments / unsigned human comments;
+- Multiple identification sign to press created_at for the current article ’s owner and age;
+- Sign  →  None without valid identification; created_at is empty/ undecomment  →  Conservative age= 0.0 (unexpired).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -20,19 +20,19 @@ def _comment(*, body, created_at, author="bot", cid="IC"):
 
 
 def _iso(*, ago_seconds):
-    """构造一个「距今 ago_seconds 秒」的 ISO 8601 UTC 时戳（带 Z 后缀）。"""
+    """Construct an ISO 8601 UTC time stamp (with Z suffix) ”Six of ago_seconds seconds”"""
     stamp = datetime.now(UTC) - timedelta(seconds=ago_seconds)
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # --------------------------------------------------------------------------- #
-# 往返：build_claim_note → latest_claim
+# To and from:build_claim_note → latest_claim
 # --------------------------------------------------------------------------- #
 
 
 def test_build_claim_note_round_trips_owner():
     note = build_claim_note(agent_id="agent-A")
-    # 便签同时带 claim 标记与 agent 签名（parse_agent_id 能取出 owner）。
+    # Sign with a claim tag and agent (parse_agent_id can remove an owner).
     assert "<!-- openagents:claim -->" in note
     assert parse_agent_id(body=note) == "agent-A"
 
@@ -40,20 +40,22 @@ def test_build_claim_note_round_trips_owner():
     assert claim is not None
     owner, age = claim
     assert owner == "agent-A"
-    assert 0 <= age < 60  # 刚贴的便签年龄很小、未过期
+    assert 0 <= age < 60  # The first one is very young and has not expired.
 
 
 # --------------------------------------------------------------------------- #
-# 只认认领便签：滤掉 precheck 署名评论 / 无签名人类评论
+# Recognition and then signing: filtering precheck signed comments / unsigned human comments
 # --------------------------------------------------------------------------- #
 
 
 def test_latest_claim_ignores_signed_non_claim_and_unsigned_comments():
-    # 一条 precheck/reviewer 类署名评论（有 agent 签名但**无** claim 标记）——不应被当认领便签。
-    precheck = sign(body="🤖 修法方向对齐请人取舍", agent_id="agent-precheck")
-    # 一条无签名的人类评论。
-    human = _comment(body="我觉得这个方案不错 +1", created_at=_iso(ago_seconds=1))
-    # 唯一真正的认领便签。
+    # A precheck/reviewer type signed comment (agent signed but** not marked** claim) - should not be accepted as a sign.
+    precheck = sign(
+        body="The law is being applied in a different direction.", agent_id="agent-precheck"
+    )
+    # A human comment without a signature.
+    human = _comment(body="I think this is a good plan.", created_at=_iso(ago_seconds=1))
+    # The only real claim is signed.
     claim_note = build_claim_note(agent_id="agent-owner")
 
     comments = [
@@ -67,8 +69,8 @@ def test_latest_claim_ignores_signed_non_claim_and_unsigned_comments():
 
 
 def test_latest_claim_none_when_no_claim_note():
-    precheck = sign(body="对齐评论", agent_id="agent-x")
-    human = _comment(body="纯人类评论", created_at=_iso(ago_seconds=1))
+    precheck = sign(body="Alignment Comments", agent_id="agent-x")
+    human = _comment(body="Pure human comment", created_at=_iso(ago_seconds=1))
     assert (
         latest_claim(comments=[_comment(body=precheck, created_at=_iso(ago_seconds=2)), human])
         is None
@@ -80,13 +82,13 @@ def test_latest_claim_none_on_empty():
 
 
 def test_latest_claim_ignores_claim_marker_without_signature():
-    # 有 claim 标记但没有 agent 签名（无归属）→ 不算有效认领便签。
-    bogus = _comment(body="<!-- openagents:claim --> 无签名", created_at=_iso(ago_seconds=1))
+    # Not valid as a sign.
+    bogus = _comment(body="<!-- openagents:claim --> No signature", created_at=_iso(ago_seconds=1))
     assert latest_claim(comments=[bogus]) is None
 
 
 # --------------------------------------------------------------------------- #
-# 取最新一条 + 年龄
+# Take the latest one + age
 # --------------------------------------------------------------------------- #
 
 
@@ -106,12 +108,12 @@ def test_latest_claim_age_reflects_created_at():
     note = build_claim_note(agent_id="agent-A")
     claim = latest_claim(comments=[_comment(body=note, created_at=_iso(ago_seconds=3600))])
     assert claim is not None
-    # 约 1 小时前 → 年龄接近 3600，允许一点执行漂移。
+    # About an hour ago, the age of the child was close to 3600, allowing a little bit of the drift.
     assert 3590 <= claim[1] <= 3610
 
 
 def test_latest_claim_unparseable_created_at_is_conservative_not_expired():
-    # created_at 空/垃圾 → age=0.0（保守判未过期，不误回收活后端）。
+    # created_at empty/scrap > 0.0 (conservative sentence not expired, recovery backend).
     note = build_claim_note(agent_id="agent-A")
     assert latest_claim(comments=[_comment(body=note, created_at="")])[1] == 0.0
     assert latest_claim(comments=[_comment(body=note, created_at="not-a-date")])[1] == 0.0

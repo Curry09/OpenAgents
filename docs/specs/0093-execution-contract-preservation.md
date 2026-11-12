@@ -1,35 +1,35 @@
 ---
 number: "0093"
-title: 交付链保留执行条件与独立验收摘要
+title: "Preserve execution conditions and an independent acceptance summary throughout the delivery chain"
 issue: 0
 slug: execution-contract-preservation
-summary: 验证并注入发布者提供的安全执行合同，使 Spec、架构审查和代码审查保留无人输入、预算及产物验收前提，不接触私有 grader。
+summary: "Validate and inject the publisher-provided safe execution contract so that Spec, architecture review, and code review preserve the prerequisites concerning the absence of human input, budgets, and artifact acceptance, without accessing the private grader."
 architecture:
-  objective: 让实际交付角色保留来源可信的使用条件，不以局部Spec一致性替代原目标完成。
+  objective: "Ensure that the roles responsible for actual delivery retain usage conditions from trustworthy sources, without substituting local Spec consistency for completion of the original goal."
   constraints:
-    - 沿用Issue授权、包hash和统一engine注入。
-    - 私有grader和答案不进入OpenAgents。
-    - required预期来自独立项目/dispatch配置，不依赖可缺失附件。
+    - "Continue using Issue authorization, the package hash, and unified engine injection."
+    - "Private graders and answers must not enter OpenAgents."
+    - "The expectation that a contract is required comes from independent project/dispatch configuration and does not depend on attachments that may be missing."
   non-goals:
-    - 不实现benchmark adapter、用户循环或候选能力淘汰门。
+    - "Do not implement a benchmark adapter, a user loop, or a candidate capability elimination gate."
   candidates:
     - id: shared-contract-context
       layer: observations/runtime context
       boundary:
-        - 授权执行合同
-        - 唯一engine注入点
-        - 实际角色输入
+        - "Authorized execution contract"
+        - "Sole engine injection point"
+        - "Actual role inputs"
       evidence:
-        - architecture上下文主要只有Spec文本
-        - 现有reader只提供按需读manifest的路径
-      tradeoffs: 增加有界上下文和显式required故障，但可复用既有流程。
+        - "The architecture context consists primarily of Spec text"
+        - "The existing reader only provides a path for reading the manifest on demand"
+      tradeoffs: "Add bounded context and explicit failures for required contracts, while reusing existing workflows."
     - id: issue-prose-only
       layer: issue/prompt prose
       boundary:
-        - Issue正文与自由摘要
+        - "Issue body and free-form summary"
       evidence:
-        - 正文可能裁剪或抽象丢失条件
-      tradeoffs: 实现较少，但无法保证角色读取且不具备可验证来源。
+        - "The body may be truncated, or conditions may be lost through abstraction"
+      tradeoffs: "Requires less implementation work, but cannot guarantee that roles read it and provides no verifiable provenance."
   selected: shared-contract-context
   affected-components:
     - observations.evidence
@@ -38,33 +38,33 @@ architecture:
     - runtime dispatch
     - delivery role responsibilities
   failure-modes:
-    - 缺合同被当普通Issue继续
-    - 来源伪造或私有材料泄露
-    - 无人测试偷偷补用户消息
+    - "A missing contract is treated as an ordinary Issue, and processing continues"
+    - "Forged provenance or disclosure of private material"
+    - "Unattended tests silently add user messages"
 verification:
   behavior-cases:
     - id: BC1
       polarity: positive
-      stimulus: 真实发布端授权包经gzip或ZIP进入各实际角色。
-      expected: 上下文保留匹配身份和输入条件，长目标引用可读。
-      observation: 跨仓真实reader与backend.run上下文检查。
+      stimulus: "An authorization package from the actual publisher reaches each actual role via gzip or ZIP."
+      expected: "The context preserves the matching identity and input conditions, and references to long goals remain readable."
+      observation: "Checks using the actual reader across repositories and the backend.run context."
     - id: BC2
       polarity: negative
-      stimulus: required合同缺失、越权来源、未知版本或损坏摘要。
-      expected: 可恢复拒绝，不被观测降级吞掉，不泄露签名URL。
-      observation: 故障注入和恢复测试。
+      stimulus: "A required contract is missing, its source is unauthorized, its version is unknown, or its digest is corrupted."
+      expected: "Recoverable rejection that is not swallowed by observability degradation and does not expose signed URLs."
+      observation: "Fault injection and recovery tests."
     - id: BC3
       polarity: negative
-      stimulus: 无人任务的验收脚本偷偷补发continue消息。
-      expected: 审查指出验收改变了原使用条件。
-      observation: 真实角色canary与有消息收据的正负控制。
+      stimulus: "The acceptance script for an unattended task silently sends an additional continue message."
+      expected: "The review points out that acceptance testing changed the original usage conditions."
+      observation: "Canary tests with actual roles, and positive and negative controls with message receipts."
   repository-invariants:
-    - 普通无合同Issue和原有传输保持工作。
-    - 不引入私有grader依赖或分数淘汰门。
+    - "Ordinary Issues without contracts and existing transports continue to work."
+    - "Do not introduce dependencies on private graders or score-based elimination gates."
   exemptions: []
 tasks:
   - id: T1
-    title: 安全执行合同读取和能力声明
+    title: "Safe execution contract reading and capability declaration"
     status: done
     priority: P1
     tags: []
@@ -83,10 +83,10 @@ tasks:
       - openagents/utils/agent_config.py
       - openagents/data/openagents.yml.template
       - tests/test_agent_config.py
-    scope: 在既有授权/hash/版本边界中读取有界安全合同及验收摘要，声明可实测的reader能力。
-    acceptance: 越权/伪造/未知版本和必须合同损坏拒绝；普通无合同Issue正常；gzip与ZIP保持工作，不接触私有grader。
+    scope: "Read the bounded safe execution contract and acceptance summary within the existing authorization/hash/version boundaries, and declare empirically testable reader capabilities."
+    acceptance: "Reject unauthorized access, forgery, unknown versions, and corruption of mandatory contracts; ordinary Issues without contracts continue to work normally; gzip and ZIP remain functional, without accessing the private grader."
   - id: T2
-    title: 统一上下文注入与角色使用条件检查
+    title: "Unified context injection and checks on conditions of use for roles"
     status: done
     priority: P1
     tags: []
@@ -114,10 +114,10 @@ tasks:
       - openagents/runtime/state.py
       - openagents/recipes/vigil.py
       - openagents/recipes/stages.py
-    scope: 在唯一engine注入点将合同交给所有角色，补齐Spec/架构/实现/审查责任和required合同异常路径；修正只读NexAU advisory边界以实际发出一次请求。
-    acceptance: 实际backend context包含合同，architecture不漏；required异常不被宽泛观测降级吞掉；无人场景不靠额外消息通过验收；advisory无执行工具且只进行一次HTTP请求，失败不重试。
+    scope: "Pass the contract to all roles at the single engine injection point, fill in the responsibilities for Spec/architecture/implementation/review and the exception paths for required contracts; correct the read-only NexAU advisory boundary so that it actually makes one request."
+    acceptance: "The actual backend context contains the contract, including for architecture; exceptions involving required contracts are not swallowed by broad observational degradation handling; unattended scenarios do not rely on additional messages to pass acceptance; advisory has no execution tools and makes exactly one HTTP request, with no retry on failure."
   - id: T3
-    title: 联合传输与真实角色验收
+    title: "Combined transport and acceptance testing with real roles"
     status: in-progress
     priority: P1
     tags: []
@@ -133,132 +133,131 @@ tasks:
       - docs/integrations/ahe-beta.md
       - docs/RELEASING.md
       - tests/fixtures/execution_evidence_contract.json
-    scope: 覆盖真实发布读取、上下文与恢复，使用真实NexAU构造和受控HTTP验证非零模型请求，说明候选reader基线、支持范围和使用条件验收。
-    acceptance: 真实publisher的两种传输、混合条件、损坏/缺测以及正负控制逐项留证；替身不冒充模型已理解，失败任务不新增候选淘汰门。
+    scope: "Cover reading from the real publisher, context, and recovery; use real NexAU construction and controlled HTTP to verify a nonzero number of model requests, and explain the candidate reader baseline, scope of support, and acceptance testing of conditions of use."
+    acceptance: "Retain evidence for each of the real publisher's two transports, mixed conditions, corruption/missing measurements, and positive and negative controls; test doubles must not be presented as proof that the model has understood, and failed tasks must not introduce new gates for eliminating candidates."
 ---
 
-# 0093 · 交付链保留执行条件与独立验收摘要
+# 0093 · Preserve Execution Conditions and Independent Acceptance Summaries Throughout the Delivery Chain
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给现有观测证据读取与统一角色上下文增加安全的执行合同：原始目标引用、后续输入是否可用、真实预算、交付前提和独立验收摘要。Spec Writer、Architect、Implementer 和 Reviewer 必须实际收到这些有界条件，不仅获得一个按需读取附件的路径。
+Add safe execution contracts to existing observation evidence reading and unified role context: references to original goals, availability of follow-up input, actual budgets, delivery prerequisites, and independent acceptance summaries. Spec Writer, Architect, Implementer, and Reviewer must actually receive these bounded conditions, rather than merely receiving a path to attachments they can read on demand.
 
-本组只消费可信发布者授权的使用事实，不实现用户模拟器、benchmark adapter、私有评分计划或新的任务执行循环。不要求每个候选通过能力题才交付；保留后续试用轮次发现和修复错误的流程。
+This group only consumes usage facts authorized by trusted publishers. It does not implement a user simulator, benchmark adapter, private scoring plan, or new task execution loop. It does not require every candidate to pass capability problems before delivery; it preserves the process of discovering and fixing errors in subsequent trial rounds.
 
-此为已审阅通过、正在实施的配套 auto-designer 演化反馈改造。基线使用现行公开实验已固定的 Gitea.com reader 候选 `a752e8830a13f44d97a3043d1f3e8dd16bd8d8aa`；该候选尚未合入 main，本组不把它冒称已发布版本。实施/合并时先理顺 reader 基线，再固定验证后的实际提交。
+This is an approved companion change to the auto-designer evolution feedback mechanism, currently being implemented. The baseline uses the Gitea.com reader candidate already pinned by the current public experiment, `a752e8830a13f44d97a3043d1f3e8dd16bd8d8aa`; this candidate has not yet been merged into main, and this group does not misrepresent it as a released version. During implementation/merge, first resolve the reader baseline, then pin the actual validated commit.
 
 ## Motivation
 
-需求通过 Issue、规范化提案和跨提案综合转为交付时，原始使用条件可能丢失。例如无人任务不能等待下一条用户消息，局部需求却变成“提早收口并提示用户重试”；Spec 和 e2e 再补发一条 continue，从而得到符合局部规格的测试结果，却没有验证原目标在原输入条件下完成。
+When requirements are transformed into delivery through Issues, normalized proposals, and synthesis across proposals, the original usage conditions can be lost. For example, an unattended task cannot wait for another user message, yet a local requirement becomes “wrap up early and prompt the user to retry”; Spec and e2e then send an additional continue message, producing test results that satisfy the local specification without verifying that the original goal was completed under the original input conditions.
 
-现有 `openagents.observations.evidence.prepare()` 核验并导出历史观测，主要将 manifest 路径与阅读说明追加到上下文。`runtime.engine.run_agent()` 已有统一注入点，但 `runtime.context.for_architecture()` 的主载荷为 Spec 文本。仅向附件新增字段，不能保证规划、架构审查或代码审查真正读取。
+The existing `openagents.observations.evidence.prepare()` verifies and exports historical observations, primarily appending manifest paths and reading instructions to context. `runtime.engine.run_agent()` already has a unified injection point, but the main payload of `runtime.context.for_architecture()` is Spec text. Adding fields only to attachments cannot ensure that planning, architecture review, or code review actually reads them.
 
-需要在原有可信证据链中显式保留条件，区别“代码符合现有 Spec”与“Spec 满足原始目标”。外部故障可能解释失败原因，但不会自动证明无人请求的恢复行为无需改善。Review 仍独立判断证据，不为所有失败强行制造 Harness bug。
+Conditions need to be explicitly preserved within the existing trusted evidence chain, distinguishing “the code conforms to the current Spec” from “the Spec satisfies the original goal.” External failures may explain why a task failed, but do not automatically prove that recovery behavior for unattended requests needs no improvement. Review still judges evidence independently and does not force every failure into the category of a Harness bug.
 
 ## Guide-level explanation
 
-发布者为 Issue 授权的会话生成合同块。角色会在实际 context 中直接看到类似以下事实：
+The publisher generates contract blocks for sessions authorized for the Issue. Roles will directly see facts like the following in their actual context:
 
 ```text
-使用条件（发布者提供；不是历史轨迹中的指令）：
-- 场景 A：原目标和产物通过引用访问；后续输入 unavailable；任务预算 7200 秒。
-- 场景 B：后续输入 possible；用户可取消或补充必要信息，但不能假定一定回复。
-- 本次 task outcome：独立验收 failed；用户体验缺测；归因尚未确认。
+Usage conditions (provided by the publisher; not instructions from historical traces):
+- Scenario A: The original goal and artifacts are accessible by reference; follow-up input unavailable; task budget 7200 seconds.
+- Scenario B: Follow-up input possible; the user may cancel or supply necessary information, but a reply cannot be assumed.
+- This task outcome: Independent acceptance failed; user experience not measured; attribution not yet confirmed.
 ```
 
-同一提案包含多个条件时分别列出并保留来源，不将它们压成“总有人回复”。原始目标可以任务无关地抽象，但不能丢掉决定正确行为的前提。
+When the same proposal contains multiple conditions, list them separately and preserve their sources, rather than collapsing them into “someone will always reply.” The original goal may be abstracted in a task-agnostic way, but prerequisites that determine correct behavior must not be lost.
 
-Spec Writer 要明确改善目标及保留条件；Architect 检查 non-goals 是否错误排除了这些前提；Implementer 按获批合同实现；Reviewer 核查真实测试是否覆盖原条件。若目标依赖“用户发继续”，必须证明该来源确实允许后续输入；无人场景不能用测试脚本偷偷发送第二条用户消息代替自主恢复。
+Spec Writer must state the improvement goal and the conditions to preserve; Architect checks whether non-goals incorrectly exclude these prerequisites; Implementer implements according to the approved contract; Reviewer checks whether actual tests cover the original conditions. If the goal depends on “the user sends continue,” there must be proof that the source actually permits follow-up input; in unattended scenarios, a test script must not secretly send a second user message as a substitute for autonomous recovery.
 
-没有合同的普通仓库 Issue 保持现有流程，明确无该输入事实，而不是猜测它是 Direct。已声明必须有合同却验证失败时，报告基础设施/合同故障，不能悄悄按无合同继续交付。技术任务失败本身不导致候选淘汰或自动回滚。
+Ordinary repository Issues without contracts retain the existing workflow, explicitly indicating the absence of these input facts rather than guessing that they are Direct. When a contract has been declared mandatory but validation fails, report an infrastructure/contract failure; do not silently continue delivery as though no contract were required. Technical task failure alone does not cause candidate elimination or automatic rollback.
 
 ## Reference-level explanation
 
-### 1. 读取、授权和版本
+### 1. Reading, Authorization, and Versioning
 
-扩展现有证据包，新增独立版本化的 `execution_contracts` 与 `assessment_summaries` 安全区。每项包含 source session/task 引用、contract digest、原目标/公开产物引用、followup_input、预算来源与秒数、已发生用户帮助的分类引用。验收摘要沿用发布者提供的状态、metric/通过语义和收据引用，明确其为用户判断、独立验收还是未知。
+Extend the existing evidence package with independently versioned safe sections, `execution_contracts` and `assessment_summaries`. Each item contains source session/task references, a contract digest, references to the original goal/public artifacts, followup_input, the budget source and duration in seconds, and classified references to user assistance that has already occurred. Acceptance summaries retain the publisher-provided status, metric/pass semantics, and receipt references, explicitly identifying them as user judgment, independent acceptance, or unknown.
 
-共同 wire 合同为原观测包的 `execution_evidence` 对象，必需字段为 `schema_version:1`、`issue`、`execution_contracts`、`assessment_summaries`、`payload_sha256`。contract 必需字段为 contract_id、session_id、task_id、task_digest、followup_input、task_budget_seconds（允许 null）、budget_source、public_refs；公开引用逐项为 kind/path/sha256。summary 必需字段为 receipt_id、session_id、contract_id、status、passed、可空 score/metric 定义、验收种类和来源摘要。required 时必须覆盖该票全部授权来源，空数组不能绕过。
+The shared wire contract is the `execution_evidence` object in the original observation package, with required fields `schema_version:1`, `issue`, `execution_contracts`, `assessment_summaries`, and `payload_sha256`. Required contract fields are contract_id, session_id, task_id, task_digest, followup_input, task_budget_seconds (null allowed), budget_source, and public_refs; each public reference consists of kind/path/sha256. Required summary fields are receipt_id, session_id, contract_id, status, passed, nullable score/metric definitions, acceptance type, and a source summary. When required, all authorized sources for the ticket must be covered; empty arrays cannot bypass this requirement.
 
-payload 摘要对移除 `payload_sha256` 后的对象计算：UTF-8、`ensure_ascii=false`、键排序、无多余空白、拒绝非有限数；契约数组按稳定 ID 排序。contract_id 使用相同正规化规则计算不含 contract_id 的声明内容摘要，实际执行事实另附，不回写原始合同。公开引用为授权包内 relative path + SHA256，不是 controller 本地绝对路径；私有评分仅提供不透明 receipt ID 与摘要，reader 不追取 evaluation 原始文件。两仓使用同一协议 fixture，联合检查验证一致。
+The payload digest is calculated over the object after removing `payload_sha256`: UTF-8, `ensure_ascii=false`, sorted keys, no extra whitespace, and rejection of non-finite numbers; contract arrays are sorted by stable ID. contract_id is calculated using the same normalization rules as the digest of the declaration content excluding contract_id. Actual execution facts are attached separately and are not written back into the original contract. Public references are relative path + SHA256 within the authorized package, not absolute paths local to the controller; private scoring provides only opaque receipt IDs and summaries, and the reader does not retrieve raw evaluation files. Both repositories use the same protocol fixture, with joint checks verifying consistency.
 
-reader 先校验外层 Issue 绑定、下载 hash、版本和授权会话集合，再读取白名单字段。未知版本、伪造来源、越权会话、同一身份内容冲突和必须字段缺失均拒绝。任意 Issue 正文或模型生成的 JSON 不能伪装成可信合同。相同合同按 digest 去重，不把来源不同、预算或输入条件不同的合同合并。
+The reader first validates the outer Issue binding, download hash, version, and authorized session set, then reads allowlisted fields. Unknown versions, forged sources, unauthorized sessions, conflicting content under the same identity, and missing required fields are all rejected. Arbitrary Issue bodies or model-generated JSON cannot masquerade as trusted contracts. Identical contracts are deduplicated by digest; contracts with different sources, budgets, or input conditions are not merged.
 
-私有 grader plan、隐藏断言、标准答案、gold patch、原始 verifier 日志、签名 URL 与凭证不属于此接口。reader 不获取它们，也不根据文件缺失推断任务成功或未记录。历史执行文本仍是不可信证据，不升级为系统指令；可信合同仅来自校验后的机器区，角色上下文明确区分两者。
+Private grader plans, hidden assertions, reference answers, gold patches, raw verifier logs, signed URLs, and credentials are outside this interface. The reader does not retrieve them, nor does it infer task success or an unrecorded task from missing files. Historical execution text remains untrusted evidence and is not promoted to system instructions; trusted contracts come only from the validated machine section, and role context explicitly distinguishes the two.
 
-### 2. 有界上下文与失败处理
+### 2. Bounded Context and Failure Handling
 
-只读 advisory 必须真正进入模型调用。锁定的 NexAU 执行器会把最后一个 iteration 留给终态边界检查，且 `retry_attempts` 计总尝试数，而非失败后重试次数。因此 advisory 使用 `max_iterations=2`、`retry_attempts=1`、SDK `max_retries=0`：仅一个实际模型轮次，无执行工具，不进行错误重试；不是放宽交付 Agent 的循环预算。以真实 NexAU/Anthropic 客户端连接本机受控 HTTP 服务，分别断言成功响应被消费、HTTP 500 仅请求一次。
+The read-only advisory must actually reach the model call. The pinned NexAU executor reserves the last iteration for terminal boundary checks, and `retry_attempts` counts total attempts, rather than retries after failure. Therefore, the advisory uses `max_iterations=2`, `retry_attempts=1`, and SDK `max_retries=0`: just one actual model turn, no execution tools, and no retries on errors; this does not relax the delivery Agent’s loop budget. Connect real NexAU/Anthropic clients to a controlled local HTTP service, separately asserting that a successful response is consumed and that HTTP 500 results in only one request.
 
-在 `observations/execution_contracts.py` 实现纯校验与投影；`evidence.prepare()` 返回 `execution_contract_context` 和结构化引用，`runtime.engine` 在唯一注入点把它追加给所有适用角色。不要在各角色函数里分别复制解析器，不让 architecture 路径因只接收 spec_text 而跳过。
+Implement pure validation and projection in `observations/execution_contracts.py`; `evidence.prepare()` returns `execution_contract_context` and structured references, and `runtime.engine` appends them for all applicable roles at the sole injection point. Do not duplicate parsers in individual role functions or let the architecture path skip this because it receives only spec_text.
 
-本次联合实测覆盖公开默认 standard（实际起草角色 drafter）和显式 v0.2（含 spec_writer、developer）路径。共同职责放在统一的证据上下文规则中；角色 Prompt 只补职责差异，不复制合同解析。其他 flow 经过同一 engine 可以获得合同，但未独立验收的流程不宣传为已验证；不以只测试模块名 spec_writer 代称 standard 完整接线。
+This joint live validation covers the public default standard path (whose actual drafting role is drafter) and the explicit v0.2 path (including spec_writer and developer). Put shared responsibilities in the unified evidence context rules; role Prompts only add differences in responsibilities and do not duplicate contract parsing. Other flows passing through the same engine can receive contracts, but flows without independent acceptance must not be advertised as verified; testing only the module named spec_writer must not be presented as verification of the complete standard wiring.
 
-投影包含输入可用性、预算、交付前提和有效性等不可裁掉的固定项；长目标和长证据使用带 digest 的缓存引用。先去重再进行有界分页；若合同数量无法完整呈现，给出显式数量/页引用及处理状态，不静默截断一部分后宣称覆盖全部条件。
+The projection includes fixed items that must not be trimmed away, such as input availability, budget, delivery prerequisites, and validity; long goals and long evidence use cached references with digests. Deduplicate before bounded pagination; if the number of contracts prevents presenting them in full, provide explicit counts/page references and processing status, rather than silently truncating some and claiming to cover all conditions.
 
-现有 engine 对一般观测不可用允许诊断降级。required 预期由准备阶段协商的项目交付配置进入受信任 dispatch，不能仅放在可能缺失的附件或 marker 内；它应贯穿入队与恢复，防止删掉 marker 就被误当普通 Issue。reader 必须从这个独立预期检查缺附件/缺合同。使用独立异常和结果类型，不被宽泛观测异常处理吞掉；故障进入可恢复的基础设施状态。未协商合同的普通 Issue 不受影响。完整性检查不判断候选能力分数，不增加“必须通过 benchmark 才合并”的门禁。
+The existing engine permits diagnostic degradation when general observations are unavailable. The required expectation should enter trusted dispatch from the project delivery configuration negotiated during preparation, rather than residing solely in potentially missing attachments or markers; it should persist through enqueueing and recovery, preventing deletion of a marker from causing an Issue to be mistaken for an ordinary one. The reader must check for missing attachments/contracts against this independent expectation. Use distinct exception and result types so broad observation exception handling does not swallow them; failures enter a recoverable infrastructure state. Ordinary Issues for which no contract was negotiated are unaffected. Integrity checks do not judge candidate capability scores or add a “must pass the benchmark before merging” gate.
 
-`observations.capabilities` 及 `scripts/check_observation_reader.py` 宣告/实测新的读取能力，必须验证角色最终收到的 context，而不是仅检测某模块存在。发布者固定支持该能力的 reader SHA；旧 reader 不得静默忽略 required 合同。gzip/direct 和 ZIP/hosted 两条现有传输路径均保持工作。
+`observations.capabilities` and `scripts/check_observation_reader.py` declare/test the new reading capability and must verify the context ultimately received by roles, rather than merely checking whether a module exists. The publisher pins a reader SHA that supports this capability; old readers must not silently ignore required contracts. Both existing transport paths, gzip/direct and ZIP/hosted, must continue to work.
 
-### 3. Spec、Architect 与 Reviewer 的责任
+### 3. Responsibilities of Spec, Architect, and Reviewer
 
-角色 Prompt 增加有来源的使用条件检查，不添加特定 benchmark 的解法或测试答案：
+Add source-backed usage-condition checks to role Prompts, without adding solutions or test answers for specific benchmarks:
 
-| 角色 | 必须判断的事情 |
+| Role | Required judgments |
 | --- | --- |
-| Spec Writer | 原目标是什么、允许哪些输入和控制、如何交付/验收；不可用“需要用户继续”替换无人执行目标 |
-| Architect | 方案、边界和 non-goals 是否忠实保留条件；条件冲突应说明，不默默选择对实现有利的一项 |
-| Implementer | 使用批准合同实现；不得扩大权限、虚构后续输入或把临时诊断变成产品规则 |
-| Reviewer | 测试是否真按该条件执行；额外输入、时间和人为修产物是否改变了验收前提 |
+| Spec Writer | What the original goal is, which inputs and controls are allowed, and how delivery/acceptance works; must not replace an unattended execution goal with “requires the user to continue” |
+| Architect | Whether the design, boundaries, and non-goals faithfully preserve the conditions; conflicting conditions must be explained rather than silently choosing whichever favors implementation |
+| Implementer | Implement using the approved contract; must not expand permissions, invent follow-up input, or turn temporary diagnostics into product rules |
+| Reviewer | Whether tests actually execute under these conditions; whether extra input, time, or manual artifact repairs changed the acceptance prerequisites |
 
-对一次用户输入的测试，要能从脚本/受控连接记录证明仅有一次目标输入；心跳、查询、取消和预算更新各自记录，不靠文本 grep 判断是否作弊。并非所有交互都只能一条消息，真实授权与必要补充仍允许，但要关联对应条件。
+For tests with a single user input, scripts/controlled connection records must be able to prove that there was only one goal input; heartbeats, queries, cancellations, and budget updates are recorded separately, rather than relying on text grep to determine whether cheating occurred. Not all interactions are restricted to a single message: actual authorization and necessary supplementary information remain allowed, but must be associated with the corresponding conditions.
 
-Reviewer 可以认为证据不足、要求补充分层测试，仍使用已有 PASS/REWORK 协议。它不负责重新评分用户任务，不读取隐藏测试；以本仓工程回归证明实现忠实性，真实任务结果来自发布者的独立验收摘要。符合旧 Spec 不能单独消除原目标的已确认未交付事实。
+Reviewer may find the evidence insufficient and require additional layered tests, while continuing to use the existing PASS/REWORK protocol. It is not responsible for rescoring user tasks and does not read hidden tests; engineering regression tests in this repository establish implementation fidelity, while actual task results come from the publisher’s independent acceptance summaries. Compliance with the old Spec alone cannot negate the confirmed fact that the original goal was not delivered.
 
-### 4. 任务分解和端到端验收
+### 4. Task Breakdown and End-to-End Acceptance
 
-| Task | 范围 | 依赖 |
+| Task | Scope | Dependencies |
 | --- | --- | --- |
-| T1 | 安全合同 reader、版本/来源校验和 capability | 无 |
-| T2 | 唯一上下文注入点及角色职责 | T1 |
-| T3 | 跨仓真实发布读取、错误与恢复、传输兼容验证和说明 | T1、T2 |
+| T1 | Safe contract reader, version/source validation, and capability | None |
+| T2 | Sole context injection point and role responsibilities | T1 |
+| T3 | Real publication and reading across repositories, error and recovery handling, transport compatibility validation, and documentation | T1, T2 |
 
-精确文件分配见 frontmatter；组内单一 writer。端到端脚本为 `scripts/e2e-spec-0093-execution-contracts.sh`。至少验证：
+See frontmatter for exact file assignments; a single writer within the group. The end-to-end script is `scripts/e2e-spec-0093-execution-contracts.sh`. Verify at least the following:
 
-1. 使用真实发布端生成的 gzip/ZIP 包，所有角色的 backend.run 实际 context 均包含正确合同，architecture 也覆盖。
-2. 正文超过既有裁剪长度、多个 Direct/interactive 来源及 Synthesizer 合并后，条件仍保留且来源正确。
-3. 未授权会话、版本未知、hash 不符、必要字段缺失被拒；普通无合同 Issue 正常；required 合同故障可恢复且不会被降级吞掉。
-4. 发布包不得包含私有 plan、答案、原始 verifier 隐藏细节或凭证；reader 日志不泄露签名 URL。
-5. 提供“单次请求后停住、脚本补发继续”的负控制和无需补输入的正控制。确定性测试验证合同载荷与约束；单独的真实角色 canary 验证 Spec/Review 实际检查了条件，替身测试不能代称模型已理解。
-6. completed false、连续分数无二值结论、unavailable 和主观评分缺测保持各自语义；分数低不会新增候选合并门禁。
+1. Using gzip/ZIP packages generated by the real publisher, the actual backend.run context of every role contains the correct contracts, including architecture.
+2. Conditions remain preserved with correct sources when the body exceeds the existing truncation length, when there are multiple Direct/interactive sources, and after Synthesizer merging.
+3. Unauthorized sessions, unknown versions, hash mismatches, and missing required fields are rejected; ordinary Issues without contracts work normally; required contract failures are recoverable and are not swallowed by degradation handling.
+4. Published packages must not contain private plans, answers, raw hidden verifier details, or credentials; reader logs do not leak signed URLs.
+5. Provide a negative control in which “execution stops after a single request, and the script sends continue,” and a positive control requiring no supplementary input. Deterministic tests verify contract payloads and constraints; a separate real-role canary verifies that Spec/Review actually checked the conditions. Tests using substitutes cannot be presented as proof that the model understood them.
+6. completed false, continuous scores without a binary conclusion, unavailable, and missing subjective ratings each retain their own semantics; low scores do not introduce a new candidate merge gate.
 
-联合验收通过后由发布端更新实际 reader pin；不在草稿里预造未来提交 SHA，不修改已运行实验的冻结源码。
+After joint acceptance passes, the publisher updates the actual reader pin; do not fabricate a future commit SHA in the draft or modify the frozen source code of experiments that have already run.
 
 ## Drawbacks
 
-合同会增加角色上下文和校验成本；若仅作自由文本提示，也不能保证模型遵守。因此必须同时验证来源、实际载荷和真实角色行为，而不能声称纯 schema 校验已证明产品能力。
+Contracts increase role context and validation costs; if used only as free-form text prompts, they also cannot guarantee model compliance. Therefore, the source, actual payload, and actual role behavior must all be verified; schema validation alone cannot be claimed to have proven product capabilities.
 
-required 合同损坏将显式暂停交付，需要修复证据服务后恢复。这比悄悄漏掉条件更可审计，但不会消除模型随机性或自动改善其求解能力。
+A broken required contract will explicitly suspend delivery, which can resume only after the evidence service is repaired. This is more auditable than silently omitting conditions, but it does not eliminate model randomness or automatically improve the model's problem-solving ability.
 
 ## Rationale and alternatives
 
-复用现有观测 reader、授权边界和统一 engine 注入，只增加纯数据合同模块和各角色的责任说明。OpenAgents 无须理解任何 benchmark adapter 或实验控制器内部结构。
+Reuse the existing observation reader, authorization boundaries, and unified engine injection, adding only a pure-data contract module and descriptions of each role's responsibilities. OpenAgents does not need to understand the internal structure of any benchmark adapter or experiment controller.
 
-仅追加 Issue 正文或附件路径容易受到裁剪、摘要和未读取的影响，不采用。为每个角色分别下载并解析材料会重复权限逻辑，也不采用。把隐藏 grader 交给开发者运行会改变评测可见信息，故只消费安全摘要。
+Simply appending content to the Issue body or adding attachment paths is vulnerable to truncation, summarization, and materials going unread, so this approach is not adopted. Having each role download and parse the materials separately would duplicate authorization logic, so this approach is also not adopted. Allowing developers to run the hidden grader would change the information visible during evaluation, so only safe summaries are consumed.
 
-另一个备选是给交付增加统一候选能力筛选门。当前目标是保留原始使用条件并支持后续轮次纠错，不将该实验变量一并引入。
+Another alternative is to add a unified candidate capability screening gate to delivery. The current goal is to preserve the original usage conditions and support corrections in subsequent rounds, without introducing this experimental variable as well.
 
 ## Prior art
 
-本仓已有 Issue 级观测包、下载 hash 校验、manifest 导出、能力探测、统一 context 注入和 architect/reviewer 流程。此次沿用这些维护位置与失败协议，新增执行前提而不重建交付链。
+This repository already has Issue-level observation packages, download hash verification, manifest export, capability probing, unified context injection, and architect/reviewer workflows. This change reuses those maintenance locations and failure protocols, adding execution prerequisites without rebuilding the delivery chain.
 
 ## Unresolved questions
 
-本稿与发布端设计一起审阅；批准前不实现、不更新实际发布能力或 reader pin。reader 候选与 main 的合入顺序是明确的交付前置，不是可以静默绕过的兼容策略。
+This draft is to be reviewed together with the publishing-side design; before approval, do not implement it or update the actual published capabilities or reader pin. The order in which the reader candidate and main are merged is an explicit delivery prerequisite, not a compatibility strategy that can be silently bypassed.
 
 ## Future possibilities
 
-以后可加入更多产品执行条件或安全评分摘要，只需版本化纯数据接口及对应角色检查。能力选择、自动回滚和评分服务本身分别设计，不进入本组。
-
+More product execution conditions or safe scoring summaries can be added later by versioning the pure-data interface and the corresponding role checks. Capability selection, automatic rollback, and the scoring service itself will be designed separately and are outside the scope of this group.

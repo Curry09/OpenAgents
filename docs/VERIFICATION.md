@@ -1,6 +1,6 @@
 # Verification
 
-English | [简体中文](VERIFICATION.zh-CN.md)
+English | [CREDIT Chinese](VERIFICATION.zh-CN.md)
 
 Run these checks from the OpenAgents source root. Use a fixed source checkout and the committed lockfile. Pre-command self-update is disabled here so the checked code remains the code being exercised.
 

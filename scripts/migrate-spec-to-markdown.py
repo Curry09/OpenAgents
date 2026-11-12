@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""一次性迁移：docs/specs/NNNN-slug/（YAML 文件夹）→ docs/specs/NNNN-slug.md（markdown 单文件）。
+"""One-time migration:docs/specs/NNNN-slug/（YAML Folder)→ docs/specs/NNNN-slug.md（markdown Single file.
 
-2026-06-24 spec-markdown-form：读旧 metadata.yaml + tasks/T*.yaml（含 prose），构造 Group，
-用新的 model.render_group 写出单 markdown 文件，然后删除旧组目录。
+2026-06-24 spec-markdown-form: Read old metadata.yaml + tasks/T *.yaml (with prose), construct Group,
+Writes a single markdown file with a new model.render_group, and then deletes the old group directory.
 
-per-task history/ 与 origin.md（旧 RFC 原文归档）不再纳入新格式——它们完整保留在 git 历史里
-（决策 D3：历史交给 git + dated 设计文档）。run 后请 `spec validate` / `spec render` 核对。
+Per-task history/ and origin.md (old RFC original archive) no longer include in the new format - they are fully kept in the guit history
+(Decision D3: History to guit + daed design document). Run then check `spec validate` / `spec render`.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ def _migrate_group(*, group_dir: Path) -> Path:
 
 def main() -> int:
     if not _SPECS.is_dir():
-        print(f"找不到 {_SPECS}", file=sys.stderr)
+        print(f"Not found {_SPECS}", file=sys.stderr)
         return 1
     group_dirs = [
         child
@@ -97,7 +97,7 @@ def main() -> int:
     for group_dir in group_dirs:
         out = _migrate_group(group_dir=group_dir)
         print(f"✓ {group_dir.name}/ → {out.name}")
-    print(f"共迁移 {len(group_dirs)} 个组。")
+    print(f"Move Together {len(group_dirs)} Groups.")
     return 0
 
 

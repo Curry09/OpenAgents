@@ -1,31 +1,8 @@
-"""# Spec-0064/T2: recipes.stages —— 九个阶段抽成 `Vigil` 类外的独立自由函数（可单独寻址）。
+# Spec-0064/T2
+"""Run individual delivery stages and enforce their result contracts.
 
-Spec-0089/T1: recovery accepts already-published commits; all automatic merges retain the
-approved candidate SHA through the forge write and its verification command.
-
-现状 `review` 焊在 `solve_issue` 的 for 循环、`triage` 焊在 `Vigil` 类方法里、合并各闸埋在
-`merge_pr._advance_merge` 里——阶段不可单独寻址，就没法对它设「谁把关」。本模块把
-`triage / rfc / implement / conflict / ci / e2e / review / deliver / merge` 九个阶段从
-`solve_issue` / `merge_pr` / `poll_comments` **逐字重立**为独立自由函数（旧文件零改动、additive），
-各自**显式收参**（关键字-only、无位置参数、private 无默认值，符合 CLAUDE.md 约定），供 T3
-`run_vigil` 按 `stages` 三态策略路由组合。
-
-分界线（承 Spec-0060/0061/0062，逐字一致）：
-- **judgment 段派既有 agent**（经 `engine.run_agent` 出结构化裁决）：triage→triager、rfc→drafter、
-  implement→implementer、review→reviewer、conflict/deliver→deliver；
-- **机械段走确定性 `utils`/`gates`**（读客观事实）：ci 读 github check + gates 分类、e2e 读证据溯源戳；
-  merge 是「确定性硬闸兜底 + 下放 merger agent」（Spec-0017/T3：`gates.assert_merge_allowed` 把守不可逆
-  红线后，动作下放 merger agent 落 `gh pr merge`）。**三态 `agent`/`human`/`skip` 是「这道闸归谁」而非
-  「谁执行检测」**——`ci: agent`
-  指「自动化拥有此闸、红了自动打回 implementer」，检测仍是客观读 check（见 spec 分界线）。
-
-`rfc` 阶段收敛 `planner`+`drafter` 为**单一起草函数**——只依赖 `drafter`（承接五 mode 起草判断），
-`planner` 是重复死代码（T6 删）。交付类阶段（rfc/deliver）内嵌三道确定性硬闸兜底 agent 自述：交付前
-基点由本模块经 `gates.snapshot_head` **确定性记录**（不信 agent 自述 base_sha，防 #140 报假基点让闸恒
-放行）。新起草用 `assert_head_advanced`，交付/恢复用 `Workspace.assert_delivered` 检查干净且已推送；
-`assert_evidence_stamp` 始终核对自报 head_sha 与实际 HEAD 一致（Spec-0056 recovery）。
-
-所有依赖（backend / github / gates / engine）可注入或 monkeypatch，hermetic 可测（不触真实 LLM/网络/仓库）。
+The stage functions are independently callable. They assemble the role context,
+invoke the backend through runtime.engine, and check objective delivery facts.
 """
 
 from __future__ import annotations
@@ -56,35 +33,30 @@ from openagents.runtime.context import Context
 from openagents.spec import model as spec_model
 from openagents.spec import validate as spec_validate
 
-# Spec-0074/T1: alias-import 换轨——平台操作经 forge 分发层按配置委托 github/gitea driver，调用点零改动。
+# Spec-0074/T1: arias-import switch - Platform operations are configured by github/gitea driver to call zero changes.
 from openagents.utils import forge as github
 from openagents.utils.workspace import Workspace
 
-# Spec-0064/T2: drafter 起草模式字面量（承 recipes.rfc_lifecycle._MODE_*）——rfc 阶段 draft、backfill
-# recipe（T4）复用本函数传 backfill。仅这两种进本阶段函数（refine/implement/iterate 已由独立阶段承接）。
+# Spec-0064/T2: drafting mode fonts (carrying recipes.rfc_lifecycle._MODE_*) - refc stage draft,backfill
+# Recipe(T4) returns this function. Only these two in-stage functions (refine/implement/iterate has been taken over at the independent stage) are available.
 MODE_DRAFT = "draft"
 MODE_BACKFILL = "backfill"
 
-# Spec-0064/T2: ci / e2e 机械闸的分类字面量——T3 据此路由（fail/pending→打回或等，pass/ok→放行）。
+# Spec-0064/T2: ci / e2e Catalogue of mechanical gates——T3 By which route (fail/pending→I'm not sure if I'm going to be able to do this.pass/ok→Let go.
 CI_FAIL = "fail"
 CI_PENDING = "pending"
 CI_PASS = "pass"
-E2E_STALE = "e2e"  # 证据戳缺失/陈旧/张冠李戴 → 该回去补 e2e（对齐 merge_pr 的 "e2e" 事件）
+E2E_STALE = "e2e"  # Evidence stamp missing/Old/Zhang Zhang Li Tai → We should go back and fix it. e2e( Alignment) merge_pr It's... "e2e" Events)
 E2E_OK = "ok"
 
 
 # --------------------------------------------------------------------------------------------------
-# judgment 段：派既有 agent 出结构化裁决（本模块自身零业务判断，只组占位符 + 调 engine）。
+# Judgment paragraph: Sends ant ant an existing agent to a structured decision (this module is its own zero business judgement, only group placeholders + tune engine).
 # --------------------------------------------------------------------------------------------------
 
 
 def triage(*, backend: Any, work_dir: Path, issue: Any) -> dict:
-    """分诊阶段（triager agent）：判 issue 可不可派单，返回裁决 {actionable, reason}。承 vigil.discover 的分诊段。
-
-    入参 `issue` 是发现段 `github.list_issues` 已拉到的 Issue（含 number/title/body），经
-    `context.for_triage` 组占位符，不二次读 github。fail-open（拿不准判 actionable=True）在 triager
-    prompt 内；本函数零判断。
-    """
+    """Return the triage role’s structured admission decision."""
     return engine.run_agent(
         triager,
         backend=backend,
@@ -104,13 +76,7 @@ def rfc(
     require_delivered: bool,
     evidence_pack: list | None = None,
 ) -> dict:
-    """起草阶段（drafter agent，**单一起草函数**）：据 issue 起草 / 据代码反推 spec，返回 {delivered, head_sha, summary}。
-
-    收敛 planner+drafter 为单一起草函数——**只依赖 drafter**（planner 是重复死代码，T6 删）。`mode`
-    ∈ {draft, backfill}：draft 据 issue 起草（require_delivered=False），backfill 据存量代码反推
-    （require_delivered=True，未过 spec validate 则 delivered=false，caller 据此不开 PR）。内嵌三道
-    确定性硬闸兜底交付自述（见模块 docstring）。
-    """
+    """Draft or refine a Spec, or backfill it from existing code, then verify delivery."""
     return _deliver_gated(
         agent_module=drafter,
         backend=backend,
@@ -174,7 +140,7 @@ def minimal_spec(
     def validate(candidate: dict) -> str:
         status = candidate["status"]
         if status not in {"READY", "PARTIAL", "BLOCKED"}:
-            raise gates.GateError(f"minimal Spec Writer 返回未知状态：{status!r}")
+            raise gates.GateError(f"Minimal Spec Writer returned an unknown status: {status!r}")
         if status in {"READY", "PARTIAL"}:
             assessments = candidate.get("candidate_assessments")
             required_candidate_fields = {
@@ -188,7 +154,9 @@ def minimal_spec(
                 "verdict",
             }
             if not isinstance(assessments, list) or not assessments:
-                raise gates.GateError("minimal Spec 缺少 candidate_assessments，拒绝无比较的方案")
+                raise gates.GateError(
+                    "Minimal Spec is missing candidate_assessments; compare the alternatives"
+                )
             malformed = [
                 index
                 for index, item in enumerate(assessments)
@@ -196,11 +164,11 @@ def minimal_spec(
             ]
             if malformed:
                 raise gates.GateError(
-                    f"minimal Spec 候选未使用统一证据字段：candidate_assessments{malformed}"
+                    f"Minimal Spec candidates must use the same evidence fields: candidate_assessments{malformed}"
                 )
             coverage = candidate.get("objective_coverage")
             if not isinstance(coverage, list) or not coverage:
-                raise gates.GateError("minimal Spec 缺少 objective_coverage")
+                raise gates.GateError("Minimal Spec is missing objective_coverage")
             malformed_coverage = [
                 index
                 for index, item in enumerate(coverage)
@@ -210,16 +178,16 @@ def minimal_spec(
             ]
             if malformed_coverage:
                 raise gates.GateError(
-                    "minimal Spec 目标未分别记录覆盖与证据等级："
+                    "Minimal Spec objectives must record coverage and evidence level separately: "
                     f"objective_coverage{malformed_coverage}"
                 )
         blocker = candidate.get("blocker")
         if not isinstance(blocker, str):
-            raise gates.GateError("minimal Spec blocker 必须是字符串")
+            raise gates.GateError("Minimal Spec blocker must be a string")
         if status == "PARTIAL" and not blocker.strip():
-            raise gates.GateError("minimal Spec 返回 PARTIAL 时必须说明真实未闭合项")
+            raise gates.GateError("A PARTIAL Minimal Spec must name the unresolved items")
         if status == "BLOCKED" and not blocker.strip():
-            raise gates.GateError("minimal Spec 返回 BLOCKED 时必须说明阻断原因")
+            raise gates.GateError("A BLOCKED Minimal Spec must explain the blocker")
         return status
 
     def ready_contract_violations(candidate: dict) -> list[str]:
@@ -228,7 +196,7 @@ def minimal_spec(
             return []
         violations: list[str] = []
         if str(candidate.get("blocker") or "").strip():
-            violations.append("READY 的 blocker 必须为空")
+            violations.append("A READY Spec must have an empty blocker")
         coverage = candidate.get("objective_coverage") or []
         non_full = [
             str(item.get("id") or index)
@@ -236,7 +204,9 @@ def minimal_spec(
             if item.get("scope_coverage") != "FULL"
         ]
         if non_full:
-            violations.append("READY 仍有未完整进入契约的 objective：" + ", ".join(non_full))
+            violations.append(
+                "READY Spec has objectives without full contract coverage: " + ", ".join(non_full)
+            )
         return violations
 
     status = validate(verdict)
@@ -247,11 +217,11 @@ def minimal_spec(
         verdict = run_writer(
             mode="CONTRACT_REPAIR",
             extra_context=(
-                "AUTHOR 自称 READY，但宿主发现以下契约内部矛盾：\n- "
+                "AUTHOR returned READY, but the host found these contradictions in the contract:\n- "
                 + "\n- ".join(contradictions)
-                + "\n这不是要求在实现前提供行为证据。若目标已完整进入契约，只需用 "
-                "FULL + HYPOTHESIS 表达；若契约遗漏目标，则补全控制语义与独立验收。"
-                "\n上次结构化结论如下：\n" + prior
+                + "\nBehavioral evidence is not required before implementation. If the contract fully covers the objective, use "
+                "FULL + HYPOTHESIS. If the contract omits the objective, complete the control semantics and independent acceptance criteria."
+                "\nPrevious structured result:\n" + prior
             ),
         )
         status = validate(verdict)
@@ -261,7 +231,7 @@ def minimal_spec(
         remaining = ready_contract_violations(verdict)
         if remaining:
             raise gates.GateError(
-                "minimal Spec CONTRACT_REPAIR 后仍自相矛盾：" + "; ".join(remaining)
+                "Minimal Spec is still inconsistent after CONTRACT_REPAIR: " + "; ".join(remaining)
             )
     if status == "BLOCKED":
         verdict["head_sha"] = ""
@@ -275,8 +245,8 @@ def minimal_spec(
         verdict = run_writer(
             mode="DELIVERY_REPAIR",
             extra_context=(
-                "AUTHOR 已返回 READY/PARTIAL，但宿主客观读取到 Git HEAD 未前移。"
-                "这是唯一一次修复机会。上次结构化结论如下；必须与磁盘文档核对后再交付：\n"
+                "AUTHOR returned READY/PARTIAL, but the host verified that Git HEAD did not advance. "
+                "This is the only repair attempt. Check the prior structured result below against the document on disk before delivering:\n"
                 f"{prior}"
             ),
         )
@@ -309,13 +279,13 @@ def minimal_design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, s
     """
     path = Path(work_dir) / "docs" / "objectives" / f"issue-{issue_number}.md"
     if not path.is_file():
-        raise gates.GateError(f"minimal objective spec 不存在：{path.relative_to(work_dir)}")
+        raise gates.GateError(f"Minimal objective Spec not found: {path.relative_to(work_dir)}")
     text = path.read_text(encoding="utf-8")
     if not text.strip():
         # An empty artifact cannot provide an objective contract at all.  Keep this as a
         # hard gate; the warning-only relaxation below is specifically for presentation
         # format, not for an absent design.
-        raise gates.GateError(f"minimal objective spec 为空：{path.relative_to(work_dir)}")
+        raise gates.GateError(f"Minimal objective Spec is empty: {path.relative_to(work_dir)}")
     required = (
         "## Objective contract",
         "## Observed mechanism and evidence",
@@ -328,8 +298,8 @@ def minimal_design_snapshot(*, work_dir: Path, issue_number: int) -> dict[str, s
     format_warning = ""
     if missing:
         format_warning = (
-            f"minimal objective spec 格式警告：缺少固定段落 {missing}；"
-            "继续进入后续阶段，语义完整性由实现与用户验收负责"
+            f"Minimal objective Spec format warning: missing required section {missing}；"
+            "Continuing; implementation and user acceptance will check semantic completeness"
         )
         # Do not turn a present, non-empty contract into a failed run merely because the
         # model used numbered/translated Markdown headings.  Keep the warning observable
@@ -356,7 +326,9 @@ def assert_minimal_design_approved(
     """Reject merge when the compact objective contract changed after implementation approval."""
     current = minimal_design_snapshot(work_dir=work_dir, issue_number=issue_number)
     if current["design_digest"] != approved_digest:
-        raise gates.GateError("minimal objective spec 在实现后发生变化，必须重新走原 issue 验收")
+        raise gates.GateError(
+            "The minimal objective Spec changed after implementation; repeat acceptance against the original issue"
+        )
 
 
 def implement(
@@ -369,12 +341,7 @@ def implement(
     context_text: str,
     evidence_pack: list | None = None,
 ) -> dict:
-    """实现阶段（implementer agent）：按获批 spec 写码 / 据反馈迭代，返回 {summary}。承 solve_issue 的 implement/iterate。
-
-    `feedback` 空 = 首轮实现、非空 = 据 reviewer/CI/e2e 反馈迭代（同模块两用，靠占位符区分，零控制流）。
-    恒 agent（写码永远派 agent、不进 stages 策略点，见 T1 _ALWAYS_AGENT_STAGES）；也是 T3 CI/e2e/review
-    三闸打回回环派去改代码的那个 agent。
-    """
+    """Implement the approved Spec or address feedback in the candidate worktree."""
     return engine.run_agent(
         implementer,
         backend=backend,
@@ -434,7 +401,7 @@ def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") ->
         details = "; ".join(
             f"{item.where}: {item.message}" for item in report.issues if item.level == "error"
         )
-        raise gates.GateError(f"issue #{issue_number} 的候选 Spec 校验失败：{details}")
+        raise gates.GateError(f"issue #{issue_number}: candidate Spec validation failed: {details}")
     groups = spec_model.load_all(specs_root=specs_root)
     changed_paths = Workspace(work_dir=Path(work_dir)).changed_spec_groups(
         worktree=Path(work_dir), base=base
@@ -457,7 +424,7 @@ def design_snapshot(*, work_dir: Path, issue_number: int, base: str = "main") ->
         candidates = [group for group in groups if group.metadata.issue == issue_number]
     if len(candidates) != 1:
         raise gates.GateError(
-            f"issue #{issue_number} 必须恰好对应一个候选 Spec，实际 {len(candidates)} 个"
+            f"issue #{issue_number} must have exactly one candidate Spec; found {len(candidates)}"
         )
     group = candidates[0]
     digest = spec_model.design_digest(group=group)
@@ -510,10 +477,10 @@ def review(
     context_text: str,
     issue_number: int = 0,
 ) -> dict:
-    """评审阶段（reviewer agent）：判这版能不能过评审，返回 {verdict, reason}（PASS/REWORK）。承 solve_issue/merge_pr 的 review。
+    """Review stage (reviewer agent): Could this version be evaluated and returned to {verdict, reason} (PASS/REWORK). solve_issue/merge_pr review.
 
-    「这版能不能合」是主观判断，故下放 reviewer；本函数零判断，只组占位符 + 调 engine。REWORK 时由
-    T3 派 implementer 迭代（打回回环）。
+    ”Is this version fit?” is subjective, so it is a default; this function is zero, only set placeholders + engine. ReWORK is used by
+    T3-implementer iterative (back to back loop).
     """
     verdict = engine.run_agent(
         reviewer,
@@ -569,7 +536,9 @@ def acceptance(
         pr_number=pr_number,
     )
     if verdict["verdict"] not in {"PASS", "PARTIAL", "FAIL"}:
-        raise gates.GateError(f"Acceptance Reviewer 返回未知裁决：{verdict['verdict']!r}")
+        raise gates.GateError(
+            f"Acceptance Reviewer returned an unknown verdict: {verdict['verdict']!r}"
+        )
     if verdict["verdict"] == "PASS":
         manifest = verdict["evidence"]
         try:
@@ -580,19 +549,25 @@ def acceptance(
                 required_source="user_test" if require_user_test else None,
             )
         except evidence_validation.EvidenceError as exc:
-            raise gates.GateError(f"Acceptance PASS 证据无效：{exc}") from exc
+            raise gates.GateError(f"Invalid evidence for Acceptance PASS: {exc}") from exc
         if any(item.get("passed") is not True for item in manifest):
-            raise gates.GateError("Acceptance PASS 的每项证据必须显式 passed=true")
+            raise gates.GateError(
+                "Every Acceptance PASS evidence item must explicitly have passed=true"
+            )
         if require_user_test:
             if not isinstance(user_test_result, dict):
-                raise gates.GateError("Acceptance PASS 缺少实际 User Test artifact")
+                raise gates.GateError("Acceptance PASS lacks an actual User Test artifact")
             if user_test_result.get("status") != "completed":
-                raise gates.GateError("Acceptance PASS 的 User Test 未正常完成，必须 fail-closed")
+                raise gates.GateError(
+                    "User Test did not complete normally; Acceptance PASS is rejected"
+                )
             if not any(
                 item.get("kind") == "behavior" and item.get("source") == "user_test"
                 for item in manifest
             ):
-                raise gates.GateError("Acceptance PASS 缺少 source=user_test 的行为证据")
+                raise gates.GateError(
+                    "Acceptance PASS lacks behavioral evidence with source=user_test"
+                )
         else:
             # Legacy recipe callers may still use replay/variant evidence while they
             # migrate.  v0.2 always sets require_user_test=True.
@@ -602,7 +577,8 @@ def acceptance(
             missing_sources = {"original_replay", "independent_variant"} - behavior_sources
             if missing_sources:
                 raise gates.GateError(
-                    "Acceptance PASS 缺少独立行为证据：" + ", ".join(sorted(missing_sources))
+                    "Acceptance PASS lacks independent behavioral evidence: "
+                    + ", ".join(sorted(missing_sources))
                 )
     return verdict
 
@@ -617,14 +593,7 @@ def deliver(
     rebase_onto: str | None = None,
     context_text: str = "",
 ) -> dict:
-    """交付阶段（deliver agent）：commit/push 把改动落到 PR head，返回交付报告 {delivered, head_sha, ...}。承 solve_issue 的 deliver。
-
-    恒 agent（git 交付永远派 agent、不进 stages 策略点）。内嵌三道确定性硬闸兜底（见模块 docstring）——
-    交付前基点确定性记录、交付后断言工作区干净且远端一致 + 证据戳一致，补 push 不要求空提交。
-
-    # Spec-0065/T2: `context_text` 追加进 agent 上下文（缺省空串 = 既有调用方零变化）。守夜用它把
-    # `context_text` 可追加本轮机械约束与诊断材料。
-    """
+    """Ask the delivery role to publish changes, then verify the resulting Git state."""
     ctx = Context(
         work_dir=Path(worktree),
         issue_number=issue_number,
@@ -654,13 +623,7 @@ def conflict(
     base: str = "main",
     context_text: str = "",
 ) -> dict:
-    """冲突解决阶段（deliver agent 去 rebase）：读冲突/判双方意图/自测下放 agent，返回 {delivered, reason}。承 merge_pr._resolve_conflict。
-
-    backend 为 None 或 agent 未交付时都只返回 delivered=False 的可重试结果；上层冲突恢复队列负责
-    延迟重试，不把一次 resolver 失败投影成人工终态。有则派 deliver agent rebase 解冲突——delivered=True
-    → resolved（下轮 mergeability 客观复检确认，谎报则下轮仍 DIRTY 自然重试）。本函数自身零 git 直调
-    （走 agent），零 state 写（state 归属 T3 编排）。
-    """
+    """Ask the delivery role to resolve a rebase and verify the result."""
     if backend is None:
         return {"delivered": False, "reason": "unmergeable"}
     resolved_branch = branch or github_pr_head_branch(pr_number=pr_number)
@@ -672,7 +635,7 @@ def conflict(
             pr_number=pr_number,
             issue_number=issue_number,
             rebase_onto=base,
-            context_text=context_text,  # Spec-0065/T2: 透传一等出口契约（守夜传，其它调用方缺省空串）
+            context_text=context_text,  # Spec-0065/T2: Pass through first-class export contracts (Vigil, other caller default)
         )
     except gates.GateError as exc:
         return {"delivered": False, "reason": f"delivery gate: {exc}", "gate": "conflict"}
@@ -682,15 +645,15 @@ def conflict(
 
 
 # --------------------------------------------------------------------------------------------------
-# 机械段：读客观事实经 gates 分类（ci/e2e）/ 调 github 落地（merge）。零业务判断、零 LLM。
+# Mechanical segment: Read objective facts classified by ci/e2e/ gitthub landing (merge). Zero business judgement, zero LLM.
 # --------------------------------------------------------------------------------------------------
 
 
 def ci(*, pr_number: int) -> str:
-    """CI 闸（确定性读 github check + gates 分类）：返回 fail/pending/pass。承 merge_pr 的 CI 段。
+    """CI gate (refined genthub check + lots): returns fail/pending/pass. merge_pr section of the CI.
 
-    **不是「agent 判 CI」**——检测恒是客观读 check 的 conclusion；`stages.ci=agent` 只表示「红了自动
-    打回 implementer」（T3 路由），本函数只读客观事实分类。
+    ** Not ”agent ruling CI”** - constant testing is objectively read check conclusion; `stages.ci=agent` only means ”red automatically”
+    Call back the implementer” (T3 route) and this function reads only objective fact categories.
     """
     status = github.check_status(pr_number=pr_number)
     if gates.ci_failed(check_status=status):
@@ -701,11 +664,11 @@ def ci(*, pr_number: int) -> str:
 
 
 def e2e(*, pr_number: int) -> str:
-    """e2e 闸（确定性读证据溯源戳 + gates 判读）：返回 e2e（该补）/ ok（放行）。承 merge_pr 的 e2e 证据段。
+    """e2e (Retroactive + Gates interpretation of definitive reading evidence): returns e2e (supplement)/ ok (dismissal). e2e evidence section of merge_pr.
 
-    读 PR 的 e2e 证据戳 `(实际 head, 证据自述 head)`——无证据要求（seam 默认 None）→ 放行（ok）；有戳
-    但 `gates.evidence_stamp_ok` 判不匹配（缺证据/陈旧/张冠李戴）→ e2e（T3 派 implementer 补）。证据
-    接线点单一 seam `_pr_evidence_stamp`，测试可 monkeypatch 注入戳。
+    Read it. PR It’s... e2e Evidence stamp ’(Actual head, The evidence says it. head)’——No evidentiary requirements (No evidence)seam Default None）→ Release ok）;touching
+    But... `gates.evidence_stamp_ok` Discrepancies (inventory missing)/Old/Zhang Zhang Li Tai)→ e2e（T3 Pie. implementer - I’ll get it.
+    Single Seam `_pr_evidence_stamp` for the test to inject a jab with a mokey Patch.
     """
     stamp = _pr_evidence_stamp(pr_number=pr_number)
     if stamp is None:
@@ -724,15 +687,8 @@ def merge(
     context_text: str,
     require_ci: bool = True,
 ) -> dict:
-    """合并阶段（Spec-0017/T3：确定性硬闸兜底 + 下放 merger agent）：返回 merger 报告 {merged, summary}。
-
-    合并**不可逆**，故形态是「先闸后 agent」：
-    1. 先经确定性 `gates.assert_merge_allowed(pr_number, head_sha)` **实时复读** CI + label 把守红线——不放行
-       即抛 `GateError`，**决不派 agent**（agent 只能在闸放行后才被派上来落合并动作，防误派/TOCTOU 合未审代码）；
-    2. 放行后经 `engine.run_agent` 派 merger agent 落 `gh pr merge`——把「动作」下放 agent（承 Spec-0064 动作
-       全归 agent 层）；merger 对硬闸未覆盖的异常返回 merged=false，由统一失败路径收口。
-
-    本函数只在机械闸放行后落合并动作，自身零业务判断。
+    """Verify the deterministic gate, then dispatch the merge role.
+    Spec-0017/T3.
     """
     if require_ci:
         gates.assert_merge_allowed(pr_number=pr_number, head_sha=head_sha)
@@ -744,7 +700,7 @@ def merge(
         work_dir=Path(work_dir),
         context=context_text,
         pr_number=pr_number,
-        # Spec-0074/T1: 平台命令按当前 forge 注入（GitHub=gh 原命令零变化；Gitea=openagents merge-pr）。
+        # Spec-0074/T1: Platform command injects at the current forge (GitHub=gh original command zero change; Gitea=openagents merge-pr).
         merge_command=github.merge_command_text(pr_number=pr_number, head_sha=head_sha),
         verify_command=github.merge_verify_command_text(pr_number=pr_number, head_sha=head_sha),
     )
@@ -765,7 +721,7 @@ def merge_mechanical(*, pr_number: int, head_sha: str, require_ci: bool = True) 
 
 
 # --------------------------------------------------------------------------------------------------
-# 内部：交付类阶段共用的三道硬闸兜底骨架 + e2e 证据 seam + github 薄引用。
+# Internal: Three hard-barrel skeletons shared during the delivery type + e2e evidence Seam + github thin references.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -786,13 +742,7 @@ def _deliver_gated(
     require_delivered: bool,
     resume_branch: str | None = None,
 ) -> dict:
-    """派交付类 agent（drafter/deliver）+ 三道确定性硬闸兜底——rfc/deliver/conflict 共用（承 rfc_lifecycle._run_drafter / solve_issue 交付段）。
-
-    交付前基点经 `gates.snapshot_head` 确定性记录（不信 agent 自述）；`require_delivered=True`（backfill
-    validate 门控）时先据 agent 自述 delivered 短路——未交付即原样返回（caller 据此不开 PR、不进硬闸）；
-    交付/恢复用 `assert_delivered`，新起草用 `assert_head_advanced`，均检查证据戳。engine 保留字 work_dir/context 从
-    placeholders 取（context 必在 placeholders 里）。
-    """
+    """Dispatch a delivery role and check its report against observed Git facts."""
     before = gates.snapshot_head(workspace=Path(worktree))
     workspace = Workspace(work_dir=Path(worktree))
     resuming = bool(
@@ -800,8 +750,8 @@ def _deliver_gated(
         and resume_branch is not None
         and workspace.remote_branch_exists(branch=resume_branch)
     )
-    # placeholders 可能已含 work_dir（如 Context.for_deliver 产出）——统一以本函数的 worktree 为准，
-    # 剔除 placeholders 里的 work_dir 避免与显式传参重复（engine 保留字 work_dir 单一来源）。
+    # Placeholds may already contain work_dir (e. g. Context.for_deliver output) - unified to worktree of this function,
+    # Remove work_dir from placeholds to avoid repeating it with a visible transfer (engine reserved word work_dir single source).
     payload = {key: value for key, value in placeholders.items() if key != "work_dir"}
     verdict = engine.run_agent(agent_module, backend=backend, work_dir=Path(worktree), **payload)
     if require_delivered and not verdict["delivered"]:
@@ -811,8 +761,10 @@ def _deliver_gated(
         # Spec-0056 recovery: publishing an existing commit is progress; an empty commit is not
         # required. Verify the actual remote and worktree, not the model's self-report alone.
         if not verdict["delivered"] or resume_branch is None:
-            summary = str(verdict.get("summary") or "agent 未提供诊断")
-            raise gates.GateError(f"交付 agent 未完成提交推送；agent_summary={summary}")
+            summary = str(verdict.get("summary") or "No diagnostic from the agent")
+            raise gates.GateError(
+                f"Delivery agent did not finish commit and push; agent_summary={summary}"
+            )
         workspace.assert_delivered(worktree=Path(worktree), branch=resume_branch)
     elif after == before and resuming and resume_branch is not None:
         # A retry may be validating an artifact already committed and pushed by the
@@ -827,15 +779,15 @@ def _deliver_gated(
 
 
 def _pr_evidence_stamp(*, pr_number: int) -> tuple[str, str] | None:
-    """读 PR 的 e2e 证据溯源戳 `(实际 head, 证据自述 head)`；无证据要求 → None（e2e 闸放行）。承 merge_pr._pr_evidence_stamp。
+    """Read it. PR It’s... e2e Evidence trace ’(Actual head, The evidence says it. head)’;no evidentiary requirements → None（e2e The gate is clear. merge_pr._pr_evidence_stamp。
 
-    新栈尚未接 executor 真跑 e2e（承 Spec-0061 同一 Unresolved），故默认恒返回 None、e2e 闸放行；T3
-    接线 / 测试可 monkeypatch 本函数注入戳，驱动 `gates.evidence_stamp_ok` 判读。单一 seam 使证据闸接
-    线点明确、不散落进主控制流。
+    New Inn has not yet been replaced by execuator True Run e2e (submit Spec-0061 is the same Unresolved), so the default is to return to the Noone, e2e gate and release; T3
+    Connect / Test to improvise this function by placing a jab, driving `gates.evidence_stamp_ok` interpretation. Single Seam connects the evidence lock
+    Line points are clear and do not disperse into the main control stream.
     """
     return None
 
 
 def github_pr_head_branch(*, pr_number: int) -> str:
-    """薄引用 `github.pr_head_branch`——conflict 阶段无 branch 归属时的兜底读（单点便于测试 monkeypatch）。"""
+    """The thin reference `github.pr_head_branch` - conflict stage does not have a brancy-based reading (one point is easy to test for MonkeyPatch)."""
     return github.pr_head_branch(pr_number=pr_number)

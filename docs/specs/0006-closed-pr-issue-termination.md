@@ -1,12 +1,12 @@
 ---
 number: "0006"
-title: 守夜人识别 PR/issue 关闭作为终止信号
+title: "Vigil recognizes PR/issue closure as a termination signal"
 issue: 0
 slug: closed-pr-issue-termination
-summary: 守夜人要懂得收手：当一个 PR 或 issue 被关闭时，把它识别成终止信号，不再继续求解，避免对已放弃的工作空转。
+summary: "Vigil must know when to stop: when a PR or issue is closed, recognize it as a termination signal and stop trying to solve it, avoiding wasted cycles on work that has already been abandoned."
 tasks:
   - id: T1
-    title: closed PR 识别为终止信号
+    title: "Recognize a closed PR as a termination signal"
     status: done
     priority: P1
     tags:
@@ -21,71 +21,70 @@ tasks:
       - openagents/messages.py
       - tests/test_github.py
       - tests/test_messages.py
-    scope: github.py 新增 is_closed(*, pr_number)，读 gh pr view --json state 判定是否 == CLOSED（与 is_merged 对称：GitHub PR 三态 OPEN/CLOSED/MERGED 互斥，已合并 PR 的 state 是 MERGED 不算 closed）；state.py 新增 STATUS_CLOSED = "closed" 常量，不纳入 _OPEN_STATUSES；messages._process_run 在 merged 判定之后、阶段路由之前插入 closed 分支：命中则置 STATUS_CLOSED、返回 reason="closed"，不触发任何编排动作。
-    acceptance: 一个 state=CLOSED、带 rfc-approved 标签、本地状态 rfc-review 的 run 经 poll 后不调用 implement、状态被置为 closed、事件 reason="closed"；closed 状态的 run 在后续 poll 中被跳过（不在 _OPEN_STATUSES）；merged 仍优先于 closed 与阶段路由，既有测试不回归；ruff check / ruff format --check / pytest 全绿。
+    scope: "Add is_closed(*, pr_number) to github.py, reading gh pr view --json state to determine whether state == CLOSED (symmetric with is_merged: GitHub's three PR states, OPEN/CLOSED/MERGED, are mutually exclusive; a merged PR has state MERGED and does not count as closed); add the STATUS_CLOSED = \"closed\" constant to state.py without including it in _OPEN_STATUSES; insert a closed branch in messages._process_run after the merged check and before stage routing: if matched, set STATUS_CLOSED and return reason=\"closed\", without triggering any orchestration actions."
+    acceptance: "After polling a run with state=CLOSED, the rfc-approved label, and local state rfc-review, implement is not called, the state is set to closed, and the event has reason=\"closed\"; runs in the closed state are skipped in subsequent polls (they are not in _OPEN_STATUSES); merged still takes precedence over closed and stage routing, with no regressions in existing tests; ruff check / ruff format --check / pytest all pass."
 ---
 
-# 0006 · 守夜人识别 PR/issue 关闭作为终止信号
+# 0006 · Vigil recognizes PR/issue closure as a termination signal
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-让守夜人（vigil/poll 循环）懂得「收手」：当一个 PR 被人主动关闭（GitHub state 进入 `CLOSED` 而非 `MERGED`）时，把它识别成与「已合并」对称的**终止信号**，将该 run 置为新终态 `STATUS_CLOSED` 并在后续轮次跳过，不再继续求解，避免对已被人放弃的工作空转。
+Teach Vigil (the vigil/poll loop) when to stop: when someone explicitly closes a PR (its GitHub state becomes `CLOSED` rather than `MERGED`), recognize this as a **termination signal** symmetric with “merged,” set the run to the new terminal status `STATUS_CLOSED`, and skip it in subsequent rounds. Stop trying to solve it, avoiding wasted cycles on work someone has already abandoned.
 
 ## Motivation
 
-守夜人是一个持续轮询（poll）的循环：它遍历所有本地 run 记录，对仍处于「开放」状态（`_OPEN_STATUSES`：rfc-review / pr-open / iterating）的 run，按其阶段把工作推进下去（起草 RFC、实现代码、迭代评审等）。
+Vigil is a continuous polling (poll) loop: it traverses all local run records and advances runs that are still in an “open” status (`_OPEN_STATUSES`: rfc-review / pr-open / iterating) according to their stage (drafting an RFC, implementing code, iterating on reviews, etc.).
 
-在本 feature 之前，循环只识别一个终止信号——**merged**：`_process_run` 一旦发现 PR 已合并，就置 `STATUS_DONE` 并跳过。但「人主动关闭一个 PR（不合并）」这个同样明确的「**别再做了**」信号没有被识别。其后果是：一个被人关闭、判定为「放弃这条路」的 PR，对应的 run 仍停留在 rfc-review / pr-open 等开放状态里，守夜人会继续按阶段对它求解——重复起草、重复实现、重复评审一份人已经决定不要的工作。这既浪费 agent 算力，也违反「人做宏观把控、agent 不空转」的设计目标。
+Before this feature, the loop recognized only one termination signal—**merged**: once `_process_run` discovered that a PR had been merged, it set `STATUS_DONE` and skipped it. But the equally explicit **“stop working on this”** signal of “someone explicitly closes a PR without merging it” went unrecognized. Consequently, when someone closed a PR after deciding to “abandon this approach,” the corresponding run remained in an open status such as rfc-review / pr-open, and Vigil continued trying to solve it according to its stage—repeatedly drafting, implementing, and reviewing work someone had already decided against. This wastes agent compute and violates the design goal of “humans provide high-level oversight; agents do not spin their wheels.”
 
-需要让守夜人对「关闭」与对「合并」一样敏感：关闭即终止，立刻收手。
+Vigil needs to be as sensitive to “closed” as it is to “merged”: closure means termination; stop immediately.
 
 ## Guide-level explanation
 
-GitHub 的 PR `state` 有三个互斥取值：`OPEN`、`CLOSED`、`MERGED`。已合并的 PR 其 state 是 `MERGED`（不算 `CLOSED`），所以「关闭未合并」可以干净地由 `state == "CLOSED"` 唯一识别，与既有的「合并」判定（`MERGED`）天然对称、互不重叠。
+A GitHub PR's `state` has three mutually exclusive values: `OPEN`, `CLOSED`, and `MERGED`. A merged PR has state `MERGED` (it does not count as `CLOSED`), so “closed without merging” can be uniquely and cleanly identified by `state == "CLOSED"`, naturally symmetric with and non-overlapping with the existing “merged” check (`MERGED`).
 
-行为上的变化：从此以后，人只要在 GitHub 上点「Close pull request」（不合并），下一轮 poll 就会把这个 run 标记为 `closed` 并停止对它的一切编排动作；它也不再出现在「仍有开放工作」的统计里。人因此多了一个轻量的「叫停」开关——关掉 PR，agent 就收手——而不必另寻机制去中止一条已放弃的求解线。
+The behavioral change: from now on, whenever someone clicks “Close pull request” on GitHub (without merging), the next poll round will mark that run as `closed` and stop all orchestration actions for it; it will also no longer count toward “work that is still open.” This gives people a lightweight “stop” switch—close the PR, and the agent stops—without requiring a separate mechanism to terminate an abandoned line of problem-solving.
 
 ## Reference-level explanation
 
-单 Task（T1，无依赖），三处协同改动构成一条「检测 → 终态常量 → 路由」的链路：
+A single Task (T1, no dependencies), with three coordinated changes forming a “detection → terminal-status constant → routing” chain:
 
-1. **检测层 `github.py`** — 新增 `is_closed(*, pr_number)`：经唯一收口点 `_gh_json` 跑 `gh pr view <n> --json state`（自带瞬时重试），返回 `str(state).upper() == "CLOSED"`。结构镜像既有的 `is_merged`；GitHub 三态互斥保证已合并 PR（state=MERGED）不会被误判为 closed。
-2. **状态层 `state.py`** — 新增常量 `STATUS_CLOSED = "closed"`，表示「PR 被关闭但未合并」的终态（人主动放弃）。它**刻意不纳入** `messages._OPEN_STATUSES`，从而被 poll 自动跳过。
-3. **路由层 `messages.py` `_process_run`** — 在「merged 判定」之后、「阶段路由」之前插入 closed 分支：
-   - 顺序刻意保持 `merged` 优先于 `closed`：若一个 PR 既已合并，按合并语义走 `STATUS_DONE`（merged 是更强的成功终态）；只有「关闭且未合并」才落到 closed。
-   - 命中 closed 时：调用 `state.update_status(... status=STATUS_CLOSED)`，返回事件 `{"pr_number": ..., "reason": "closed"}`，**不触发任何编排动作**（不 implement、不 rebase、不评审）。
-   - 因为 `STATUS_CLOSED ∉ _OPEN_STATUSES`，该 run 在后续 poll 轮次中被直接跳过，不再空转。
+1. **Detection layer, `github.py`** — Add `is_closed(*, pr_number)`: run `gh pr view <n> --json state` through the single centralized entry point `_gh_json` (with built-in retries for transient failures), and return `str(state).upper() == "CLOSED"`. Its structure mirrors the existing `is_merged`; GitHub's three mutually exclusive states ensure that a merged PR (state=MERGED) cannot be misclassified as closed.
+2. **State layer, `state.py`** — Add the constant `STATUS_CLOSED = "closed"`, representing the terminal status “PR closed without merging” (explicitly abandoned by a person). It is **deliberately excluded** from `messages._OPEN_STATUSES`, so poll automatically skips it.
+3. **Routing layer, `messages.py` `_process_run`** — Insert a closed branch after the “merged check” and before “stage routing”:
+   - Deliberately keep `merged` ahead of `closed`: if a PR has been merged, follow merge semantics and use `STATUS_DONE` (merged is the stronger successful terminal status); only “closed without merging” reaches closed.
+   - On a closed match: call `state.update_status(... status=STATUS_CLOSED)`, return the event `{"pr_number": ..., "reason": "closed"}`, and **trigger no orchestration actions** (no implement, no rebase, no review).
+   - Because `STATUS_CLOSED ∉ _OPEN_STATUSES`, the run is skipped directly in subsequent poll rounds and no longer spins its wheels.
 
-**Task 分解与依赖 DAG**：仅 T1，无依赖（`depends-on: []`），三处改动同属一个 PR 的单一 writer，不构成内部 DAG。
+**Task breakdown and dependency DAG**: T1 only, with no dependencies (`depends-on: []`); all three changes belong to a single writer in one PR and do not form an internal DAG.
 
-**端到端验证**：本 feature 无独立 `scripts/*.sh` e2e 脚本；以仓库标准门禁验证——`ruff check` / `ruff format --check` 全绿，`pytest`（含 `tests/test_github.py` 对 `is_closed` 的桩断言、`tests/test_messages.py` 对 closed 分支路由与 poll 跳过的断言）全绿。
+**End-to-end validation**: This feature has no standalone `scripts/*.sh` e2e script; validation uses the repository's standard gates—all checks pass for `ruff check` / `ruff format --check`, and all `pytest` tests pass (including stub assertions for `is_closed` in `tests/test_github.py` and assertions for closed-branch routing and poll skipping in `tests/test_messages.py`).
 
 ## Drawbacks
 
-- 终态从「仅 done」扩为「done / closed」两类，状态机多一个取值，poll 跳过逻辑需同时排除 `STATUS_BLOCKED` 与新增的 closed（已通过「不纳入 `_OPEN_STATUSES`」统一处理，未增分支复杂度）。
-- 「人关 PR」是不可逆的叫停：若人误关，需要重开 PR 才能让守夜人重新接管（GitHub 重开后 state 回 OPEN，下一轮 poll 自然恢复）。
+- Terminal statuses expand from “done only” to “done / closed,” adding one value to the state machine. The poll skip logic must exclude both `STATUS_BLOCKED` and the new closed status (already handled uniformly by “excluding it from `_OPEN_STATUSES`,” without adding branch complexity).
+- “Someone closes a PR” is an irreversible stop: if someone closes it by mistake, they must reopen the PR for Vigil to take over again (after GitHub reopens it, state returns to OPEN, and the next poll round naturally resumes).
 
 ## Rationale and alternatives
 
-- **为什么用 `state == "CLOSED"` 而非额外标签**：GitHub 原生三态已能精确表达「关闭未合并」，复用 state 字段无需新增标签约定，奥卡姆——不增实体。
-- **为什么 merged 优先于 closed**：合并是更强的成功终态；二者理论上互斥（MERGED ≠ CLOSED），但保持 merged 在前可让既有合并语义（置 done、关 issue、扇出 rebase）完全不受影响，零回归。
-- **备选：在 poll 入口统一过滤已关闭 run**。否决——检测需要调 `gh` 拿 state，放在 `_process_run` 内与 merged 判定并列最自然，且能同时产出 `reason="closed"` 事件供观测；放到入口反而要重复一次远程查询。
-- **备选：把 closed 也当 done**。否决——done 语义是「工作成功落地」，会触发关 issue / rebase 其余 PR 等动作；closed 语义是「放弃」，必须是一个**不触发任何编排动作**的纯终态，故需独立常量。
+- **Why use `state == "CLOSED"` instead of an additional label**: GitHub's native three-state model already expresses “closed without merging” precisely. Reusing the state field requires no new labeling convention—Occam's razor: introduce no additional entities.
+- **Why merged takes precedence over closed**: Merging is the stronger successful terminal status. The two are theoretically mutually exclusive (MERGED ≠ CLOSED), but keeping merged first leaves the existing merge semantics (setting done, closing the issue, fanning out rebase operations) completely unaffected, with zero regressions.
+- **Alternative: uniformly filter out closed runs at the poll entry point**. Rejected—detection requires calling `gh` to obtain state. Placing it inside `_process_run` alongside the merged check is the most natural fit and also produces a `reason="closed"` event for observability; placing it at the entry point would instead require a duplicate remote query.
+- **Alternative: treat closed as done as well**. Rejected—done means “the work has been successfully delivered” and triggers actions such as closing the issue / rebasing the remaining PRs; closed means “abandoned” and must be a pure terminal status that **triggers no orchestration actions**, hence the need for a separate constant.
 
 ## Prior art
 
-与同仓既有的「merged 即终止」识别（`is_merged` + `STATUS_DONE`）完全对称，本 feature 是其镜像扩展。对应 GitHub PR 的三态模型（OPEN/CLOSED/MERGED 互斥）——「关闭未合并」在主流 CI/自动化中是标准的「放弃此变更」信号。
+This feature is a mirror extension of the existing “merged means termination” recognition (`is_merged` + `STATUS_DONE`) in the same repository, with complete symmetry. It corresponds to GitHub's three-state PR model (OPEN/CLOSED/MERGED are mutually exclusive)—“closed without merging” is a standard signal to “abandon this change” in mainstream CI/automation.
 
 ## Unresolved questions
 
-无。检测口径（state==CLOSED）、终态常量、路由顺序（merged 优先）均已在本组确定。
+None. The detection criterion (state==CLOSED), terminal-status constant, and routing order (merged first) have all been settled within this group.
 
 ## Future possibilities
 
-- issue 被直接关闭（尚未开 PR 阶段）亦可对称识别为终止信号，复用同一「关闭即收手」语义。
-- closed 终态可在前端成果视图中单列「已放弃」分类，与 done / blocked 区分呈现。
+- Direct closure of an issue (before a PR has been opened) could likewise be recognized as a termination signal, reusing the same “closure means stop” semantics.
+- The closed terminal status could appear in a separate “Abandoned” category in the frontend results view, displayed distinctly from done / blocked.
 </content>
 </invoke>
-

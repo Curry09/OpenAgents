@@ -10,19 +10,19 @@ venv/
 .ruff_cache/
 .pytest_cache/
 
-# Node (仅用于 git 钩子工具链)
+# Node dependencies for Git hook tooling
 node_modules/
 
-# OpenAgents 运行时状态
+# OpenAgents runtime state
 .openagents/
 
-# Claude Code 本地配置
+# Local Claude Code configuration
 .claude/settings.local.json
 
 # OS
 .DS_Store
 
-# 本地环境变量（含密钥），勿提交
+# Local environment files; may contain credentials
 .env
 
 # Local credentials and experiment output (examples remain tracked)

@@ -71,7 +71,7 @@ def test_explicit_number_cannot_bypass_remote_reservation(tmp_path: Path) -> Non
         summary="A",
         number="0001",
     )
-    with pytest.raises(FileExistsError, match="已被"):
+    with pytest.raises(FileExistsError, match="already used"):
         create_group(
             specs_root=second / "docs/specs",
             slug="second",
@@ -86,7 +86,7 @@ def test_explicit_number_cannot_bypass_remote_reservation(tmp_path: Path) -> Non
 def test_shared_remote_failure_does_not_create_spec(tmp_path: Path) -> None:
     _, first, _ = _repository(tmp_path)
     _git(first, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
-    with pytest.raises(RuntimeError, match="编号预留失败"):
+    with pytest.raises(RuntimeError, match="Spec number reservation failed"):
         create_group(
             specs_root=first / "docs/specs",
             slug="first",

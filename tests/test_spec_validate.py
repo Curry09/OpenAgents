@@ -1,7 +1,7 @@
-"""spec validate 单元测试 —— markdown 单文件形态（2026-06-24）。
+"""Spec Validate unit test - markdown single file form (2026-06-24).
 
-覆盖每条规则的正反例：frontmatter schema 不合规 / 同组 files 重叠 / DAG 环 / 跨组引用不存在
-→ error；跨组 files 重叠 → warning 且 ok=True；全合规 → ok 无 issue。history 机制已退役。
+Covers positive and negative examples of each rule: non-compliant / group files overlap / DAG ring / cross-group references do not exist
+ → eror; cross group files overlap  → warning and ok=True; full compliance  →  no issue. Hastory mechanism retired.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from openagents.spec.validate import validate
 
 
 def _overview(**overrides: str) -> Overview:
-    """合规 Overview：必填四段（summary/motivation/reference_level/rationale_alternatives）非空。"""
+    """Compliance Overview: Four sections (summary/motivation/reference_level/rationale_alternatives) are not empty."""
     base = dict(summary="s", motivation="m", reference_level="r", rationale_alternatives="ra")
     base.update(overrides)
     return Overview(**base)
@@ -54,9 +54,9 @@ def _group(
 def _task(**overrides: object) -> Task:
     base: dict[str, object] = dict(id="T1", title="t", status="pending", priority="P1")
     base.update(overrides)
-    # issue #69：每个 Task 必有 files（单一 writer）+ acceptance（可验证）。
+    # Assue #69: Every Task must have a file (single Writer)+ acceptance (verifiable).
     base.setdefault("files", [f"{base['id']}.py"])
-    base.setdefault("acceptance", "可验证。")
+    base.setdefault("acceptance", "Validated.")
     return Task(**base)  # type: ignore[arg-type]
 
 
@@ -85,7 +85,7 @@ def test_all_valid_reports_ok_no_issues(tmp_path: Path) -> None:
 
 
 def test_schema_violation_is_error(tmp_path: Path) -> None:
-    # 非法 status 枚举值，直接手写 frontmatter。
+    # Illegal status count, handwritten frontmatter.
     (tmp_path / "0001-alpha.md").write_text(
         "---\n"
         'number: "0001"\n'
@@ -106,7 +106,7 @@ def test_schema_violation_is_error(tmp_path: Path) -> None:
 
 
 def test_missing_required_frontmatter_is_error(tmp_path: Path) -> None:
-    # 缺 title（GROUP_FRONTMATTER_SCHEMA required）。
+    # Missing title（GROUP_FRONTMATTER_SCHEMA required）。
     (tmp_path / "0001-alpha.md").write_text(
         '---\nnumber: "0001"\nissue: 1\nslug: alpha\ntasks: []\n---\n\n# 0001 · alpha\n',
         encoding="utf-8",
@@ -126,7 +126,7 @@ def test_intra_group_file_overlap_is_error(tmp_path: Path) -> None:
     )
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("同组内文件" in m for m in _errors(report))
+    assert any("claimed by multiple tasks" in m for m in _errors(report))
 
 
 def test_cross_group_file_overlap_is_warning_only(tmp_path: Path) -> None:
@@ -137,8 +137,8 @@ def test_cross_group_file_overlap_is_warning_only(tmp_path: Path) -> None:
         root=tmp_path, number="0002", slug="beta", issue=2, tasks=[_task(id="T1", files=["x.py"])]
     )
     report = validate(specs_root=tmp_path)
-    assert report.ok is True  # warning 不影响 ok
-    assert any("跨组重叠" in m for m in _warnings(report))
+    assert report.ok is True  # Wwarning doesn't affect ok
+    assert any("Overlapping file ownership" in m for m in _warnings(report))
     assert _errors(report) == []
 
 
@@ -155,7 +155,7 @@ def test_dependency_cycle_is_error(tmp_path: Path) -> None:
     )
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("存在环" in m for m in _errors(report))
+    assert any("Dependency cycle" in m for m in _errors(report))
 
 
 def test_cross_group_dependency_to_missing_task_is_error(tmp_path: Path) -> None:
@@ -204,7 +204,7 @@ def test_status_abandoned_in_snapshot_is_error(tmp_path: Path) -> None:
 
 
 def test_empty_summary_is_error(tmp_path: Path) -> None:
-    """Spec-0015/T3：组 summary 为空白 → error。"""
+    """Spec-0015/T3: Group metadata.summary is empty error."""
     group = Group(
         number="0001",
         metadata=Metadata(title="alpha", issue=1, slug="alpha", summary="  "),
@@ -215,7 +215,7 @@ def test_empty_summary_is_error(tmp_path: Path) -> None:
     )
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("summary 为空" in m for m in _errors(report))
+    assert any("metadata.summary is empty" in m for m in _errors(report))
 
 
 def test_empty_specs_root_is_ok(tmp_path: Path) -> None:
@@ -225,7 +225,7 @@ def test_empty_specs_root_is_ok(tmp_path: Path) -> None:
 
 
 def test_missing_required_overview_section_is_error(tmp_path: Path) -> None:
-    """issue #69：必填总览段（如 Reference-level）为空 → error（单 spec 自包含 / 总览先行）。"""
+    """Assue #69: Filling in a mandatory overview (e.g. Reference-level) is empty — error (sing specs contains / overview first)."""
     _group(
         root=tmp_path,
         number="0001",
@@ -240,27 +240,27 @@ def test_missing_required_overview_section_is_error(tmp_path: Path) -> None:
 
 
 def test_bare_cross_spec_ref_is_warning(tmp_path: Path) -> None:
-    """issue #69：总览里出现「见 Spec-0012 决策 8」式裸引用 → warning（提示就地复述）。"""
+    """The following is a list of the ”see Spec-0012 Decision 8” strip-tickings in the overview:"""
     _group(
         root=tmp_path,
         number="0001",
         slug="alpha",
         issue=1,
         tasks=[_task(id="T1", files=["a.py"])],
-        overview=_overview(motivation="背景详见 Spec-0012 决策 8。"),
+        overview=_overview(motivation="For further background, see Decision 8 for Spec-0012."),
     )
     report = validate(specs_root=tmp_path)
-    assert report.ok is True  # 仅 warning，不破 ok
+    assert report.ok is True  # Only warning, no broken ok
     assert any("Spec-0012" in m for m in _warnings(report))
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0040/T1: 组级 e2e 粗规划硬化（声明才校验，向后兼容）
+# Spec-0040/T1: Group level e2e rough plan scrutinization (declaration only, rear compatibility)
 # --------------------------------------------------------------------------- #
 
 
 def _group_with_e2e(*, root: Path, e2e: E2EPlan | None) -> Path:
-    """落一个带（或不带）e2e 粗规划的合规组，便于对 _e2e_checks 做正反例。"""
+    """Put down a (or not) e2e-planned compliance group to facilitate the positive and negative example of _e2e_checks."""
     group = Group(
         number="0001",
         metadata=Metadata(title="alpha", issue=1, slug="alpha", summary="alpha TL;DR", e2e=e2e),
@@ -273,10 +273,13 @@ def _group_with_e2e(*, root: Path, e2e: E2EPlan | None) -> Path:
 
 
 def test_valid_e2e_block_is_ok(tmp_path: Path) -> None:
-    """Spec-0055/T2：合法 e2e 块（intent 非空 + method 非空）→ 无 e2e 相关 error。"""
+    """Spec-0055/T2: valid e2e (intent non-empty + method non-empty)  → no e2e associated error."""
     _group_with_e2e(
         root=tmp_path,
-        e2e=E2EPlan(intent="init 无 origin 必须报错", method="跑 init，断言非零退出 + 提示"),
+        e2e=E2EPlan(
+            intent="Init no origin must be erroneously reported",
+            method="Run init, assert non-zero exit + hint",
+        ),
     )
     report = validate(specs_root=tmp_path)
     assert report.ok is True
@@ -284,21 +287,21 @@ def test_valid_e2e_block_is_ok(tmp_path: Path) -> None:
 
 
 def test_e2e_empty_intent_is_error(tmp_path: Path) -> None:
-    _group_with_e2e(root=tmp_path, e2e=E2EPlan(intent="  ", method="跑一下"))
+    _group_with_e2e(root=tmp_path, e2e=E2EPlan(intent="  ", method="Run."))
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("e2e.intent 为空" in m for m in _errors(report))
+    assert any("e2e.intent is empty" in m for m in _errors(report))
 
 
 def test_e2e_empty_method_is_error(tmp_path: Path) -> None:
     _group_with_e2e(root=tmp_path, e2e=E2EPlan(intent="x", method="   "))
     report = validate(specs_root=tmp_path)
     assert report.ok is False
-    assert any("e2e.method 为空" in m for m in _errors(report))
+    assert any("e2e.method is empty" in m for m in _errors(report))
 
 
 def test_no_e2e_block_is_ok_zero_regression(tmp_path: Path) -> None:
-    """无 e2e 块的既有组：validate 不报任何 e2e 相关 error（向后兼容）。"""
+    """No e2e already existing group: Validate does not report any e2e-related error (reward compatible)."""
     _group_with_e2e(root=tmp_path, e2e=None)
     report = validate(specs_root=tmp_path)
     assert report.ok is True
@@ -306,7 +309,7 @@ def test_no_e2e_block_is_ok_zero_regression(tmp_path: Path) -> None:
 
 
 def test_task_without_acceptance_is_schema_error(tmp_path: Path) -> None:
-    """issue #69：frontmatter 缺 acceptance → schema required 拦下。"""
+    """#69: Frontmatter missing acceptance #schema stopped."""
     (tmp_path / "0001-alpha.md").write_text(
         "---\n"
         'number: "0001"\n'
@@ -329,30 +332,30 @@ def test_task_without_acceptance_is_schema_error(tmp_path: Path) -> None:
 
 
 def _n_tasks(n: int) -> list[Task]:
-    """n 个 files 两两不相交的最小 Task（规避同组 files 重叠 error，隔离 Task 数软上限）。"""
+    """n Files 2-to-do minimum Task (estapping the same group of files overlaper, segregating the Task soft-number ceiling)."""
     return [_task(id=f"T{i}", files=[f"f{i}.py"]) for i in range(1, n + 1)]
 
 
 def test_six_tasks_no_soft_cap_warning(tmp_path: Path) -> None:
-    """Spec-0072/T2：正好 6 Task（软上限内）→ 不出 Task 数 warning。"""
+    """Spec-0072/T2: Just like 6 Task (soft ceiling) cannot reach the number of times."""
     _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=_n_tasks(6))
     report = validate(specs_root=tmp_path)
     assert report.ok is True
-    assert not any("软上限" in m for m in _warnings(report))
+    assert not any("readability soft cap" in m for m in _warnings(report))
 
 
 def test_seven_tasks_warns_but_ok(tmp_path: Path) -> None:
-    """Spec-0072/T2：7 Task 且未声明 oversized-rationale → 一条 warning，但 ok=True（非阻塞）。"""
+    """Spec-0072/T2:7 Task and undeclared oversized-rationale  →  a warning but ok=True (non-stop)."""
     _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=_n_tasks(7))
     report = validate(specs_root=tmp_path)
-    assert report.ok is True  # warning 不影响 ok，大 feature 一个 spec 不挂 CI
-    cap_warnings = [m for m in _warnings(report) if "软上限" in m]
+    assert report.ok is True  # Wwarning doesn't affect the big, feature a spec without the CI
+    cap_warnings = [m for m in _warnings(report) if "readability soft cap" in m]
     assert len(cap_warnings) == 1
     assert "7 > 6" in cap_warnings[0]
 
 
 def test_seven_tasks_with_rationale_is_silent(tmp_path: Path) -> None:
-    """Spec-0072/T2：7 Task 且声明 oversized-rationale（原子交付）→ 静默、无 Task 数 warning。"""
+    """Spec-0072/T2:7 Task and a statement of oversized-rationale (atom delivery) silent, no number Task warning."""
     group = Group(
         number="0001",
         metadata=Metadata(
@@ -360,7 +363,7 @@ def test_seven_tasks_with_rationale_is_silent(tmp_path: Path) -> None:
             issue=1,
             slug="alpha",
             summary="alpha TL;DR",
-            oversized_rationale="一次原子交付：拆组会割裂 e2e 验收",
+            oversized_rationale="One atomic delivery: breakup group e2e acceptance",
         ),
         tasks=_n_tasks(7),
         overview=_overview(),
@@ -369,7 +372,7 @@ def test_seven_tasks_with_rationale_is_silent(tmp_path: Path) -> None:
     model.dump_group(group=group, path=path)
     report = validate(specs_root=tmp_path)
     assert report.ok is True
-    assert not any("软上限" in m for m in _warnings(report))
+    assert not any("readability soft cap" in m for m in _warnings(report))
 
 
 def test_architecture_requires_selected_candidate_and_opposite_cases(tmp_path: Path) -> None:
@@ -403,4 +406,4 @@ def test_architecture_requires_selected_candidate_and_opposite_cases(tmp_path: P
 def test_duplicate_group_number_is_repository_error(tmp_path: Path) -> None:
     _group(root=tmp_path, number="0001", slug="alpha", issue=1, tasks=[_task()])
     _group(root=tmp_path, number="0001", slug="beta", issue=2, tasks=[_task(id="T2")])
-    assert any("重复 number" in item for item in _errors(validate(specs_root=tmp_path)))
+    assert any("Repeat" in item for item in _errors(validate(specs_root=tmp_path)))

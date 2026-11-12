@@ -1,27 +1,5 @@
-"""# Spec-0064/T1: utils.agent_config —— `.openagents/openagents.yml` 声明式配置加载器。
-
-一份 `.openagents/openagents.yml` 作「用哪些 agent + 每道闸归谁把关」的**单一真源**（承理念 1
-奥卡姆 + 理念 2 去中心化）：`agents` 段声明每个角色接哪个后端（同项目可混接 Claude Code / Codex /
-nexau）、`stages` 段用 `agent`/`skip` 声明每个可配阶段归属、`release` 段声明顶层发版
-策略、`defaults`/`repos` 收编多仓库统管（沿用 `utils.fleet_config` 的 defaults 合并模式）。
-
-沿用 `utils.fleet_config` 同款 `ruamel.yaml` + `jsonschema` Draft202012 声明式校验（理念 1，不增
-新依赖），产出 resolved 不可变 dataclasses（`AgentPolicy` / `StagePolicy` / `ReleasePolicy` /
-`RepoPlan` / `AgentConfig`）供编排层（Spec-0064/T3 `run_vigil`）读「这道闸归谁 / 这个角色接哪个
-后端」。**整份可省**——文件不存在或空 → 全回落内建默认（= 今天的硬编码全自动行为，不写 YAML 的
-用户零感知）。additive，无消费者改动（T3 才接线）。
-
-校验分两层（对齐 fleet_config 的 schema + 手工矛盾校验分工）：
-- jsonschema 验结构/类型 + 每闸合法取值（per-stage enum：`conflict`/`merge` 拒 skip、`rfc` 仅
-  agent/skip）；
-- 手工语义校验补 schema 表达不了的：① 确定性硬闸名（head-advanced/evidence-stamp/round-cap）与恒
-  agent 阶段（implement/deliver）写进 `stages` → 明确 reject（强化分层，见约束②）；②「不许零闸」
-  跨字段守卫拒 `review: skip` + `merge: agent`（未审直接盲合进 main）；③ `rfc: skip` 出显式告警
-  （允许跳但别悄悄关掉 RFC 卖点，见约束①）。
-
-纯解析：除读配置文件外无副作用（`rfc: skip` 告警走 `warnings.warn`，hermetic 可测），不感知
-git / gh / 子进程（理念 10 解耦）。
-"""
+# Spec-0064/T1
+"""Load and validate the project configuration in .openagents/openagents.yml."""
 
 from __future__ import annotations
 
@@ -37,14 +15,12 @@ from ruamel.yaml.error import YAMLError
 from openagents.utils import github
 from openagents.utils.forge import FORGE_GITEA, FORGE_GITHUB
 
-# Spec-0081/T3: 阶段只允许自动执行或显式跳过；人工 owner 已退役。
-OWNER_AGENT = (
-    "agent"  # 自动化拥有此闸（红了自动打回 implementer，非「agent 判客观事实」，见分界线）
-)
-OWNER_SKIP = "skip"  # 不设此闸（当 PASS 放行）
+# Spec-0081/T3: Stage allows only automatic execution or visible jump; manual owner is decommissioned.
+OWNER_AGENT = "agent"  # Automation of this gate (red automatically calls back implementer, not "agent objective fact" see dividing line)
+OWNER_SKIP = "skip"  # Do not set this gate (when PASS is released)
 
-# Spec-0064/T1: 七个**可配**阶段名 + 各自合法取值（不是所有闸都收全三态）——见 spec Reference-level
-# 「合法取值」列。conflict/merge 恒由自动化执行，故不可 skip；rfc 起草只 agent 或不写（skip）。
+# Spec-0064/T1: Seven** entangible ** stage names + each of the lawful values (not all gates are in 3 states) - see spec Reference-level
+# "Legally takes value" column. conflict/merge is always automated and therefore cannot be sskip; refc drafts only agent or not (skip).
 STAGE_TRIAGE = "triage"
 STAGE_RFC = "rfc"
 STAGE_ARCHITECTURE = "architecture"
@@ -65,13 +41,13 @@ _STAGE_VALID_OWNERS: dict[str, tuple[str, ...]] = {
     STAGE_MERGE: (OWNER_AGENT,),
 }
 
-# Spec-0064/T1: 内建默认 stages——**全 agent**（含 merge=agent 的全自动合并），
-# 使不写 YAML 的用户零感知（承 Drawbacks「= 今天的硬编码行为」）。default review=agent 天然不撞
-# 「不许零闸」守卫（review 在，merge 自动也站得住）。
+# Spec-0064/T1: built-in defaults statuss -** all parties** (full automatic merger with merge=agent)
+# Make users who do not write YaML feel zero (underdiggled Drawbacks' = hard-coding behavior today).
+# The "no zero gate" guard (review in merge can stand up to it).
 _DEFAULT_STAGES: dict[str, str] = {stage: OWNER_AGENT for stage in _STAGE_VALID_OWNERS}
 
-# Spec-0064/T1: 已知 agent 角色 → 后端映射的默认（backends/ 目前只有 claude_code，理念 2 的声明面
-# 先留 schema 位、混接 codex/nexau 的实现另议）。角色齐全一份，`agents` 段可逐角色覆盖 backend。
+# Spec-0064/T1: Default for known agent role  →  backend map (backends/ Currently only claude_code, concept 2 statement side
+# Saves the schema bits, mixes codex/nexau. The role is all in one, and the `agents` section can be covered by the role-by-role back.
 _ROLES = (
     "triager",
     "drafter",
@@ -95,46 +71,46 @@ FLOW_MINIMAL = "minimal"
 FLOW_GENERATE_ONLY = "generate-only"
 FLOW_V02 = "v0.2"
 
-# Spec-0064/T1: 确定性硬闸名（`runtime.gates`）——恒机器、恒在、skip 关不掉（防 #140 空转的安全
-# 底线，见约束②）。写进 `stages` 即报错，把「可配阶段」与「硬底线」词分开以强化分层。
+# Spec-0064/T1: Prefined Hardgate Name (`runtime.gates`) - Constant Machine, Constant, Skip Unable to Off (safe from #140
+# See the bottom line in the second bound, where `stages` is written as a blunder, separates the term "compatible phase" from the word "hard bottom line" to reinforce the layer.
 _HARDGATE_NAMES = ("head-advanced", "evidence-stamp", "round-cap")
-# Spec-0064/T1: 恒 agent、不可配的阶段（写码/交付永远派 agent，无「谁把关」的选择），写进 stages 亦 reject。
+# Spec-0064/T1: Constant agent, uncompatible phase (written/delivered forever agent, no "who takes the level" option), write in stages and reject.
 _ALWAYS_AGENT_STAGES = ("implement", "deliver")
 
-# Spec-0064/T1: 顶层发版策略——manual（人决定何时物化版本，默认最安全）/ auto（main 绿+无 BLOCKED
-# 自动物化，实现另议，见 Future）。不进 `stages`：release 是跨 issue 的仓库级动作、非某 issue 的流水线阶段。
+# Spec-0064/T1: Top-up development policy - manual (people decide when to use the most secure version, default)/ auto (main green+no BLONKED)
+# Auto-animal, we'll have another deal. See. Future）。No, I'm not. `stages`：release It's a cross. issue A warehouse-level move, not a particular issue The waterline phase.
 RELEASE_MANUAL = "manual"
 RELEASE_AUTO = "auto"
 
-# Spec-0064/T1: defaults 段内建默认——与单仓库 vigil / fleet_config 同源（interval 60 / base main /
-# labels 取发现标签单一真源），避免「本配置默认」与既有默认漂移。
+# Spec-0064/T1: defaults Default for building a section——With single warehouse vigil / fleet_config Co-source (%)interval 60 / base main /
+# The labels find a single real source) to avoid the "this configuration default" and the existing default drift.
 _DEFAULT_INTERVAL = 60
 _DEFAULT_BASE = "main"
 _DEFAULT_LABELS = (github.DISCOVERY_LABEL,)
 
-# Spec-0064/T1: 单仓库统管默认——不写 `repos` 段时守当前目录（path=.），承 fleet「单仓库整段可省」。
+# Spec-0064/T1: The default for single warehouse management - to keep the current directory (path=.) without `repos`, and to give the "one warehouse whole" message.
 _DEFAULT_REPO_PATH = "."
 
-# Spec-0064/T1: 配置文件默认落点（承 .openagents/ 命名空间；单仓库整份可省 → 内建默认）。
+# Spec-0064/T1: Default Droppoint for Profiles (enable.openages/ Naming Space; single repository as a whole saves built-in default).
 DEFAULT_CONFIG_PATH = ".openagents/openagents.yml"
 
-# Spec-0067/T1: 打包进包内的默认配置注释模板——`oa init` 从它生成盘上 .openagents/openagents.yml
-# 的单一真源。放 openagents/data/ 使源码树（editable 安装）与 wheel 里路径一致、两种安装模式同源
-# （见 Spec-0067 Rationale）。防漂移：tests 断言它经 load_agent_config 解析后语义等价 default_config()。
+# Spec-0067/T1: Default Configuration Comment Template for Packing in Package - `oa init` From It Generates Disk. openagents/openagents.yml
+# . Place openagents/data/ to align source tree (editable) with the wiel path, both installation modes being the same source
+# (See Spec-0067 Rationale）。DIVING:tests It's a story. load_agent_config Parsing syntax equivalent default_config()。
 _TEMPLATE_RESOURCE = "openagents.yml.template"
 
 _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
-# Spec-0064/T1: `stages` 段 schema——只列七个可配阶段、各自 owner 走 enum（per-stage 合法取值），
-# additionalProperties=False 挡未知/保留名（硬闸名/恒 agent 名/拼写漂移都由手工预扫给精确文案后，
-# 这里作 schema 兜底）。
+# Spec-0064/T1: `stages` segment schema - only seven compatible stages, each one own go enum (per-stage valid value)
+# The project is based on a series of projects, including the “Appendix” project, which is designed to provide a “Pilot for the U.S.,” and “Applicable” project.
+# Here's the schema under.
 _STAGES_SCHEMA: dict = {
     "type": "object",
     "properties": {stage: {"enum": list(owners)} for stage, owners in _STAGE_VALID_OWNERS.items()},
     "additionalProperties": False,
 }
 
-# Spec-0064/T1: `agents` 段 schema——role → { backend: str }，只认已知角色（additionalProperties=False）。
+# Spec-0064/T1: `agents` segment schema - role { backend: str }, only known characters (additional Projects = False).
 _AGENTS_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -149,8 +125,8 @@ _AGENTS_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0074/T1: `gitea` 段 schema——forge=gitea 时的连接四元组。token 本体只从环境变量读
-# （token_env 声明变量名，缺省 GITEA_TOKEN）——延续「OpenAgents 不存 token」纪律（gh 委托改 env 委托）。
+# Spec-0074/T1: `gitea` segment schema-forge=gitea connects to four-dimensional groups. Token body is read only from environmental variables
+# （token_env Declares variable name, default GITEA_TOKEN）——Continue OpenAgents Not token」Discipline (gh Commissioning change env (a) Commissioning).
 _GITEA_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -163,7 +139,7 @@ _GITEA_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0064/T1: 单个 `repos[]` 项——必填 path + 可选 name/base/interval/labels + 每仓 stages 覆盖。
+# Spec-0064/T1: Single `repos[]` Item - Fill in path + optional name/base/interval/labels + cover per warehouse stages.
 _REPO_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -178,7 +154,7 @@ _REPO_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# Spec-0064/T1: 顶层 schema——全键可选（整份省略 → 内建默认），additionalProperties=False 防手滑。
+# Spec-0064/T1: Top-level schema - Full button option (full omitted & built-in default), additionalProperties = False Hand-Slide.
 AGENT_CONFIG_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
@@ -193,7 +169,7 @@ AGENT_CONFIG_SCHEMA: dict = {
             "required": ["required"],
             "additionalProperties": False,
         },
-        # Spec-0074/T1: 托管平台选择（缺省 github，存量零感知）；gitea 时须带同级 gitea 连接段。
+        # Spec-0074/T1: Host Platform Selection (in default gethub, stock zero perception); gitea must be accompanied by a gitea connection at the same level.
         "forge": {"enum": [FORGE_GITHUB, FORGE_GITEA]},
         "gitea": _GITEA_SCHEMA,
         "agents": _AGENTS_SCHEMA,
@@ -217,45 +193,43 @@ _yaml = YAML(typ="safe")
 
 
 class AgentConfigError(Exception):
-    """# Spec-0064/T1: `.openagents/openagents.yml` 无法读取或不合法时抛出（结构错 / 非法取值 /
-    硬闸名进 stages / review:skip+merge:agent 零闸组合等）。上层 CLI 转干净一行提示（承 fleet_config）。"""
+    """# Spec-0064/T1: `.openagents/openagents.yml` cannot read or throw when it is not valid (structure error/ invalid value/
+    The hard-barrel name goes into the stages / review: skip+merge:agent Zerogates, etc. The upper CLI turns a line of tips (scrutinizing fleet_config)."""
 
 
 @dataclass(frozen=True)
 class AgentPolicy:
-    """# Spec-0064/T1: 角色 → 后端 的 resolved 映射（理念 2 去中心化的声明面）。"""
+    """# Spec-0064/T1: Role backend resolved map (ideology 2 goes to centralised statement surface)."""
 
     backends: dict[str, str] = field(default_factory=dict)
 
     def backend_for(self, *, role: str) -> str:
-        """取某角色接的后端名；未声明 → 内建默认（claude_code）。"""
+        """Return the configured backend for a role or the built-in default."""
         return self.backends.get(role, _DEFAULT_BACKEND)
 
 
 @dataclass(frozen=True)
 class StagePolicy:
-    """# Spec-0081/T3: 阶段 → 所有者（agent/skip）的 resolved 映射。"""
+    """# Spec-0081/T3: Phase # of the agent/skip map of the owner"""
 
     owners: dict[str, str] = field(default_factory=dict)
 
     def owner_of(self, *, stage: str) -> str:
-        """取某阶段归谁把关（agent/skip）；未声明 → 内建默认（agent）。"""
+        """Return the stage owner or the default agent owner."""
         return self.owners.get(stage, _DEFAULT_STAGES.get(stage, OWNER_AGENT))
 
 
 @dataclass(frozen=True)
 class ReleasePolicy:
-    """# Spec-0064/T1: 顶层发版策略（manual/auto）。"""
+    """# Spec-0064/T1: Top-level hair-out policy (manual/auto)."""
 
     mode: str = RELEASE_MANUAL
 
 
 @dataclass(frozen=True)
 class RepoPlan:
-    """# Spec-0064/T1: 单仓库守夜计划——defaults 与该仓库覆盖合并后的最终参数 + 该仓 resolved stages。
-
-    可 pickle 的不可变 dataclass（承 fleet.RepoPlan：`recipes.fleet` 跨 spawn 子进程传它）。`stages`
-    是顶层 stages 与本仓 `repos[].stages` 覆盖合并后的最终三态；`agents` 由顶层共享（不逐仓覆盖）。
+    """Hold one repository’s resolved defaults, stage owners, and checkout path.
+    Spec-0064/T1.
     """
 
     path: Path
@@ -271,7 +245,9 @@ class RepoPlan:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    """# Spec-0064/T1: 整份 `.openagents/openagents.yml` 的 resolved 视图——编排层的单一读入口。"""
+    """Hold the resolved project-wide configuration and repository plans.
+    Spec-0064/T1.
+    """
 
     version: int
     agents: AgentPolicy
@@ -281,8 +257,8 @@ class AgentConfig:
     base: str
     labels: list[str]
     repos: list[RepoPlan]
-    # Spec-0074/T1: 托管平台声明（forge 分发层按此选 driver；gitea 为该 driver 的连接设置）。
-    # 带默认值置于末位——既有构造点（default_config/_build_config/测试）零改动仍可实例化。
+    # Spec-0074/T1: Host Platform Declaration (this is the selected driver; gitea for the driver interface).
+    # Places the default at the end - Zero changes to the existing default_config/_build_config/ test can still be demonstrated.
     forge: str = FORGE_GITHUB
     gitea: dict | None = None
     flow: str = FLOW_STANDARD
@@ -291,7 +267,7 @@ class AgentConfig:
 
 
 def default_config() -> AgentConfig:
-    """内建默认配置（整份可省时的回落）——全 agent stages / claude_code / manual release / 单仓 `.`。"""
+    """Return the built-in configuration without reading a project file."""
     stages = StagePolicy(owners=dict(_DEFAULT_STAGES))
     return AgentConfig(
         version=1,
@@ -316,22 +292,19 @@ def default_config() -> AgentConfig:
 
 
 def _default_template_text() -> str:
-    """读打包进包内的默认配置注释模板文本（Spec-0067/T1）。
+    """Read the default configuration comment template text (Spec-0067/T1) in the package.
 
-    走 `importlib.resources.files("openagents")` 定位包目录再 joinpath 到 data/ 下的模板，
-    只依赖 `openagents` 是包（恒成立），不要求 data 子目录本身是包；editable 与 wheel 两种
-    安装模式都可达（源码树与 wheel 内路径同为 openagents/data/）。
+    Let’s go. `importlib.resources.files("openagents")` The package catalog again. joinpath Present. data/ .
+    `openagents` is a package (consistent) without requiring the data subdirectories to be a package; editable and wheel
+    Installation mode is available (source tree with openagents/data/ as the path inside .
     """
     resource = importlib.resources.files("openagents").joinpath("data", _TEMPLATE_RESOURCE)
     return resource.read_text(encoding="utf-8")
 
 
 def scaffold_default_config(*, path: Path, force: bool) -> bool:
-    """把包内默认配置注释模板写到 `path`（Spec-0067/T1）——`oa init` 的落盘出口。
-
-    幂等：`path` 已存在且 `not force` → 直接返回 False（不碰用户改动）；否则建好父目录后写入
-    模板文本、返回 True（`force=True` 时覆盖既有）。生成物只是声明式默认，运行时 flag 仍可单次
-    覆盖它（见 `cli._effective_config`）。除写目标文件外无副作用（不读 git/gh/网络，理念 10 解耦）。
+    """Write the packaged template without replacing existing configuration unless requested.
+    Spec-0067/T1.
     """
     resolved = Path(path)
     if resolved.exists() and not force:
@@ -342,19 +315,13 @@ def scaffold_default_config(*, path: Path, force: bool) -> bool:
 
 
 def load_agent_config(*, path: Path) -> AgentConfig:
-    """读 `.openagents/openagents.yml` → 校验 → 合并默认 → 返回 resolved `AgentConfig`。
-
-    步骤：(1) 文件不存在 / 空 → 全回落内建默认（整份可省，不写 YAML 零感知）；(2) YAML 解析 +
-    jsonschema 结构/类型/每闸合法取值校验；(3) 手工语义校验（硬闸名/恒 agent 名进 stages reject、
-    「不许零闸」守卫、`rfc: skip` 告警）；(4) 合并 defaults 与每仓 override 产出 RepoPlan 列表。
-    纯解析、无其它副作用（告警走 warnings.warn）。
-    """
+    """Read and validate project configuration, then apply defaults and overrides."""
     resolved_path = Path(path)
     if not resolved_path.exists():
         return default_config()
     data = _load_yaml(path=resolved_path)
     if data is None:
-        return default_config()  # 空文件（YAML 解析出 None）→ 全默认。
+        return default_config()  # Empty file (YAML parsing Noone)  → All defaults.
     _check_retired_human_owners(data=data)
     _check_reserved_stage_names(data=data)
     _validate(data=data)
@@ -362,30 +329,26 @@ def load_agent_config(*, path: Path) -> AgentConfig:
 
 
 def _load_yaml(*, path: Path) -> dict | None:
-    """读取并解析 YAML；文件读不到 / 解析错 / 顶层非映射（非空）→ AgentConfigError；空 → None。"""
+    """Read a configuration mapping or report an unreadable or invalid file."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise AgentConfigError(f"无法读取 openagents 配置 {path}：{exc}") from exc
+        raise AgentConfigError(f"Could not read opengents configuration {path}：{exc}") from exc
     try:
         data = _yaml.load(text)
     except YAMLError as exc:
-        raise AgentConfigError(f"openagents 配置 {path} 不是合法 YAML：{exc}") from exc
+        raise AgentConfigError(f"Openagents Configuration {path} Not legal Yaml:{exc}") from exc
     if data is None:
         return None
     if not isinstance(data, dict):
         raise AgentConfigError(
-            f"openagents 配置 {path} 顶层必须是映射（version / agents / stages / release / …）"
+            f"Openagents Configuration {path} Top layer must be map (version / representatives / statuss / release / ...)"
         )
     return data
 
 
 def _check_reserved_stage_names(*, data: dict) -> None:
-    """手工预扫：顶层与每仓 `stages` 里出现确定性硬闸名 / 恒 agent 阶段名 → 精确 reject（先于 schema）。
-
-    schema 的 additionalProperties=False 也会拒这些键，但给的是泛化 message；此处先扫给可操作的
-    分层解释（硬闸永不进 stages / implement·deliver 恒 agent），强化约束②的落地语义。
-    """
+    """Reject attempts to configure deterministic gates or mandatory role calls."""
     blocks = [data.get("stages")]
     for repo in data.get("repos") or []:
         if isinstance(repo, dict):
@@ -396,17 +359,17 @@ def _check_reserved_stage_names(*, data: dict) -> None:
         for name in stages:
             if name in _HARDGATE_NAMES:
                 raise AgentConfigError(
-                    f"stages 里不允许出现确定性硬闸名 {name!r}——"
-                    f"head 前移 / 证据戳 / round_cap 恒机器把关、skip 关不掉，不是可配阶段（约束②）"
+                    f"Hard gate names are not allowed in stages: {name!r}."
+                    "Head advancement, evidence stamps, and round limits cannot be disabled."
                 )
             if name in _ALWAYS_AGENT_STAGES:
                 raise AgentConfigError(
-                    f"stages 里不允许配置阶段 {name!r}——写码/交付恒派 agent，无「归谁把关」可选"
+                    f"Settings does not allow configuration phase {name!r}- Write/Deliver Constants agent, no ”who takes the turn” option"
                 )
 
 
 def _check_retired_human_owners(*, data: dict) -> None:
-    """Fail closed with an actionable path for configurations from before Spec-0081."""
+    """Reject retired human stage ownership with an actionable replacement."""
     blocks: list[tuple[str, object]] = [("stages", data.get("stages"))]
     for index, repo in enumerate(data.get("repos") or []):
         if isinstance(repo, dict):
@@ -418,13 +381,13 @@ def _check_retired_human_owners(*, data: dict) -> None:
         for stage, owner in stages.items():
             if owner == retired:
                 raise AgentConfigError(
-                    f"{prefix}/{stage}: owner={retired} 已退役；请明确改为 agent"
-                    + (" 或 skip" if OWNER_SKIP in _STAGE_VALID_OWNERS.get(stage, ()) else "")
+                    f"{prefix}/{stage}: owner={retired} retired; set the owner to agent"
+                    + (" or skip" if OWNER_SKIP in _STAGE_VALID_OWNERS.get(stage, ()) else "")
                 )
 
 
 def _validate(*, data: dict) -> None:
-    """jsonschema 结构/类型/每闸合法取值校验 + 手工「不许零闸」守卫；任一错误汇总成 AgentConfigError。"""
+    """jsonschema Structure/Type/Validation of values per gate + Manual ”No Zero-Clock” guards; any errors are grouped into AgentConfigError。"""
     validator = Draft202012Validator(AGENT_CONFIG_SCHEMA)
     errors = sorted(validator.iter_errors(data), key=str)
     if errors:
@@ -432,14 +395,14 @@ def _validate(*, data: dict) -> None:
         for error in errors:
             location = "/".join(str(part) for part in error.absolute_path) or "<root>"
             lines.append(f"  {location}: {error.message}")
-        raise AgentConfigError("openagents 配置校验失败：\n" + "\n".join(lines))
-    # Spec-0074/T1: forge=gitea 必须带 gitea 连接段——缺了 driver 无从打 API，装载期就拦（fail-loud，
-    # 绝不静默拿 gh 打一个 Gitea 项目）。schema 管形状，这里管跨字段依赖。
+        raise AgentConfigError("Could not close temporary folder: %s\n" + "\n".join(lines))
+    # Spec-0074/T1: forge=gitea must take gitea links - missing a river, unable to hit API, during loading period (fail-loud, Zail-loud, Zalig-Lutha)
+    # Never quietly gh hits a Gitea project. The schema pipe shape, here is the trans-field dependent.
     if data.get("forge") == FORGE_GITEA and not data.get("gitea"):
         raise AgentConfigError(
-            "forge=gitea 需要同级 gitea 段（base_url/owner/repo，可选 token_env）"
+            "Forge=gitea requires a gitea segment (base_url/owner/repo, optional token_env)"
         )
-    # 「不许零闸」跨字段守卫——顶层与每仓合并后的 stages 都要过（override 后仍不许零闸）。
+    # The "No Zero Gate" cross-field guard -- top level and stasis combined with each warehouse (override is still not allowed to leave the Zero Gate).
     _guard_no_zero_gate(
         stages=_merge_stages(base=None, override=data.get("stages")), scope="<root>"
     )
@@ -449,27 +412,21 @@ def _validate(*, data: dict) -> None:
 
 
 def _guard_no_zero_gate(*, stages: dict[str, str], scope: str) -> None:
-    """拒绝 `review: skip` + `merge: agent`——未审就自动盲合进 main（理念 5「PR 需人审」的底线）。
-
-    merge 恒由 agent 执行，因此 review 不能跳过。天然不撞内建默认（review=agent）。
-    """
+    """Require code review before automatic merge and architecture review for drafted Specs."""
     review = stages.get(STAGE_REVIEW, _DEFAULT_STAGES[STAGE_REVIEW])
     merge = stages.get(STAGE_MERGE, _DEFAULT_STAGES[STAGE_MERGE])
     rfc = stages.get(STAGE_RFC, _DEFAULT_STAGES[STAGE_RFC])
     architecture = stages.get(STAGE_ARCHITECTURE, _DEFAULT_STAGES[STAGE_ARCHITECTURE])
     if rfc != OWNER_SKIP and architecture == OWNER_SKIP:
         raise AgentConfigError(
-            f"{scope}: architecture:skip 仅可与 rfc:skip 配套；已起草的 Spec 必须经过架构评审"
+            f"{scope}: architecture:skip requires rfc:skip; review a drafted Spec before implementation"
         )
     if review == OWNER_SKIP and merge == OWNER_AGENT:
-        raise AgentConfigError(
-            f"{scope}: 不许零闸——review:skip + merge:agent 会让未审代码自动盲合进 main；"
-            f"请把 review 改为 agent"
-        )
+        raise AgentConfigError(f"{scope}: Automatic merge requires agent review; set review: agent")
 
 
 def _merge_stages(*, base: dict | None, override: dict | None) -> dict[str, str]:
-    """把内建默认 → 顶层 → 每仓覆盖三级合并成完整 stages 映射（未覆盖回落内建默认）。"""
+    """Resolve stage owners in built-in, project, then repository order."""
     merged = dict(_DEFAULT_STAGES)
     if base:
         merged.update(base)
@@ -483,7 +440,7 @@ def _merge_stages(*, base: dict | None, override: dict | None) -> dict[str, str]
 
 
 def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
-    """把校验过的原始 dict 合并默认，产出 resolved AgentConfig（含每仓 RepoPlan）。"""
+    """Build the resolved project configuration from validated input."""
     _warn_rfc_skip(stages=_merge_stages(base=None, override=data.get("stages")))
 
     agents = _build_agents(raw=data.get("agents") or {})
@@ -521,7 +478,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
         base=base,
         labels=labels,
         repos=repos,
-        # Spec-0074/T1: 托管平台声明透传（forge 分发层与消费方装载用；缺省 github）。
+        # Spec-0074/T1: A hosting platform declaration is trans-telecuted (forge distribution layer and consumer loading; default gitthub).
         forge=data.get("forge", FORGE_GITHUB),
         gitea=data.get("gitea"),
         flow=data.get("flow", FLOW_STANDARD),
@@ -531,7 +488,7 @@ def _build_config(*, data: dict, base_dir: Path) -> AgentConfig:
 
 
 def _build_agents(*, raw: dict) -> AgentPolicy:
-    """把 `agents` 段折成 role → backend 映射（缺省角色由 AgentPolicy.backend_for 回落默认）。"""
+    """Read per-role backend declarations and keep defaults for missing roles."""
     backends = {role: spec["backend"] for role, spec in raw.items()}
     return AgentPolicy(backends=backends)
 
@@ -548,7 +505,7 @@ def _build_repo(
     coordination: str,
     execution_evidence_required: bool,
 ) -> RepoPlan:
-    """把单个 repo 的 defaults/override 合并成 RepoPlan——path 绝对化、stages 三级合并、其余回落 defaults。"""
+    """Merges the single repo defaults/override into RepoPlan -Path Absoluteization, Stages Level 3 Merge, and the rest fall backs."""
     path = _absolutize(raw_path=repo["path"], base_dir=base_dir)
     stages = StagePolicy(owners=_merge_stages(base=top_stages, override=repo.get("stages")))
     return RepoPlan(
@@ -565,18 +522,17 @@ def _build_repo(
 
 
 def _warn_rfc_skip(*, stages: dict[str, str]) -> None:
-    """`rfc: skip` 出显式告警（约束①）——允许跳（撞理念 4 先改 RFC 再改代码），但别悄悄关掉框架的
-    RFC 卖点。走 warnings.warn（hermetic 可测：pytest.warns 断言）而非静默。"""
+    """Warn when configuration explicitly skips Spec drafting."""
     if stages.get(STAGE_RFC) == OWNER_SKIP:
         warnings.warn(
-            "stages.rfc=skip：将跳过 RFC 起草直接实现，撞理念 4（先改 RFC 再改代码）——"
-            "仅当按 issue 粒度的显式选择使用，别放进全局默认悄悄关掉 RFC 卖点（Spec-0064 约束①）",
+            "stages.rfc=skip: implementation will proceed without drafting a Spec. "
+            "Use only when using a visible selection of the size of the assue particle, do not put it in the global default to turn down the RFC selling point (Spec-0064 limit 1)",
             stacklevel=2,
         )
 
 
 def _absolutize(*, raw_path: str, base_dir: Path) -> Path:
-    """`~` 展开 + 相对路径以配置文件所在目录为基准 → 绝对化（与 cwd 无关，可移植；承 fleet_config）。"""
+    """`~` Expand + Relative Path based on the directory where the profile is located absolute (not related to cwd, portable; fleet_config)."""
     candidate = Path(raw_path).expanduser()
     if not candidate.is_absolute():
         candidate = base_dir / candidate

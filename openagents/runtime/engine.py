@@ -1,25 +1,14 @@
-# Spec-0060/T2: runtime.engine —— 新栈唯一「派 agent」入口（元信息放 docstring 之上，像 argparse # Author）
+# Spec-0060/T2: runtime.engine - The only "partagain" entrance to the New Inn (Measure message above docstring, like aragparse #Author)
 
-"""Fill an agent's prompt placeholders, dispatch to a backend, and return validated output.
+"""Render a role prompt, dispatch it to a backend, and validate its result.
 
-调用示例：
-    >>> out = run_agent(triager, backend=claude, work_dir=wt, issue_body=body)
-    >>> out["verdict"]
-    'actionable'
-
-新栈唯一的「派 agent」入口，也是 recipe 调 agent 的唯一方式。职责三步、**不认识任何具体流程**
-（换一套 agent/recipe 零改动，理念 10 机制与策略分离）：
-
-1. 读 `agent_module.PROMPT`（`string.Template`）→ `substitute(**placeholders)` 填占位符成 task；
-2. `backend.run(work_dir=..., task=prompt, context=...)` 派后端跑（backend 抽象见 backends/base.py）；
-3. 从 agent 输出提取完整 JSON、按角色声明的 JSON Schema 校验；格式违约时在隔离临时目录中修复一次。
-
-保留字占位符：`work_dir`（必填，派给 backend 的工作目录）、`context`（选填，issue 正文/PR 历史等
-上下文串）由 engine 从 placeholders 取出交给 backend；其余键都用于填 PROMPT 模板。
+The engine reserves work_dir and context for backend invocation. Other fields
+fill the role template. Extract the final JSON object, check the declared
+schema, and allow one serialization-only repair for invalid output.
 
 Exports:
-    run_agent -- 填占位符 → 派 backend → 校验末行 JSON → 返回结构化 dict。
-    AgentOutputError -- agent 输出不合 OUTPUT_SCHEMA 契约（坏 JSON / 缺键 / 类型不符）时抛出。
+    run_agent: Run a role and return its validated result.
+    AgentOutputError: Report an invalid or unrecoverable role result.
 """
 
 from __future__ import annotations
@@ -39,19 +28,19 @@ from openagents.runtime import invocation, token_usage, tool_usage
 class AgentOutputError(Exception):
     """Raise when an agent's output breaks the OUTPUT_SCHEMA contract.
 
-    Spec-0060/T2: agent 输出不合契约（坏 JSON / 末行非 JSON 对象 / 缺 schema 键 / 键类型不符）时抛出。
+    Spec-0060/T2: agent output is thrown when it is not contractual (bad JSON/ end line does not match JSON object/ missing schema key/ key type).
     """
 
 
 def run_agent(agent_module: Any, *, backend: Any, **placeholders: Any) -> dict[str, Any]:
-    """填 agent 的 PROMPT 占位符 → 派 backend → 解析并校验末行 JSON → 返回结构化 dict。
+    """Fill in ant’s PROMPT placeholder Queue back Queend Queue and verify the endline JSON Quest returns structured dict.
 
-    `work_dir`（必填）与 `context`（选填，缺省空串）是保留字占位符：从 placeholders 取出交给
-    `backend.run`，其余键用于 `agent_module.PROMPT.substitute`（Template 忽略多余键，故保留字
-    即便未出现在模板里也无碍）。返回值是按 `agent_module.OUTPUT_SCHEMA` 校验通过的 dict。
+    `work_dir`(Prescribed) with `context`(check-in, default empty) is a reserved placeholder: from placeholders Take it out and hand it over.
+    `backend.run`, the rest of the key is used for `agent_module.PROMPT.substitute` (Template ignores the extra key, so keep the word)
+    Not even in the template. Return values are verified as `agent_module.OUTPUT_SCHEMA`.
     """
     if "work_dir" not in placeholders:
-        raise AgentOutputError("run_agent 缺少必填保留字占位符 work_dir")
+        raise AgentOutputError("run_agent Missing required placeholder work_dir")
     work_dir = placeholders.pop("work_dir")
     context = placeholders.pop("context", "")
     module_name = getattr(agent_module, "__name__", agent_module.__class__.__name__)
@@ -169,7 +158,7 @@ def _parse_last_json(*, text: str, schema: dict[str, Any] | None = None) -> dict
         if isinstance(value, dict):
             candidates.append((match.start(), value))
     if not candidates:
-        raise AgentOutputError(f"agent 输出中未找到完整 JSON 对象：{text[-200:]!r}")
+        raise AgentOutputError(f"No complete JSON object in agent output: {text[-200:]!r}")
     if schema is not None:
         validator = Draft202012Validator(schema)
         valid = [candidate for candidate in candidates if validator.is_valid(candidate[1])]
@@ -195,8 +184,10 @@ def _parse_and_validate(*, text: str, schema: dict[str, Any]) -> dict[str, Any]:
                 (key for key in schema.get("required", ()) if key not in payload),
                 "<unknown>",
             )
-            raise AgentOutputError(f"agent 输出缺少 schema 键 {missing!r}：{payload!r}")
-        raise AgentOutputError(f"agent 输出不符合 JSON Schema（{location}）：{first.message}")
+            raise AgentOutputError(f"Agent output missing schema key {missing!r}：{payload!r}")
+        raise AgentOutputError(
+            f"Agent output does not match JSON Schema ({location}): {first.message}"
+        )
     return payload
 
 
@@ -220,8 +211,8 @@ def _output_json_schema(*, agent_module: Any) -> dict[str, Any]:
 def _with_machine_contract(*, prompt: str, schema: dict[str, Any]) -> str:
     return (
         f"{prompt.rstrip()}\n\n"
-        "【机器输出契约】最终响应必须是满足下列 JSON Schema 的一个完整 JSON 对象。"
-        "可以单行或多行，但不得放入 Markdown 代码围栏，不得在对象后追加说明。\n"
+        "Machine output contract: return one complete JSON object conforming to this JSON Schema. "
+        "One or multiple lines are allowed. Do not use Markdown fences or append explanations.\n"
         f"{json.dumps(schema, ensure_ascii=False, sort_keys=True)}\n"
     )
 
@@ -261,10 +252,10 @@ def _repair_protocol_output(
     the original answer; the same schema is validated again and failure remains fail-closed.
     """
     repair_prompt = (
-        "你是机器协议格式修复器。不得调查仓库、不得调用工具、不得新增事实或证据。"
-        "只把 ORIGINAL_OUTPUT 中已经存在的内容重排为满足 JSON_SCHEMA 的一个 JSON 对象。"
-        "字段名明显为同义缩写时按 schema 字段名归一化；缺失且无法无损恢复的字符串填空串、数组填空数组，"
-        "不要猜测语义。只输出 JSON，不要 Markdown、解释或代码围栏。\n\n"
+        "Repair the machine output format. Do not inspect the repository, call tools, or add facts or evidence. "
+        "Rearrange only the content already present in ORIGINAL_OUTPUT into one JSON object conforming to JSON_SCHEMA. "
+        "Normalize obvious synonymous abbreviations to the schema field names. Use an empty string or array when a missing value cannot be recovered without loss. "
+        "Do not guess meaning. Return only JSON, without Markdown, explanations, or code fences.\n\n"
         f"VALIDATION_ERROR:\n{primary_error}\n\n"
         f"JSON_SCHEMA:\n{json.dumps(schema, ensure_ascii=False, sort_keys=True)}\n\n"
         f"ORIGINAL_OUTPUT:\n{output[-_REPAIR_OUTPUT_LIMIT:]}"
@@ -293,7 +284,7 @@ def _repair_protocol_output(
         except Exception as exc:
             repair_error = f"{type(exc).__name__}: {exc}"
             raise AgentOutputError(
-                f"agent 原始输出协议错误且格式修复失败：原始={primary_error}; 修复={repair_error}"
+                f"Agent output violated its protocol and repair failed: original={primary_error}; repair={repair_error}"
             ) from exc
         finally:
             repair_role = f"{role}_protocol_repair"
@@ -348,23 +339,23 @@ def _assert_single_copy(*, task: str, context: str, values: dict[str, Any], role
         seen.add(normalized)
         if normalized in normalized_task and normalized in normalized_context:
             excerpt = normalized[:120]
-            raise AgentOutputError(f"{role} 的动态 prompt 载荷同时出现在 task/context：{excerpt!r}")
+            raise AgentOutputError(f"{role} Dynamic propt load appears in task/context:{excerpt!r}")
 
 
 def _validate(*, payload: dict[str, Any], schema: dict[str, type]) -> None:
-    """按 OUTPUT_SCHEMA（键→Python 类型）校验：缺键 / 类型不符 → 抛 AgentOutputError。
+    """Press OUTPUT_SCHEMA (key  → Python type) to verify: missing / type does not match AgentoutError.
 
-    极简键→类型校验（见 spec Unresolved：值域约束先留 agent prompt 自述 + 后续按需硬化）。
-    bool 是 int 的子类，故对 int 期望显式排除 bool，避免 True 冒充数字混过。
+    Very simple keys type verification (see spec Unresolved: a value limit is left in ant programt + subsequent structification).
+    Bool is a subcategory of int, so expect int to exclude the bool in a visible way, and avoid the fact that True is impersonating a number overlay.
     """
     for key, expected in schema.items():
         if key not in payload:
-            raise AgentOutputError(f"agent 输出缺少 schema 键 {key!r}：{payload!r}")
+            raise AgentOutputError(f"Agent output missing schema key {key!r}：{payload!r}")
         value = payload[key]
         if expected is int and isinstance(value, bool):
-            raise AgentOutputError(f"agent 输出键 {key!r} 期望 int，得到 bool：{value!r}")
+            raise AgentOutputError(f"Agent output key {key!r} expected int, got bool: {value!r}")
         if not isinstance(value, expected):
             raise AgentOutputError(
-                f"agent 输出键 {key!r} 类型不符：期望 {expected.__name__}，"
-                f"得到 {type(value).__name__}（{value!r}）"
+                f"Agent output key {key!r} has the wrong type: expected {expected.__name__}，"
+                f"Got it. {type(value).__name__}（{value!r}）"
             )

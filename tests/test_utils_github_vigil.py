@@ -1,14 +1,14 @@
-"""Spec-0065/T2：守夜 level-triggered `_sense` 依赖的四类原生读的契约测试。
+"""Spec-0065/T2: Four types of original-readable contract test for Vigil level-triggered `_sense`.
 
-覆盖本 spec 新增的 8 个函数：pr_for_branch / pr_snapshot / _head_committed_at /
+Overwrite 8 new functions for this spec: pr_for_branch/ pr_snapshot/ _head_committed_at/
 check_snapshot / check_logs / issue_rest_id / list_blocked_by / add_blocked_by。
 
-所有 gh 子进程一律 mock（monkeypatch subprocess.run），不真实调用 gh——沿用既有 github
-测试的房规（见 tests/test_github_claim_label.py / test_github_is_open_draft.py）。
+All gh subprocesses are mock (monkeypact subprocess.run), not real call gh - follow existing github
+Tested house rules (see tests/test_github_claim_label.py / test_github_is_open_draft.py).
 
-这里断言的是**解析不变量**：守夜的分支表（`_classify`）建立在这些字段的语义之上，任一解析
-漂移都会让调度器做出错误决策（例如把已合并的 issue 重做一遍、或把「零个 check」读成「CI 绿了」
-直接合并一份没跑过 CI 的代码）。
+The assertion is that** the non-variable**: the Vigil sheet (`_classify`) is based on the semantics of these fields, any of which is the interpretation
+The drifting will allow the dispatcher to make the wrong decision (e.g. redo the merged issue or read ”Zero Check” as ”CI Green.”
+Combining a code that has not run past CI directly.
 """
 
 import json
@@ -35,7 +35,7 @@ from openagents.utils.github import (
 
 @dataclass
 class _FakeProc:
-    """伪 subprocess.CompletedProcess。"""
+    """Hypothetical subprocess.CompletedProcess."""
 
     returncode: int = 0
     stdout: str = ""
@@ -43,7 +43,7 @@ class _FakeProc:
 
 
 def _fake_run(*, returncode=0, stdout="", stderr=""):
-    """单一响应的 subprocess.run 替身；`runner.calls` 记录每次的 argv（供断言 gh 参数）。"""
+    """Single-response subprocess.run double; `runner.calls` records argv (for assertion of gh parameters) at each time."""
     calls: list[list[str]] = []
 
     def runner(args, **kwargs):
@@ -55,10 +55,10 @@ def _fake_run(*, returncode=0, stdout="", stderr=""):
 
 
 def _fake_run_seq(*, responses):
-    """按调用顺序逐个回放响应的 subprocess.run 替身（供一次业务调用发多次 gh 的场景）。
+    """subprocess.run (for a multi-girth call for business) is a callback.
 
-    responses: list[_FakeProc]——`add_blocked_by` 先 `issue_rest_id`（GET）再 POST，两次 gh
-    的 stdout 不同，单一响应的 _fake_run 表达不了。
+    `add_blocked_by` First `issue_rest_id` (GET) second and second gh
+    . The _fake_run cannot be expressed in a single response.
     """
     calls: list[list[str]] = []
     queue = list(responses)
@@ -72,13 +72,13 @@ def _fake_run_seq(*, responses):
 
 
 # --------------------------------------------------------------------------- #
-# pr_for_branch（Spec-0065/T2：**状态无关**——merged/closed 的 PR 也必须看得见）
+# pr_for_branch (Spec-0065/T2:** state not relevant** - merged/closed PR must also be visible)
 # --------------------------------------------------------------------------- #
 
 
 def test_pr_for_branch_uses_state_all(monkeypatch):
-    # 核心回归闸：查法必须是 `--state all`。若退回 open-only，PR 一合并就从列表消失，守夜下一圈
-    # 会把该 issue 读成「还没有 PR」→ 走分支④再开一个 PR 把同一个 issue 重做一遍。
+    # Core regression gate: The search must be `--state all`. If returned, PR disappears from the list as soon as it is returned, and the night is up and down.
+    # The issue will be read as "P" before "P" and "P" will be taken to branch four and then a PR will be redo the same issue again.
     payload = json.dumps([{"number": 164, "url": "https://github.com/o/r/pull/164"}])
     runner = _fake_run(stdout=payload)
     monkeypatch.setattr(subprocess, "run", runner)
@@ -92,8 +92,8 @@ def test_pr_for_branch_uses_state_all(monkeypatch):
 
 
 def test_pr_for_branch_returns_merged_pr(monkeypatch):
-    # merged 是 `_classify` 的终止条件——终止条件只能从「那个 PR 现在是什么状态」读出来，
-    # 故已合并的 PR 必须照样被返回（而不是 None）。
+    # The termination of the `_classify` -- the termination condition can only be read out from "that PR is what it is now."
+    # So the merged PR must be returned (and not Noone).
     payload = json.dumps([{"number": 164, "url": "https://github.com/o/r/pull/164"}])
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -105,7 +105,7 @@ def test_pr_for_branch_returns_merged_pr(monkeypatch):
 
 
 def test_pr_for_branch_returns_closed_pr(monkeypatch):
-    # 人主动关掉的 PR 同样要看得见（否则守夜会重开一个）。
+    # The PR that people turn off voluntarily also needs to be seen (or the vigil will be reopened).
     payload = json.dumps([{"number": 99, "url": "https://github.com/o/r/pull/99"}])
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -115,14 +115,14 @@ def test_pr_for_branch_returns_closed_pr(monkeypatch):
 
 
 def test_pr_for_branch_none_when_never_opened(monkeypatch):
-    # 从没开过 PR（空列表）→ None，这才是「该走分支④开 PR」的唯一合法信号。
+    # The only legitimate signal to "should go 4-by-P" is the "P" page.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
 
     assert pr_for_branch(branch="openagents/issue-1") is None
 
 
 def test_pr_for_branch_none_when_number_missing(monkeypatch):
-    # 行里缺 number 属残缺结构 → 保守当作「没有 PR」，不抛。
+    # The absence of a number of units is a flawed structure that is conservatively considered "no PR" and not to be thrown.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=json.dumps([{"url": "u"}])))
 
     assert pr_for_branch(branch="b") is None
@@ -135,7 +135,7 @@ def test_pr_for_branch_none_when_payload_not_list(monkeypatch):
 
 
 def test_pr_for_branch_takes_most_recent_only(monkeypatch):
-    # `--limit 1`：gh 按新→旧排，只取最近一个。
+    # `--limit 1`: gh Press the old row, only the latest.
     runner = _fake_run(stdout=json.dumps([{"number": 3, "url": "u3"}]))
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -152,12 +152,12 @@ def test_pr_for_branch_raises_on_gh_failure(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# pr_snapshot（Spec-0065/T2：同源一次往返的 PR 现态；head_pushed_at 是看门狗的唯一时间戳）
+# pr_snapshot（Spec-0065/T2: Same source PR (a) Current status;head_pushed_at The only time a guard dog can get away with it.
 # --------------------------------------------------------------------------- #
 
 
 def _pr_view_payload(**overrides):
-    """一份真实形状的 `gh pr view --json …` 响应；按需覆盖单个字段。"""
+    """A real `gh pr view --json …` response; overwrites individual fields as needed."""
     payload = {
         "number": 164,
         "state": "OPEN",
@@ -187,11 +187,11 @@ def test_pr_snapshot_parses_every_field(monkeypatch):
     assert snap.labels == ("openagents", "review-approved:a1b2c3d")
     assert snap.mergeable == "MERGEABLE"
     assert snap.merge_state_status == "CLEAN"
-    # head_pushed_at 取 commits **末条**（= head）的 committedDate，不是首条。
+    # head_pushed_at takes committees** last article**(=head) referredDate, not the first article.
     assert snap.head_pushed_at == "2026-07-14T10:30:00Z"
-    # Spec-0017/T1: isDraft 缺省 → is_draft 默认 False（既有构造点/payload 零改动仍可实例化）。
+    # Spec-0017/T1: is Draft default is_draft default False (the existing construction point/payload zero changes are still available for example).
     assert snap.is_draft is False
-    # 所有字段必须在同一次 `gh pr view` 里取回（同源快照，不会读到自相矛盾的中间态）。
+    # All fields must be retrieved from the same `gh pr view` (same-source snapshot, without reading contradictory middle).
     cmd = runner.calls[-1]
     assert cmd[:4] == ["gh", "pr", "view", "164"]
     fields = cmd[cmd.index("--json") + 1].split(",")
@@ -203,31 +203,31 @@ def test_pr_snapshot_parses_every_field(monkeypatch):
         "mergeable",
         "mergeStateStatus",
         "commits",
-        "isDraft",  # Spec-0017/T1: draft 与其余现态同源一次往返读入
+        "isDraft",  # Spec-0017/T1: draft and the rest of the current same source read-and-read
     }
     assert len(runner.calls) == 1
 
 
 def test_pr_snapshot_is_draft_true(monkeypatch):
-    # Spec-0017/T1: isDraft=true → is_draft True（draft 升为一等快照事实）。
+    # Spec-0017/T1: isDraft=true is_draft True (draft to First Class Sniper Fact).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft=True)))
     assert pr_snapshot(pr_number=164).is_draft is True
 
 
 def test_pr_snapshot_is_draft_false(monkeypatch):
-    # Spec-0017/T1: isDraft=false → is_draft False（已转正的 PR）。
+    # Spec-0017/T1: isDraft=false → is_draft False(Reformed) PR）。
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft=False)))
     assert pr_snapshot(pr_number=164).is_draft is False
 
 
 def test_pr_snapshot_is_draft_non_bool_defaults_false(monkeypatch):
-    # Spec-0017/T1: isDraft 非布尔（异常结构）→ 容错默认 False（比照 is_draft 容错风格）。
+    # Spec-0017/T1: is Draft Non-Breble (Agnormal Structure) Default Error Perception False (cf. is_draft).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(isDraft="yes")))
     assert pr_snapshot(pr_number=164).is_draft is False
 
 
 def test_pr_snapshot_state_and_mergeable_upcased(monkeypatch):
-    # 原值大写、不归一化为布尔——「哪种组合算冲突」的判定属调用方（recipes.vigil）。
+    # Original capital, not integrated into Boolean - the "what combination is conflict" is the caller (recipes.vigil).
     payload = _pr_view_payload(state="merged", mergeable="conflicting", mergeStateStatus="dirty")
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -239,7 +239,7 @@ def test_pr_snapshot_state_and_mergeable_upcased(monkeypatch):
 
 
 def test_pr_snapshot_mergeable_unknown_is_legal(monkeypatch):
-    # UNKNOWN（GitHub 异步尚未算完，刚 push 常见）是合法值，如实回传、不抛。
+    # UNKNOWN (GitHub walk is not yet complete, just push is common) is a valid value, as it is sent back and not thrown.
     payload = _pr_view_payload(mergeable="UNKNOWN", mergeStateStatus="UNKNOWN")
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -250,8 +250,8 @@ def test_pr_snapshot_mergeable_unknown_is_legal(monkeypatch):
 
 
 def test_pr_snapshot_missing_mergeable_defaults_to_unknown(monkeypatch):
-    # 与 mergeability() 不同：字段缺失/为 null 在快照里落到 "UNKNOWN"（守夜按「还没算完」处理，
-    # 下一圈再看），不因此炸掉整轮 _sense。
+    # Unlike mergeability(), fields are missing/is nullit and fall into the snapshot of UNKNOWN (the Vigil is "not finished" and the rest of the day is not finished).
+    # Next lap, you can look at it.
     payload = _pr_view_payload(mergeable=None, mergeStateStatus=None)
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=payload))
 
@@ -268,15 +268,15 @@ def test_pr_snapshot_empty_labels(monkeypatch):
 
 
 def test_pr_snapshot_head_pushed_at_empty_when_no_commits(monkeypatch):
-    # 无 commits（异常/残缺结构）→ 空串：看门狗据此「不看门」，而不是拿 None 去算时差炸掉。
+    # No committees (anomaly/disable structure) Empty string: the watchdogs "no doorkeeper" on this basis, rather than taking the Noone to calculate the time difference.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=_pr_view_payload(commits=[])))
 
     assert pr_snapshot(pr_number=164).head_pushed_at == ""
 
 
 def test_pr_snapshot_fresh_pr_has_timestamp_from_head_commit(monkeypatch):
-    # 「刚推上去、CI 一个 check 都没起、也无任何评论」的 PR：除了 head commit 自己没有任何时间戳
-    # 可读。缺了它 last_progress_at 恒为 None → 看门狗永不响 →「CI 永不启动」这条死法静默烂掉。
+    # PR: Except for head committee, there's no time stamp.
+    # Even a new head with no checks or comments needs a progress timestamp.
     payload = _pr_view_payload(
         commits=[{"oid": "head", "committedDate": "2026-07-14T11:00:00Z"}],
         labels=[],
@@ -301,7 +301,7 @@ def test_pr_snapshot_raises_when_number_missing(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# _head_committed_at（Spec-0065/T2：head 时间戳的解析纯函数——直接单测，免绕 gh）
+# _head_committed_at (Spec-0065/T2:head timetamp parsing function - direct single id, free of gh)
 # --------------------------------------------------------------------------- #
 
 
@@ -314,7 +314,7 @@ def test_head_committed_at_takes_last_commit():
 
 
 def test_head_committed_at_empty_for_empty_or_bad_shapes():
-    # 空列表 / None / 非列表 / 末条非 dict / 缺 committedDate —— 一律空串（fail-soft）。
+    # Empty list / None / Nonlist / Last non-dict/ missing committeeDate - empty string (fail-soft).
     assert _head_committed_at(commits=[]) == ""
     assert _head_committed_at(commits=None) == ""
     assert _head_committed_at(commits={"committedDate": "x"}) == ""
@@ -323,14 +323,14 @@ def test_head_committed_at_empty_for_empty_or_bad_shapes():
 
 
 # --------------------------------------------------------------------------- #
-# check_snapshot（Spec-0065/T2：**count 不能省**——零个 check ≠ 全绿）
+# check_snapshot (Spec-0065/T2:**count cannot save** - zero check  →  green)
 # --------------------------------------------------------------------------- #
 
 
 def test_check_snapshot_zero_checks_is_not_green_by_count(monkeypatch):
-    # 最关键的一条：gh 返回空列表时 state 仍是 "pass"（沿用 _classify_checks 的旧口径），但
-    # **count == 0** 让调用方能把它读成「还在等 CI」而非「CI 绿了」——否则守夜会直接合并一份
-    # 一个 check 都没跑过的代码。
+    # The key one: gh, state remains "pass" when returning to the empty list (using _classify_checks's old calibre), but
+    # ** count = 0** so the caller can read it as "waiting CI" instead of "CI Green" -- otherwise the watch will be a single one.
+    # A check code that never ran.
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
 
     snap = check_snapshot(pr_number=164)
@@ -338,12 +338,12 @@ def test_check_snapshot_zero_checks_is_not_green_by_count(monkeypatch):
     assert isinstance(snap, CheckSnapshot)
     assert snap.count == 0
     assert snap.latest_started_at == ""
-    # count 是区分「零个 check」与「全绿」的唯一凭据——state 本身分不开这两者。
+    # The only evidence to distinguish between "zero check" and "full green" is the count, which is the fact that the state itself cannot separate.
     assert snap.state == "pass"
 
 
 def test_check_snapshot_no_checks_reported_is_swallowed_with_zero_count(monkeypatch):
-    # 仓库无任何 CI 时 gh 非零退出并报 "no checks reported"——吞掉，但计数如实为 0。
+    # The warehouse was uncircle-free and reported "no checks reported" - swallowed, but counted as zero.
     monkeypatch.setattr(
         subprocess, "run", _fake_run(returncode=1, stderr="no checks reported on the 'x' branch")
     )
@@ -354,7 +354,7 @@ def test_check_snapshot_no_checks_reported_is_swallowed_with_zero_count(monkeypa
 
 
 def test_check_snapshot_all_green_has_nonzero_count(monkeypatch):
-    # 「全绿」与「零个 check」的 state 相同，靠 count 区分：这里 count == 2。
+    # "All Green" is the same as the state of "Zero Check" by count: Here count = 2.
     payload = json.dumps(
         [
             {
@@ -377,12 +377,12 @@ def test_check_snapshot_all_green_has_nonzero_count(monkeypatch):
 
     assert snap.state == "pass"
     assert snap.count == 2
-    # latest_started_at 取最近一次开始时间（ISO 字典序即时间序）。
+    # latest_started_at takes the last start time (ISO dictionary order, time order).
     assert snap.latest_started_at == "2026-07-14T10:05:00Z"
 
 
 def test_check_snapshot_pending_rollup(monkeypatch):
-    # 任一 check 仍在跑（IN_PROGRESS / QUEUED / PENDING 等非 pass 非 fail 态）→ pending。
+    # Any check is still running (non-fail pass, IN_PROGRESS/ QUEUD / PENDING etc.) pending.
     payload = json.dumps(
         [
             {
@@ -409,7 +409,7 @@ def test_check_snapshot_pending_rollup(monkeypatch):
 
 
 def test_check_snapshot_failure_beats_pending(monkeypatch):
-    # 失败优先于进行中（同 _classify_checks）：一失一跑 → fail。
+    # Failure takes precedence over ongoing (same as _classify_checks): one-off run #fail.
     payload = json.dumps(
         [
             {
@@ -430,7 +430,7 @@ def test_check_snapshot_failure_beats_pending(monkeypatch):
 
 
 def test_check_snapshot_pending_returncode_8_is_allowed(monkeypatch):
-    # gh 在仍有 check 进行中时以退出码 8 返回，stdout 仍是合法 JSON——不能当错误抛。
+    # gh Returns with exit code 8 when check is still in progress, stdout remains legal JSON - cannot be thrown when wrong.
     payload = json.dumps(
         [{"name": "test", "state": "QUEUED", "link": "", "startedAt": "2026-07-14T10:00:00Z"}]
     )
@@ -443,7 +443,7 @@ def test_check_snapshot_pending_returncode_8_is_allowed(monkeypatch):
     assert snap.count == 1
     cmd = runner.calls[-1]
     assert cmd[:4] == ["gh", "pr", "checks", "164"]
-    # startedAt 必须在 --json 请求里，否则 latest_started_at 恒为空、_Clock 失明。
+    # StartedAt must be in --json request, otherwise latest_started_at is permanently empty, _Clock is blind.
     assert "startedAt" in cmd[cmd.index("--json") + 1].split(",")
 
 
@@ -455,7 +455,7 @@ def test_check_snapshot_missing_started_at_tolerated(monkeypatch):
 
 
 def test_check_snapshot_reraises_other_gh_errors(monkeypatch):
-    # 只吞 "no checks reported"，鉴权等真错误照抛（判定要「窄」）。
+    # The only thing that swallows is "no checks reported", "scrutinizing" and "scrutinizing" the true wrongs.
     monkeypatch.setattr(
         subprocess, "run", _fake_run(returncode=1, stderr="HTTP 401 must authenticate")
     )
@@ -465,7 +465,7 @@ def test_check_snapshot_reraises_other_gh_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# check_logs（Spec-0065/T2：失败 check 摘要，喂回 fix-ci 的 agent）
+# check_logs (Spec-0065/T2: failed check digest, feed back the fix-ci agent)
 # --------------------------------------------------------------------------- #
 
 
@@ -491,7 +491,7 @@ def test_check_logs_empty_when_all_green(monkeypatch):
 
 
 def test_check_logs_empty_when_no_checks(monkeypatch):
-    # 空 payload / 无 CI 的仓库 → 无失败摘要（不抛）。
+    # Empty payload/ no CI repository  →  No summary failed (not dropped).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
     assert check_logs(pr_number=164) == []
 
@@ -502,12 +502,12 @@ def test_check_logs_empty_when_no_checks(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# issue_rest_id（Spec-0065/T2：REST 数字 id ≠ issue number）
+# issue_rest_id (Spec-0065/T2: RET id issue number)
 # --------------------------------------------------------------------------- #
 
 
 def test_issue_rest_id_happy_path(monkeypatch):
-    # REST id（3372285600）与 issue number（150）是两个数——依赖 API 的请求体要的是前者。
+    # RET id (3372285600) and issue number (150) are two numbers - the one that depends on API for requests.
     runner = _fake_run(stdout=json.dumps({"id": 3372285600}))
     monkeypatch.setattr(subprocess, "run", runner)
 
@@ -526,7 +526,7 @@ def test_issue_rest_id_raises_when_id_missing(monkeypatch):
 
 
 def test_issue_rest_id_raises_on_empty_payload(monkeypatch):
-    # gh 输出为空 → _gh_json 得到 None → 非 dict → GithubError（不能静默返回 0）。
+    # gh Output is empty _gh_json and None Zidc Z GithubError (no silent return 0).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout=""))
 
     with pytest.raises(GithubError):
@@ -541,15 +541,15 @@ def test_issue_rest_id_raises_on_gh_failure(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# list_blocked_by（Spec-0065/T2：GitHub 原生依赖边——一次调用给出「边」+「blocker 关没关」）
+# list_blocked_by (Spec-0065/T2: GitHub Native Dependency Side - Call at once to give "side"+ "blocker off")
 # --------------------------------------------------------------------------- #
 
 
 def test_list_blocked_by_parses_edges_and_states(monkeypatch):
-    # 响应自带 state → deps_done 直接算出，无需第二轮查询。
+    # Answers to the state deps_done directly, without a second round of queries.
     payload = json.dumps(
         [
-            {"number": 151, "state": "closed", "title": "T1 底座"},
+            {"number": 151, "state": "closed", "title": "T1 Bottom"},
             {"number": 152, "state": "open", "title": "T2 github"},
         ]
     )
@@ -565,14 +565,14 @@ def test_list_blocked_by_parses_edges_and_states(monkeypatch):
 
 
 def test_list_blocked_by_empty_list(monkeypatch):
-    # 无依赖 → []（该 issue 立即可调度）。
+    # No dependent tiding [] (the issue can be immediately moved).
     monkeypatch.setattr(subprocess, "run", _fake_run(stdout="[]"))
 
     assert list_blocked_by(number=150) == []
 
 
 def test_list_blocked_by_404_becomes_empty(monkeypatch):
-    # 仓库未开启依赖特性 → 404 归成「无依赖」，不抛（依赖是可选特性）。
+    # The repository does not open the dependency feature  →  404 is classified as "no dependence " and does not throw it (dependent is optional).
     monkeypatch.setattr(
         subprocess, "run", _fake_run(returncode=1, stderr="gh: Not Found (HTTP 404)")
     )
@@ -600,7 +600,7 @@ def test_list_blocked_by_non_list_payload_becomes_empty(monkeypatch):
 
 
 def test_list_blocked_by_reraises_other_gh_errors(monkeypatch):
-    # 只吞 404，鉴权等真错误照抛。
+    # Just 404, and the real wrongs like genetics.
     monkeypatch.setattr(
         subprocess, "run", _fake_run(returncode=1, stderr="HTTP 401 must authenticate")
     )
@@ -610,12 +610,12 @@ def test_list_blocked_by_reraises_other_gh_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# add_blocked_by（Spec-0065/T2：POST 依赖边；请求体要 blocker 的 REST id，不是 number）
+# add_blocked_by (Spec-0065/T2: POST Dependence Edge; Request for brooker's id, not number)
 # --------------------------------------------------------------------------- #
 
 
 def test_add_blocked_by_posts_rest_id_not_number(monkeypatch):
-    # 两次 gh：① GET blocker 的 REST id ② POST 到**被挡 issue** 的 blocked_by 端点。
+    # Two gh: REST id 2 POST of GHt brooker to blocked_by endpoint** of blocked issue**.
     runner = _fake_run_seq(
         responses=[
             _FakeProc(stdout=json.dumps({"id": 3372285600})),  # issue_rest_id(151)
@@ -627,12 +627,12 @@ def test_add_blocked_by_posts_rest_id_not_number(monkeypatch):
     assert add_blocked_by(number=150, blocker_number=151) is None
     assert len(runner.calls) == 2
 
-    # ① 换 id 的那次读的是 blocker（151），不是被挡的 issue（150）。
+    # 1 id was read by blocker(151), not blocked issue(150).
     lookup = runner.calls[0]
     assert lookup[2] == "repos/{owner}/{repo}/issues/151"
 
-    # ② POST 落在被挡 issue（150）的端点上，且请求体带的是 blocker 的 REST id（3372285600），
-    #    而不是它的 issue number（151）——搞反了 GitHub 会把边落到别的 issue 上。
+    # 2 POST landed on the end of the block issue (150) and requested to be accompanied by REST id (3372285600) of blocker,
+    #    Instead of its issue number (151) -- the reverse GitHub would have sidelined to another issue.
     post = runner.calls[1]
     assert post[:2] == ["gh", "api"]
     assert post[post.index("--method") + 1] == "POST"
@@ -642,7 +642,7 @@ def test_add_blocked_by_posts_rest_id_not_number(monkeypatch):
 
 
 def test_add_blocked_by_swallows_already_exists(monkeypatch):
-    # 边已存在时 GitHub 返回 4xx → 幂等吞掉（同 ensure_label 吞 "already exists"）。
+    # GitHub returns 4x  →  & Zi (and ensure_label swallows "already exists") when the border already exists.
     runner = _fake_run_seq(
         responses=[
             _FakeProc(stdout=json.dumps({"id": 1})),
@@ -680,7 +680,7 @@ def test_add_blocked_by_reraises_other_gh_errors(monkeypatch):
 
 
 def test_add_blocked_by_propagates_rest_id_lookup_failure(monkeypatch):
-    # 换不到 blocker 的 id → 不能猜、不能拿 number 顶上，直接抛（且不发 POST）。
+    # id id id id cannot be guessed, no number tops, throw (and no POST).
     runner = _fake_run_seq(responses=[_FakeProc(returncode=1, stderr="HTTP 404 Not Found")])
     monkeypatch.setattr(subprocess, "run", runner)
 

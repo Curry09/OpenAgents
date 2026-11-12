@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# Spec-0036/T6 端到端测试启动脚本：解挂后 agent 读取并正面回应人的评论——
-# 「所有闸解挂都把人类评论喂给 agent（含此前丢弃内容的 merge 闸）+ 编排层确定性贴回引用原评论的回应」。
+# Spec-0036/T6 End-to-end test start-up script: unmounted agent read and respond positively to comments from people -
+# "All the gates are being set to feed human comments to agent (merge gates with previously discarded content) and the hierarchy certainty is being posted back to the response to the original comment."
 #
-# 两段（均离线、确定性、可重复、不触网、不调真实 LLM/gh）：
-#   1) 离线确定性验证 —— ruff lint/format + pytest 全套（覆盖 state/replynote/conflict/orchestrator/
-#      messages 各 Task 的单测，全程 mock）。
-#   2) 离线闭环时间线演示 —— 用 fake github + fake identity + fake orchestrator + fake resolve +
-#      fake state，离线驱动 Messages.poll，断言两条轨迹：
-#        ① rfc/code 闸解挂 → 引用原评论贴回 agent 回应；
-#        ② merge 闸解挂 → 评论作 guidance 喂解冲突器 → armed 跑完引用原评论贴回结论。
+# Two segments (both offline, certainty, repeatable, net-free, unmovable) LLM/gh）：
+#   1) Offline certainty verification - ruff lint/format + pytest package (overwrite state/replynote/conflict/orchestrator/)
+#      Messages are single-scale, full-mock for each Task.
+#   2) De-link timeline demonstration - use make girlb + make relationship + make orchestrator + make stock +
+#      Make state, offline driver Messages.poll, with two tracks:
+#        ① rfc/code The gate's off. → Quote the original comment to paste agent Response;
+#        2 Merge Gates Unmounted Comment as guidance Feed Conflict Deterrence  →  Armed ran to quote the original comment and to post the conclusion.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0036-unblock-comment-read-and-reply.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] 离线确定性验证（lint + format + 单元测试）"
+echo "==> [1/2] Offline certainty verification (%2)lint + format + (Modular Test)"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 uv run --extra dev pytest -q
 
 echo
-echo "==> [2/2] 离线闭环时间线演示：三闸解挂喂内容 + 引用原评论贴回回应"
+echo "==> [2/2] Offline closed loop timeline demonstration: three locks off feed content + Quote the original comment and send back the response."
 uv run python - <<'PY'
-# Spec-0036/T6：离线驱动 Messages.poll，演示「读评论 + 正面回应」整条轨迹（rfc/code 同步回应、
-# merge 闸喂 guidance + armed 跑完回应）。全程 fake，不触网、不调真实 LLM/gh。
+# Spec-0036/T6: Offline driver Messages.poll, show the whole track of "Read Comments + Positive Response" (rfc/code Sync Response, )
+# The merge gate feeds the guidance + armed. The whole flight is made, without net contact, without real LLM/gh.
 from openagents import messages as messages_module
 from openagents.github import Comment
 from openagents.messages import Messages
@@ -40,7 +40,7 @@ AGENT_ID = "agent-e2e"
 
 
 class FakeOrchestrator:
-    """refine_rfc(announce)/iterate 回传 agent 本轮动作 summary（供 messages 组回应）。"""
+    """refine_rfc(announce)/iterate Back agent Current round of actions summary(for messages The group responded."""
 
     def __init__(self):
         self.refine_calls = []
@@ -48,15 +48,15 @@ class FakeOrchestrator:
 
     def refine_rfc(self, *, pr_number, detail, announce=True):
         self.refine_calls.append({"pr_number": pr_number, "detail": detail, "announce": announce})
-        return "已据你的意见补全 spec 的权衡章节"
+        return "I’ve been completed with your opinion. spec trade-offs"
 
     def iterate(self, *, pr_number, reason, detail):
         self.iterate_calls.append({"pr_number": pr_number, "reason": reason, "detail": detail})
-        return "已按你的指导补了空输入单测，并处理了 None 分支"
+        return "Empty input singles have been filled and processed as you instructed. None branch"
 
 
 class FakeState:
-    """内存版 State：维护单个 run，记录解挂/armed 路径会动到的字段。"""
+    """Memory Version State: Maintenance of individual run, log unmounted/armed path to the field."""
 
     def __init__(self, *, runs):
         self._runs = list(runs)
@@ -94,11 +94,11 @@ class FakeState:
 class FakeBackend:
     name = "fake"
 
-    def run(self, *, work_dir, task, context):  # resolve 已被替换，不应真起 backend
-        raise AssertionError("resolve 已被 fake，不应真起 backend")
+    def run(self, *, work_dir, task, context):  # resolve It’s replaced. It shouldn’t be real. backend
+        raise AssertionError("resolve Already fakeIt’s not supposed to start. backend")
 
 
-# --- 内存 GitHub 世界：PR 标签集合 + 评论列表（人/机用签名区分）------------------- #
+# --- memory GitHub World: PR Tag Pool + Comment List (Segregation of People/Mechanical Signs) -------------------#
 pr_labels = {BLOCKED_LABEL}
 pr_comments = []  # list[Comment]
 
@@ -123,7 +123,7 @@ def _post_signed_comment(*, pr_number, body, agent_id):
 
 
 messages_module.identity.post_signed_comment = _post_signed_comment
-# new_human_comments 用真实实现（读 list_comments + 按签名/水位线过滤）——正是解挂读侧。
+# new_human_comments is realized by realism (reading list_comments+ filtering by signature/waterline) - the unmounting side.
 
 
 def _add_human_comment(body, *, stamp):
@@ -135,9 +135,9 @@ def _signed_count():
 
 
 # ======================================================================= #
-# 轨迹 ①：code 闸解挂 → 引用原评论贴回 agent 回应（同步回应）
+# Track 1: code locks mounted Quoted original comment to send back ant response (sync response)
 # ======================================================================= #
-print("--- 轨迹 ① code 闸解挂：读评论 + 引用原评论贴回 agent 回应 ---")
+print("--- Trajectory ① code Latch-up: Read the commentary + Quote the original comment to paste agent Response ---")
 record_code = RunRecord(
     issue_number=89,
     branch="openagents/issue-89",
@@ -152,31 +152,31 @@ record_code = RunRecord(
 orch = FakeOrchestrator()
 msgs = Messages(orchestrator=orch, state=FakeState(runs=[record_code]), agent_id=AGENT_ID)
 
-_add_human_comment("先补空输入的单测，再处理 None 分支", stamp="2026-06-30T10:00:00Z")
-print("  [人回评论] alice：『先补空输入的单测，再处理 None 分支』")
+_add_human_comment("Fill in the singles entered and then process them. None branch", stamp="2026-06-30T10:00:00Z")
+print("  [People comment back.] alice: ”Put empty the single measure entered before processing None Branch")
 
 events = msgs.poll()
 assert events == [{"pr_number": 7, "reason": "resumed"}], events
 assert orch.iterate_calls == [
-    {"pr_number": 7, "reason": "human", "detail": "先补空输入的单测，再处理 None 分支"}
+    {"pr_number": 7, "reason": "human", "detail": "Fill in the singles entered and then process them. None branch"}
 ], orch.iterate_calls
 reply = pr_comments[-1].body
-assert "> 先补空输入的单测，再处理 None 分支" in reply, "回应应引用原评论"
-assert "已按你的指导补了空输入单测" in reply, "回应应含 agent summary"
-assert messages_module.identity.parse_agent_id(body=reply) == AGENT_ID, "回应应带签名"
-assert BLOCKED_LABEL not in pr_labels, "解挂应摘 needs-human"
-print("  [解挂+回应] iterate(reason=human, detail=评论) → 引用原评论 + agent summary 的签名回应（恰一条）")
+assert "> Fill in the singles entered and then process them. None branch" in reply, "Response should refer to the original comment"
+assert "Empty input singles have been filled with your instructions." in reply, "Response should include agent summary"
+assert messages_module.identity.parse_agent_id(body=reply) == AGENT_ID, "The response should be signed."
+assert BLOCKED_LABEL not in pr_labels, "Unmounted needs-human"
+print("  [Unmount+Response] iterate(reason=human, detail=Comments) → Quote original comments + agent summary (article 1)")
 
-# 防自激：带签名的回应在下一轮解挂读侧被滤掉，不会被当成新人类评论自触发。
+# Self-absorption: The response with the signature is filtered off the side of the next de-mounted and will not be triggered as a new human commentary.
 fresh = messages_module.identity.new_human_comments(pr_number=7, since="2026-06-30T10:00:00Z")
-assert fresh == [], f"agent 自己的签名回应不应被读回，实际 {fresh}"
-print("  [防自激] 回应带签名 → 下一轮 new_human_comments 滤除，agent 读不到自己（不自触发）")
+assert fresh == [], f"agent The answer to your signature should not be read back, actually. {fresh}"
+print("  [Self-absorption.] Reply tape signature → Next round. new_human_comments # Erase #agent I can’t read myself.")
 
 # ======================================================================= #
-# 轨迹 ②：merge 闸解挂 → 评论作 guidance 喂解冲突器 → armed 跑完引用原评论贴回结论
+# Track 2:merge gate untie comment by guidance feed the deconflictor  →  armed ran to the original comment and put the conclusion back to the conclusion.
 # ======================================================================= #
 print()
-print("--- 轨迹 ② merge 闸解挂：评论作 guidance + pr_number 喂解冲突器 → agent 自己用工具回、框架不代发 ---")
+print("--- Trajectory ② merge Ladder: Comment guidance + pr_number Feed the desolator. → agent Use your own tools to return, and not to re-emerge. ---")
 pr_labels = {BLOCKED_LABEL}
 pr_comments.clear()
 messages_module.github.has_label = lambda *, pr_number, name: name in pr_labels
@@ -203,7 +203,7 @@ msgs2 = Messages(
     backend=FakeBackend(),
 )
 
-# fake 解冲突世界：mergeability 报冲突、诊断器返回静态文案、resolve 记录收到的 guidance + pr_number。
+# fake deconflicting world: report conflict, diagnostic return static case, resolve record receipt of guidance + pr_number.
 seen = {"guidance": None, "pr_number": None}
 
 
@@ -222,8 +222,8 @@ def _make_resolver(*, work_dir, base, backend, agent_id):
     def _resolve(*, pr_number, guidance=""):
         seen["guidance"] = guidance
         seen["pr_number"] = pr_number
-        # 真实里解冲突 agent 会自己用 `openagents reply-comment --pr <n>` 回评论（带签名）；本演示 fake 掉
-        # resolve，不真起 agent，故框架侧不产生回复评论。
+        # True Inner Conflict Resolution Angent will return comments (with signature) with `openagents reply-comment --pr <n>`; this presentation makes a break
+        # Resolve, not really agent, so the frame side does not generate comments.
         return messages_module.conflict.ResolveOutcome(resolved=True)
 
     return _resolve
@@ -231,31 +231,31 @@ def _make_resolver(*, work_dir, base, backend, agent_id):
 
 messages_module.conflict.make_resolver = _make_resolver
 
-# 第 1 步：人在 merge 冲突挂起的 PR 下回评论 → 解挂当轮存 detail、不回应、进 armed。
-_add_human_comment("先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py", stamp="2026-06-30T10:00:00Z")
-print("  [人回评论] alice：『先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py』")
+# Step 1: A maintainer comments on the PR while conflict resolution is blocked.
+_add_human_comment("First, put it on. OVERVIEW.md The conflict is dealt with on both sides of the reservation. rebase state.py", stamp="2026-06-30T10:00:00Z")
+print("  [People comment back.] alice: ”Put first.” OVERVIEW.md The conflict is dealt with on both sides of the reservation. rebase state.py』")
 
 events = msgs2.poll()
 assert events == [{"pr_number": 10, "reason": "resumed"}], events
-assert record_merge.status == STATUS_PR_OPEN, "merge 解挂应恢复 pr-open 进 armed"
-assert record_merge.block_gate == "merge", "armed 标记应保留"
-assert record_merge.unblock_detail == "先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py", "应存评论作 guidance"
-assert _signed_count() == 0, "merge 解挂当轮不回应（动作尚未发生）"
-print("  [解挂当轮] 存 unblock_detail 作 guidance、恢复 pr-open 进 armed、**不回应**（下一轮 armed 才动手）")
+assert record_merge.status == STATUS_PR_OPEN, "merge Unlock should be restored. pr-open In armed"
+assert record_merge.block_gate == "merge", "armed Mark should be kept"
+assert record_merge.unblock_detail == "First, put it on. OVERVIEW.md The conflict is dealt with on both sides of the reservation. rebase state.py", "Comments should be made guidance"
+assert _signed_count() == 0, "merge Unmounted wheel does not respond (action not yet occurring)"
+print("  [Unmounted wheel] Save unblock_detail Do it. guidanceRecovery pr-open In armed、**No response**Next round. armed I’ll do it!")
 
-# 第 2 步：下一轮 poll → armed 解冲突，评论作 guidance + pr_number 喂 resolve；解冲突 agent 会自己用
-# reply-comment 工具回评论（本演示 fake 掉 resolve、不真起 agent，故框架侧无回复）；跑完清 detail。
+# Step 2: Next round of polll  → armed to solve conflict, comment on pr_number
+# Reply-comment tool returns comments (this presentation makes loss of resource, not real agent, so no response to frame side); run clean.
 events = msgs2.poll()
 assert events == [{"pr_number": 10, "reason": "resolved"}], events
-assert seen["guidance"] == "先把 OVERVIEW.md 的冲突按保留两边处理，再 rebase state.py", "评论应作 guidance 喂解冲突器"
-assert seen["pr_number"] == 10, "pr_number 应透传给 resolve（供 agent `reply-comment --pr 10`）"
-assert _signed_count() == 0, "框架不代发回复（回复由 agent 自己用带签名 reply-comment 工具发）"
-assert record_merge.unblock_detail == "", "armed 跑完应清空 unblock_detail"
-print("  [armed 跑完] resolve(guidance=评论, pr_number=10) 成功 → 由 agent 自己用 reply-comment 工具回、框架不代发 + 清 unblock_detail")
+assert seen["guidance"] == "First, put it on. OVERVIEW.md The conflict is dealt with on both sides of the reservation. rebase state.py", "Comments should be made guidance Feed the desolator."
+assert seen["pr_number"] == 10, "pr_number It’s coming through. resolve(for agent `reply-comment --pr 10`）"
+assert _signed_count() == 0, "Framework does not send a response (responds by agent Take your own signature. reply-comment Tool Issue)"
+assert record_merge.unblock_detail == "", "armed We should clear the place after the run. unblock_detail"
+print("  [armed Run.] resolve(guidance=Comments, pr_number=10) Success → By agent Use it yourself. reply-comment Toolback, Frame Unremoved + Clear. unblock_detail")
 
 print()
-print("✓ 两条轨迹断言全部通过：所有闸解挂都喂内容给 agent + 编排层确定性贴回引用原评论的回应。")
+print("✓ Both tracks are confirmed: all the locks are fed. agent + The hierarchy certainty is posted back to the response that quoted the original comment.")
 PY
 
 echo
-echo "✓ Spec-0036/T6 端到端演示完成（离线、可重复、不触网、不调真实 LLM/gh）。"
+echo "✓ Spec-0036/T6 End-to-end demonstration completed (offline, repeatable, net-free, unmovable) LLM/gh）。"

@@ -41,7 +41,7 @@ def test_invalid_curator_edges_fail_closed(edge):
 
 
 def test_cycle_fails_closed():
-    with pytest.raises(PlanError, match="环"):
+    with pytest.raises(PlanError, match="cycle"):
         build_plan(
             nodes=[_node(1), _node(2)],
             semantic_edges=[
@@ -52,5 +52,5 @@ def test_cycle_fails_closed():
 
 
 def test_duplicate_issue_fails_closed():
-    with pytest.raises(PlanError, match="多次"):
+    with pytest.raises(PlanError, match="more than once"):
         build_plan(nodes=[_node(1), _node(1)], semantic_edges=[])

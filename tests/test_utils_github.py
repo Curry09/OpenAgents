@@ -1,6 +1,6 @@
-"""Spec-0060/T1: utils.github 稳定面单测——断言读/写/类型均为 github.py 同名原语的再导出。
+"""Spec-0060/T1: utils.github Stable Monometry——It’s a ”read.”/Write/Type github.py Re-export with the same original language.
 
-薄再导出的契约就是「同一对象、行为等价」：逐个断言 utils.github.X is github.X，无需触网。
+The thinly re-exported contract is ”the same object, the same behavioral price”: utils.github.X is github.X, one by one, without touching the net.
 """
 
 from __future__ import annotations

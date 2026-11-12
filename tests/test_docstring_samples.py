@@ -1,12 +1,12 @@
-# Spec-0059/T3: 三处样例落地的断言测试——engine 模块 docstring + run_vigil 函数 docstring 合规。
+# Spec-0059/T3: Three standard drop-out assertion tests - engine module docstring + run_vigil function docstring compliance.
 
 """Assert the two sample files carry PEP-257-aligned docstrings after Spec-0059/T3.
 
-样例证明 T1 规则在真实文件上可落地：`runtime.engine` 模块 docstring 去掉 `\"\"\"#` 写法、spec-id 上移
-为文件顶部 `#` 注释、补 `Exports:`；`recipes.vigil.run_vigil` 函数 docstring 补 `Args:` 与 `Raises:`。
+Sample proof T1 The rules are set on the real file:`runtime.engine` Modules docstring Get rid of it. `\"\"\"#` Write,spec-id Move Up
+To Top of File `#` Notes, supplements `Exports:`；`recipes.vigil.run_vigil` Function docstring Fill `Args:` with `Raises:`。
 
 Exports:
-    无导出对象（pytest 用例模块）。
+    No object (pytest with example module) is exported.
 """
 
 from __future__ import annotations
@@ -20,17 +20,17 @@ from openagents.runtime import engine
 def test_engine_module_docstring_is_clean():
     doc = engine.__doc__
     assert doc is not None
-    # 首字符非 `#`：spec-id 已上移为文件顶部 `#` 注释、不再污染 __doc__/help()。
-    assert doc.lstrip()[0] != "#", "engine 模块 docstring 首行不应以 # 开头"
-    # 列出导出对象（PEP 257「list the classes, exceptions and functions exported」）。
+    # The first character, which is not `#`:spec-id, has been moved up to the top of the file `#` comment, without contamination of __doc__/help().
+    assert doc.lstrip()[0] != "#", "engine module doingcstring should not start with #"
+    # Lists the exported objects (PEP 257 "list the cards, options and operations exported").
     assert "Exports:" in doc
 
 
 def test_engine_spec_id_moved_to_top_comment():
     src = Path(engine.__file__).read_text(encoding="utf-8")
-    # spec-id 落在文件顶部的 `#` 注释行（对齐 argparse `# Author:` 惯例）。
+    # Spec-id `#` Comment Line (Cluster to argparse `# Author:` usage) at the top of the file.
     assert "# Spec-0060/T2" in src.splitlines()[0]
-    # 模块 docstring 不再有 `"""#` 序列（`#` 在三引号里是字面文本会进 __doc__）。
+    # The module Docstring no longer has a `"""#` sequence (`#` is a text in three quotation marks that will enter __doc__).
     assert '"""#' not in src
 
 

@@ -1,4 +1,4 @@
-// Spec-0073/T5: 大窗上半——把 SSE 逐条累积的 agent 会话行实时渲染，新行到底自动贴底。
+// Spec-0073/T5: Render streamed output and scroll to the latest line.
 import { useEffect, useRef } from 'react'
 
 export interface StreamViewProps {

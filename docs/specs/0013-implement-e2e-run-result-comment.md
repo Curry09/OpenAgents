@@ -1,12 +1,12 @@
 ---
 number: "0013"
-title: 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+title: "Actually run the end-to-end script and post “pass/fail + logs” as a PR comment (extending the RFC-0008 signpost → actual execution results)"
 issue: 31
 slug: implement-e2e-run-result-comment
-summary: 在 PR 转正前真正跑一遍端到端脚本，把「跑通没有 + 日志」作为带签名的 PR 评论贴出来。是 0008 指路牌（告诉怎么测）到实跑结果（直接给结论）的延伸。
+summary: "Actually run the end-to-end script once before marking the PR ready, and post “whether it passed + logs” as a signed PR comment. This extends the 0008 signpost (explaining how to test) to actual execution results (providing the conclusion directly)."
 tasks:
   - id: T1
-    title: e2e 实跑封装 + 结果评论渲染（纯模块）
+    title: "e2e execution wrapper + result comment rendering (standalone module)"
     status: done
     priority: P1
     tags:
@@ -18,10 +18,10 @@ tasks:
     files:
       - openagents/e2e.py
       - tests/test_e2e.py
-    scope: 新建 openagents/e2e.py，实现 E2EResult、run_e2e_script、render_result 及 DEFAULT_TIMEOUT_SECONDS / DEFAULT_TAIL_LINES。在 worktree 内 bash <script_path> 跑离线段、捕获退出码与合并输出、施加超时、截尾部 N 行；脚本缺失 / 非常规文件 / 超时 / 非零退出 各自映射成结构化结果，绝不抛错。模块 docstring 与公开函数引用 RFC-0013。
-    acceptance: 单测覆盖——退出码 0→passed；非零→failed 且退出码正确；超时→failed 且 timed_out=True；script_path=None / 文件不存在→skipped 不起子进程；render_result 对四种 outcome 各渲染对应「结果」行与日志块且不抛错。ruff + pytest 通过。
+    scope: "Create openagents/e2e.py, implementing E2EResult, run_e2e_script, render_result, and DEFAULT_TIMEOUT_SECONDS / DEFAULT_TAIL_LINES. Run the offline portion with bash <script_path> inside the worktree, capture the exit code and combined output, enforce a timeout, and retain the last N lines; map a missing script / a non-regular file / a timeout / a nonzero exit to structured results in each case, never raising an exception. Reference RFC-0013 in the module docstring and public functions."
+    acceptance: "Unit test coverage—exit code 0→passed; nonzero→failed with the correct exit code; timeout→failed with timed_out=True; script_path=None / nonexistent file→skipped without starting a subprocess; render_result renders the corresponding “Result” line and log block for each of the four outcomes without raising an exception. ruff + pytest pass."
   - id: T2
-    title: rfc.script_path_for（复用 extract_e2e 定位脚本）
+    title: "rfc.script_path_for (reuse extract_e2e to locate the script)"
     status: done
     priority: P1
     tags:
@@ -33,10 +33,10 @@ tasks:
     files:
       - openagents/rfc.py
       - tests/test_rfc.py
-    scope: 在 openagents/rfc.py 新增 script_path_for(*, rfc_path) -> str | None：读文件→extract_e2e→返回 hints.script_path，文件不可读返回 None（不抛错），与既有 signpost_for 对称。docstring 引用 RFC-0013（复用 RFC-0008 的 extract_e2e）。
-    acceptance: 单测——含「集成测试」脚本的 RFC 抽出该脚本相对路径；无脚本段时返回 None；文件不可读返回 None 不抛错。不破坏既有 extract_e2e / signpost_for 用例。ruff + pytest 通过。
+    scope: "Add script_path_for(*, rfc_path) -> str | None to openagents/rfc.py: read the file→extract_e2e→return hints.script_path; return None if the file cannot be read (without raising an exception), mirroring the existing signpost_for. Reference RFC-0013 in the docstring (reusing extract_e2e from RFC-0008)."
+    acceptance: "Unit tests—extract the relative script path from an RFC containing an “Integration Tests” script; return None when there is no script section; return None without raising an exception when the file cannot be read. Do not break existing extract_e2e / signpost_for test cases. ruff + pytest pass."
   - id: T3
-    title: implement 转正前实跑 + 签名结果评论接线
+    title: "Wire actual execution and a signed result comment into implement before marking the PR ready"
     status: done
     priority: P1
     tags:
@@ -50,10 +50,10 @@ tasks:
     files:
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
-    scope: 改 orchestrator.implement：import e2e；在 commit_and_push 之后、mark_ready 之前定位脚本（changed_rfc_path + rfc.script_path_for，base=DEFAULT_BASE）→ e2e.run_e2e_script 实跑→ e2e.render_result 渲染→ identity.post_signed_comment 盖章发评论→ github.mark_ready 照常转正。结果 ❌ 不阻断转正；发评论失败仅记进度并吞掉、不崩溃流程。新增/改动处注释引用 RFC-0013。
-    acceptance: 单测（假 backend + 假 Workspace + monkeypatch e2e.* / identity.post_signed_comment / github.mark_ready）——implement 在 mark_ready 前调用 run_e2e_script、把渲染结果经 post_signed_comment（带本实例 agent_id）发出；e2e failed 时仍调用 mark_ready；changed_rfc_path 返回 None 时走 script_path=None（skipped）仍发评论且不抛错；发评论抛错时 mark_ready 仍被调用。ruff + pytest 通过。
+    scope: "Modify orchestrator.implement: import e2e; after commit_and_push and before mark_ready, locate the script (changed_rfc_path + rfc.script_path_for, base=DEFAULT_BASE)→actually run it with e2e.run_e2e_script→render with e2e.render_result→sign and post the comment with identity.post_signed_comment→mark the PR ready as usual with github.mark_ready. A ❌ result does not block marking the PR ready; if posting the comment fails, only record it in progress and swallow the exception without crashing the workflow. Reference RFC-0013 in comments at added/changed locations."
+    acceptance: "Unit tests (fake backend + fake Workspace + monkeypatch e2e.* / identity.post_signed_comment / github.mark_ready)—implement calls run_e2e_script before mark_ready and posts the rendered result through post_signed_comment (with this instance’s agent_id); mark_ready is still called when e2e fails; when changed_rfc_path returns None, use script_path=None (skipped), still post a comment, and do not raise an exception; mark_ready is still called when posting the comment raises an exception. ruff + pytest pass."
   - id: T4
-    title: 端到端脚本 + RFC 索引
+    title: "End-to-end script + RFC index"
     status: done
     priority: P1
     tags:
@@ -66,72 +66,71 @@ tasks:
     files:
       - scripts/e2e-rfc-0013-implement-e2e-comment.sh
       - docs/rfcs/README.md
-    scope: 新增 scripts/e2e-rfc-0013-implement-e2e-comment.sh（两段式：默认离线 ruff check / ruff format --check / pytest；OPENAGENTS_E2E_REAL=1 时人工 opt-in 演练「implement 实跑 + 结果评论」路径）。在 docs/rfcs/README.md 的 RFC 列表追加 RFC-0013 行。
-    acceptance: 离线段在干净仓库通过；脚本可执行（set -euo pipefail、chmod +x）；README 列表含 RFC-0013 条目。
+    scope: "Add scripts/e2e-rfc-0013-implement-e2e-comment.sh (two stages: offline ruff check / ruff format --check / pytest by default; when OPENAGENTS_E2E_REAL=1, a manual opt-in exercise of the “implement actual execution + result comment” path). Append an RFC-0013 row to the RFC list in docs/rfcs/README.md."
+    acceptance: "The offline portion passes in a clean repository; the script is executable (set -euo pipefail, chmod +x); the README list contains an RFC-0013 entry."
 ---
 
-# 0013 · 实跑端到端脚本并把「合否 + 日志」作为 PR 评论（RFC-0008 指路牌 → 实跑结果延伸）
+# 0013 · Run end-to-end scripts and post “pass/fail + logs” as a PR comment (RFC-0008 signpost → extension with execution results)
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-在 PR 从 draft 转正（`mark_ready`）之前，真正执行本分支 RFC 声明的端到端脚本，把「跑通没有 + 日志末尾」渲染成一条带 agent 签名的 PR 评论贴出来。这是 RFC-0008 的自然延伸：0008 在 PR 正文加了「端到端验证」指路牌（告诉人怎么测，是指针），本 feature 直接替人把脚本跑一遍并给出确定性「合否」结论（是结果）。新增一个只懂 `subprocess` + 文本处理的纯旁路模块 `e2e.py`，一个在 `rfc.py` 上对称补齐的 `script_path_for` 定位器，并把两者接到 `orchestrator.implement` 的转正前一刻。
+Before a PR transitions from draft to ready for review (`mark_ready`), actually run the end-to-end script declared in this branch’s RFC, render “whether it passed + the log tail,” and post it as an agent-signed PR comment. This is a natural extension of RFC-0008: 0008 adds an “End-to-end verification” signpost to the PR body (telling people how to test—a pointer); this feature runs the script on their behalf and provides a deterministic pass/fail conclusion (a result). It adds a pure sidecar module, `e2e.py`, that knows only `subprocess` + text processing, a corresponding `script_path_for` locator in `rfc.py`, and wires both into `orchestrator.implement` immediately before the PR is marked ready.
 
 ## Motivation
 
-**现状（RFC-0008 指路牌，完整复述，不要求读者去翻别的 spec）。** RFC-0008 让 PR 正文里带一段「端到端验证」指路牌：从本分支改动的 RFC 文档里抽出「集成测试」段，把其中声明的 `scripts/*.sh` 脚本路径渲染进 PR 正文，告诉审阅者/人「要验证这个改动，跑这个脚本」。它给的是**指针**——一个让人手动去跑的路标，PR 本身并不包含「这次到底跑通没有」的结论。
+**Current behavior (the RFC-0008 signpost, restated in full so readers do not need to consult another spec).** RFC-0008 adds an “End-to-end verification” signpost to the PR body: it extracts the “Integration tests” section from the RFC document changed on this branch and renders the declared `scripts/*.sh` script path into the PR body, telling reviewers/people, “To verify this change, run this script.” It provides a **pointer**—a signpost for someone to run the script manually. The PR itself contains no conclusion about “whether it actually passed this time.”
 
-**问题：为什么要改。** 「以成果为中心」（CLAUDE.md 理念 8）要求模型替人做端到端测试，人只面向成果。光给指路牌不够：审阅者仍要亲自把脚本跑一遍才知道合否，门控成本落回人身上。期望的新行为是——`implement` 在把 PR 转正之前，**自己把脚本跑一遍**（离线确定性段：ruff + pytest，全程 mock），把退出码映射成「跑通 / 跑挂 / 无脚本可跑」，连同日志末尾一起，作为一条带签名的评论发到 PR 上。于是 PR 自带「这次实跑的结论」，人只需看结论而非重跑。结果 ❌ 不阻断转正（信息透明优先于硬门控），但人看到失败评论后可介入。
+**The problem: why change this.** “Focus on outcomes” (CLAUDE.md principle 8) requires the model to perform end-to-end testing on people’s behalf, leaving people to focus only on outcomes. A signpost alone is insufficient: reviewers must still run the script themselves to determine pass/fail, putting the cost of gating back on people. The desired new behavior is for `implement` to **run the script itself** before marking the PR ready (the offline deterministic stage: ruff + pytest, mocked throughout), map its exit code to “passed / failed / no script to run,” and post that result together with the log tail as a signed PR comment. The PR then carries “the conclusion from this execution,” so people need only read the conclusion rather than rerun the script. A ❌ result does not block marking the PR ready (information transparency takes priority over hard gating), but people can intervene after seeing the failure comment.
 
 ## Guide-level explanation
 
-把 RFC-0008 的「指针」升级为「结论」，新增一格：
+Upgrade RFC-0008’s “pointer” to a “conclusion,” adding another piece of information:
 
-| 维度 | 现状（RFC-0008 指路牌） | 本 feature（实跑结果延伸） |
+| Dimension | Current behavior (RFC-0008 signpost) | This feature (extension with execution results) |
 |------|------|------|
-| PR 携带的 e2e 信息 | 脚本路径（指针，让人去跑） | 脚本路径 + **这次实跑的合否 + 日志末尾**（结论） |
-| 谁跑脚本 | 人（手动按指路牌跑） | **`implement` 转正前自动跑离线段** |
-| 信息载体 | PR 正文一段指路牌 | PR 正文指路牌 + **一条带 agent 签名的结果评论** |
+| e2e information carried by the PR | Script path (a pointer asking someone to run it) | Script path + **pass/fail from this execution + log tail** (a conclusion) |
+| Who runs the script | A person (manually following the signpost) | **`implement` automatically runs the offline stage before marking the PR ready** |
+| Information medium | A signpost section in the PR body | PR body signpost + **one agent-signed result comment** |
 
-对使用者：照常提 issue、让 agent 起 PR；当 agent 跑 `implement` 把 PR 转正时，PR 上会自动多出一条「## 端到端测试结果」评论，写明 passed / failed / skipped 与日志末尾若干行，并带本 agent 实例的签名。脚本缺失或没声明时评论降级为 skipped（指回 RFC「集成测试」段供人工验证），不会让流程崩溃。
+For users: open an issue and have the agent create a PR as usual. When the agent runs `implement` to mark the PR ready, a “## End-to-end test results” comment automatically appears on the PR, stating passed / failed / skipped and showing the last several lines of the log, with this agent instance’s signature. If the script is missing or undeclared, the comment falls back to skipped (pointing back to the RFC’s “Integration tests” section for manual verification), without crashing the workflow.
 
 ## Reference-level explanation
 
-落到改动，分解为 4 个 Task（DAG 见下；`files` 互斥，各 Task 单一 writer）：
+The changes break down into 4 Tasks (see the DAG below; `files` are mutually exclusive, with a single writer for each Task):
 
-1. **T1 e2e 纯模块** — 新建 `openagents/e2e.py`，只懂 `subprocess` + 文本处理，不感知 git / GitHub / RFC 文档语义 / orchestrator（理念 10 解耦）。对外暴露：`E2EResult`（实跑结果的结构化载体）、`run_e2e_script`（在 worktree 内 `bash <script_path>` 跑离线段、捕获退出码与合并输出、施加超时 `DEFAULT_TIMEOUT_SECONDS=600`、截尾部 `DEFAULT_TAIL_LINES=40` 行）、`render_result`（把结果渲染成「## 端到端测试结果」Markdown，纯函数）。四种 outcome：退出码 0→`passed`；非零→`failed`；超时→`failed` 且 `timed_out=True`；脚本缺失 / 非常规文件 / `script_path=None`→`skipped`（不起子进程）。全程**绝不抛错**——所有异常路径都映射成结构化结果。
-2. **T2 rfc.script_path_for** — 在 `openagents/rfc.py` 新增 `script_path_for(*, rfc_path) -> str | None`：读文件→复用 RFC-0008 的 `extract_e2e`→返回 `hints.script_path`，文件不可读返回 `None`（不抛错），与既有 `signpost_for` 对称。仅做定位，不实跑（解耦：定位归 rfc，实跑归 e2e）。
-3. **T3 implement 接线**（依赖 T1、T2） — 改 `orchestrator.implement`：`import e2e`；在 `commit_and_push` 之后、`mark_ready` 之前，用 `changed_rfc_path`（`base=DEFAULT_BASE`）+ `rfc.script_path_for` 定位脚本→`e2e.run_e2e_script` 实跑→`e2e.render_result` 渲染→`identity.post_signed_comment`（带本实例 `agent_id`）盖章发评论→`github.mark_ready` 照常转正。e2e 结果 ❌ 不阻断转正；发评论失败仅记进度并吞掉、不崩溃流程；`changed_rfc_path` 为 `None` 时走 `script_path=None`（skipped）仍发评论。
-4. **T4 端到端脚本 + 索引**（依赖 T3） — 新增 `scripts/e2e-rfc-0013-implement-e2e-comment.sh`，两段式：默认离线确定性段（`ruff check` / `ruff format --check` / `pytest`，全程 mock 不触达真实 gh）；`OPENAGENTS_E2E_REAL=1` 且给定 `OPENAGENTS_E2E_PR=<n>` 时人工 opt-in 演练真实「implement 实跑 + 结果评论」路径。脚本 `set -euo pipefail` 且 `chmod +x`。在 `docs/rfcs/README.md` 的 RFC 列表追加 RFC-0013 行。
+1. **T1 Pure e2e module** — Create `openagents/e2e.py`, which knows only `subprocess` + text processing and has no awareness of git / GitHub / RFC document semantics / orchestrator (principle 10: decoupling). Expose: `E2EResult` (a structured container for execution results), `run_e2e_script` (runs the offline stage via `bash <script_path>` inside the worktree, captures the exit code and combined output, enforces a timeout of `DEFAULT_TIMEOUT_SECONDS=600`, and retains the last `DEFAULT_TAIL_LINES=40` lines), and `render_result` (a pure function that renders the result as “## End-to-end test results” Markdown). Four outcomes: exit code 0→`passed`; nonzero→`failed`; timeout→`failed` with `timed_out=True`; missing script / non-regular file / `script_path=None`→`skipped` (without starting a subprocess). **Never raise an exception** throughout—all exception paths map to structured results.
+2. **T2 rfc.script_path_for** — Add `script_path_for(*, rfc_path) -> str | None` to `openagents/rfc.py`: read the file→reuse RFC-0008’s `extract_e2e`→return `hints.script_path`; return `None` if the file is unreadable (without raising an exception), mirroring the existing `signpost_for`. Only locate the script; do not execute it (decoupling: rfc owns location, e2e owns execution).
+3. **T3 Wire into implement** (depends on T1 and T2) — Modify `orchestrator.implement`: `import e2e`; after `commit_and_push` and before `mark_ready`, use `changed_rfc_path` (`base=DEFAULT_BASE`) + `rfc.script_path_for` to locate the script→execute it with `e2e.run_e2e_script`→render with `e2e.render_result`→sign and post the comment via `identity.post_signed_comment` (with this instance’s `agent_id`)→mark the PR ready via `github.mark_ready` as usual. A ❌ e2e result does not block marking the PR ready; a failure to post the comment is only recorded in progress and swallowed, without crashing the workflow; when `changed_rfc_path` is `None`, use `script_path=None` (skipped) and still post a comment.
+4. **T4 End-to-end script + index** (depends on T3) — Add `scripts/e2e-rfc-0013-implement-e2e-comment.sh`, with two stages: the default offline deterministic stage (`ruff check` / `ruff format --check` / `pytest`, mocked throughout without accessing real gh); and, when `OPENAGENTS_E2E_REAL=1` and `OPENAGENTS_E2E_PR=<n>` is supplied, a manual opt-in exercise of the real “implement execution + result comment” path. Use `set -euo pipefail` in the script and apply `chmod +x`. Append an RFC-0013 row to the RFC list in `docs/rfcs/README.md`.
 
-**端到端验证**：`bash scripts/e2e-rfc-0013-implement-e2e-comment.sh`（默认仅离线段：ruff + pytest）。
+**End-to-end verification**: `bash scripts/e2e-rfc-0013-implement-e2e-comment.sh` (offline stage only by default: ruff + pytest).
 
-依赖 DAG：`T1 → T3`，`T2 → T3`，`T3 → T4`。T1 与 T2 互相独立、可并行。
+Dependency DAG: `T1 → T3`, `T2 → T3`, `T3 → T4`. T1 and T2 are independent and can run in parallel.
 
 ## Drawbacks
 
-- `implement` 转正前多跑一遍离线段（ruff + pytest），转正路径变长——但有 `DEFAULT_TIMEOUT_SECONDS=600` 超时上限保护，不会被拖死。
-- e2e 失败不阻断转正，结果评论是「软信号」而非硬门控，需要人留意失败评论；选择信息透明而非硬卡点是有意为之（见 Rationale）。
+- `implement` runs the offline stage (ruff + pytest) once more before marking the PR ready, lengthening that path—but the `DEFAULT_TIMEOUT_SECONDS=600` timeout cap prevents it from hanging indefinitely.
+- An e2e failure does not block marking the PR ready. The result comment is a “soft signal” rather than a hard gate, so people need to watch for failure comments; choosing information transparency over a hard blocking point is intentional (see Rationale).
 
 ## Rationale and alternatives
 
-- **为什么实跑而非继续只给指路牌**：理念 8「以成果为中心」要求模型替人做端到端测试。只给指针仍把跑脚本的成本压在人身上；实跑并贴结论才真正把这层验证从人手里接过来。
-- **为什么 e2e 失败不阻断转正**：硬门控会把「脚本环境抖动 / 暂未落地」也变成卡死流程的硬错误；选择把结果作为带签名评论透明贴出（passed/failed/skipped），保留人介入空间，又不让流程崩在一个旁路验证上。
-- **为什么 e2e.py 做成纯旁路模块**：只依赖 `subprocess` + 文本，不感知 git/GitHub/RFC/orchestrator（理念 10 解耦），便于 hermetic 单测、可被任意调用方复用。
-- **为什么定位（rfc.script_path_for）与实跑（e2e.run_e2e_script）分离**：定位需要懂 RFC 文档语义（复用 0008 的 `extract_e2e`），实跑只需懂 subprocess；分开后两边各自单测、互不耦合。
-- **备选：把渲染结果写进 PR 正文而非评论**。否决：正文是 0008 指路牌的领地（静态指针），实跑结论是一次性时间点事件，作为带签名评论更贴合「每次实跑一条记录」且不覆盖正文。
+- **Why execute the script instead of continuing to provide only a signpost**: Principle 8, “Focus on outcomes,” requires the model to perform end-to-end testing on people’s behalf. Providing only a pointer still leaves people with the cost of running the script; executing it and posting the conclusion actually takes this verification work off their hands.
+- **Why an e2e failure does not block marking the PR ready**: A hard gate would also turn “script environment instability / a script that has not yet been implemented” into a hard error that stalls the workflow. Posting the result transparently as a signed comment (passed/failed/skipped) leaves room for human intervention without letting a sidecar verification step crash the workflow.
+- **Why e2e.py is a pure sidecar module**: It depends only on `subprocess` + text, with no awareness of git/GitHub/RFC/orchestrator (principle 10: decoupling), making hermetic unit testing straightforward and allowing reuse by any caller.
+- **Why location (rfc.script_path_for) and execution (e2e.run_e2e_script) are separate**: Location requires understanding RFC document semantics (reusing 0008’s `extract_e2e`), whereas execution only requires understanding subprocess; separating them allows each side to be unit-tested independently, without coupling them.
+- **Alternative: write the rendered result into the PR body instead of a comment**. Rejected: the body is the domain of 0008’s signpost (a static pointer), while an execution conclusion is an event at a particular point in time. A signed comment better fits “one record per execution” and does not overwrite the body.
 
 ## Prior art
 
-「CI 把测试合否与日志摘要作为 PR 状态/评论回贴」是业界主流实践（如各类 CI 机器人在 PR 上贴 check 结果 + 失败日志摘要）。本 feature 取其「在转正前自动跑、把合否 + 日志末尾回贴到 PR」的核心，落在 OpenAgents 的 agent 签名评论机制上，不引入外部 CI 服务。
+“CI posts test pass/fail and log summaries back to a PR as a status/comment” is mainstream industry practice (for example, various CI bots post check results + failure log summaries on PRs). This feature takes the core idea of “run automatically before marking ready, and post pass/fail + the log tail back to the PR” and implements it through OpenAgents’ agent-signed comment mechanism, without introducing an external CI service.
 
 ## Unresolved questions
 
-无。四种 outcome 映射、超时上限、日志截尾行数、失败不阻断转正均已在本组确定。
+None. The four outcome mappings, timeout cap, number of log tail lines, and non-blocking behavior on failure have all been settled within this group.
 
 ## Future possibilities
 
-- 把实跑从「离线确定性段」扩展到可配置的真实段（当前真实段需人工 `OPENAGENTS_E2E_REAL=1` opt-in）。
-- 结果评论可累积成 PR 的实跑历史时间线 / 趋势。
-
+- Expand execution from the “offline deterministic stage” to a configurable real stage (the real stage currently requires manual opt-in via `OPENAGENTS_E2E_REAL=1`).
+- Result comments could accumulate into a timeline / trend of the PR’s execution history.

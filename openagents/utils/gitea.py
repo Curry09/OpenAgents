@@ -1,19 +1,11 @@
-# Spec-0074/T2: utils.gitea —— github.py 同名公共面的 Gitea driver（/api/v1，stdlib urllib 零新依赖）。
+# Spec-0074/T2: utils.gitea - github.py Publicly-named Gitea Driver (/api/v1, stdlib urllib zero-dependent).
 
-"""Gitea forge driver：实现 vigil 新栈消费的 github.py 公共面，语义映射见 Spec-0074 正文表。
+"""Implement the shared forge interface using Gitea REST endpoints.
 
-Spec-0089/T1: preserve head_commit_id through native merge and CLI verification retries.
-
-- **数据类与错误类型复用 github.py 定义**（Issue/PR/Comment/CheckStatus/…/GithubError）——公共面
-  的事实契约在 github.py，本模块只换传输层与语义映射，消费方（经 forge 分发）零感知。
-- **单收口 `_http`**：全部 REST 调用经它（Authorization 头带 token、30s 超时、5xx/网络异常指数退避
-  ×3 对齐 github._run_gh 的瞬时错误纪律），也是 hermetic 测试的唯一打桩缝。
-- **鉴权**：token 只从环境变量读（configure 声明变量名，缺省 GITEA_TOKEN）——延续「OpenAgents 不
-  存 token」纪律。
-- **PR 评论 = issue 评论**：Gitea 的 PR 与 issue 共享 index 命名空间与 comments 端点，故
-  list_comments/post_comment 与 issue 版同端点。
-- 语义降级点全部就地注释（mergeable 无 BEHIND、head_pushed_at 用 updated_at 近似、
-  author_association 只识别配置 owner）——对齐 Spec-0074 Unresolved 的实证清单。
+Use the shared data types and error contract. Read tokens from the configured
+environment variable. The HTTP helper centralizes authentication, timeouts,
+and transient retries. Gitea PR comments use issue endpoints. Where native
+metadata differs from GitHub, apply the mapping documented in Spec-0074.
 """
 
 from __future__ import annotations
@@ -30,8 +22,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-# Spec-0074/T2: 公共面契约复用——数据类/错误/流程标签常量与 github.py 同一份定义。
-from openagents.utils.github import (  # noqa: F401  re-export 供直接 import 本模块的调用方
+# Spec-0074/T2: Reuse Public Compact——Data class/Error/Process Label Constants and github.py Same definition.
+from openagents.utils.github import (  # noqa: F401  Re-export for direct import caller for this module
     APPROVAL_LABEL,
     AUTOMATION_FAILED_LABEL,
     DISCOVERY_LABEL,
@@ -49,35 +41,35 @@ from openagents.utils.github import (  # noqa: F401  re-export 供直接 import 
     _strip_diff_file_blocks,
 )
 
-# 与 github._GH_TIMEOUT_SECONDS / 重试常量对齐（同一瞬时错误纪律，换传输层不换策略）。
+# Aligns with github._GH_TIMEOUT_SECONDS/ retry constant (the same instant error discipline, change the transfer layer without changing the policy).
 _TIMEOUT_SECONDS = 30
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE = 1.0
 _TRANSIENT_STATUSES = {502, 503, 504}
 
-# Gitea 的 draft 表达是标题前缀（服务端默认 "WIP:"；部分版本 PR 响应带原生 draft 字段，两者都认）。
+# The draft expression for Gitea is the prefix to the title (service-side default "WIP: " ; part version PR responds to the original draft field, both recognized).
 _WIP_PREFIXES = ("WIP:", "[WIP]")
 _WIP_CANONICAL = "WIP: "
 
-# 列表端点单页上限（Gitea 默认分页 30/页；driver 自己翻页，不能让服务端默认值截断发现集）。
+# Lists the endpoint single page limit (Gitea default page break 30/ page; driver flips the page itself, not allowing the service-end default cut-off discovery set).
 _LIST_LIMIT = 50
 
 _DEFAULT_TOKEN_ENV = "GITEA_TOKEN"
 
-# configure 装载的连接设置（模块级，与 github.py 的「gh 绑 cwd」等价的进程级绑定）。
+# Connect settings for configure load (module level, bound to process level of "gh cwd" equivalent of github.py).
 _base_url: str | None = None
 _owner: str | None = None
 _repo: str | None = None
 _token_env: str = _DEFAULT_TOKEN_ENV
 
-# 标签名→id 缓存（Gitea 的 issue/label 操作要 id 不要名；竞态由 409/422 幂等回退兜，
-# 对齐消费方 GiteaTracker 的既有实践）。
+# The tag name issue/label cache operation in Gitea is not named; the contest is backed back by 409/422 Quil.
+# The current practice of aligning consumption with GiteaTracker)
 _label_ids: dict[str, int] = {}
 
 
 @dataclass(frozen=True)
 class _HttpResult:
-    """一次 REST 往返的原始结果（status + 解析出的 JSON + 原文），供语义层按状态码分支。"""
+    """The original result of a RRT round-trip (status + excreted JSON + original) for the semantic layer by status code branch."""
 
     status: int
     data: Any
@@ -85,15 +77,12 @@ class _HttpResult:
 
 
 def configure(*, settings: dict[str, Any]) -> None:
-    """装载 Gitea 连接设置（forge.configure 透传）：base_url/owner/repo 必填，token_env 缺省 GITEA_TOKEN。
-
-    只存「怎么连」，不存 token 本体；设置不完整 → GithubError（fail-loud，绝不带残缺配置上路）。
-    """
+    """Configure the connection using a base URL, owner, repository, and token variable."""
     global _base_url, _owner, _repo, _token_env
     missing = [key for key in ("base_url", "owner", "repo") if not settings.get(key)]
     if missing:
         raise GithubError(
-            f"forge=gitea 缺少连接设置 {missing}（.openagents/openagents.yml 的 gitea 段）"
+            f"Missing Gitea connection settings {missing}; check the gitea section in .openagents/openagents.yml"
         )
     _base_url = str(settings["base_url"]).rstrip("/")
     _owner = str(settings["owner"])
@@ -103,19 +92,21 @@ def configure(*, settings: dict[str, Any]) -> None:
 
 
 def _ensure_configured() -> tuple[str, str, str]:
-    """取 (base_url, owner, repo)；未 configure → GithubError（提示配置入口）。"""
+    """Return the current connection parameters or report incomplete configuration."""
     if not (_base_url and _owner and _repo):
         raise GithubError(
-            "gitea driver 未配置——需 forge.configure(name='gitea', settings=...) 装载连接设置"
+            "gitea driver is not configured - forge.configure (name=’geta’, settings=...) Load Connection Settings"
         )
     return _base_url, _owner, _repo
 
 
 def _token() -> str:
-    """从环境变量读 token；缺失 → GithubError（token 本体从不落配置文件）。"""
+    """Read the token from its environment variable without storing it in configuration."""
     token = os.environ.get(_token_env, "").strip()
     if not token:
-        raise GithubError(f"环境变量 {_token_env} 为空——Gitea 鉴权 token 只从环境变量读")
+        raise GithubError(
+            f"Environmental variables {_token_env} Empty -Gitea Seasure token read only from environment variables"
+        )
     return token
 
 
@@ -251,10 +242,10 @@ def observation_request_exists(*, number: int, identity: str) -> bool:
 
 
 def _http(*, method: str, path: str, body: dict | None, query: dict | None) -> _HttpResult:
-    """唯一的传输缝：一次 REST 往返（不含重试/状态码语义）。测试 monkeypatch 本函数即离网。
+    """The only transfer stitch: a REST round-trip (without retry/state code). Test MonkeyPatch this function is off-grid.
 
-    网络层异常（连接失败/超时）抛 TimeoutError 归一为瞬时错误交 `_request` 重试；HTTP 非 2xx
-    不在此层抛——语义（404 幂等 / 409 已存在 / 422 已最新）由调用方按 status 分支。
+    Network Layer Abnormal (Connect failure/timeout) Drop Timeout Error as an instant error handing `_request` over; HTTP not 2x
+    Not on this level - semantics (404 & etc. / 422 already exists / up to date) by the caller press status branch.
     """
     base, _, _ = _ensure_configured()
     url = f"{base}/api/v1/{path}"
@@ -272,19 +263,19 @@ def _http(*, method: str, path: str, body: dict | None, query: dict | None) -> _
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:  # noqa: S310  base_url 来自本地配置
+        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:  # noqa: S310  base_url from Local Configuration
             status = int(response.status)
             text = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         status = int(exc.code)
         text = exc.read().decode("utf-8", errors="replace")
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise TimeoutError(f"gitea {method} {path} 网络失败：{exc}") from exc
+        raise TimeoutError(f"gitea {method} {path} Network failure:{exc}") from exc
     return _HttpResult(status=status, data=_maybe_json(text=text), text=text)
 
 
 def _maybe_json(*, text: str) -> Any:
-    """响应体尝试按 JSON 解析；非 JSON（如 .diff 原文）返回 None，原文留在 text。"""
+    """The responder tries to parse by JSON; nonJSON (e. g. .diff original) returns None, left in text."""
     stripped = text.strip()
     if not stripped or stripped[0] not in "{[":
         return None
@@ -297,8 +288,7 @@ def _maybe_json(*, text: str) -> Any:
 def _request(
     *, method: str, path: str, body: dict | None, query: dict | None, allow: tuple[int, ...]
 ) -> _HttpResult:
-    """带瞬时重试的 REST 调用：5xx 网关故障/网络异常指数退避（对齐 github._run_gh 纪律）；
-    非 2xx 且不在 allow 白名单 → GithubError（带状态码与端点，便于定位）。"""
+    """Send a REST request with bounded retries for transient transport failures."""
     for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
         try:
             result = _http(method=method, path=path, body=body, query=query)
@@ -312,26 +302,26 @@ def _request(
             continue
         if 200 <= result.status < 300 or result.status in allow:
             return result
-        raise GithubError(f"gitea {method} {path} 返回 {result.status}：{result.text[:200]}")
-    raise GithubError(f"gitea {method} {path} 重试耗尽")
+        raise GithubError(f"gitea {method} {path} Back {result.status}：{result.text[:200]}")
+    raise GithubError(f"gitea {method} {path} We’re running out of re-testing.")
 
 
 def _repo_path(*, suffix: str) -> str:
-    """repos/{owner}/{repo}/<suffix> 路径拼装（owner/repo 来自 configure）。"""
+    """Reposs/{owner} / {repo}/<suffix> Paths package (owner/repo from configure)."""
     _, owner, repo = _ensure_configured()
     return f"repos/{owner}/{repo}/{suffix}" if suffix else f"repos/{owner}/{repo}"
 
 
 # --------------------------------------------------------------------------------------------------
-# 标签（Gitea 的标签操作要 id：名→id 解析 + 缓存 + 竞态幂等回退）。
+# Label (Gitea label operation id: Name id parsing + Cache + Contest etc. back).
 # --------------------------------------------------------------------------------------------------
 
 
 def _refresh_label_cache() -> None:
-    """# Spec-0074/T2: 完整刷新标签名→id 缓存；服务端忽略 page 时按重复页收敛。
+    """#Spec-0074/T2: complete refreshing of tab name id cache; back-up page when service ignores page.
 
-    Gitea 允许同名标签，故按 API 顺序保留第一个 id；调用侧只需一个稳定 id 来 add/remove，发现过滤则
-    直接看 issue 响应里的标签名，不再依赖这里挑中了哪一个重复项。
+    Gitea allows a label with the same name, so keep the first id in the API order; call side only one stable id to add/remove, find filter
+    Look directly at the label name in the issue response, and no longer rely on which duplicate item is selected here.
     """
     page = 1
     seen_ids: set[int] = set()
@@ -362,19 +352,19 @@ def _refresh_label_cache() -> None:
 
 
 def _label_id(*, name: str) -> int:
-    """标签名→id；未知名先刷新缓存，仍无 → GithubError（调用方应先 ensure_label）。"""
+    """Resolve a label name to its ID, refreshing the cache on a miss."""
     if name not in _label_ids:
         _refresh_label_cache()
     if name not in _label_ids:
-        raise GithubError(f"标签 {name!r} 不存在（先 ensure_label）")
+        raise GithubError(f"Tab {name!r} Not Existing (ensure_label first)")
     return _label_ids[name]
 
 
 def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> None:
-    """# Spec-0074/T2: 先读后建；已存在零 POST，409/422 竞态再刷新兜底。
+    """# Spec-0074/T2: Read first and build first; zero POST, 409/422 contests are in place and re-done.
 
-    Gitea 1.22 允许创建多个同名标签，因此不能把「POST 会报 already exists」当幂等保证。vigil 每 tick
-    都会 ensure ready；只有 POST 前先完整读缓存并直接返回，才能阻止重复标签持续累积。
+    Gitea 1.22 allows the creation of multiple labels with the same name, so the ”POST Report already exists” cannot be used as a guarantee. vigil is used as a tool to create a label.
+    Always adequate ready; only a complete read-cachel and a direct return before POST can prevent the repetition of labels from continuing to accumulate.
     """
     if name not in _label_ids:
         _refresh_label_cache()
@@ -391,13 +381,15 @@ def ensure_label(*, name: str, color: str = "ededed", description: str = "") -> 
     if 200 <= result.status < 300 and isinstance(result.data, dict):
         _label_ids[name] = int(result.data.get("id") or 0)
         return
-    _refresh_label_cache()  # 竞态：他处已建 → 复用既有 id
+    _refresh_label_cache()  # Competition: built elsewhere, re-used id
     if name not in _label_ids:
-        raise GithubError(f"标签 {name!r} 建后仍缺（gitea 返回 {result.status}）")
+        raise GithubError(
+            f"Tab {name!r} Not available (gitea back) after construction {result.status}）"
+        )
 
 
 # --------------------------------------------------------------------------------------------------
-# issue 侧。
+# - I'm gonna go.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -419,14 +411,16 @@ def get_issue(*, number: int) -> Issue:
         method="GET", path=_repo_path(suffix=f"issues/{number}"), body=None, query=None, allow=()
     )
     if not isinstance(result.data, dict):
-        raise GithubError("gitea issue 详情返回了非预期的结构")
+        raise GithubError("The details returned to unexpected structures.")
     return _issue_from(raw=result.data)
 
 
 def _list_issue_pages(
     *, path: str, query: dict, wanted: set[str], repo_full_name: str | None
 ) -> list[Issue]:
-    """# Spec-0074/T2: 翻页读取 issue；响应侧复核仓库、标签与 PR 类型，服务端异常时 fail-closed。"""
+    """Page through issue results and filter by repository, labels, and item type.
+    Spec-0074/T2.
+    """
     seen: dict[int, Issue] = {}
     raw_seen: set[tuple[str, int]] = set()
     page = 1
@@ -466,15 +460,8 @@ def _list_issue_pages(
 
 
 def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
-    """# Spec-0074/T2: 已知标签交 Gitea search API 做服务端 OR 过滤，响应侧 fail-closed 复核。
-
-    仓库端点 `/repos/{owner}/{repo}/issues` 的 1.22.6 实现有两处陷阱：不存在标签会被静默丢弃并退化
-    成未过滤；重复同名标签会展开成多个 id 后按 AND 查询。全局 `/repos/issues/search` 则走
-    `IncludedAnyLabelIDs`，按标签名执行真正 OR，且响应携带 repository，可在本地收窄到目标仓库。
-
-    查询前完整读取仓库标签：未知名直接零匹配，不把无效过滤交给服务端。响应仍按仓库、标签名和 PR 字段
-    复核，防服务端回归造成全量发现。逗号是 API 的标签分隔符，标签名本身含逗号时无法无歧义传输，才回退
-    到仓库端点分页后本地匹配。labels 为空仍表示列出该 state 的全部 issue。
+    """Return issues with all requested labels, filtering server-side OR matches.
+    Spec-0074/T2.
     """
     if not labels:
         return _list_issue_pages(
@@ -518,7 +505,7 @@ def list_issues(*, labels: list[str], state: str = "open") -> list[Issue]:
 
 
 def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
-    """建 issue（标签走名→id 解析；未知标签先幂等补建，比照 gh 需预建的语义放宽为自愈）。"""
+    """Builds a notsue (label unnamed id resolution; unknown tag prefix etc., relaxed to self-healing by the pre-established semantic)."""
     for name in labels:
         if name not in _label_ids:
             ensure_label(name=name)
@@ -530,7 +517,9 @@ def create_issue(*, title: str, body: str, labels: list[str]) -> Issue:
         allow=(),
     )
     if not isinstance(result.data, dict) or result.data.get("number") is None:
-        raise GithubError("gitea 建 issue 未返回 number")
+        raise GithubError(
+            "No, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no, no."
+        )
     return Issue(number=int(result.data["number"]), title=title, body=body, labels=tuple(labels))
 
 
@@ -555,8 +544,8 @@ def _comments_from(*, rows: list) -> list[Comment]:
                 author=login,
                 body=str(raw.get("body") or ""),
                 created_at=str(raw.get("created_at") or ""),
-                # 语义降级：Gitea 无 authorAssociation——只把「配置里的 repo owner 本人」认作 OWNER，
-                # 其余留空（fail-closed：读不到关系的评论不算拍板，见 Comment docstring）。
+                # The post is part of our special coverage Global Voices Online, which is a series of events that have been held in the past few years.
+                # The remaining empty space (fail-closed: comments that cannot read are not boarded, see Comment doingcstring).
                 author_association="OWNER" if login and login == owner else "",
             )
         )
@@ -575,7 +564,7 @@ def list_issue_comments(*, number: int) -> list[Comment]:
 
 
 def list_comments(*, pr_number: int) -> list[Comment]:
-    """PR 评论——Gitea 的 PR 与 issue 共享 index 与 comments 端点，直接复用 issue 版。"""
+    """PR Comment - The PR of Gitea shares an index with the peer of the committees, and directly re-uses the issue."""
     return list_issue_comments(number=pr_number)
 
 
@@ -584,7 +573,7 @@ def post_comment(*, pr_number: int, body: str) -> None:
 
 
 def issue_add_label(*, number: int, name: str) -> None:
-    """幂等加标签（标签缺失先补建；对已带该标签的 issue 再 add 是服务端 no-op）。"""
+    """Add a label to an issue; keep repeat additions idempotent."""
     if name not in _label_ids:
         ensure_label(name=name)
     _request(
@@ -597,11 +586,11 @@ def issue_add_label(*, number: int, name: str) -> None:
 
 
 def issue_remove_label(*, number: int, name: str) -> None:
-    """幂等摘标签：标签名未知 / 服务端 404（本就不带）→ no-op（对齐 github._is_label_absent 风格）。"""
+    """Remove a label and tolerate an already absent label."""
     if name not in _label_ids:
         _refresh_label_cache()
     if name not in _label_ids:
-        return  # 仓库都没有这个标签 → issue 上必然没有，no-op
+        return  # There's no such label in the warehouse.
     _request(
         method="DELETE",
         path=_repo_path(suffix=f"issues/{number}/labels/{_label_ids[name]}"),
@@ -627,7 +616,7 @@ def has_label(*, pr_number: int, name: str) -> bool:
 
 
 def close_issue(*, number: int) -> None:
-    """幂等关 issue：不存在（404）→ no-op；已关闭时 PATCH 本就幂等成功。"""
+    """Close an issue and tolerate a 404 if the issue no longer exists."""
     _request(
         method="PATCH",
         path=_repo_path(suffix=f"issues/{number}"),
@@ -638,12 +627,12 @@ def close_issue(*, number: int) -> None:
 
 
 # --------------------------------------------------------------------------------------------------
-# issue 原生依赖（blocked_by）——Gitea issue dependencies API。
+# blocked_by - Gitea issue dependencias API.
 # --------------------------------------------------------------------------------------------------
 
 
 def list_blocked_by(*, number: int) -> list[Blocker]:
-    """读「挡着本 issue 的 issue」列表；特性关闭/无端点（404）→ 视为无依赖（与 github 版同语义）。"""
+    """Read the list of ”issues blocking this issue”; character closing/no-point (404) is considered non-dependent (symmetrical with github version)."""
     result = _request(
         method="GET",
         path=_repo_path(suffix=f"issues/{number}/dependencies"),
@@ -664,15 +653,7 @@ def list_blocked_by(*, number: int) -> list[Blocker]:
 
 
 def add_blocked_by(*, number: int, blocker_number: int) -> None:
-    """给 issue 落一条依赖边（body 是 IssueMeta：index+owner+repo）；已存在（409/422）幂等 no-op。
-
-    Spec-0074 实证修复（1.22 实例三次对照定案）：IssueMeta 仓名字段的 JSON key 是 **`repo`** 不是
-    `name`——Gitea 的 Go 结构体字段叫 Name、struct tag 却是 `json:"repo"`（与 #3 同类的
-    「文档字段名 ≠ 实现」）。传 `name` 会被吞空 → 按空仓名查找 → 404 IsErrRepoNotExist。
-    注意仅此端点如此：建 label / 建 repo 的 `name` 是各自结构体的正确 key，别动。
-    404 仍保留降级为 no-op——`enable_issue_dependencies` 可按实例关闭，依赖边是**建议性**的
-    （curator 契约：正确性由执行面 deps_done 机械复核兜底），可选特性失败不该把票挂死到 automation-failed。
-    """
+    """Add a native dependency, tolerating an edge that already exists."""
     _, owner, repo = _ensure_configured()
     _request(
         method="POST",
@@ -684,7 +665,7 @@ def add_blocked_by(*, number: int, blocker_number: int) -> None:
 
 
 # --------------------------------------------------------------------------------------------------
-# PR 侧。
+# PR side.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -693,7 +674,7 @@ def _get_pull(*, pr_number: int) -> dict:
         method="GET", path=_repo_path(suffix=f"pulls/{pr_number}"), body=None, query=None, allow=()
     )
     if not isinstance(result.data, dict):
-        raise GithubError("gitea PR 详情返回了非预期的结构")
+        raise GithubError("gitea PR details returned to unexpected structures")
     return result.data
 
 
@@ -702,7 +683,7 @@ def _pr_from(*, raw: dict) -> PR:
 
 
 def create_pr(*, branch: str, title: str, body: str, base: str = "main", draft: bool = False) -> PR:
-    """开 PR；draft 以 WIP 标题前缀表达（Gitea 的 draft 语义，mark_ready 时去前缀）。"""
+    """Opens the PR; Draft expression with a WIP prefix (the gitea ’s draft syntax, mark_ready prefix)."""
     final_title = f"{_WIP_CANONICAL}{title}" if draft else title
     result = _request(
         method="POST",
@@ -712,13 +693,13 @@ def create_pr(*, branch: str, title: str, body: str, base: str = "main", draft: 
         allow=(),
     )
     if not isinstance(result.data, dict) or result.data.get("number") is None:
-        raise GithubError("gitea 建 PR 未返回 number")
+        raise GithubError("gitea build PR not returned number")
     return _pr_from(raw=result.data)
 
 
 def _pr_by_branch(*, branch: str, state: str) -> PR | None:
-    """按 head 分支找最近的 PR——Gitea 列表端点无 head 过滤参数，客户端按 head.ref 过滤
-    （sort=recentupdate 新→旧，取首个；分支与 issue 一一对应，实践上就一个）。"""
+    """Press head branch to find the nearest PR-Gitea list endpoint without head filter parameters, and the client filters with head.ref
+    (sort=recentupdate, first; branch corresponds to issue, only one in practice)."""
     result = _request(
         method="GET",
         path=_repo_path(suffix="pulls"),
@@ -738,7 +719,7 @@ def find_pr_by_branch(*, branch: str) -> PR | None:
 
 
 def pr_for_branch(*, branch: str) -> PR | None:
-    """某分支最近的一个 PR，不限状态（merged/closed 都算）——`_sense` 的终止条件靠它可见已合并 PR。"""
+    """The last PR of a branch, open-ended status (all merged/closed) - the `_sense` termination condition is visible as a merged PR."""
     return _pr_by_branch(branch=branch, state="all")
 
 
@@ -756,7 +737,7 @@ def list_open_prs() -> list[PR]:
 def pr_head_branch(*, pr_number: int) -> str:
     head_ref = str((_get_pull(pr_number=pr_number).get("head") or {}).get("ref") or "")
     if not head_ref:
-        raise GithubError("gitea PR 未返回 head 分支名")
+        raise GithubError("gitea PR did not return head branch name")
     return head_ref
 
 
@@ -765,21 +746,21 @@ def _pr_title_is_wip(*, title: str) -> bool:
 
 
 def _pr_is_draft(*, raw: dict) -> bool:
-    # 语义映射：原生 draft 字段（较新 Gitea）或 WIP 标题前缀（服务端默认约定），两者任一即 draft。
+    # Semantic map: Native draft fields (more recent Gitea) or WIP headers prefix (service-end default agreement), either of which is draft.
     return raw.get("draft") is True or _pr_title_is_wip(title=str(raw.get("title") or ""))
 
 
 def _pr_state(*, raw: dict) -> str:
-    # Gitea PR state 只有 open/closed；merged 是并列布尔——归一到 GitHub 的三态互斥语义。
+    # Gitea PR state only open/closed;merged is the synonym for the Brigible - which is to GitHub.
     if raw.get("merged") is True:
         return "MERGED"
     return str(raw.get("state") or "").upper() or "OPEN"
 
 
 def _pr_mergeable(*, raw: dict) -> tuple[str, str]:
-    # 语义映射：Gitea mergeable 是 bool（无 BEHIND/UNKNOWN 细分）——false→CONFLICTING/DIRTY、
-    # true→MERGEABLE/CLEAN、字段缺失（老版本/计算中）→UNKNOWN/UNKNOWN（守夜下一 tick 自愈）。
-    # 无 BEHIND：base 落后不会被守夜主动 update_branch，合并时由服务端 merge 兜底（Spec-0074 Unresolved 3）。
+    # Semantic Map: Gitea mergeable is bool (no BEHIND/UNKNOWN breakdown) - false → CONFLICTING/DIRTY,
+    # True → MERGEABLE/CLEAN, missing fields (old version/calculation) → UNKNOWN/UNKNOWN (tick self-healing at Vigil).
+    # No BEHIND: base does not stand by the Vigil update_branch, when merged by the service merge (Spec-0074 Unresolved 3).
     mergeable = raw.get("mergeable")
     if mergeable is True:
         return "MERGEABLE", "CLEAN"
@@ -810,7 +791,7 @@ def mergeability(*, pr_number: int) -> Mergeability:
 
 
 def mark_ready(*, pr_number: int) -> None:
-    """draft 转正 = PATCH 去掉 WIP 标题前缀；本就非 draft → no-op。"""
+    """Remove the draft title prefix; do nothing if the PR is already ready."""
     raw = _get_pull(pr_number=pr_number)
     title = str(raw.get("title") or "")
     stripped = title
@@ -830,11 +811,7 @@ def mark_ready(*, pr_number: int) -> None:
 
 
 def pr_snapshot(*, pr_number: int) -> PRSnapshot:
-    """一次 GET 取回 PR 现态快照（同源往返，与 github.pr_snapshot 同义）。
-
-    语义降级：head_pushed_at 用 PR 的 updated_at 近似（Gitea 详情不带 head commit 提交时间；
-    评论也会刷新它 → 看门狗只会更宽松、不会误报，检测「静默烂掉」略延迟）。
-    """
+    """Read the PR state, head, mergeability, and draft information in one request."""
     raw = _get_pull(pr_number=pr_number)
     mergeable, merge_state = _pr_mergeable(raw=raw)
     return PRSnapshot(
@@ -850,7 +827,7 @@ def pr_snapshot(*, pr_number: int) -> PRSnapshot:
 
 
 def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
-    """把最新 base 并入 PR 分支；「已是最新」（Gitea 以 422 表达）→ False no-op（同 github 版语义）。"""
+    """Update the PR from its base; return false when already up to date."""
     style = "rebase" if rebase else "merge"
     result = _request(
         method="POST",
@@ -863,7 +840,7 @@ def update_branch(*, pr_number: int, rebase: bool = False) -> bool:
 
 
 def merge_pr(*, pr_number: int, method: str = "merge", head_sha: str = "") -> None:
-    """落合并（POST merge，Do=method）；已合并/暂不可合（405/409）时若确已 MERGED → 幂等 no-op。"""
+    """Merge the requested PR at the approved head, tolerating an already merged PR."""
     body = {"Do": method}
     # Spec-0017 recovery: Gitea rejects a changed head atomically with HTTP 409.
     if head_sha:
@@ -878,14 +855,16 @@ def merge_pr(*, pr_number: int, method: str = "merge", head_sha: str = "") -> No
     if 200 <= result.status < 300:
         return
     if is_merged(pr_number=pr_number):
-        return  # 已经合过 → 幂等
-    raise GithubError(f"gitea 合并 PR #{pr_number} 失败（{result.status}）：{result.text[:200]}")
+        return  # I've been together.
+    raise GithubError(
+        f"Gitea merge PR#{pr_number} Failed (%1){result.status}）：{result.text[:200]}"
+    )
 
 
 def code_fingerprint(
     *, pr_number: int, exclude_paths: tuple[str, ...] = ("docs/e2e-results/",)
 ) -> str:
-    """PR 净 diff 指纹（.diff 原文端点 + 复用 github 的文件块剔除）；失败/空 → ""（fail-open 同 github 版）。"""
+    """PR net diff fingerprints (.diff original endpoint + re-use gethub file block removed); failed/empty ”fail-open and gethub version”."""
     try:
         result = _request(
             method="GET",
@@ -905,14 +884,14 @@ def code_fingerprint(
 
 
 # --------------------------------------------------------------------------------------------------
-# CI（commit combined status——Gitea 没有 check runs，Actions/外部 CI 都落 commit status）。
+# CI (committee joined status-Gitea without check runs, Actions/ External CI both fall together status).
 # --------------------------------------------------------------------------------------------------
 
 _STATUS_FAIL = {"failure", "error"}
 
 
 def _combined_status(*, ref: str) -> tuple[str, list[dict]]:
-    """GET /commits/{ref}/status → (combined state, statuses 明细)。零 status 时 state 归空串。"""
+    """ET /committees / {ref} / status (combined state, statuss details). State is empty when zero status."""
     result = _request(
         method="GET",
         path=_repo_path(suffix=f"commits/{urllib.parse.quote(ref, safe='')}/status"),
@@ -926,8 +905,7 @@ def _combined_status(*, ref: str) -> tuple[str, list[dict]]:
 
 
 def _classify_statuses(*, state: str, statuses: list[dict]) -> CheckStatus:
-    """combined status 归类为 CheckStatus（fail 优先收集失败明细；零 status → pass，责任在调用方，
-    与 github「无 check 视为 pass、守夜按计数另判」同一分工）。"""
+    """Aggregate status results, with failures taking precedence over pending checks."""
     failed = [
         f"{raw.get('context') or 'unknown'} [{str(raw.get('status') or '').upper()}] "
         f"{raw.get('target_url') or ''}".strip()
@@ -951,8 +929,7 @@ def check_status(*, pr_number: int) -> CheckStatus:
 
 
 def check_snapshot(*, pr_number: int) -> CheckSnapshot:
-    """当前 head 的 status 聚合 + 计数 + 最近开始时间（零 status 如实计 0——「没有 check」≠「绿」，
-    判「等 CI」的责任在守夜调用方，与 github 版同一分工）。"""
+    """Return current-head status and count so zero checks can be handled separately."""
     state, statuses = _combined_status(ref=_pr_head_sha(pr_number=pr_number))
     aggregate = _classify_statuses(state=state, statuses=statuses)
     started = [str(raw.get("created_at") or "") for raw in statuses]
@@ -968,7 +945,7 @@ def check_logs(*, pr_number: int) -> list[str]:
 
 
 def branch_ci_green(*, branch: str) -> bool:
-    """分支 combined status 是否全绿：success 或零 status → True；pending/failure → False（同 github 版）。"""
+    """Return whether branch CI passed under the forge driver contract."""
     state, statuses = _combined_status(ref=branch)
     if not statuses:
         return True
@@ -976,12 +953,12 @@ def branch_ci_green(*, branch: str) -> bool:
 
 
 # --------------------------------------------------------------------------------------------------
-# 预检 / 建仓 / merger 命令文本。
+# Pre-inspection/ build/merger command text.
 # --------------------------------------------------------------------------------------------------
 
 
 def ensure_prerequisites() -> None:
-    """幂等前置检查：token 可读 + 仓库可达（鉴权/连通一次探测）+ 预建全部流程标签。"""
+    """Check token and repository access, then ensure the process labels exist."""
     _token()
     _request(method="GET", path=_repo_path(suffix=""), body=None, query=None, allow=())
     for label in PROCESS_LABELS:
@@ -989,7 +966,7 @@ def ensure_prerequisites() -> None:
 
 
 def create_repo(*, name: str, private: bool) -> str:
-    """新建远端仓库（冷启动兜底）：owner/repo 形态取 repo 段走 /user/repos，返回 clone url。"""
+    """New remote storage (cold start-up pocket):owner/repo Form taken repo - Step aside. /user/repos, Back clone url。"""
     repo_name = name.split("/", 1)[1] if "/" in name else name
     result = _request(
         method="POST",
@@ -1001,16 +978,16 @@ def create_repo(*, name: str, private: bool) -> str:
     data = result.data if isinstance(result.data, dict) else {}
     url = str(data.get("clone_url") or data.get("html_url") or "")
     if not url:
-        raise GithubError("gitea 建仓未返回 clone url")
+        raise GithubError("Gitea builder not returned")
     return url
 
 
 def merge_command_text(*, pr_number: int, head_sha: str = "") -> str:
-    """merger agent 的落合并命令——平台无关的隐藏 CLI（token 处理留在 driver 内，不进提示词）。"""
+    """The merger agent’s drop-down command - the platform has no hidden CLI (token process left in driver without hint)."""
     suffix = f" --head-sha {shlex.quote(head_sha)}" if head_sha else ""
     return f"openagents merge-pr --pr {pr_number}{suffix}"
 
 
 def merge_verify_command_text(*, pr_number: int, head_sha: str = "") -> str:
-    """merger agent 的完成判据命令——merge-pr 幂等（已合并直接输出 MERGED），复跑即验证。"""
+    """The completion order for the merger agent - merge-pr & so on (merge-pr & so on) has been merged to directly export MERGED, and rerun is verified."""
     return merge_command_text(pr_number=pr_number, head_sha=head_sha)

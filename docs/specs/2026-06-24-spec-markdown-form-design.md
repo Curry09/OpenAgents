@@ -1,108 +1,108 @@
-# Spec 改为 Markdown 文档形态 —— 设计
+# Converting Specs to Markdown Documents — Design
 
-> 冻结的前向设计文档（dated design doc）。写于 2026-06-24，关联 issue #66。
-> 本文件**本身就是需求②的范例**：dated markdown 设计文档，写完即冻结、append-only、靠 git 留存，
-> 累积起来即「整个设计的历史」。请勿事后改写本文件；后续演进另起新 dated 文档。
+> Frozen forward-looking design document (dated design doc). Written on 2026-06-24, associated with issue #66.
+> This file **is itself an example of requirement ②**: a dated Markdown design document, frozen once written, append-only, and preserved in git;
+> together, these documents accumulate into “the history of the entire design.” Do not rewrite this file after the fact; create a new dated document for subsequent evolution.
 
-## 背景
+## Background
 
-issue #66 最初提议「代码注释为唯一真源 + sync 引擎反向生成 spec」。经设计讨论判定**过重**
-（违反 CLAUDE.md 理念 1 奥卡姆）：要造注释 sentinel 块、extract/sync 引擎、current//history/
-双目录、CI drift 一整套。本设计取代 #66，把需求收窄到**两件事**，并以「在现有 spec 体系上稍改」
-的方式落地。
+Issue #66 originally proposed “code comments as the single source of truth + a sync engine that generates specs from them.” Design discussions concluded that this was **too heavyweight**
+(violating CLAUDE.md principle 1, Occam's razor): it would require comment sentinel blocks, an extract/sync engine, dual current//history/
+directories, and a full CI drift-check setup. This design supersedes #66, narrows the requirements to **two things**, and implements them
+through “small changes to the existing spec system.”
 
-现状（Spec-0014 体系）：每个 spec 组是一个目录
-`docs/specs/NNNN-slug/{metadata.yaml, tasks/T*.yaml, history/T*.yaml}`，由 `spec` CLI 驱动，
-`render` 生成 `OVERVIEW.md`，CI 做 drift-check。
+Current state (the Spec-0014 system): each spec group is a directory,
+`docs/specs/NNNN-slug/{metadata.yaml, tasks/T*.yaml, history/T*.yaml}`, driven by the `spec` CLI;
+`render` generates `OVERVIEW.md`, and CI performs drift-checks.
 
-## 目标（两件事）
+## Goals (Two Things)
 
-1. **对代码的唯一映射（现状视图）** —— 代码本身是唯一真源。用一个**轻量 code graph**
-   从代码生成「现在架构长什么样」：文件 = 节点，import = 边。再叠加**注释规范**
-   （文件级 + 模块级 docstring），使「注释 + import 图」足以还原整个架构。
-2. **整个设计的历史** —— 用 **dated markdown 设计文档**（如本文件）当历史载体，
-   写完冻结、靠 git append，参考 Superpowers 的 `docs/superpowers/specs/` 约定。
+1. **The sole mapping to the code (current-state view)** — The code itself is the single source of truth. Use a **lightweight code graph**
+   to generate a view of “what the architecture looks like now” from the code: files = nodes, imports = edges. Add **comment conventions**
+   (file-level + module-level docstrings) so that “comments + the import graph” are sufficient to reconstruct the entire architecture.
+2. **The history of the entire design** — Use **dated Markdown design documents** (such as this file) to carry the history,
+   freeze them once written, and append them through git, following Superpowers' `docs/superpowers/specs/` convention.
 
-## 设计决策
+## Design Decisions
 
-### D1：spec 组由「YAML 文件夹」改为「单个 markdown 文件」
+### D1: Change a Spec Group from a “YAML Folder” to a “Single Markdown File”
 
-`docs/specs/NNNN-slug/` 目录 → `docs/specs/NNNN-slug.md` 单文件：
+The `docs/specs/NNNN-slug/` directory → a single `docs/specs/NNNN-slug.md` file:
 
-- **YAML frontmatter**（机器读，对应 KEP 的 `kep.yaml`）：组元数据 `number/title/issue/slug`
-  + `tasks` 列表，每个 task 的**结构化字段**（`id/title/status/priority/depends-on/files`）。
-- **Markdown 正文**（人/agent 读，对应 KEP 的 `README.md`）：每个 task 一个 `## <id> · <title>`
-  小节，内含 prose 子节（`### Design` / `### Acceptance` / …）。
+- **YAML frontmatter** (read by machines, corresponding to KEP's `kep.yaml`): group metadata `number/title/issue/slug`
+  + a `tasks` list containing each task's **structured fields** (`id/title/status/priority/depends-on/files`).
+- **Markdown body** (read by humans/agents, corresponding to KEP's `README.md`): one `## <id> · <title>`
+  section per task, containing prose subsections (`### Design` / `### Acceptance` / …).
 
-「frontmatter 给机器、正文给 agent」正是讨论中确认的**两类读者**分离。
+“Frontmatter for machines, body for agents” is precisely the separation of **two types of readers** confirmed in the discussion.
 
-### D2：只换序列化层，保留数据模型与语义逻辑（降风险，真正的「稍改」）
+### D2: Replace Only the Serialization Layer; Preserve the Data Model and Semantic Logic (Reduce Risk and Truly Make “Small Changes”)
 
-`Task/Group/Metadata` 数据类不动；`validate` 的语义检查（DAG 无环 / 同组 files 不重叠 /
-引用存在）与 `render`（看板/关系图/各 feature 段）**消费 model 对象，逻辑不变**。
-**只改 `model.py` 的 load/dump**（YAML 文件夹 → markdown 单文件）与 `validate` 的 schema 读取入口、
-`mutate` 的写入路径。这样既改成 markdown，又不推倒重来、不大面积破坏既有测试。
+Leave the `Task/Group/Metadata` data classes unchanged; the semantic checks in `validate` (acyclic DAG / no overlapping files within a group /
+references exist) and `render` (board/relationship diagrams/individual feature sections) **consume model objects, with their logic unchanged**.
+**Change only the load/dump operations in `model.py`** (YAML folder → single Markdown file), the schema-reading entry point in `validate`,
+and the write paths in `mutate`. This converts the format to Markdown without starting over or breaking existing tests extensively.
 
-### D3：退役 per-task 版本历史机制，历史交给 git + dated 文档
+### D3: Retire the Per-Task Version History Mechanism; Delegate History to git + Dated Documents
 
-旧的 `history/T*.yaml` + `spec amend`（当前版 append 进 history、version+1）这套，
-与需求② 重复。退役之：
+The old `history/T*.yaml` + `spec amend` mechanism (append the current version to history, version+1)
+duplicates requirement ②. Retire it:
 
-- `amend` 简化为「就地改 md 里的 task」，版本演化由 **git 历史**承载。
-- 设计层「为什么这么演变」由 **dated 设计文档**（需求②）承载。
-- 迁移时，现存 `history/`（仅 0014 有）作为**冻结附录**保留进该组 md 的 `## 历史（迁移自旧 history/）`，不丢。
+- Simplify `amend` to “edit the task in the md file in place”; **git history** carries version evolution.
+- **Dated design documents** (requirement ②) carry the design-level explanation of “why it evolved this way.”
+- During migration, preserve the existing `history/` (present only in 0014) as a **frozen appendix** in the group's md file under `## History (Migrated from the Old history/)`; nothing is lost.
 
-这是**减实体**（Occam）：少一个目录、少一套 amend/abandon-to-history 逻辑、少一组 schema。
+This **reduces entities** (Occam): one fewer directory, one fewer set of amend/abandon-to-history logic, and one fewer set of schemas.
 
-### D4：需求① —— `graph.py`，import 图 + docstring 现状视图
+### D4: Requirement ① — `graph.py`, an Import Graph + Docstring Current-State View
 
-新增 `openagents/spec/graph.py`：
+Add `openagents/spec/graph.py`:
 
-- 用标准库 `ast` 扫项目内 `.py`，解析 `import`/`from … import`，**只连项目内文件间的边**
-  （标准库/第三方忽略）。文件 = 节点，import = 有向边。**不引入 PageRank / tree-sitter / 图库 /
-  Neo4j**（参考 Aider repo map 确认那些是为「运行时挤进 prompt 预算」服务的，静态文档不需要）。
-- **注释规范（对 agent 的硬要求）**：每个 `.py` 顶部写**文件级 docstring**（本文件负责什么）；
-  每个包 `__init__.py` 写**模块级 docstring**（本子系统整体做什么）。
-- 生成 `docs/specs/ARCHITECTURE.md`：子系统（按包 docstring）→ 组件（按文件 docstring）→
-  依赖（import 边，Mermaid）。`graph` 子命令支持 `--check`（CI 用：缺 docstring 或文档漂移则失败）。
+- Use the standard library's `ast` to scan `.py` files within the project and parse `import`/`from … import`, **connecting edges only between files within the project**
+  (ignore standard-library/third-party imports). Files = nodes, imports = directed edges. **Do not introduce PageRank / tree-sitter / graph libraries /
+  Neo4j** (reference to Aider's repo map confirmed that those serve to “fit within the prompt budget at runtime”; static documentation does not need them).
+- **Comment conventions (hard requirements for agents)**: put a **file-level docstring** at the top of every `.py` file (what this file is responsible for);
+  put a **module-level docstring** in each package's `__init__.py` (what this subsystem does as a whole).
+- Generate `docs/specs/ARCHITECTURE.md`: subsystems (from package docstrings) → components (from file docstrings) →
+  dependencies (import edges, Mermaid). The `graph` subcommand supports `--check` (for CI: fail if docstrings are missing or documentation has drifted).
 
-### D5：目录辨识
+### D5: Distinguishing Files in the Directory
 
-`docs/specs/` 下三类文件：组文件 `NNNN-slug.md`（`^\d{4}-[a-z]`，slug 以字母起，**排除** dated 文档的
-`\d{4}-\d`）、dated 设计文档 `YYYY-MM-DD-*.md`、生成物 `OVERVIEW.md` / `ARCHITECTURE.md` 与手写
-`README.md`。`load_all` 只认组文件。
+Three types of files under `docs/specs/`: group files `NNNN-slug.md` (`^\d{4}-[a-z]`, with slugs starting with a letter, **excluding** the
+`\d{4}-\d` pattern of dated documents), dated design documents `YYYY-MM-DD-*.md`, and generated files `OVERVIEW.md` / `ARCHITECTURE.md` plus the manually written
+`README.md`. `load_all` recognizes only group files.
 
-## 影响的模块
+## Affected Modules
 
-| 模块 | 改动 |
+| Module | Change |
 |---|---|
-| `openagents/spec/model.py` | load/dump 改 markdown 单文件；保留数据类；去 history dict |
-| `openagents/spec/validate.py` | schema 读 frontmatter；语义检查不变；去 history 检查 |
-| `openagents/spec/mutate.py` | new/add-task/amend 写单 md；amend 简化、去 history append |
-| `openagents/spec/render.py` | 消费 model 不变；去/降级 per-task 演化图 |
-| `openagents/spec/schema.py` | task schema 去 version/change-reason/history 相关；保留结构字段 |
-| `openagents/spec/graph.py` | **新增**：import 图 + docstring 校验 + ARCHITECTURE.md |
-| `openagents/spec/cli.py` | 加 `spec graph [--check]` |
-| `.github/workflows/*` | drift-check 接新 render + `spec graph --check` |
-| `.claude/skills/spec-driven-development/**` | 工作流文档改为 markdown 形态 |
-| 迁移脚本 | 一次性把 14 组 YAML 文件夹转为 md，删旧目录 |
+| `openagents/spec/model.py` | Change load/dump to a single Markdown file; retain data classes; remove the history dict |
+| `openagents/spec/validate.py` | Read schema from frontmatter; keep semantic checks unchanged; remove history checks |
+| `openagents/spec/mutate.py` | Have new/add-task/amend write to a single md file; simplify amend and remove history appending |
+| `openagents/spec/render.py` | Continue consuming models unchanged; remove/downgrade per-task evolution diagrams |
+| `openagents/spec/schema.py` | Remove version/change-reason/history-related elements from the task schema; retain structural fields |
+| `openagents/spec/graph.py` | **New**: import graph + docstring validation + ARCHITECTURE.md |
+| `openagents/spec/cli.py` | Add `spec graph [--check]` |
+| `.github/workflows/*` | Connect drift-check to the new render + `spec graph --check` |
+| `.claude/skills/spec-driven-development/**` | Update workflow documentation to the Markdown format |
+| Migration script | Convert all 14 groups from YAML folders to md in a one-time migration; delete the old directories |
 
-## 取舍（考虑过的替代）
+## Tradeoffs (Alternatives Considered)
 
-- **替代 A：纯 markdown、无 frontmatter（完全照搬 Superpowers）。** 弃用——会丢掉机器可校验的
-  DAG/files-disjoint，CI 无法 drift-check。保留 frontmatter 兼顾两类读者。
-- **替代 B：保留 YAML 文件夹只加 graph。** 弃用——没满足「改成 markdown 文档形态」的明确诉求。
-- **替代 C：代码注释为唯一真源 + sync 引擎（#66 原案）。** 弃用——过重，违反奥卡姆。
+- **Alternative A: Pure Markdown, no frontmatter (copy Superpowers exactly).** Rejected—this would lose machine-checkable
+  DAG/files-disjoint constraints, leaving CI unable to perform drift-checks. Retain frontmatter to accommodate both types of readers.
+- **Alternative B: Keep the YAML folders and add only graph.** Rejected—this does not satisfy the explicit request to “convert to Markdown documents.”
+- **Alternative C: Code comments as the single source of truth + a sync engine (the original #66 proposal).** Rejected—too heavyweight; violates Occam's razor.
 
-## 不在本 PR 范围（后续）
+## Outside This PR's Scope (Follow-Up)
 
-- **PR ②：退役 `test` 分支、改为一律合 main + 打 release 版本**（用户另提的分支策略）。本 PR 基线
-  暂设 `test` 以得到干净 diff，main 合并归 PR ②。
-- code graph 的函数级（call graph）精度：本期只做文件级 import 图（够还原架构、最省）。
+- **PR ②: Retire the `test` branch; merge everything into main + tag release versions instead** (the branching strategy separately proposed by the user). This PR temporarily uses
+  `test` as its base to obtain a clean diff; merging into main belongs to PR ②.
+- Function-level precision for the code graph (call graph): this iteration implements only a file-level import graph (sufficient to reconstruct the architecture, with the least effort).
 
-## 验收
+## Acceptance Criteria
 
-- `spec validate` / `spec render` / `spec graph --check` 全绿；OVERVIEW.md / ARCHITECTURE.md
-  幂等（render 后无 git diff）。
-- 14 组迁移后 `load_all` 读取无误、语义校验通过。
-- ruff check + format、pytest 全绿。
+- `spec validate` / `spec render` / `spec graph --check` all pass; OVERVIEW.md / ARCHITECTURE.md
+  are idempotent (no git diff after rendering).
+- After migration, `load_all` reads all 14 groups correctly, and semantic validation passes.
+- ruff check + format and pytest all pass.

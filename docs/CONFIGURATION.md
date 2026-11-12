@@ -1,6 +1,6 @@
 # Configuration
 
-English | [简体中文](CONFIGURATION.zh-CN.md)
+English | [CREDIT Chinese](CONFIGURATION.zh-CN.md)
 
 OpenAgents reads `.openagents/openagents.yml` in the target repository. `openagents init` creates the [annotated template](../openagents/data/openagents.yml.template) without replacing an existing file; `init --force` replaces it. A missing or empty file uses the built-in defaults.
 

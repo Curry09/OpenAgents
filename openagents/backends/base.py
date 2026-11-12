@@ -1,8 +1,5 @@
-"""RFC-0001 T1: 后端抽象层 —— AgentBackend 协议与 AgentResult。
-
-决策 2：用 Protocol 抽象后端，MVP 只实现一个适配器（Claude Code，见 T2）。
-新增后端只需实现满足本协议的类，无需改动编排层。
-"""
+# RFC-0001
+"""Define the backend protocol, invocation result, and shared execution limits."""
 
 from __future__ import annotations
 
@@ -66,11 +63,11 @@ class TokenUsage:
 
 @dataclass(frozen=True)
 class AgentResult:
-    """一次 agent 运行的结果。
+    """The result of an agent running.
 
-    changed: 是否产生了代码改动。
-    summary: 对本次改动的简短说明（供 PR 正文/评论使用，可限长）。
-    raw_output: 后端的完整最终输出，供结构化协议解析；旧后端不提供时回退 summary。
+    Changed: Is there a code change?
+    Summary: A brief description of the change (for PR body/commentation, limited in length).
+    raw_output: Full final output of the backend for the structification protocol; back-back of the old backend when not provided.
     """
 
     changed: bool
@@ -87,10 +84,10 @@ class AgentResult:
 
 @runtime_checkable
 class AgentBackend(Protocol):
-    """coding agent 后端的统一契约（RFC-0001 接口契约）。"""
+    """(d) The unified contract for the back end of the code of command (RFC-0001 interface contract)."""
 
     name: str
 
     def run(self, *, work_dir: Path, task: str, context: str) -> AgentResult:
-        """在 work_dir 内按 task 描述改代码；context 携带 issue 正文与历史 comment。"""
+        """Press task description to change code in work_dir; consult carries issue text and history comments."""
         ...

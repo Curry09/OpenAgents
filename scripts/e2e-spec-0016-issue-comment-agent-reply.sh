@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Spec-0016 端到端测试启动脚本：issue 页面新增评论 → agent 感知 → 派 replier → 带签名回帖到该 issue。
-# 把「新人类评论→agent 签名回复」闭环从 PR 扩展到 issue 页（issue #149：只要回复、不要解决）。
+# Spec-0016 peer-to-end test boot script: add a new comment to the issue page  → andent awareness  →  send replier  →  to the issue with a signature return.
+# Extend the "New Human Review Signed Reply" closed loop from PR to issue page (issue #149: Just answer, do not solve).
 #
-# 形态说明（evidence 分层，理念 8）：本组是**纯后端编排**（vigil reconcile 分支②的 issue 支），无
-# product-facing 前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，沿用
-# 离线确定性测法（假 GitHub + 假 agent 的 tick 级状态机断言，承 Spec-0061/0065 风格）。真实自主环冒烟
-# （`oa vigil` 在真仓 issue 上追加评论后收到署名回复）作为成果验收在 Phase-3 人验/runbook 记录，不塞进本脚本。
+# Form description (evidence layer, philosophy 8): This group is** a back-end ** (issues for vigil subdivision 2), none
+# Program-facing frontend navigable; self-checked tool list: Playwright / Chrome DevTools MCP not available, therefore no browser e2e, continue
+# Offline certainty (a fake GitHub + fake agent's tick status machine asserted that Spec-0061/0065). True auto-smoking smoke
+# (`oa vigil` received a signed response after adding comments on the genuine warehouse issue) as a result acceptance in the Phase-3 verification/runbook record, without plugging in a script.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0016-issue-comment-agent-reply.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/4] 离线确定性验证（lint + format）"
+echo "==> [1/4] Offline certainty verification (%2)lint + format）"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] identity/state/replier/context/vigil/cli issue 回复契约单测"
+echo "==> [2/4] identity/state/replier/context/vigil/cli issue Reply to contract single test"
 uv run --extra dev pytest -q \
   tests/test_identity_issue_reply.py \
   tests/test_runtime_state_issue_cursor.py \
@@ -28,18 +28,18 @@ uv run --extra dev pytest -q \
   tests/test_cli_issue_reply.py
 
 echo
-echo "==> [3/4] spec 校验 + 生成物无漂移"
+echo "==> [3/4] spec Verify + Generating without drift"
 uv run spec validate
 uv run spec graph --check
 
 echo
-echo "==> [4/4] 闭环走查：ready 无-PR issue 上有新人类评论 → 派 replier → 签名回帖 → 不自触发"
+echo "==> [4/4] Close the door and check:ready None-PR issue New human commentary. → Pie. replier → Signing Return → Untriggered"
 uv run --extra dev python - <<'PY'
-"""Spec-0016 闭环的可执行版：假 GitHub（内存）+ 假 backend（脚本化 replier 输出）+ 真 vigil（一字不改）。
+"""Spec-0016 Executable version of closed loop: false GitHub(RAM)+ False backend(Scriptization) replier Output)+ True vigil(none change).
 
-被替换的只有**外部世界**：GitHub 读写（issue 评论）与那个真 agent 子进程（换成一个照剧本吐 JSON 的假
-backend，它照样只能通过 GitHub 说话）。`_sense` / `_classify` / `_do_reply` / `_do_reply_issue` /
-identity 签名读写全是**生产代码原件**。
+Only replacements**Outside world**：GitHub Read & Writeissue   And that’s true   agent Subprocess (in exchange for a script-based vomiting) JSON False
+backendIt’s still only going through. GitHub Talk.`_sense` / `_classify` / `_do_reply` / `_do_reply_issue` /
+identity It’s all signed and written.**Original production code**。
 """
 
 import sys
@@ -61,13 +61,13 @@ def tick_stamp(suffix):
 
 
 # ---------------------------------------------------------------------------------------------
-# 假 GitHub：一个 ready、尚无 PR 的 issue，其评论流可追加。agent 与守夜都只能通过它交谈。
+# Fake GitHub: A ready, not yet PR issue, can be added to the comment stream. Angent and the watch can only talk through it.
 # ---------------------------------------------------------------------------------------------
 class Hub:
     def __init__(self):
-        self.labels = {"openagents", "ready"}  # 已准入
+        self.labels = {"openagents", "ready"}  # Accessed
         self.comments = []  # list[(body, created_at)]
-        self._machine_seq = 30  # 机器回帖用的单调递增分钟戳（避免同秒并列打乱 max 取最新）
+        self._machine_seq = 30  # Single-tone increment minute stamp for machine return (avoids disruption of the same second line) max (Renewed)
 
     def add_comment(self, *, body, created_at):
         self.comments.append((body, created_at))
@@ -81,7 +81,7 @@ HUB = Hub()
 
 
 def fake_get_issue(*, number):
-    return github.Issue(ISSUE, "支持 codex", "让 openagents 兼容 codex 后端", sorted(HUB.labels))
+    return github.Issue(ISSUE, "Support codex", "Jean. openagents Compatibility codex Backend", sorted(HUB.labels))
 
 
 def fake_list_blocked_by(*, number):
@@ -89,7 +89,7 @@ def fake_list_blocked_by(*, number):
 
 
 def fake_pr_for_branch(*, branch):
-    return None  # 尚无 PR
+    return None  # Not yet. PR
 
 
 def fake_list_issue_comments(*, number):
@@ -114,13 +114,13 @@ for name, impl in {
     setattr(github, name, impl)
 
 
-# 假 backend：replier 被派时吐一条只答疑的 JSON（末行）。
+# Fake: replier spits a question-and-answer JSON when sent.
 class FakeBackend:
     def run(self, *, work_dir, task, context):
-        assert "只答疑" in task and "不改代码" in task, "issue replier 未用 ISSUE_PROMPT（只答疑不改代码）"
-        assert "branch" not in task, "issue replier 提示词混进了 PR 语境的 branch"
+        assert "Only answer questions" in task and "No code changes" in task, "issue replier Unused ISSUE_PROMPT”Assisting the code.”"
+        assert "branch" not in task, "issue replier The hint is mixed. PR Language branch"
         return types.SimpleNamespace(
-            summary='{"reply": "收到，我理解成要把后端抽象成可插拔、先接 codex，对吗？", "resolved": false}'
+            summary='{"reply": "Roger, I understand that the back end is abstract, and it’s available. codexRight?", "resolved": false}'
         )
 
 
@@ -135,9 +135,9 @@ def check(label, condition, detail=""):
     print(f"  ✓ {label}")
 
 
-# ---- 断言 1：ready 无-PR issue、最新是无签名人类评论 → _sense 判 latest_comment_is_ours=False → reply ----
-HUB.add_comment(body="补充：能不能也支持 codex？", created_at=tick_stamp("10:00"))
-# _sense 需要 config.stages —— 造一个最小 config（无 skip，纯 agent 面）。
+# ---- The assertion. 1：ready None-PR issue The latest is the unsigned Human Review. → _sense Judgement latest_comment_is_ours=False → reply ----
+HUB.add_comment(body="Supplement: Can you support it? codex？", created_at=tick_stamp("10:00"))
+# _sense needs config.stages - Make a minimum config (no skip, pure agent face).
 from openagents.utils import agent_config
 
 CONFIG = agent_config.AgentConfig(
@@ -152,82 +152,82 @@ CONFIG = agent_config.AgentConfig(
 )
 observed = vigil._sense(config=CONFIG, subject=f"issue:{ISSUE}")
 facts = observed.facts
-check("① ready 无-PR issue：pr_number 为 None（走 issue 支）", facts.pr_number is None)
-check("① 最新是无签名人类评论 → latest_comment_is_ours=False", facts.latest_comment_is_ours is False)
+check("① ready None-PR issue：pr_number Yes NoneLet’s go. issue (in millions of dollars)", facts.pr_number is None)
+check("① The latest is an unsigned human review. → latest_comment_is_ours=False", facts.latest_comment_is_ours is False)
 verdict = vigil._classify(facts=facts, in_flight=False)
-check("① _classify 判 ACTIONABLE:reply（而非 solve）",
+check("① _classify Judgement ACTIONABLE:reply”not solve）",
       verdict.kind == vigil._ACTIONABLE and verdict.action == vigil._ACT_REPLY,
       f"{verdict.kind}/{verdict.action}")
 
-# ---- 断言 2：_do_reply 派 replier → 经 post_signed_comment_on_issue 落 issue、带本实例签名 ----------
+# ---- asserted 2: _do_reply recier  →  post_signed_comment_on_issue falls issue, with the example ----------
 reply = vigil._do_reply(
     backend=FakeBackend(), state=STATE, work_dir=WORK, facts=facts, agent_id=AGENT_ID
 )
-check("② replier 只答疑地回了一句", "codex" in reply)
+check("② replier I’m just saying one thing.", "codex" in reply)
 latest_body, _ = HUB.comments[-1]
-check("② 回复经 issue_comment 落到该 issue（gh issue comment 路径）", "把后端抽象成可插拔" in latest_body)
-check("② 回复带本实例签名 <!-- openagents:agent=… -->",
+check("② Reply issue_comment   To the end   issue（gh issue comment Path)", "Abstract the backend as to which to insert" in latest_body)
+check("② Reply with this instance signature <!-- openagents:agent=… -->",
       identity.parse_agent_id(body=latest_body) == AGENT_ID, latest_body)
-check("② issue 游标已推到那条人类评论", STATE.get_issue_cursor(number=ISSUE) == tick_stamp("10:00"))
+check("② issue The landmark has been pushed to the human comment.", STATE.get_issue_cursor(number=ISSUE) == tick_stamp("10:00"))
 
-# ---- 断言 3：再跑一 tick —— 最新评论已是我方签名 → latest_comment_is_ours True → 不重复回帖（不自触发）--
+# ---- asserts 3: Run a tick again -- the latest comment has been signed by our side latest_comment_is_ours True  →  do not repeat the return (untriggered) --
 count_before = len(HUB.comments)
 observed2 = vigil._sense(config=CONFIG, subject=f"issue:{ISSUE}")
-check("③ 回帖后最新评论我方签名 → _latest_is_ours True", observed2.facts.latest_comment_is_ours is True)
+check("③ We’ll get a new one after the return. → _latest_is_ours True", observed2.facts.latest_comment_is_ours is True)
 verdict2 = vigil._classify(facts=observed2.facts, in_flight=False)
-check("③ 分支②停火：不再判 reply（落到 solve）", verdict2.action == vigil._ACT_SOLVE)
-# 即便直接再调 _do_reply（游标已推过那条人类评论）也不再新增回帖。
+check("③ branch②Ceasefire: no more sentences reply  Falling in   solve）", verdict2.action == vigil._ACT_SOLVE)
+# Even if _do_reply is directly re-tuned (the human comment has been pushed) there is no new response.
 vigil._do_reply(backend=FakeBackend(), state=STATE, work_dir=WORK, facts=observed2.facts, agent_id=AGENT_ID)
-check("③ 不自触发死循环：游标已过 → 无新人类评论 → 零新增回帖",
+check("③ Non-starting death cycle: the cruise sign is over → No new human comment → Zero New Message",
       len(HUB.comments) == count_before, f"{len(HUB.comments)} vs {count_before}")
 
-# ---- 断言 4：手动出口 identity.post_signed_comment_on_issue 同样经签名出口落 issue ----------------------
+# ---- asserts that the manual exit identity.post_signed_comment_on_issue is also signed off issue ----------------------
 before = len(HUB.comments)
-identity.post_signed_comment_on_issue(number=ISSUE, body="运维手动补一句", agent_id="oa-manual")
-check("④ 手动出口 post_signed_comment_on_issue 落 issue + 带签名",
+identity.post_signed_comment_on_issue(number=ISSUE, body="I’ll make it up to you manually.", agent_id="oa-manual")
+check("④ Manual exit post_signed_comment_on_issue Fall issue + Sign",
       len(HUB.comments) == before + 1
       and identity.parse_agent_id(body=HUB.comments[-1][0]) == "oa-manual")
 
-print("✓ Spec-0016 闭环走查全部通过（感知→reply分类→签名回帖→不自触发→手动出口）")
+print("✓ Spec-0016 All go through the closed loop.→replyClassification→Signing Return→Untriggered→Manual exit)")
 PY
 
 echo
-echo "==> grep 锚点：issue 版原语在册 + reply 分支②的 issue 支接线"
+echo "==> grep anchor:issue Original language in book + reply branch②It’s... issue Sub-connection"
 
 fail() {
-  echo "✗ 锚点失败：$1" >&2
+  echo "✗ Organisation$1" >&2
   exit 1
 }
 
-# 底层 gh 读/写原语已存在、直接复用（github.py 零改动）——issue 版签名读/写只在 identity 上加一层。
+# Bottom gh Read/ Write Original Exists, Direct Re-use (github.py zero change) - Issue Signing/Write Only One Level on Aidity.
 grep -q "def new_human_comments_on_issue" openagents/utils/identity.py \
-  || fail "identity 缺 new_human_comments_on_issue（issue 版读侧防自触发原语）"
+  || fail "identity Missing new_human_comments_on_issue（issue The page is self-triggered."
 grep -q "def post_signed_comment_on_issue" openagents/utils/identity.py \
-  || fail "identity 缺 post_signed_comment_on_issue（issue 版签名回帖出口）"
+  || fail "identity Missing post_signed_comment_on_issue（issue (Signed) Zeinobia"
 grep -q "def get_issue_cursor" openagents/runtime/state.py \
-  || fail "state 缺 get_issue_cursor（issue 评论游标，独立命名空间）"
+  || fail "state Missing get_issue_cursor（issue Comment on the cursor, independent naming space)"
 grep -q "issue_cursors" openagents/runtime/state.py \
-  || fail "state issue 游标未落独立命名空间键 issue_cursors（与 cursors 撞键会重复回帖）"
+  || fail "state issue Free Namespace Key without Cursor issue_cursors(with cursors The key crashes and repeats the post."
 grep -q "ISSUE_PROMPT" openagents/agents/replier.py \
-  || fail "replier 缺 ISSUE_PROMPT（issue 语境提示词，只答疑不改代码）"
+  || fail "replier Missing ISSUE_PROMPT（issue Only answer the question and change the code)"
 grep -q "def for_issue_reply" openagents/runtime/context.py \
-  || fail "context 缺 for_issue_reply（issue 回复占位符组装）"
+  || fail "context Missing for_issue_reply（issue Reply to Placeholder"
 grep -q "_do_reply_issue" openagents/recipes/vigil.py \
-  || fail "vigil 缺 _do_reply_issue（reply 分支②的 issue 支分派）"
+  || fail "vigil Missing _do_reply_issue（reply branch②It’s... issue (as at 31 December 2002)"
 
-# ISSUE_PROMPT 必须**无** branch、**无**改代码分支（issue #149：只要回复、不要解决）。
+# ISSUE_PROMPT must** have ** ** brancy,** no change ** code branch (issue #149: do not solve it if you answer).
 uv run --extra dev python -c "
 from openagents.agents import replier
 tmpl = replier.ISSUE_PROMPT.template
-assert '\$branch' not in tmpl, 'ISSUE_PROMPT 混进了 PR 语境的 \$branch'
-assert '只答疑' in tmpl and '不改代码' in tmpl, 'ISSUE_PROMPT 未写明只答疑不改代码'
-assert replier.ISSUE_PROMPT is not replier.PROMPT, 'issue/PR 提示词必须分家'
-" || fail "ISSUE_PROMPT 语义不符（含 branch / 未写只答疑不改代码 / 与 PR 版未分家）"
+assert '\$branch' not in tmpl, 'ISSUE_PROMPT I’m in. PR Language \$branch'
+assert 'Only answer questions' in tmpl and 'No code changes' in tmpl, 'ISSUE_PROMPT I didn’t say that I was just gonna answer the question and not change the code.'
+assert replier.ISSUE_PROMPT is not replier.PROMPT, 'issue/PR The hints must be split.'
+" || fail "ISSUE_PROMPT Semantics Not Conform (Incl. branch / No answer or change of code / with PR   I’m not even gonna be home  "
 
-# _sense 只在 ready 时才对无-PR issue 激活 latest_comment_is_ours（未 ready 归准入面 admitter）。
+# _sense only activates latest_comment_is_ours for no-PR issue (without ready return entry) when ready.
 grep -q "if _LABEL_READY in labels:" openagents/recipes/vigil.py \
-  || fail "vigil _sense 未把 issue reply 激活门控在 ready（未 ready 该归 admitter）"
+  || fail "vigil _sense Not put issue reply Activate door control ready(Not available) ready It’s time to go. admitter）"
 
-echo "✓ grep 锚点全部通过：issue 版签名读/写 + 独立游标 + issue 提示词分家 + reply 分支②issue 支 + ready 门控"
+echo "✓ grep All anchor points pass:issue Copy Signing Read/Write + Independent Curve + issue A hint to break up. + reply branch②issue Expenditure + ready Door control."
 echo
-echo "✅ Spec-0016 离线 e2e 全绿"
+echo "✅ Spec-0016 Offline e2e All green."

@@ -1,169 +1,169 @@
-# 交付恢复并发故障注入压测
+# Concurrent Fault-Injection Stress Testing for Delivery Recovery
 
-状态：代码修改完毕。连续换版与常规压力复测全部通过，未部署。历史失败证据保留如下。
-补充 Spec-0056 / Spec-0017 / Spec-0065。
+Status: Code changes are complete. Repeated version changes and regular stress retests have all passed; not deployed. Historical failure evidence is retained below.
+Supplement to Spec-0056 / Spec-0017 / Spec-0065.
 
-## 验证问题
+## Validation Question
 
-版本一致性修复能否在并发、重试和远端变化同时发生时，保持正确合并与正常任务推进？
-不把“全部拒绝”算作成功，不把刻意注入的持续故障算成普通任务误拦。
+Can the version-consistency fix preserve correct merging and normal task progress when concurrency, retries, and remote changes occur simultaneously?
+“Rejecting everything” does not count as success, and deliberately injected persistent failures do not count as erroneous blocking of ordinary tasks.
 
-## 构造
+## Setup
 
-- 每批一个临时 bare remote、一个共享 checkout、每 issue 独立 worktree，共享原生 Git 元数据。
-- 保留真实 engine、Vigil 感知/分类/生产入队/worker/claim/reconcile、SQLite、flock、RuntimeState、
-  Git 交付闸及评审前后检查。仅替换模型 backend 与外部 forge；故障注入在 backend 或 Git IO 边界。
-- fake forge 合并不是简单更新状态：在串行的本地集成工作区执行真实 Git merge，汇入同一个 main，
-  合并前检查调用携带的 SHA 是否仍等于远端。逐任务核验评审 SHA、候选内容与最终 main 文件。
-- 1/4/8/16 worker 对照；固定随机种子打乱任务，正常基线与混合故障分开统计。重试上限保持生产值。
-- 临时数据只写新建目录，不访问凭证、外部 API，不修改运行中实验。不调用真实模型，因此耗时不代表
-  真实模型吞吐；超时用相同异常注入验证恢复，不声称在本测试重测了 1800 秒进程终止机制。
+- Each batch has a temporary bare remote, a shared checkout, and a separate worktree for each issue, sharing native Git metadata.
+- Retain the real engine, Vigil detection/classification/production enqueueing/worker/claim/reconcile, SQLite, flock, RuntimeState,
+  Git delivery gates, and checks before and after review. Replace only the model backend and external forge; inject faults at the backend or Git IO boundary.
+- Fake forge merging does more than update status: it performs real Git merges in a serialized local integration workspace, merging into the same main,
+  and checks before merging whether the SHA carried by the call still matches the remote. Verify the review SHA, candidate content, and final main files for each task.
+- Compare 1/4/8/16 workers; shuffle tasks with fixed random seeds, and report the normal baseline and mixed faults separately. Keep the production retry limit.
+- Write temporary data only to newly created directories; do not access credentials or external APIs, or modify running experiments. No real models are called, so elapsed time does not represent
+  real model throughput; validate timeout recovery by injecting the same exception, without claiming to have retested the 1800-second process termination mechanism in this test.
 
-## 场景和判据
+## Scenarios and Criteria
 
-正常已交付、尚未实现、未提交、已提交未推送、已推送丢返回、开发过程中分别在 commit 前/后超时、
-review 一次改脏候选、review 期间远端换版、merge 检查后远端换版、一次 Git fetch 失败、普通缓存、
-一次未忽略日志、正常 REWORK。另有持续 review 污染与持续 fetch 失败两个负向对照。
+Normal delivery already completed, not yet implemented, uncommitted, committed but not pushed, pushed but response lost, timeouts during development before/after commit respectively,
+review dirties the candidate once, remote version changes during review, remote version changes after the merge check, one Git fetch failure, ordinary cache,
+one unignored log, and normal REWORK. There are also two negative controls: persistent review contamination and persistent fetch failures.
 
-扩展边界：同一任务连续三次在评审期间被合法更新远端、之后不再变化。候选变化不等同模型/
-网络持续失败，预期应在稳定后继续评审，而非误用重试预算冻结任务。此项单独运行并报告，不把
-它归入持续故障负向对照来掩盖误拦。
+Extended boundary: the remote is legitimately updated three consecutive times during review of the same task, then stops changing. Candidate changes are not equivalent to persistent model/
+network failures; review is expected to continue once the candidate stabilizes, rather than freezing the task by misapplying the retry budget. Run and report this case separately; do not
+classify it as a persistent-failure negative control to conceal erroneous blocking.
 
-要求：可恢复任务最终合并且内容正确；持续故障有界失败、不合并、不影响同批其它任务；无重复认领、
-无失去已有实现、无用旧版本审批合并新版。记录任务状态、角色调用、认领/重试、P50/P95、队列残留、
-并发峰值和完整失败日志。出现异常保留现场并报告，不通过提高重试上限或关闭门禁使测试变绿。
+Requirements: Recoverable tasks must ultimately merge with correct content; persistent failures must fail within a bounded number of attempts, must not merge, and must not affect other tasks in the same batch; no duplicate claims,
+no loss of existing implementations, and no merging a new version using approval of an old version. Record task states, role calls, claims/retries, P50/P95, remaining queue entries,
+peak concurrency, and complete failure logs. Preserve the failure state and report anomalies; do not make tests pass by increasing retry limits or disabling gates.
 
-## 复现与结果
+## Reproduction and Results
 
-入口为 `scripts/stress_delivery_recovery.py`，结果保存在新建的 `delivery-stress-*` 目录中。
-首轮先用小批校验压测器，再扩大重复量；生产代码不随测试结果自动修补。
+The entry point is `scripts/stress_delivery_recovery.py`, and results are saved in newly created `delivery-stress-*` directories.
+The first round validates the stress harness with small batches before increasing repetitions; production code is not automatically patched based on test results.
 
-## 正式常规压力结果（2026-09-09）
+## Formal Regular Stress Results (2026-09-09)
 
 ```sh
 .venv/bin/python scripts/stress_delivery_recovery.py --workers 1 4 8 16 --repeats 8 --baseline 32 --seed 59 --deadline 180
 .venv/bin/python scripts/stress_delivery_recovery.py --workers 4 16 --repeats 8 --baseline 32 --seed 83 --deadline 180
 ```
 
-总计 1008 个任务：912 个正常或可恢复任务全部合并、内容核验通过；96 个持续故障任务均在
-3 次认领后失败退出且未合并。错误合并、重复认领、意外阻断、生产者错误、队列残留均为 0。
-单次超时、一次远端换版、只差 push、缓存、未忽略日志、返工等各场景均不是只测拒绝，而是要求最终完成。
+Across 1008 tasks in total: all 912 normal or recoverable tasks merged and passed content verification; all 96 persistent-failure tasks
+exited as failed after 3 claims and did not merge. Incorrect merges, duplicate claims, unexpected blocking, producer errors, and remaining queue entries were all 0.
+Scenarios including a single timeout, one remote version change, only push remaining, cache, unignored logs, and rework required eventual completion, rather than merely testing rejection.
 
-第一组（seed=59）的分档结果：
+Results by worker configuration for the first group (seed=59):
 
-| worker 配置/实际峰值 | 正常基线合并 | 混合场景合并 | 预期持续故障停止 | 基线耗时 | 混合耗时 |
+| Worker configuration / actual peak | Normal baseline merged | Mixed scenarios merged | Expected persistent-failure stops | Baseline elapsed time | Mixed elapsed time |
 | --- | --- | --- | --- | --- | --- |
 | 1 / 1 | 32/32 | 120/120 | 16/16 | 6.82s | 47.78s |
 | 4 / 4 | 32/32 | 120/120 | 16/16 | 2.44s | 16.34s |
 | 8 / 8 | 32/32 | 120/120 | 16/16 | 2.44s | 15.00s |
 | 16 / 16 | 32/32 | 120/120 | 16/16 | 2.38s | 14.36s |
 
-正常基线每任务均为 Tester/Reviewer/Merger 各一次，没有 Implementer/Deliver 的额外调用。
-并发达到 4 后收益趋平，受本地串行 Git 合并、Python/Git 进程与生产扫描成本影响；该数字不能用于
-预测真实模型/网络服务吞吐。第二组与边界复测存在同机同时执行，不与第一组作精确性能比较。
+Each normal baseline task called Tester/Reviewer/Merger once each, with no additional Implementer/Deliver calls.
+Gains level off once concurrency reaches 4, due to serialized local Git merges, Python/Git processes, and production scanning costs; these figures cannot be used to
+predict throughput for real models/network services. The second group and boundary retests ran concurrently on the same machine and are not used for precise performance comparisons with the first group.
 
-原始报告：
+Raw reports:
 
-- `/tmp/delivery-stress-lbm7p4md/summary.json`：672 个任务，seed=59。
-- `/tmp/delivery-stress-13d6acmg/summary.json`：336 个任务，seed=83。
-- 各批目录内保留 `result.json`、`scheduler.log`、逐次测试证据、bare remote、原工作区与运行状态。
+- `/tmp/delivery-stress-lbm7p4md/summary.json`: 672 tasks, seed=59.
+- `/tmp/delivery-stress-13d6acmg/summary.json`: 336 tasks, seed=83.
+- Each batch directory retains `result.json`, `scheduler.log`, evidence from each test, the bare remote, the original workspace, and runtime state.
 
-## 未通过的边界：合法换版消耗了执行失败预算
+## Failed Boundary Case: Legitimate Version Changes Consumed the Execution-Failure Budget
 
 ```sh
 .venv/bin/python scripts/stress_delivery_recovery.py --workers 4 16 --repeats 4 --baseline 16 --scenarios clean remote-churn-3 --seed 61 --deadline 60
 .venv/bin/python scripts/stress_delivery_recovery.py --workers 1 16 --repeats 16 --baseline 16 --scenarios clean remote-churn-3 --seed 83 --deadline 90
 ```
 
-两组共 144 个任务：104 个正常对照全部合并；40 个连续三次合法换版任务 **40/40 被误挂起**，
-均认领 `[1, 2, 3]` 后写入 `automation-failed`。无错误合并、无重复认领；两条命令退出码均为 1。
-16-worker 大批边界复测的实际并发峰值为 16。小批任务数少时实际峰值低于配置，报告如实记录。
+Across the two groups, totaling 144 tasks: all 104 normal controls merged; of the 40 tasks with three consecutive legitimate version changes, **40/40 were incorrectly suspended**,
+all receiving `automation-failed` after claims `[1, 2, 3]`. There were no incorrect merges or duplicate claims; both commands exited with code 1.
+The actual peak concurrency in the large-batch 16-worker boundary retest was 16. When small batches had few tasks, the actual peak was below the configured value, as accurately recorded in the reports.
 
-故障注入不是源码损坏或持续网络故障：每次更新都发布有效实现且保留 `value = 1`，只更换一次合法
-候选；第三次之后远端保持稳定，本应继续检查新版本。此项不属于 NEGATIVE，不将其失败美化为成功。
+The fault injection did not involve source corruption or persistent network failures: every update published a valid implementation retaining `value = 1`, replacing the valid
+candidate once per update; after the third update, the remote remained stable, and checking the new version should have continued. This case is not NEGATIVE, and its failure is not presented as success.
 
-根因链条：
+Root-cause chain:
 
-1. `vigil._verify_candidate` 先调用 `Workspace.assert_delivered`。
-2. 评审期间远端前进、本地仍是所评审的旧提交，`assert_delivered` 抛 `WorkspaceError`。
-3. 后面的 `MergeNotReady`（候选变化 → 正常重判）分支来不及执行。
-4. `_run_claimed` 按普通失败累计重试；第三次写失败标签，而不是重读第四个稳定候选。
+1. `vigil._verify_candidate` first calls `Workspace.assert_delivered`.
+2. The remote advances during review while the local checkout remains at the old commit being reviewed, and `assert_delivered` raises `WorkspaceError`.
+3. The subsequent `MergeNotReady` branch (candidate changed → normal reassessment) never gets a chance to execute.
+4. `_run_claimed` accumulates retries as ordinary failures; on the third attempt, it writes the failure label instead of rereading the fourth, stable candidate.
 
-代码位置：`openagents/recipes/vigil.py:3052`、`openagents/utils/workspace.py:136`、
-`openagents/recipes/vigil.py:2167`。可复核日志：
-`/tmp/delivery-stress-ja1pjm6c/mixed-w4/scheduler.log:79`，随后第 87、95、98 行记录第二次、第三次与挂起。
+Code locations: `openagents/recipes/vigil.py:3052`, `openagents/utils/workspace.py:136`,
+`openagents/recipes/vigil.py:2167`. Log available for verification:
+`/tmp/delivery-stress-ja1pjm6c/mixed-w4/scheduler.log:79`, followed by lines 87, 95, and 98 recording the second attempt, third attempt, and suspension.
 
-边界报告：
+Boundary reports:
 
-- `/tmp/delivery-stress-ja1pjm6c/summary.json`：8 个目标失败，40 个正常对照通过。
-- `/tmp/delivery-stress-0ctcl838/summary.json`：32 个目标失败，64 个正常对照通过。
+- `/tmp/delivery-stress-ja1pjm6c/summary.json`: 8 target failures, 40 normal controls passed.
+- `/tmp/delivery-stress-0ctcl838/summary.json`: 32 target failures, 64 normal controls passed.
 
-额外因果复查（不计入上述 40 个正式目标）：
-`/tmp/delivery-stress-snmo74wv/summary.json`，1 个目标再次失败、1 个正常对照通过。压测器在终态后
-调用真实 `_refresh_failure_projection` 重查稳定事实，日志 `terminal recheck issue 2: failed=True`，
-确认不是下一 tick 就会自动恢复的瞬态。
+Additional causal recheck (not counted among the 40 formal targets above):
+`/tmp/delivery-stress-snmo74wv/summary.json`, with 1 target failing again and 1 normal control passing. After the terminal state,
+the stress harness called the real `_refresh_failure_projection` to recheck the stable facts; the log recorded `terminal recheck issue 2: failed=True`,
+confirming that this was not a transient condition that would automatically recover on the next tick.
 
-下一步修复应区分“候选已变化”与“执行失败”：前者作废旧裁决、重新评审，不烧普通失败预算；
-未提交源码、读取失败等仍保留原检查。需覆盖检查之间再次换版的时间窗口，不能仅吞掉所有
-WorkspaceError，也不能提高重试上限。此处只给出诊断，本次尚未修改生产代码修这个边界问题。
+The next fix should distinguish “candidate changed” from “execution failed”: the former invalidates the old decision and triggers a new review without consuming the ordinary failure budget;
+uncommitted source, read failures, and similar cases must retain the existing checks. The fix must cover the time window in which another version change occurs between checks; it must not simply swallow all
+WorkspaceError exceptions or increase the retry limit. This section provides diagnosis only; production code has not yet been modified in this round to fix this boundary issue.
 
-## 验收解释与限制
+## Acceptance Interpretation and Limitations
 
-新增 `tests/test_delivery_recovery_stress.py` 覆盖小批并发和压测裁判自身：故意给脏候选盖 PASS
-会被独立检查判为失败。普通测试套最后一次运行 1306 passed；这 **不代表连续换版压力已通过**。
-完整压测命令的失败保留在上面，不新增 xfail、不关闭门禁，也不将失败目标移出统计。
+The newly added `tests/test_delivery_recovery_stress.py` covers small-batch concurrency and the stress harness's own evaluator: deliberately marking a dirty candidate PASS
+is independently detected as a failure. The most recent ordinary test suite run reported 1306 passed; this **does not mean the repeated-version-change stress test passed**.
+Failures from the full stress commands are retained above; no xfail is added, no gates are disabled, and no failed targets are removed from the statistics.
 
-本测试证明离线调度/Git 的可达性与误阻断边界；不是实际模型推理能力、真实 forge 服务可用性或
-线上总体发生率的证明。所有实验为临时隔离仓库，没有提交/部署修复，也没有触碰运行中实验。
+This test demonstrates reachability and the boundary of erroneous blocking in offline scheduling/Git; it does not establish actual model reasoning capability, real forge service availability, or
+overall production incidence rates. All experiments use temporary isolated repositories; no fix has been committed/deployed, and no running experiments have been touched.
 
-## 连续换版修复设计（后续开发）
+## Fix Design for Repeated Version Changes (Subsequent Development)
 
-把现有 `assert_delivered` 中的 Git 事实读取抽为 `Workspace.delivery_heads`：检查工作区干净、
-成功 fetch、成功读取非空的本地与远端 SHA，返回二者，不判断用途；fetch/读取后再查工作区，
-防止读取过程中产生未提交文件。只刷新跟踪 ref，不切换工作区、不提交推送。
+Extract the Git fact reads in the existing `assert_delivered` into `Workspace.delivery_heads`: check that the workspace is clean,
+fetch successfully, successfully read nonempty local and remote SHAs, and return both without judging their intended use; check the workspace again after fetching/reading
+to prevent uncommitted files created during the reads from going undetected. Refresh only the tracking ref; do not switch the workspace, commit, or push.
 
-开发交付仍由 `assert_delivered` 要求本地与远端严格相等。评审验收复用事实读取：本地仍是
-原候选、远端合法前进，或本地与远端已经一起换版时，抛既有 `MergeNotReady`，作废旧裁决，
-由既有生产者重新感知并评审；不消耗执行失败预算。评审者自己留下未推送的新提交、未提交文件、
-Git/forge 读取失败依旧作为执行失败，不能伪装为合法换版。不增加异常类型、状态字段、队列或
-重试次数，不捕获并吞掉 `WorkspaceError`。
+Development delivery still uses `assert_delivered` to require strict equality between local and remote. Review acceptance reuses the fact reads: when the local checkout remains at
+the original candidate and the remote has legitimately advanced, or when local and remote have both moved to a new version, raise the existing `MergeNotReady`, invalidate the old decision,
+and let the existing producer detect and review the candidate again; do not consume the execution-failure budget. New unpushed commits left by the reviewer, uncommitted files,
+and Git/forge read failures still count as execution failures and must not masquerade as legitimate version changes. Do not add exception types, state fields, queues, or
+retry attempts, and do not catch and swallow `WorkspaceError`.
 
-回归必须覆盖 fetch 期间换版、Git 读取之后 forge 再换版、读取过程中改脏、未推送的评审提交、
-读取失败，以及三次换版后第四次评审完成。原 40 个误挂起任务使用原命令、种子和重试上限复测；
-再跑原 1008 个常规压力任务，验证正常推进与持续故障隔离均未退化。
+Regression coverage must include version changes during fetch, another forge version change after Git reads, dirtying the workspace during reads, unpushed review commits,
+read failures, and completion on the fourth review after three version changes. Retest the original 40 incorrectly suspended tasks with the original commands, seeds, and retry limit;
+then rerun the original 1008 regular stress tasks to verify that normal progress and persistent-failure isolation have not regressed.
 
-## 修复后验收（2026-09-09）
+## Post-Fix Acceptance (2026-09-09)
 
-以上四条正式压力命令原样重跑，种子、任务规模、并发配置、deadline 与生产重试上限均未改变。
-仅追加了 Git 事实读取与验收分类的修复；压测裁判也明确将重复认领计入失败，不放宽判据。
+The four formal stress commands above were rerun unchanged, with the same seeds, task counts, concurrency configurations, deadline, and production retry limit.
+Only the fix to Git fact reads and acceptance classification was added; the stress evaluator also explicitly counts duplicate claims as failures, without relaxing the criteria.
 
-| 场景 | 修复前 | 修复后 |
+| Scenario | Before fix | After fix |
 | --- | --- | --- |
-| 连续三次合法换版 | 40/40 误挂起 | 40/40 合并；均第四次评审成功 |
-| 边界组正常对照 | 104/104 合并 | 104/104 合并 |
-| 常规正常/可恢复任务 | 912/912 合并 | 912/912 合并 |
-| 持续 Git 失败/持续污染 | 96/96 有界停止，未合并 | 96/96 有界停止，未合并 |
+| Three consecutive legitimate version changes | 40/40 incorrectly suspended | 40/40 merged; all succeeded on the fourth review |
+| Normal controls in boundary groups | 104/104 merged | 104/104 merged |
+| Regular normal/recoverable tasks | 912/912 merged | 912/912 merged |
+| Persistent Git failures/persistent contamination | 96/96 stopped within a bounded number of attempts, did not merge | 96/96 stopped within a bounded number of attempts, did not merge |
 
-换版任务的认领 attempts 从 `[1, 2, 3]` 变为 `[1, 1, 1, 1]`：每次都重读真实候选，
-只有第四个实际评审的稳定 SHA 得到批准并合入 main，没有旧裁决套到新版。持续故障仍是
-`[1, 2, 3]` 后停止。全部 1152 个压力任务中错误合并、意外阻断、重复认领、生产者错误、
-队列残留均为 0。常规 clean 场景共 240 个，均只调用一次 Tester/Reviewer/Merger，无额外开发/
-交付调用。常规实际并发峰值覆盖 1/4/8/16；边界小批峰值按实际记录，不声称全达 16。
+Claim attempts for version-change tasks changed from `[1, 2, 3]` to `[1, 1, 1, 1]`: each attempt reread the actual candidate,
+and only the stable SHA actually reviewed on the fourth review was approved and merged into main; no old decision was applied to a new version. Persistent failures still
+stopped after `[1, 2, 3]`. Across all 1152 stress tasks, incorrect merges, unexpected blocking, duplicate claims, producer errors,
+and remaining queue entries were all 0. The regular clean scenarios totaled 240 tasks, each calling Tester/Reviewer/Merger only once, with no additional development/
+delivery calls. Actual peak concurrency in the regular tests covered 1/4/8/16; peaks for small boundary batches were recorded as observed, without claiming that all reached 16.
 
-修复后报告（旧报告不覆盖）：
+Post-fix reports (old reports were not overwritten):
 
-- `/tmp/delivery-stress-anmmashk/summary.json`：8 个换版目标与 40 个正常对照全部完成。
-- `/tmp/delivery-stress-d0hhl1uc/summary.json`：32 个换版目标与 64 个正常对照全部完成。
-- `/tmp/delivery-stress-0v0n4qia/summary.json`：常规 672 个任务全部符合预期。
-- `/tmp/delivery-stress-5wj0s9pt/summary.json`：常规 336 个任务全部符合预期。
+- `/tmp/delivery-stress-anmmashk/summary.json`: all 8 version-change targets and 40 normal controls completed.
+- `/tmp/delivery-stress-d0hhl1uc/summary.json`: all 32 version-change targets and 64 normal controls completed.
+- `/tmp/delivery-stress-0v0n4qia/summary.json`: all 672 regular tasks met expectations.
+- `/tmp/delivery-stress-5wj0s9pt/summary.json`: all 336 regular tasks met expectations.
 
-单元/集成回归：`pytest -q` 最终 **1322 passed，28.07 秒**；专项脚本
-`bash scripts/e2e-delivery-review-recovery.sh` **507 passed，19.88 秒**，已纳入小批连续换版测试。
-真实 Git 专项共 35 项，覆盖 fetch 期间及其后换版、读取时改脏、未推送的评审提交、空 SHA 与
-Git/forge 读取异常。三次换版回归先在旧实现上实际失败，再在修复后通过，不使用 xfail。
-修改文件 Ruff check/format、Spec validate / graph --check、git diff --check 通过；历史 Spec warning 保留。
+Unit/integration regression: the final `pytest -q` run reported **1322 passed, 28.07 seconds**; the dedicated script
+`bash scripts/e2e-delivery-review-recovery.sh` reported **507 passed, 19.88 seconds**, now including the small-batch repeated-version-change test.
+There were 35 dedicated real-Git cases, covering version changes during and after fetch, dirtying during reads, unpushed review commits, empty SHAs, and
+Git/forge read exceptions. The three-version-change regression was first observed to fail on the old implementation and then passed after the fix, without xfail.
+Ruff check/format for modified files, Spec validate / graph --check, and git diff --check passed; historical Spec warnings remain.
 
-成本与限制：读取后新增一次本地工作区检查，避免 fetch 期间的改脏漏检；正常任务无新增模型调用。
-若远端持续产生真正的新候选，则仍需重新评审，无法承诺在候选永不稳定时完成；这不是通过
-无限重试真实错误换来的成功。此次并行运行多个压力批次与回归，不将其耗时差当作严格性能对照。
-未提交、推送、部署修改，也未恢复/改写正在运行或已归档的用户实验。
+Costs and limitations: one local workspace check was added after reads to avoid missing dirtying during fetch; normal tasks require no additional model calls.
+If the remote continuously produces genuinely new candidates, review must still be repeated, and completion cannot be guaranteed when the candidate never stabilizes; this success was not obtained by
+retrying real errors indefinitely. Multiple stress batches and regression tests ran in parallel in this round, so their elapsed-time differences are not treated as strict performance comparisons.
+The changes have not been committed, pushed, or deployed, and no running or archived user experiments have been resumed or rewritten.

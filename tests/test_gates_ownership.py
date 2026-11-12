@@ -1,8 +1,8 @@
-"""runtime.gates.assert_writes_owned 单元测试 —— 越权写硬闸（Spec-0071/T3）。
+"""runtime.gates.assert_writes_owned unit test - Excessive writing of hardlock (Spec-0071/T3).
 
-覆盖：全部改动在声明 files 内 → 放行；改动生成物（spec md / OVERVIEW / ARCHITECTURE）→ 放行；
-改动无主文件 → raise GateError 且消息列出越权文件；空 changeset → 放行；自定义 specs_root 透传。
-纯逻辑、零 IO。
+Overwrite: All changes are released in the statements; change the generator (spec md/ overVIEW/ ARCHETECTURE) is released;
+Change the orphan file  → raise GateError and message lists the ultra-powerful files; empty changeset  →  release; custom specs_root overwrite.
+Pure logic, zero IO.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def test_unowned_write_raises_and_lists_offenders() -> None:
 
 
 def test_custom_specs_root_is_passed_through() -> None:
-    # specs_root 变了，旧默认路径的 OVERVIEW.md 不再算生成物 → 判越权。
+    # specs_root has changed and the old default path OVERVIEW.md no longer counts as the generator overstepping power.
     with pytest.raises(gates.GateError):
         gates.assert_writes_owned(
             group=_group(),

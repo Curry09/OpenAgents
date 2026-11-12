@@ -1,56 +1,41 @@
 #!/usr/bin/env bash
-# Spec-0065/T1-T2 端到端测试启动脚本：图驱动的并行守夜 —— 准入面（三态门控 → `ready` → curator 排
-# `blocked_by` 依赖边）+ 执行面（level-triggered reconcile：sense/classify/fingerprint → SQLite 队列 →
-# K 个 worker 各领一个 subject 推到卡住）。
+# Spec-0065/T1-T2: Offline coverage for graph-driven parallel Vigil.
 #
-# 证明架构契约在离线确定性链路上成立（intent，见 spec §11 走查表）：
-#   - 走查表 t0–t7 逐 tick 断言：**反复调 run_vigil(once=True)，一次一个 tick**（单趟 tick 覆盖不了
-#     t1→t3 的跨轮解锁——B 要等 A 的 PR merged 后的**下一** tick 才就绪）；
-#   - t1：K=2 一 tick 并起 A 和 C（并行），B 被 QUIET(awaiting-blockers) 挡住（依赖图生效）；
-#   - t3：A 的 PR merged → 下一 tick B 的 blocker 关掉 → 自然解锁（传递依赖，无需任何本地记忆）；
-#   - t4（主路径）：CI 红 → agent 判上游 flaky → **自己打 needs-human + 留理由** → 同一次认领内下一圈
-#     `_sense` 即 TERMINAL，轮询当场停止，**零多余 LLM 调用**、不等任何阈值；
-#   - t5（护栏一）：CI 红 → agent 以为自己修了但**零变更、未打 needs-human** → fp 未变 → 盖 `attempt fp=`
-#     戳 → 下一 tick 见同 fp 戳 → 降 QUIET(awaiting-effect) → **不入队、零 LLM**（证明 agent 主动叫人
-#     **替代不了** attempt 戳：它自己看不见自己在空转）；
-#   - t6（护栏二）：awaiting-effect age 超阈值 → `_park` 机械打 needs-human（不叫 LLM）→ TERMINAL；
-#   - t7（hang）：入队 0 → `_hang` 打分类提示（前沿空 / 在解决中 / 在等 CI），不静默卡死。
+# Exercise successive producer ticks against a fake forge. Independent subjects
+# can run together, while a blocked subject waits for its upstream PR to merge.
+# Check the terminal-failure path, attempt stamps for unchanged state, watchdog
+# diagnostics, and queue ownership. No browser, model API, or real forge is
+# needed for this script.
 #
-# 形态说明（evidence 分层，理念 8）：本组是**纯后端调度器**（守夜循环 + 队列 + 依赖图），无 product-facing
-# 前端可导航；已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，沿用离线确定性测法
-# （假 GitHub + 假 agent 的 tick 级状态机断言 + 契约单测 + grep 锚点）。真实自主环冒烟（`oa vigil --parallel 2`
-# 在真仓上跑通 issue→PR→merged）作为成果验收在 Phase-3 人验/runbook 记录，不塞进本离线脚本。
-#
-# 用法：
-#   bash scripts/e2e-spec-0065-graph-parallel-vigil.sh
+# Usage: bash scripts/e2e-spec-0065-graph-parallel-vigil.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/5] 离线确定性验证（lint + format）"
+echo "==> [1/5] Lint and formatting"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/5] 感知/队列/存活探测/卡死/收口 契约单测"
+echo "==> [2/5] Queue, reconciliation, and CLI tests"
 uv run --extra dev pytest -q \
   tests/test_agent_curator.py \
   tests/test_recipe_vigil.py \
   tests/test_cli.py
 
 echo
-echo "==> [3/5] spec 校验 + 生成物无漂移"
+echo "==> [3/5] spec Verify + Generating without drift"
 uv run spec validate
 uv run spec graph --check
 
 echo
-echo "==> [4/5] 走查表 t0–t7：A / B(blocked_by A) / C，K=2，逐 tick 断言"
+echo "==> [4/5] Check the watch. t0–t7：A / B(blocked_by A) / C，K=2      And then     And     And   And   tick The assertion."
 uv run --extra dev python - <<'PY'
-"""Spec-0065 §11 走查表的可执行版：假 GitHub（内存）+ 假 agent（脚本化）+ 真 vigil（一字不改）。
+"""Spec-0065 §11 Executable version of the checklist: false GitHub(RAM)+ False agent(Scriptization)+ True vigil(none change).
 
-被替换的只有**外部世界**：GitHub 读写（`utils.github` / `utils.identity` 的贴评论）、triager/curator 两次
-LLM 调用、以及 `_act` 里那个真 agent（换成一个按剧本行事的假 agent，它照样只能通过 GitHub 说话）。
-`_sense` / `_classify` / `_fingerprint` / 队列 / flock / `_reconcile` / 生产者全是**生产代码原件**。
+Only replacements**Outside world**：GitHub Read & Write`utils.github` / `utils.identity` The blog also highlights the importance of the new media.triager/curator Twice.
+LLM Call, and `_act` The one in the country. agent”In exchange for a script-based fake.” agentIt’s still only going through. GitHub Talk.
+`_sense` / `_classify` / `_fingerprint` / Queue / flock / `_reconcile` / The producers are all**Original production code**。
 """
 
 import io
@@ -81,15 +66,15 @@ def tick_clock(seconds):
 
 
 # ---------------------------------------------------------------------------------------------
-# 假 GitHub：一个可变的内存世界。agent 与守夜都只能通过它交谈（真实拓扑：GitHub 是唯一共享真相）。
+# Fake GitHub: A variable memory world. Angent and the Night's Watch can only talk through it.
 # ---------------------------------------------------------------------------------------------
 class Hub:
     def __init__(self):
-        # 三个待办 issue，都带触发 label `openagents`（config.labels，即守夜的取件口）。
+        # Three to-do issues, all with triggers for label `openagents` (config.labels, the Vigil pick-up).
         self.issues = {
-            A: {"title": "定义 Storage 接口", "body": "先定接口", "labels": {"openagents"}, "open": True},
-            B: {"title": "实现 SQLite 后端", "body": "依赖 A 的接口", "labels": {"openagents"}, "open": True},
-            C: {"title": "补 README", "body": "独立任务", "labels": {"openagents"}, "open": True},
+            A: {"title": "Definitions Storage Interface", "body": "Set interface first", "labels": {"openagents"}, "open": True},
+            B: {"title": "implementation SQLite Backend", "body": "Dependency A Interfaces for", "labels": {"openagents"}, "open": True},
+            C: {"title": "Fill README", "body": "Independent mission", "labels": {"openagents"}, "open": True},
         }
         self.edges = {A: [], B: [], C: []}  # blocked_by
         self.prs = {}  # number -> dict
@@ -120,7 +105,7 @@ class Hub:
 
 
 HUB = Hub()
-ACTS = []  # 假 agent 每被叫起一次记一笔 —— 「零多余 LLM 调用」靠它断言
+ACTS = []  # False agent Every time they call up, they remember. —— ”Zero is redundant. LLM Call.
 
 
 def fake_get_issue(*, number):
@@ -146,7 +131,7 @@ def fake_pr_head_branch(*, pr_number):
 
 
 def fake_pr_for_branch(*, branch):
-    # **不限状态**：merged 的 PR 也要看得见（否则合并后下一圈会把 issue 读成「还没有 PR」→ 重做一遍）。
+    # ** Unlimited**:merged PR should be visible (or the next round of consolidation will read "not yet PR" again).
     for number, pr in HUB.prs.items():
         if pr["branch"] == branch:
             return github.PR(number, f"u/{number}")
@@ -173,7 +158,7 @@ def fake_check_snapshot(*, pr_number):
 
 
 def fake_check_logs(*, pr_number):
-    return ["ci: 单测 test_flaky_upstream 挂了"]
+    return ["ci: Single measure test_flaky_upstream Hang up."]
 
 
 def fake_list_comments(*, pr_number):
@@ -242,13 +227,13 @@ for name, impl in {
     setattr(github, name, impl)
 identity.post_signed_comment = fake_post_signed_comment
 
-# 两次 LLM 调用（准入面）：triager 判 actionable、curator 排边 B blocked_by A、C 独立。
-vigil.stages.triage = lambda **kw: {"actionable": True, "reason": "可直接派单"}
+# LLM calls twice (access): Triager sentence actionable, Curator row B blocked_by A, C independent.
+vigil.stages.triage = lambda **kw: {"actionable": True, "reason": "Directly assignable"}
 vigil.engine.run_agent = lambda *a, **kw: {"edges": [{"issue": B, "blocked_by": [A]}]}
 
 
 # ---------------------------------------------------------------------------------------------
-# 假 agent：`_act` 的替身。它只能改 GitHub（开 PR / 打 label / 贴评论）——路由仍是生产代码的分支表。
+# False agent: `_act`. It can only change GitHub - route still a branch of the code.
 # ---------------------------------------------------------------------------------------------
 def fake_act(*, backend, state, work_dir, config, observed, verdict, agent_id, now, lock_fd):
     facts = observed.facts
@@ -257,37 +242,37 @@ def fake_act(*, backend, state, work_dir, config, observed, verdict, agent_id, n
 
     if verdict.action == vigil._ACT_SOLVE:
         HUB.open_pr(issue_number=number)
-        return "已开 draft PR 并推上首版实现"
+        return "Open draft PR And push the first edition to achieve"
 
     pr = HUB.prs[facts.pr_number]
     if verdict.action == vigil._ACT_E2E:
         fake_post_signed_comment(
             pr_number=facts.pr_number,
-            body=f"<!-- openagents:e2e head={facts.head_sha} -->\n✅ e2e 通过",
+            body=f"<!-- openagents:e2e head={facts.head_sha} -->\n✅ e2e passed",
             agent_id=agent_id,
         )
-        return "e2e 通过"
+        return "e2e passed"
     if verdict.action == vigil._ACT_REVIEW_OR_FIX:
         pr["labels"].add(f"review-approved:{facts.head_sha[:7]}")
-        return "review 通过"
+        return "review passed"
     if verdict.action == vigil._ACT_MERGE:
         pr["merged"] = True
         pr["open"] = False
         HUB.issues[pr["issue"]]["open"] = False
-        return "已合并"
+        return "Merged"
     if verdict.action == vigil._ACT_FIX_CI:
         if pr["issue"] == B:
-            # t4 主路径：agent 判定这是上游 flaky、自己修不了 → 走一等出口，自己叫人。
+            # t4 Main path: agent determined it was upstream flaky, unable to fix it, walking through the first exit, calling himself a human.
             pr["labels"].add("needs-human")
             fake_post_signed_comment(
                 pr_number=facts.pr_number,
-                body="⏸ CI 红是上游依赖 flaky，我修不了，交人。",
+                body="⏸ CI Red is upstream. flakyI can’t fix it, man.",
                 agent_id=agent_id,
             )
-            return "自判无解，已打 needs-human"
-        # t5 护栏一：agent **以为**自己修了（只 rerun 了 CI），实际零变更、也没打 needs-human。
-        return "我重跑了一遍 CI，应该好了"
-    raise AssertionError(f"走查表不该走到这一支：{verdict.action}")
+            return "He’s been beaten. needs-human"
+        # t5 Guard I: agent** thought ** had repaired (rerun only CI), no real change, no needs-human.
+        return "I ran again. CII think it’s done."
+    raise AssertionError(f"The checklist should not have come to this:{verdict.action}")
 
 
 vigil._act = fake_act
@@ -307,7 +292,7 @@ STATE = RuntimeState(path=WORK / "runtime-state.json")
 
 
 def run_tick():
-    """跑**一个** tick（一次生产者判定 + 排空本 tick 入的活），返回本 tick 的日志。"""
+    """Run!**One.** tick(a producer determination) + Empty tick I’m going back to Ben. tick the log."""
     buffer = io.StringIO()
     with redirect_stderr(buffer):
         vigil.run_vigil(
@@ -316,7 +301,7 @@ def run_tick():
             work_dir=WORK,
             config=CONFIG,
             once=True,
-            concurrency=2,  # K=2：并行上限
+            concurrency=2,  # K=2: Parallel ceiling
             agent_id="oa-e2e",
             now_fn=now,
         )
@@ -330,16 +315,16 @@ def check(label, condition, detail=""):
     print(f"  ✓ {label}")
 
 
-# ---- t0/t1：准入 + 依赖边落 GitHub；K=2 并起 A 和 C，B 被 blocker 挡住 -------------------------
+# ---- t0/t1: Access + Dependence on Edge GitHub; K=2 and A and C, B blocked by -------------------------
 run_tick()
-check("t0 三态准入：A/B/C 全过门控、打上 ready", all("ready" in HUB.issues[n]["labels"] for n in (A, B, C)))
-check("t0 curator 排边落 GitHub 原生 blocked_by：B←A、C 独立", HUB.edges[B] == [A] and not HUB.edges[C])
-check("t1 A 与 C 并行开工（各自开出 PR）", HUB.pr_of(A)[0] is not None and HUB.pr_of(C)[0] is not None)
-check("t1 B 被 QUIET(awaiting-blockers) 挡住：未开 PR、零 agent 调用", HUB.pr_of(B)[0] is None)
-check("t1 只叫了两次 agent（A/C 各一次 solve）", ACTS == [("issue:101", "solve"), ("issue:103", "solve")]
+check("t0 Triple access:A/B/C All over the door. Hit it. ready", all("ready" in HUB.issues[n]["labels"] for n in (A, B, C)))
+check("t0 curator Line GitHub Native blocked_by：B←A、C Independence", HUB.edges[B] == [A] and not HUB.edges[C])
+check("t1 A with C Start parallel work (each one) PR）", HUB.pr_of(A)[0] is not None and HUB.pr_of(C)[0] is not None)
+check("t1 B Pour QUIET(awaiting-blockers) Block: Not opened PRZero. agent Call", HUB.pr_of(B)[0] is None)
+check("t1 I’ve only called twice. agent（A/C Once each. solve）", ACTS == [("issue:101", "solve"), ("issue:103", "solve")]
       or ACTS == [("issue:103", "solve"), ("issue:101", "solve")], str(ACTS))
 
-# ---- t2/t3：CI 出结果 → A 走完流水线 merged；C 的 CI 红（护栏一登场）------------------------------
+# ---- t2/t3: CI output  →  A discharge line meggered; C CI Red (first column) ------------------------------
 tick_clock(60)
 pr_a, data_a = HUB.pr_of(A)
 data_a["ci"] = ("pass", 3)
@@ -347,244 +332,244 @@ pr_c, data_c = HUB.pr_of(C)
 data_c["ci"] = ("fail", 3)
 ACTS.clear()
 run_tick()
-check("t3 A：CI 绿 → 同一次认领内 e2e→review→merge 一趟走完（无批屏障）",
+check("t3 A：CI Green → I’m going to take it from you. e2e→review→merge I’m going to go through the walk.",
       [action for subject, action in ACTS if subject == "issue:101"] == ["e2e", "review-or-fix", "merge"],
       str(ACTS))
-check("t3 A 的 PR 已 merged、issue 已关", data_a["merged"] and not HUB.issues[A]["open"])
-check("t5 C：CI 红 → agent 出手但零变更 → 盖 attempt fp 戳收工",
+check("t3 A It’s... PR Already merged、issue Disabled", data_a["merged"] and not HUB.issues[A]["open"])
+check("t5 C：CI Red → agent It’s a change. → Guy. attempt fp - It’s over.",
       any(vigil._ATTEMPT_MARKER in body for body, _ in data_c["comments"]))
-check("t5 C 本 tick 只被叫起一次（同一 fp 上不重复出手）",
+check("t5 C Ben. tick Just once. fp No more fights on top",
       [action for subject, action in ACTS if subject == "issue:103"] == ["fix-ci"], str(ACTS))
 
-# ---- t3(下半)：A merged → B 的 blocker 关掉 → 自然解锁；C 见同 fp 戳 → 零 LLM ----------------------
+# ---- t3 (second half): blocker of A mergid  → B turns off  →  natural unlocking; C see pt pt zero LLM ----------------------
 tick_clock(60)
 ACTS.clear()
 run_tick()
-check("t3 B：上游 A 合并后**下一 tick** 自然解锁 → solve 开出 PR", HUB.pr_of(B)[0] is not None)
-check("t5 护栏一：C 的 fp 未变、见同 fp 戳 → 不入队、**零 LLM 调用**",
+check("t3 B: Upstream A After Merge**Next tick** Unlock Nature → solve Open PR", HUB.pr_of(B)[0] is not None)
+check("t5 Watchout I:C It’s... fp Unchanged, same as above fp Poke → No, no, no, no, no.**nil LLM Call**",
       not [action for subject, action in ACTS if subject == "issue:103"], str(ACTS))
 
-# ---- t4：B 的 CI 红 → agent 自己打 needs-human（主路径：当场 TERMINAL，不等任何阈值）----------------
+# CI of ---- t4:B plays the red agent self needs-human (main path: on-site TERMINAL, without any threshold) ----------------
 tick_clock(60)
 pr_b, data_b = HUB.pr_of(B)
 data_b["ci"] = ("fail", 3)
 ACTS.clear()
 run_tick()
-check("t4 主路径：agent 判上游 flaky → 自己打 needs-human + 留理由",
+check("t4 Main path:agent Upstream. flaky → Fight yourself. needs-human + Reasons for staying",
       "needs-human" in data_b["labels"]
-      and any("上游依赖 flaky" in body for body, _ in data_b["comments"]))
-check("t4 同一次认领内下一圈即 TERMINAL：只叫了一次 agent（fix-ci），不再重试",
+      and any("Upstream dependency flaky" in body for body, _ in data_b["comments"]))
+check("t4 The same time you claim the next lap in the same circle. TERMINAL: Only once agent（fix-ci）Do not try again",
       [action for subject, action in ACTS if subject == "issue:102"] == ["fix-ci"], str(ACTS))
 
 tick_clock(60)
 ACTS.clear()
 run_tick()
-check("t4 轮询当场停止：B 已 TERMINAL，后续 tick 零 agent 调用", not ACTS, str(ACTS))
+check("t4 The round stops on the spot:B Already TERMINALFollow-up tick nil agent Call", not ACTS, str(ACTS))
 
-# ---- t6：护栏二 —— C 的 awaiting-effect 超阈值 → 机械 park（不叫 LLM）------------------------------
+# ---- t6: Watchbar II - C Awaiting-effect Superthreshold  →  Mechanical Park (other than LLM) ------------------------------
 tick_clock(4000)
 ACTS.clear()
 logs = run_tick()
-# `_park` 把 needs-human 打在 **issue** 上（subject=issue:103）；`_sense` 取 issue ∪ PR 的 label 并集，
-# 故下一圈照样判 TERMINAL。
-check("t6 护栏二：awaiting-effect 超阈值 → _park 打 needs-human（机械诊断，不叫 LLM）",
+# `_park` beats needss-human** (subject=issue:103);  takes the label of issue  →  PR and collects it in a series of `_sense`s.
+# So the next round will be the TéRMINAL.
+check("t6 Watcht two:awaiting-effect Super-threshold → _park Fight! needs-human(Mechanical diagnosis, no calls) LLM）",
       "needs-human" in HUB.issues[C]["labels"] and not ACTS, str(ACTS))
-check("t6 park 附了机械诊断 + agent 自己那条结论",
-      any("重跑了一遍 CI" in body or "openagents 守夜" in body for body, _ in data_c["comments"]))
+check("t6 park With a mechanical diagnosis. + agent That conclusion of my own.",
+      any("Run again. CI" in body or "openagents Vigil" in body for body, _ in data_c["comments"]))
 
-# ---- t7：全 TERMINAL → 入队 0 → _hang 打分类提示，不静默卡死 -------------------------------------
+# ---- t7: All TERMINAL Zone 0  → hang Call a classification hint and die -------------------------------------
 tick_clock(60)
 ACTS.clear()
 logs = run_tick()
-check("t7 全 TERMINAL → 本 tick 入队 0 → _hang 打可观测提示", "本轮无人可动" in logs, logs)
-check("t7 零 agent 调用（守夜停在那里，不空烧）", not ACTS, str(ACTS))
+check("t7 All TERMINAL → Ben. tick Incoming! 0 → _hang Call for a visual tip.", "This is a round of nobody moving." in logs, logs)
+check("t7 nil agent Call.", not ACTS, str(ACTS))
 
-print("✓ 走查表 t0–t7 全部通过（含 t4 主路径 / t5 护栏一 / t6 护栏二 / t7 hang）")
+print("✓ Check the watch. t0–t7 All adopted (includes) t4 Main Path / t5 Guard I / t6 Watcht 2 / t7 hang）")
 PY
 
 echo
-echo "==> [5/5] grep 锚点：flock 不是 lockf / _mark_done 是 DELETE / 无 lease 列 / recipes 无 subprocess 直调"
+echo "==> [5/5] grep anchor:flock No, it’s not. lockf / _mark_done yes DELETE / None lease Columns / recipes None subprocess Straight"
 
 fail() {
-  echo "✗ 锚点失败：$1" >&2
+  echo "✗ Organisation$1" >&2
   exit 1
 }
 
-# 5a. 存活证明必须是 flock 调用（`lockf` 的锁是 per-process 的，同进程 K 条 worker 线程的互斥会静默失效）。
-# 只认**调用**（`fcntl.xxx(`），不认散文里的提及——模块文档正是在讲「为什么不能用 lockf」。
-grep -q "fcntl\.flock(" openagents/recipes/vigil.py || fail "vigil 未用 fcntl.flock 取存活证明"
-grep -q "fcntl\.lockf(" openagents/recipes/vigil.py && fail "vigil 调了 fcntl.lockf（同进程两 fd 不互斥 → 双跑）"
+# 5a. The survival certificate must be aflock call (the lock of `lockf` is per-process, and the cross-repeated with the K-worker line of the process will be silently invalidated).
+# Only** call** (`fcntl.xxx(`) does not recognize the references in the text - the modular document is exactly "Why can't we use lockf".
+grep -q "fcntl\.flock(" openagents/recipes/vigil.py || fail "vigil Unused fcntl.flock - To get a living certificate."
+grep -q "fcntl\.lockf(" openagents/recipes/vigil.py && fail "vigil I’ve got it. fcntl.lockf(Same as Process) fd No one else. → Double running)"
 
-# 5b. 收工是 DELETE 行（留 status='done' 会被 subject UNIQUE 永久锁死该 subject）；建表 DDL 里无租约列
-# （判死凭内核放锁，不凭阈值猜——一个可以调错的旋钮就是一次可能的双跑）。
-grep -q "DELETE FROM work_queue" openagents/recipes/vigil.py || fail "_mark_done 不是 DELETE"
+# 5b. The closure is a DELETE line (staying status='done' will be permanently locked to the subject UniQUE to the subject); no lease line in the form DDL
+# (Death by kernel locking, not by threshold — a glitch that can be mistled is a possible double run).
+grep -q "DELETE FROM work_queue" openagents/recipes/vigil.py || fail "_mark_done No, it’s not. DELETE"
 uv run --extra dev python -c "
 from openagents.recipes.vigil import _SCHEMA
 ddl = ' '.join(_SCHEMA.lower().split())
-assert 'subject text not null unique' in ddl, 'work_queue.subject 缺 UNIQUE（去重/互斥/幂等三合一的柱子）'
-assert 'lease' not in ddl and 'expires' not in ddl, '建表 DDL 含租约字段（本设计凭 flock 判死，无阈值）'
-" || fail "work_queue 建表 DDL 不符（缺 subject UNIQUE / 含租约列）"
+assert 'subject text not null unique' in ddl, 'work_queue.subject Missing UNIQUE(Stick it up)/Crust./  I’ll be waiting for a three-in-one  '
+assert 'lease' not in ddl and 'expires' not in ddl, 'Form DDL Including lease fields (this design is based on flock Death sentence, no threshold)'
+" || fail "work_queue Form DDL Not in line (lack) subject UNIQUE / including lease line)"
 
-# 5c. recipes 层不直调 subprocess（Spec-0064 分层锚点：recipe 只走 utils 稳定面；进程探测落 utils/proc.py）。
+# 5c. recipes layer does not directly adjust subproces (Spec-0064 strebular anchor: recipe only takes utils stabilizer; process detection utils/proc.py).
 for r in stages vigil backfill; do
   grep -nE 'import subprocess|subprocess\.' "openagents/recipes/${r}.py" \
-    && fail "openagents/recipes/${r}.py 含 subprocess 直接调用（应走 utils）"
+    && fail "openagents/recipes/${r}.py Ham subprocess Direct Call (should go) utils）"
 done
 
-# 5d. 硬超时必须**精确**杀本次调用起的进程树：backend 自报 PID 进认领桶（`proc.publish`），超时方按桶
-# 杀（`proc.kill_tree`）。若回退成「diff 本进程的子进程集合去猜」，会认错并发的 gh/git 或别的 worker 的
-# agent —— 杀错人 = 那个真挂住的 agent 还在推，双跑就此发生（本 spec 的头号不变量塌掉）。
+# 5d. Hard timeout must** kill the exact ** process tree from which this call is made:backend self-report PID into the collectible (`proc.publish`), time-lapse-barrel
+# Kill`proc.kill_tree`）。If you return to the "A"diff "The sub-process of this process is gathered to guess." gh/git Or something. worker It's...
+# Angent - Kill the Wrong Person = The really hung agent is pushing, and double running is happening.
 uv run --extra dev python -c "
 from openagents.utils import proc
 for name in ('track', 'publish', 'untrack', 'child_pids', 'kill_tree', 'hold_fd', 'inherited_fds'):
-    assert hasattr(proc, name), f'utils.proc 缺 {name}（认领桶/精确杀/存活证明继承的接口面）'
-" || fail "utils/proc.py 接口面不符（认领桶 + kill_tree + hold_fd/inherited_fds）"
+    assert hasattr(proc, name), f'utils.proc Missing {name}(Recognition of a barrel)/Exactly./(a) The interface of the certificate of survival)'
+" || fail "utils/proc.py Interface interface does not match (recognizing a barrel) + kill_tree + hold_fd/inherited_fds）"
 grep -q "proc_utils\.publish(pid=proc\.pid, handle=proc)" openagents/backends/claude_code.py \
-  || fail "backend 未自报 PID+句柄（裸 PID 会杀到 PID 复用后的无辜进程 → 双跑）"
+  || fail "backend Unreported PID+Snack. PID I’ll kill you. PID Innocent Process after Reuse → Double running)"
 
-# 5d-bis. **存活证明必须跟着真正在干活的进程走。** flock 只证明「守夜进程活着」；守夜被 SIGKILL/OOM/docker
-# stop 打死时，它起的 agent 子进程是被**孤儿化**、不是被杀（要到下次写 stdout 才发现父亲没了——足够它跑完一次
-# push）。故把锁的 fd 传给 agent 子进程继承（pass_fds）：孤儿还在跑 → 锁抢不到 → 行不会被回收重领 → 无双跑。
+# 5d-bis.** Survivors must follow the real work process.** Flock only proves that the Vigil is alive; Vigil is being held by SIGKILL/OOM/docker
+# When he was killed, it started an agent process that was orphaned, not killed.
+# Push. So pass the lock fd to agent subprocessor inheritance (pass_fds): Orphanes are still running Zoom locks cannot grab Zoom lines will not be recycled Zoom without running.
 grep -q "pass_fds=proc_utils\.inherited_fds()" openagents/backends/claude_code.py \
-  || fail "backend 未把 flock fd 传给 agent 子进程继承（守夜被杀 → 孤儿 agent 仍在推 → 行被回收 → 双跑）"
+  || fail "backend Not put flock fd Pass it. agent The Son Process is inherited (Silver Watch killed) → Orphans agent Still pushing. → Lines Recycled → Double running)"
 grep -q "proc\.hold_fd(fd=self\._lock_fd)" openagents/recipes/vigil.py \
-  || fail "vigil 未把认领的 flock fd 登记给 agent 子进程继承"
+  || fail "vigil Unclaimed flock fd Registered to agent Subprocess Succession"
 
-# 5d-ter. **继承必须配一道闸。** 锁传给 agent 后也会传给它的孙子（pass_fds 在子进程里清了 CLOEXEC，而 agent
-# 不是 python，不会替我们关）：agent 泄漏一个长命孙子（MCP server / 后台 dev server），那把锁就永远不放 →
-# 那个 queued 行永远领不走，而所有看门狗都看不见它（回收只扫 claimed / IN_FLIGHT 看 claimed_at / QUIET 看门狗
-# 只对 QUIET 生效）。没有 _sweep_stalled，这里就是拿一个罕见的双跑换一个**永久的静默停摆**。
+# 5d-ter. ** Succession must be accompanied by a gate.** The lock passed to agent and then passed to his grandson. (pass_fds clears CLOEXEC in the child process, and angen
+# Not python, not for us: agent leaks a long-lived grandson (MCP server/ backstage dev server), and the lock never goes.
+# That. queued The line never goes away, and all the watchdogs can't see it. claimed / IN_FLIGHT Look. claimed_at / QUIET watchdog
+# Only QuiET. Without _sweep_stalled, this is a rare double run for a permanent quiet stop**.
 uv run --extra dev python -c "
 import inspect
 from openagents.recipes import vigil
 assert '_sweep_stalled(' in inspect.getsource(vigil._producer_tick), (
-    '生产者 tick 未扫「queued 却领不走」的行（存活证明被泄漏进程占死 → 永久静默停摆）'
+    'Producers tick Unsweeped”queued ”and he can’t take it.” →   I’m going to be quiet forever  '
 )
-" || fail "生产者 tick 未扫陈锁"
+" || fail "Producers tick Uncleaned lock"
 
-# 5d-quater. **那道闸自己会误伤，必须再配三道。** _sweep_stalled 会 park 一个 subject（停掉一个 issue 的活），
-# 所以它的假阳性比它要治的病更贵。三个已证的误伤面：
-#   (1) TOCTOU：SELECT 出快照后，park 一行要花好几秒的 gh 往返；这期间 worker 完全可以合法领走**另一行**并
-#       拿走它的锁 —— 再去探它，锁是「被占着」的，于是把一个正在干活的 claimed 行 park 掉并删了。故 park 前
-#       必须在 BEGIN IMMEDIATE 里复核「这行还是 queued」，且 DELETE 必须带 AND status='queued'。
-#   (2) 交接窗口：_requeue_or_park/_reclaim_dead 先把 status 改回 queued 提交、再 os.close(fd)，中间那一瞬
-#       就是合法的「queued 且锁被持有」。而 enqueued_at 为了防饿死是**从不刷新**的，拿它当年龄闸 → 长命行一
-#       requeue 就「超龄」，正好在这个窗口里被判死。故年龄必须是**跨 tick** 的 seen_locked 记忆：一次 tick 里
-#       只可能观测到一次，活不过第二次 tick。
-#   (3) 一行 park 不成（gh 429）不许掀桌：异常逃出去 → 整个 tick 死 → 不 _intake、不感知，全线停摆。
+# ** _sweep_stalled will park a subject (stopping a job of a sossue)
+# So it's more positive than it needs.
+#   (1) TOCTOU: SELECT takes several seconds for the line to go and go; during this period, worker can legally take ** another line** and
+#       Take its lock -- go and look it up, it's "occupied" and then remove and delete a working claimed park. So park before
+#       The "business or queued" must be reviewed in the BEGIN IMMEDIATE and DESETE must take AND status= queued.
+#   (2) Console window: _requeue_or_park/_reclaim_dead first to reset status to queued submission, then os.close (fd), in the middle of the moment
+#       enqueued_at is never updated to keep the hunger alive, and it's used as a gate for the long life of the world.
+#       Requeue is "overage" and is the right time to die in this window. The age must be seen_locked memory: a tick in **
+#       Only one can be observed, but no second tick.
+#   (3) The row of Park is closed: the whole of the tick dies, and the whole line is shut down.
 grep -q "BEGIN IMMEDIATE" openagents/recipes/vigil.py \
-  || fail "park 前未在 BEGIN IMMEDIATE 里复核行状态（TOCTOU：会把 worker 正在跑的 claimed 行删掉）"
+  || fail "park Not before BEGIN IMMEDIATE Review status in (in)TOCTOU: Will put worker Running. claimed Deleted)"
 grep -q "DELETE FROM work_queue WHERE id=? AND status='queued'" openagents/recipes/vigil.py \
-  || fail "park 的 DELETE 未带 status='queued' 守卫（发标签那几秒里被领走 → 删掉在跑的行）"
-# 而且**删行必须发生在 gh 之前**：只「复核一下再发 label」救得了行、救不了话——复核到发完 label 的那几秒里
-# 泄漏进程可能恰好死掉、锁一自由 worker 就合法领走并开跑，那条 needs-human 于是落在一个**健康且正在被执行**
-# 的 subject 上 → 下一圈判 TERMINAL → worker 掉头就走 → 这个 issue 再也不会被动手。删行即预约（_claim_next
-# 只认 queued），抢到了才开口。
+  || fail "park It’s... DELETE Not with status='queued' Guards. → Delete the line that runs)"
+# And ** the deletions must have taken place before gh**: only "reveal the label" can save the speech, and the review can't save the moment the label is finished.
+# The leak may happen to be dead, lock a free worker, and then legally take away and run, the needs-human, and then falls in a ** healthy and being executed**
+# It's... subject Go, go, go! → Next round. TERMINAL → worker Turn around and leave. → This. issue No more hands._claim_next
+# I'm just saying, I'm not gonna say anything until I get it.
 uv run --extra dev python -c "
 import ast, inspect, textwrap
 from openagents.recipes import vigil
 fn = ast.parse(textwrap.dedent(inspect.getsource(vigil._park_stalled))).body[0]
-body = fn.body[1:] if ast.get_docstring(fn) else fn.body   # 只看**代码**：文档字符串里也写着这两个词，
-code = chr(10).join(ast.unparse(node) for node in body)    # 拿原文找会被自己的注释喂成一条恒真断言
+body = fn.body[1:] if ast.get_docstring(fn) else fn.body   # Just looking.**Code**: These two words are also written in the document string.
+code = chr(10).join(ast.unparse(node) for node in body)    # I’ll be fed my own notes to a constant claim.
 assert code.index('DELETE FROM work_queue') < code.index('_park_needs_human'), (
-    '_park_stalled 先发 label 再删行 → label 会落在一个 worker 已合法领走的健康 subject 上（永久停摆）'
+    '_park_stalled First. label Delete the line. → label It’ll fall on one. worker Health legally recovered subject Top (permanently suspended)'
 )
-" || fail "park 的顺序错了（必须先抢行、再开口）"
+" || fail "park It’s in the wrong order."
 grep -q "seen_locked" openagents/recipes/vigil.py \
-  || fail "陈锁判定未跨 tick（用 enqueued_at 当年龄闸会误杀 requeue/reclaim 的交接窗口）"
+  || fail "The lock is not broken. tick(Used) enqueued_at When you’re at the age gate, you kill by mistake. requeue/reclaim )"
 uv run --extra dev python -c "
 import inspect
 from openagents.recipes import vigil
 sweep = inspect.getsource(vigil._sweep_stalled)
-assert 'except' in sweep, '_sweep_stalled 未隔离单行 park 失败（一次 gh 429 会掀掉整个生产者 tick）'
+assert 'except' in sweep, '_sweep_stalled No single line separated park Failed (one time) gh 429 It’ll turn off the whole producer. tick）'
 drain = inspect.getsource(vigil._drain_queue)
-assert '_sweep_stalled' in drain, '_drain_queue 不扫陈锁（--once 会在泄漏的锁上干等满 _DRAIN_MAX_SECONDS）'
-" || fail "陈锁闸的隔离/排空面不符"
+assert '_sweep_stalled' in drain, '_drain_queue Do not sweep locks (--once It’ll be drying up on the leak locks. _DRAIN_MAX_SECONDS）'
+" || fail "The Chen lock and quarantine./The empty face doesn’t match."
 
-# 5d-quinquies. **`triage: human` 是一场对话，不是一次挂起**，而且那道闸必须是**人闸**。
-#   (1) 挂 needs-human 等人摘 label 是死胡同：needs-human 在 `_classify` 里是 TERMINAL、`_intake` 也跳过带它
-#       的 issue —— 挂上之后守夜再不看这个 issue，人在底下回什么话都没人读。故要在评论里问、等人回话再判。
-#   (2) 判「人点头没有」**不能拿 triager 顶**：triager 判的是另一个问题（issue 正文自不自洽），且纪律是
-#       **fail-open**（拿不准就派单）。人明说「先别做」不属于它那五类矛盾中的任何一类 → 它照判 actionable
-#       → **在人明确否决之下把活派出去**。那道人闸会当场退化成一台偏向「是」的 agent 闸。故必须走 fail-CLOSED
-#       的 admitter（stages.admit）。
-#   (3) 等的那段必须**零 LLM**：准入面每 tick 都会重新扫到这个 issue（它既没 ready 也没 needs-human），
-#       每轮叫一次 agent = 一台按 tick 计费的印钞机。
-#   (4) 「人回话了」的判据必须在**代码**里判死：只认我们提问**之后**发的、**没有我方签名**的评论。少了签名
-#       这一条，我们自己写的 park 理由/attempt 戳就会被当成人的回话 → agent 对着自己写的话开会（自问自答）。
+# 5d-quinquies. ** `triage: human` is a dialogue, not a one-time hang-up**, and the gate must be ** a human gate**.
+#   (1) Hangs needs-human et al. label is a dead end: Neds-human in `_classify` is TERMINAL, `_intake` also skips to take it
+#       The issue -- you can't watch this until after the Vigil, and nobody reads anything down there. So ask the comment and wait for a response.
+#   (2) "Nods"** cannot be given: Triager is another issue, and discipline is
+#       **fail-open** (shows if you can't.) People say "do it first" does not belong to any of its five categories.
+#       ** Send the living under a clear veto**. The gate will be turned into a "yes" agent. So you must go fail-CLOSED
+#       It's... admitter（stages.admit）。
+#   (3) The part that waits must **LLLM**: every tick on the access is re-scanning this issue (it has neither been ready nor needs-human) and it is not a good idea to be able to get back to the rest of the world.
+#       Every round is called antent = a tick-based machine.
+#   (4) The sentence of "persons answer" must be passed in code**: comments issued after we ask the questions** and** without our signature**.
+#       This is the one we write ourselves for Park Reason/attempt, and it's a human response to what you write.
 uv run --extra dev python -c "
 import ast, inspect, textwrap
 from openagents.recipes import vigil
 
-def _code(fn):  # 只看**代码**：文档字符串里出现的词不算数（措辞骗不过 AST）
+def _code(fn):  # Just looking.**Code**: Words appear unnumbered in document string (words are not deceptive) AST）
     node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
     stmts = node.body[1:] if ast.get_docstring(node) else node.body
     return chr(10).join(ast.unparse(s) for s in stmts)
 
 code = _code(vigil._ask_human)
-assert '_ADMIT_ASK_MARK' in code, '_ask_human 没有「问过了吗」的标记 → 每 tick 重复提问'
-assert 'stages.admit' in code, '_ask_human 未走 fail-closed 的 admitter'
+assert '_ADMIT_ASK_MARK' in code, '_ask_human There’s no ”Is there a question” tag. → Every tick Repeat the question.'
+assert 'stages.admit' in code, '_ask_human Not gone. fail-closed It’s... admitter'
 assert 'stages.triage' not in code, (
-    '_ask_human 拿 triager 判「人点头没有」→ 它 fail-open，人明说「先别做」也会被判可派单（人闸退化）'
+    '_ask_human Take it. triager ”Nods.”→ It’s... fail-openPeople say ”don’t do it” and they get a pass.'
 )
-assert '_human_replies' in code, '_ask_human 不判「人回话了没」→ 等待期每 tick 叫一次 agent（印钞机）'
+assert '_human_replies' in code, '_ask_human No ”does anyone answer?”→ Waiting period every tick Call me once. agent(Cellprinter)'
 assert code.index('_human_replies') < code.index('stages.admit'), (
-    '_ask_human 先叫 agent 再判有没有人回话 → 等待期照样烧 LLM'
+    '_ask_human Go ahead. agent And if anyone answers, → The waiting period is the same. LLM'
 )
-assert '_dialogue' in code, '_ask_human 没把对话喂给 admitter → 人说的话等于没说'
+assert '_dialogue' in code, '_ask_human I didn’t feed the conversation. admitter → People say nothing.'
 assert code.index('_post_admit_verdict') < code.index('_grant_ready'), (
-    '裁决未先落 GitHub 再落地 → 打 label 那步一挂（429），下一 tick 就要重判一次（重复烧 LLM）'
+    'The award was not set. GitHub Fall back. → Fight! label That step goes on.429）Next tick You’re gonna have to re-sentencing. LLM）'
 )
 assert code.index('_post_admit_try') < code.index('stages.admit'), (
-    'try 戳（LLM 的准入券）没在叫 agent 之前盖 → agent 一判崩（输出不合约/超时/429）就什么持久痕迹都不留，'
-    '下一 tick 又扫到这个 issue → 每 tick 烧一次 LLM，永远'
+    'try Poke (Puncture)LLM   The coupons   agent Before the cover → agent - One sentence./timeout/429）The blogger says that the government is not going to let anything last.'
+    'Next tick Here we go again. issue → Every tick Burn it once. LLMForever.'
 )
 assert '_admit_tried' in code, (
-    '没判「人这句话是不是已经烧过一次 agent」→ 判崩的 issue 每 tick 重烧一次，不会转人工'
+    'I’ve never said ”person” before. agent」→ It’s a sentence. issue Every tick It’s a new burn. It’s not a transfer.'
 )
 replies = _code(vigil._human_replies)
 assert 'parse_agent_id' in replies and 'created_at >' in replies, (
-    '「人回话了」的判据不全（须同时是：提问之后 + 无我方签名），否则会把自己写的评论当成人的回话'
+    'The verdict ”he said he did” was incomplete. + Without our signature, we will take our comments as a human reply.'
 )
 assert '_MAINTAINER_ASSOCIATIONS' in replies, (
-    '人闸不认人 → 公开仓库里任何路人回一句「可以，做吧」都能把活派出去（admitter 的提示词拦不住：'
-    '它读到的只是一段外人可写的文本，压根不知道该听谁的）'
+    'The gate is not a person. → Any one of the people in the public warehouse can send the living.admitter The text of the message cannot be stopped:'
+    'It reads only a text that an outsider can write, and it doesn’t even know who to listen to.'
 )
 dialogue = _code(vigil._dialogue)
 assert '_human_replies' in dialogue, (
-    '喂给 admitter 的对话不是「我们的提问 + 维护者的回话」→ 路人评论进 prompt = 把 fail-closed 的人闸'
-    '暴露给提示词注入；我方自己的戳进 prompt = agent 在同一段对话里跟自己开会'
+    'Here. admitter The conversation wasn’t ”Our questions.” + ”The defender’s response.”→ The passersby is a commenter. prompt = - Put it on. fail-closed The gate.'
+    'Exposure to infusion of hints; our own poking prompt = agent I’m meeting myself in the same conversation.'
 )
 verdict = _code(vigil._admit_verdict)
 assert 'reply_key' in verdict and 'created_at' not in verdict, (
-    '裁决戳挂时间戳而不是评论 id → GitHub 的 createdAt 只到秒，人在同一秒里改口说的新话会命中上一句话的'
-    'refused 戳 → 人再也无法点头（fail-closed 从「多等一句话」退化成「永久拒绝」）'
+    'The award is suspended on time rather than on comment. id → GitHub It’s... createdAt In seconds, a new word will hit a sentence.'
+    'refused Poke → No one can nod their head.fail-closed The blogger says that the ”one word more” is being reduced to ”permanent rejection”.'
 )
 key = _code(vigil._reply_key)
-assert 'reply.id' in key, '人那句话的身份必须是 comment id（永不复用），不能拿只到秒的时间戳当身份'
+assert 'reply.id' in key, 'The person must be the identity of the person. comment id”Never again” ”Don’t use the second to mark”'
 park = _code(vigil._park_needs_human)
 assert 'identity.sign' in park, (
-    'park 的理由评论没签名 → 人只摘 label 不回话时，我们自己写的 park 理由会被当成人的回话（自问自答）'
+    'park The reason for not signing. → People only pick them up. label We wrote it when we didn’t answer. park The reason is to be taken as a human reply.'
 )
 assert '_already_said' in park, (
-    'park 不查重 → 人摘掉 label 却什么也没改变时，每 tick 重贴一条一模一样的理由（label 幂等，评论不幂等）'
+    'park No Serious → Take them off. label And when nothing changes, every time, tick Repost an identical reason (s)label Wait, wait, wait, wait.'
 )
-" || fail "准入面 human 三态不是对话 / 拿 fail-open 的 triager 当人闸 / 等待期烧 LLM / 我方评论未签名 / 人闸不认人"
+" || fail "Access human Triple state is not a conversation. / Take it. fail-open It’s... triager As a human gate. / Waiting period for burning LLM / We’re not signing the comment. / The gate is not a person."
 
-# 5d-sexies. admitter 的纪律必须是 **fail-closed**：默认「没点头」。它的判据只有一个（人到底同意没有），
-# 输出面 {approved, reason} 与 triager 的 {actionable, reason} 刻意不同名——一个位子一份契约，串了就会被
-# 当成同义词重新接回 triager 去。
+# The discipline of 5d-sexies.admitter must be **fail-closed**: the default "no nod" is not.
+# The output side {approved, reason} is not the same name {actionable, reason} of Triager -- a place is a contract, and the string is made
+# Re-mail it as a synonym to Triage.
 uv run --extra dev python -c "
 from openagents.agents import admitter
-assert admitter.OUTPUT_SCHEMA == {'approved': bool, 'reason': str}, 'admitter 的输出契约不符'
+assert admitter.OUTPUT_SCHEMA == {'approved': bool, 'reason': str}, 'admitter The output contract is not in line.'
 tmpl = admitter.PROMPT.template
 for token in ('\$issue_body', '\$dialogue'):
-    assert token in tmpl, f'admitter PROMPT 缺占位符 {token}'
-assert 'fail-closed' in tmpl or '不可擅自开工' in tmpl, 'admitter 未写死 fail-closed 纪律（拿不准=没点头）'
-" || fail "admitter 契约/纪律不符（人闸必须 fail-closed）"
+    assert token in tmpl, f'admitter PROMPT Missing placeholder {token}'
+assert 'fail-closed' in tmpl or 'You can’t start without permission.' in tmpl, 'admitter Not written dead. fail-closed Discipline (unruly)=No nods.'
+" || fail "admitter Contracts/I don’t know. fail-closed）"
 
-# 5e. `needs-human` 是 agent 的一等出口：每个**叫起 agent** 的分支都要把契约拼进提示词，否则该分支的
-# agent 无路可退，只能硬着头皮往下走（兜底变主路径）。7 个 _do_* 里 _do_merge 是纯机械的，不叫 agent。
+# `needs-human` is the first-class exit for an individual: every branch called an agent** must spell the contract in a hint, otherwise the branch should be
+# Angent has no way back, but he can only walk down with his head (the main path). 7 _do_* of _do_merge is purely mechanical, not agent.
 uv run --extra dev python -c "
 import inspect
 from openagents.recipes import vigil
@@ -594,12 +579,12 @@ missing = [
     n for n in branches
     if '_NEEDS_HUMAN_CONTRACT' not in inspect.getsource(getattr(vigil, n))
 ]
-assert not missing, f'这些 agent 分支没拼 needs-human 契约：{missing}'
-assert len(branches) >= 6, f'agent 分支只找到 {len(branches)} 个，锚点可能失准'
-" || fail "有 agent 分支未注入 _NEEDS_HUMAN_CONTRACT（一等出口被堵死）"
+assert not missing, f'These. agent The branch’s not working. needs-human Contract:{missing}'
+assert len(branches) >= 6, f'agent The branch only found {len(branches)} One, the anchor could be off the grid.'
+" || fail "Yes. agent Branches Not Injected _NEEDS_HUMAN_CONTRACT  First exit blocked  "
 
-# 5f. `--parallel` 是并发度旋钮，必须在 argparse 层收边界：0/负数会被静默当成 1（K 台机器变 1 台，
-# 排队假死），巨大值会真的去开那么多线程（打爆 gh 限流/文件句柄）。
+# 5f. `--parallel` is a side-shot slinger, which must close the boundary at the argparse level: 0/negatives will be treated as 1 (K machines converted to 1), and the QC will be used to keep silent.
+# The Queue is dead, and the huge value is really going to drive so many lines (the gh limit/file handle).
 uv run --extra dev python -c "
 import argparse
 from openagents.cli import _MAX_PARALLEL, _parallel_k
@@ -609,10 +594,10 @@ for bad in ('0', '-3', str(_MAX_PARALLEL + 1), 'abc'):
         _parallel_k(bad)
     except argparse.ArgumentTypeError:
         continue
-    raise AssertionError(f'--parallel 接受了越界值 {bad!r}')
-" || fail "--parallel 未收边界（0/负数/超大值被放行）"
+    raise AssertionError(f'--parallel Accept cross-border values {bad!r}')
+" || fail "--parallel Unreceipt of border (in thousands of United States dollars)0/Negative/Super-high value released)"
 
-echo "✓ grep 锚点全部通过：flock（非 lockf）、DELETE 收工、无租约列、recipes 零 subprocess 直调、"
-echo "  精确杀进程树（自报 PID）、needs-human 契约注入全分支、--parallel 边界"
+echo "✓ grep All anchor points pass:flock(No lockf）、DELETE Payback, no lease,recipes nil subprocess Straight, straight."
+echo "  Precision kill process tree (self-reported) PID）、needs-human The contract is in the whole branch.--parallel boundary"
 echo
-echo "✅ Spec-0065 离线 e2e 全绿"
+echo "✅ Spec-0065 Offline e2e All green."

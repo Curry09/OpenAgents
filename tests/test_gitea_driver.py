@@ -1,8 +1,8 @@
-"""# Spec-0074/T2: Gitea driver 单测——假 HTTP 层（monkeypatch gitea._http）覆盖公共面请求形状与语义映射。
+"""# Spec-0074/T2: Gitea driver single-scale - fake HTTP layer (monkeypact gitea._http) overwhelms public-faced request shapes and semantic maps.
 
-不触网络：全部经 `_FakeHttp` 回放 canned 响应并记录请求（method/path/body/query），逐条断言
-Spec-0074 正文映射表（checks→combined status、mergeable bool 三态收敛、WIP 前缀、dependencies、
-update 422、merge 幂等、标签名→id、瞬时 5xx 退避重试）。
+No Network: Replayed through `_FakeHttp` Canned Respond and Record Request (method/path/body/query), Article by Article
+Spec-0074 Text Map (checks  → compined status, mergable bool tri-state condensation, WIP prefix, decendencis,
+The blog, ”Assisting the Internet, I can read the blog, and see the blog, ”Assisting the Internet, I can read the blog, and see the blog.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def _configured(monkeypatch):
 
 
 class _FakeHttp:
-    """按序回放响应并记录每次请求（driver 的唯一传输缝）。"""
+    """Rewind the response in order and record each request (the only transmission stitch for the driver)."""
 
     def __init__(self, responses):
         self.calls = []
@@ -42,12 +42,12 @@ def _install(monkeypatch, *responses):
 
 
 # --------------------------------------------------------------------------------------------------
-# configure / 预检。
+# Configure/ Pre-check.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_configure_requires_connection_keys():
-    with pytest.raises(GithubError, match="缺少连接设置"):
+    with pytest.raises(GithubError, match="Missing Gitea connection settings"):
         gitea.configure(settings={"base_url": "http://x"})
 
 
@@ -64,7 +64,7 @@ def test_ensure_prerequisites_probes_repo_and_labels(monkeypatch):
     fake = _install(
         monkeypatch,
         (200, {"full_name": "own/rep"}, ""),  # GET repos/own/rep
-        (200, existing, ""),  # 首个 ensure 完整预读；其余全部命中缓存，零 POST
+        (200, existing, ""),  # First complete preread; all remaining hits cache, zero POST
     )
     gitea.ensure_prerequisites()
     assert fake.calls[0] == {"method": "GET", "path": "repos/own/rep", "body": None, "query": None}
@@ -72,14 +72,14 @@ def test_ensure_prerequisites_probes_repo_and_labels(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# 标签：名→id、幂等。
+# Label: Name  → id,  → , etc.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_ensure_label_creates_with_hash_color(monkeypatch):
     fake = _install(
         monkeypatch,
-        (200, [], ""),  # POST 前完整预读，确实不存在
+        (200, [], ""),  # Full preread before POST does not exist
         (201, {"id": 7, "name": "ready"}, ""),
     )
     gitea.ensure_label(name="ready")
@@ -98,9 +98,9 @@ def test_ensure_label_existing_name_never_posts(monkeypatch):
 def test_ensure_label_creation_race_refreshes_cache(monkeypatch):
     fake = _install(
         monkeypatch,
-        (200, [], ""),  # 预读时尚不存在
+        (200, [], ""),  # Preread does not exist
         (409, None, "already exists"),
-        (200, [{"id": 3, "name": "ready"}], ""),  # 回退 GET labels
+        (200, [{"id": 3, "name": "ready"}], ""),  # Back
     )
     gitea.ensure_label(name="ready")
     assert gitea._label_ids["ready"] == 3
@@ -129,19 +129,19 @@ def test_issue_add_label_resolves_id(monkeypatch):
 
 
 def test_issue_remove_label_unknown_label_is_noop(monkeypatch):
-    fake = _install(monkeypatch, (200, [], ""))  # 仅 refresh 的 GET
+    fake = _install(monkeypatch, (200, [], ""))  # Only refresh
     gitea.issue_remove_label(number=9, name="ghost")
-    assert [call["method"] for call in fake.calls] == ["GET"]  # 无 DELETE
+    assert [call["method"] for call in fake.calls] == ["GET"]  # No Delete
 
 
 def test_issue_remove_label_404_is_noop(monkeypatch):
     gitea._label_ids["ready"] = 5
     _install(monkeypatch, (404, None, "not found"))
-    gitea.issue_remove_label(number=9, name="ready")  # 不抛
+    gitea.issue_remove_label(number=9, name="ready")  # No, no, no, no, no, no, no, no, no, no.
 
 
 # --------------------------------------------------------------------------------------------------
-# issue 读写。
+# - I'm not gonna tell you.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ def test_get_issue_parses_labels(monkeypatch):
 
 
 def test_list_issues_uses_server_search_and_revalidates_response(monkeypatch):
-    """# Spec-0074/T2: 标签过滤交 search API；若服务端混回脏数据，响应复核仍 fail-closed。"""
+    """# Spec-0074/T2: Tag filtering for search API; if service end mixed back dirty data, responding to review still failed-closed."""
     fake = _install(
         monkeypatch,
         (200, [{"id": 11, "name": "openagents"}], ""),
@@ -239,7 +239,7 @@ def test_list_issues_multiple_labels_are_one_server_side_or_query(monkeypatch):
 
 
 def test_list_issues_unknown_label_is_zero_match_not_unfiltered(monkeypatch):
-    """未知标签必须是「零匹配」——绝不能把 labels 参数省掉退化成全量发现（vigil 会吃进所有 issue）。"""
+    """Unknown labels must be ”Zero Match” - never save the degradation of the labels parameter to full discovery (vigil will eat all the issues)."""
     fake = _install(
         monkeypatch,
         (200, [{"id": 3, "name": "other"}], ""),
@@ -328,7 +328,7 @@ def test_create_issue_maps_label_names_to_ids(monkeypatch):
 
 def test_close_issue_404_is_noop(monkeypatch):
     _install(monkeypatch, (404, None, "not found"))
-    gitea.close_issue(number=9)  # 不抛
+    gitea.close_issue(number=9)  # No, no, no, no, no, no, no, no, no, no.
 
 
 def test_comments_author_association_owner_only(monkeypatch):
@@ -354,7 +354,7 @@ def test_comments_author_association_owner_only(monkeypatch):
         ),
     )
     comments = gitea.list_issue_comments(number=3)
-    # 语义降级：只把配置 owner 认作 OWNER，其余 fail-closed 留空。
+    # Semantic downgrade: Only configuration owner is considered to be OWNER, the rest of the faiil-closed is left empty.
     assert comments[0].author_association == "OWNER"
     assert comments[1].author_association == ""
 
@@ -366,7 +366,7 @@ def test_pr_comments_share_issue_endpoint(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# 依赖边（blocked_by）。
+# Dependence on edges (blocked_by).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -382,7 +382,7 @@ def test_list_blocked_by_404_means_no_deps(monkeypatch):
 
 
 def test_add_blocked_by_posts_issue_meta(monkeypatch):
-    # Spec-0074 实证修复：仓名字段的 JSON key 是 `repo` 不是 `name`（传 name 被吞空 → 404）。
+    # Spec-0074 Empirical fixation: JSON key from the warehouse name section is `repo`, not `name` (said name swallowed up 404).
     fake = _install(monkeypatch, (201, {}, ""))
     gitea.add_blocked_by(number=9, blocker_number=4)
     assert fake.calls[0]["body"] == {"index": 4, "owner": "own", "repo": "rep"}
@@ -390,18 +390,18 @@ def test_add_blocked_by_posts_issue_meta(monkeypatch):
 
 def test_add_blocked_by_duplicate_is_noop(monkeypatch):
     _install(monkeypatch, (409, None, "duplicate"))
-    gitea.add_blocked_by(number=9, blocker_number=4)  # 不抛
+    gitea.add_blocked_by(number=9, blocker_number=4)  # No, no, no, no, no, no, no, no, no, no.
 
 
 def test_add_blocked_by_feature_unavailable_404_is_noop(monkeypatch):
-    # Spec-0074 实证修复：依赖边是建议性特性（deps_done 机械复核兜底），404 与 list_blocked_by
-    # 对称降级为 no-op——绝不能让可选特性失败把票挂死到 needs-human。
+    # Spec-0074 empirical restoration: Dependency edge is recommendatory characteristic (back of deps_done mechanical review), 404 and list_blocked_by
+    # Symmetric downgrading to no-op - The optional characteristics must not be allowed to fail to hang to needs-human.
     _install(monkeypatch, (404, None, "not found"))
-    gitea.add_blocked_by(number=9, blocker_number=4)  # 不抛
+    gitea.add_blocked_by(number=9, blocker_number=4)  # No, no, no, no, no, no, no, no, no, no.
 
 
 # --------------------------------------------------------------------------------------------------
-# PR：draft/WIP、状态归一、mergeable 收敛、按分支查找。
+# PR: draft/WIP, status one, mergeable, branch-based.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -426,7 +426,9 @@ def test_pr_for_branch_filters_by_head_ref(monkeypatch):
     )
     pr = gitea.pr_for_branch(branch="mine")
     assert pr is not None and pr.number == 2
-    assert fake.calls[0]["query"]["state"] == "all"  # 不限状态——终止条件要能看见已合并 PR
+    assert (
+        fake.calls[0]["query"]["state"] == "all"
+    )  # Open-ended status - termination conditions to see merged PR
 
 
 def test_pr_snapshot_merged_and_mergeable_mapping(monkeypatch):
@@ -448,7 +450,7 @@ def test_pr_snapshot_merged_and_mergeable_mapping(monkeypatch):
         ),
     )
     snap = gitea.pr_snapshot(pr_number=5)
-    assert snap.state == "MERGED"  # merged 布尔归一到三态互斥
+    assert snap.state == "MERGED"  # Standalone pull request.
     assert snap.mergeable == "CONFLICTING" and snap.merge_state_status == "DIRTY"
     assert snap.head_sha == "abc" and snap.labels == ("x",)
 
@@ -464,7 +466,7 @@ def test_pr_snapshot_missing_mergeable_is_unknown(monkeypatch):
     )
     snap = gitea.pr_snapshot(pr_number=5)
     assert snap.mergeable == "UNKNOWN" and snap.merge_state_status == "UNKNOWN"
-    assert snap.is_draft is True  # WIP 标题前缀即 draft
+    assert snap.is_draft is True  # WIP Header Prefix is draft
 
 
 def test_mark_ready_strips_wip_prefix(monkeypatch):
@@ -481,7 +483,7 @@ def test_mark_ready_strips_wip_prefix(monkeypatch):
 def test_mark_ready_noop_when_not_draft(monkeypatch):
     fake = _install(monkeypatch, (200, {"number": 5, "title": "t", "head": {}}, ""))
     gitea.mark_ready(pr_number=5)
-    assert len(fake.calls) == 1  # 只 GET，无 PATCH
+    assert len(fake.calls) == 1  # GET, NO PACH
 
 
 def test_update_branch_already_up_to_date_returns_false(monkeypatch):
@@ -506,9 +508,13 @@ def test_merge_pr_already_merged_is_idempotent(monkeypatch):
     _install(
         monkeypatch,
         (405, None, "already merged"),
-        (200, {"number": 5, "state": "closed", "merged": True, "title": "t"}, ""),  # is_merged 复读
+        (
+            200,
+            {"number": 5, "state": "closed", "merged": True, "title": "t"},
+            "",
+        ),  # is_merged Reread
     )
-    gitea.merge_pr(pr_number=5)  # 不抛
+    gitea.merge_pr(pr_number=5)  # No, no, no, no, no, no, no, no, no, no.
 
 
 def test_merge_pr_blocked_and_not_merged_raises(monkeypatch):
@@ -522,7 +528,7 @@ def test_merge_pr_blocked_and_not_merged_raises(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# CI：combined status 归类 / 计数 / 分支绿判。
+# CI: classified status/ count/ branch green.
 # --------------------------------------------------------------------------------------------------
 
 _PULL_HEAD = (200, {"number": 5, "state": "open", "title": "t", "head": {"sha": "abc"}}, "")
@@ -552,7 +558,7 @@ def test_check_status_failure_collects_logs(monkeypatch):
 def test_check_snapshot_zero_statuses_counts_zero(monkeypatch):
     _install(monkeypatch, _PULL_HEAD, (200, {"state": "", "statuses": []}, ""))
     snap = gitea.check_snapshot(pr_number=5)
-    # 零 status 如实计 0——「没有 check」≠「绿」，判「等 CI」的责任在守夜调用方。
+    # Zero status as the actual zero-- "No check" "Green" and the "waiting for the CI" is the night caller.
     assert snap.count == 0 and snap.state == "pass" and snap.latest_started_at == ""
 
 
@@ -588,7 +594,7 @@ def test_branch_ci_green_pending_false(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# diff 指纹 / 重试 / 命令文本。
+# Diff fingerprint/ retry/ command text.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -599,9 +605,9 @@ def test_code_fingerprint_hashes_and_strips(monkeypatch):
     )
     _install(monkeypatch, (200, None, diff))
     fingerprint = gitea.code_fingerprint(pr_number=5)
-    assert fingerprint  # 非空
+    assert fingerprint  # Non-empty
     _install(monkeypatch, (200, None, "diff --git a/src.py b/src.py\n+code\n"))
-    assert gitea.code_fingerprint(pr_number=5) == fingerprint  # 证据文件块不改指纹
+    assert gitea.code_fingerprint(pr_number=5) == fingerprint  # The evidence piece stays the same.
 
 
 def test_code_fingerprint_error_fail_open(monkeypatch):

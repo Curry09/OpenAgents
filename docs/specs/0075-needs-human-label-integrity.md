@@ -1,12 +1,12 @@
 ---
 number: "0075"
-title: needs-human 结构化交接与标签完整性守卫
+title: "Structured needs-human handoff and label integrity guard"
 issue: 0
 slug: needs-human-label-integrity
-summary: Agent 以结构化结果请求 needs-human，由 Vigil 经 forge 追加标签和签名评论，并在每次动作后检测、恢复非预期标签删除，防止 Gitea PUT 覆盖流程元数据。
+summary: "The Agent requests needs-human through a structured result. Vigil then adds the label and a signed comment through forge, and detects and restores unexpected label removals after every action to prevent Gitea PUT from overwriting workflow metadata."
 tasks:
   - id: T1
-    title: 固化 needs-human 完整性规格
+    title: "Formalize the needs-human integrity specification"
     status: done
     priority: P0
     tags: []
@@ -15,10 +15,10 @@ tasks:
     parallel: false
     files:
       - docs/specs/0075-needs-human-label-integrity.md
-    scope: 维护故障证据、结构化控制结果、标签单调性边界和跨仓验收。
-    acceptance: 九段 RFC 完整；validate、render、graph 通过；不修改运行时代码。
+    scope: "Maintain failure evidence, structured control results, label monotonicity boundaries, and cross-repository acceptance criteria."
+    acceptance: "All nine RFC sections are complete; validate, render, and graph pass; no runtime code is modified."
   - id: T2
-    title: 增加结构化 needs-human 控制结果
+    title: "Add a structured needs-human control result"
     status: done
     priority: P0
     tags: []
@@ -29,10 +29,10 @@ tasks:
     files:
       - openagents/runtime/engine.py
       - tests/test_runtime_engine.py
-    scope: 在普通角色 schema 校验前识别 needs-human envelope，并以带非空 reason 的类型化信号返回控制面。
-    acceptance: 合法 envelope 被识别；空 reason 与错误值 fail-visible；所有既有角色正常输出与普通错误语义不变。
+    scope: "Recognize the needs-human envelope before ordinary role schema validation, and return it to the control plane as a typed signal with a nonempty reason."
+    acceptance: "Valid envelopes are recognized; an empty reason and incorrect values fail visibly; normal outputs and ordinary error semantics for all existing roles remain unchanged."
   - id: T3
-    title: 由 Vigil 统一交接并守卫标签完整性
+    title: "Centralize handoffs in Vigil and guard label integrity"
     status: done
     priority: P0
     tags: []
@@ -47,10 +47,10 @@ tasks:
       - tests/test_recipe_vigil.py
       - tests/test_recipe_vigil_queue.py
       - tests/test_agents_merger.py
-    scope: 改写 prompt 契约，捕获结构化交接并调用 _park_needs_human；比较 Agent 动作前后 labels，对非预期删除二次读取、additive 恢复并阻塞。
-    acceptance: Agent 不再被要求直写 forge；新增标签允许通过；删除标签被恢复并签名诊断；并发重加、终态和框架显式删除不误判。
+    scope: "Revise the prompt contract, capture structured handoffs, and call _park_needs_human; compare labels before and after Agent actions, reread on unexpected removals, restore additively, and block."
+    acceptance: "The Agent is no longer required to write directly to forge; newly added labels are allowed; removed labels are restored and a signed diagnostic is posted; concurrent re-additions, terminal states, and explicit removals by the framework do not trigger false positives."
   - id: T4
-    title: 锁定 Gitea 追加标签契约并完成 E2E
+    title: "Lock down the Gitea label-addition contract and complete E2E"
     status: done
     priority: P0
     tags: []
@@ -62,45 +62,45 @@ tasks:
       - openagents/utils/gitea.py
       - tests/test_gitea_driver.py
       - scripts/e2e-spec-0075-needs-human-label-integrity.sh
-    scope: 用方法级 contract test 锁定 POST add-label，并以 hermetic fake forge 和真实跨仓场景验收元数据保留。
-    acceptance: 测试同时断言 method、path、body；替换 labels 的故障被恢复为原标签并集 needs-human；auto-designer 详情无 metadata-loss 告警。
+    scope: "Use a method-level contract test to lock down POST add-label, and verify metadata preservation using a hermetic fake forge and real cross-repository scenarios."
+    acceptance: "Tests assert method, path, and body together; a failure that replaces labels is repaired by restoring the union of the original labels and needs-human; auto-designer details show no metadata-loss warning."
 ---
 
-# 0075 · needs-human 结构化交接与标签完整性守卫
+# 0075 · Structured needs-human Handoff and Label Integrity Guard
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-把 `needs-human` 从“提示 Agent 自己调用 forge API 打标签和评论”改成 Agent 向 Vigil 返回的结构化控制结果。运行时识别 `{"needs_human": true, "reason": "..."}`，Vigil 统一经已有 additive label API 和签名评论完成交接。与此同时，在每次 Agent 动作前后比较 subject labels；若 Agent 绕过协议、错误使用 Gitea replace-labels API 导致既有标签消失，Vigil 会重新读取、仅补回仍缺失的标签，再以 `needs-human` 阻塞并记录诊断。Gitea driver 的测试明确锁定追加标签必须使用 `POST`，跨仓验收保证来源、平面、优先级和轮次不会被阻塞出口覆盖。
+Change `needs-human` from “instructing the Agent to call forge APIs itself to add labels and comments” into a structured control result returned by the Agent to Vigil. The runtime recognizes `{"needs_human": true, "reason": "..."}`, and Vigil handles the handoff centrally through the existing additive label APIs and signed comments. At the same time, compare subject labels before and after every Agent action. If an Agent bypasses the protocol and incorrectly uses Gitea's replace-labels API, causing existing labels to disappear, Vigil rereads the labels, adds back only those still missing, then blocks with `needs-human` and records diagnostics. Gitea driver tests explicitly lock down the requirement that adding labels must use `POST`, while cross-repository acceptance testing ensures that source, plane, priority, and round are not overwritten by the blocking exit path.
 
 ## Motivation
 
-OpenAgents 的 `needs-human` 本意是一等安全出口：Agent 遇到超出授权、需求含糊、外部服务异常或无法可靠完成的工作时，应停止自动执行并把原因交给人。但当前 `_NEEDS_HUMAN_CONTRACT` 要求每个 Agent **自行**给 issue/PR 打 `needs-human` 并留言。Agent 拥有 forge token，也能执行任意命令；提示词没有强制它调用 `openagents.utils.github.issue_add_label/add_label`，因此它可能根据 Swagger 或经验直接拼 HTTP 请求。
+OpenAgents intends `needs-human` to be a first-class safety exit: when an Agent encounters work beyond its authorization, ambiguous requirements, external service failures, or work it cannot reliably complete, it should stop automatic execution and hand the reason to a human. However, the current `_NEEDS_HUMAN_CONTRACT` requires each Agent to **add the `needs-human` label and leave a comment itself** on the issue/PR. The Agent has a forge token and can execute arbitrary commands; the prompt does not force it to call `openagents.utils.github.issue_add_label/add_label`, so it may construct HTTP requests directly based on Swagger or prior experience.
 
-一次真实 Gitea 运行已经暴露了该边界。issue #7 在进入交付前拥有 `from-synthesize + P1 + openagents + ready`；执行 Agent 请求人工介入时发出了：
+An actual Gitea run has already exposed this boundary. Before entering delivery, issue #7 had `from-synthesize + P1 + openagents + ready`; when the execution Agent requested human intervention, it sent:
 
 ```text
 PUT /api/v1/repos/designer/auto-designer-work/issues/7/labels
 ```
 
-Gitea v1.22.6 将该端点定义为 **Replace an issue's labels**，所以最终只剩 `needs-human`。同一轮的 #10、#14 由框架 `_park_needs_human` 处理，走 `POST .../labels`，原有业务标签全部保留。这说明问题不在 Gitea 缺少 additive API，也不在此前修复的服务端 label filter，而在于“控制面把安全写入委托给了通用 Agent”。
+Gitea v1.22.6 defines this endpoint as **Replace an issue's labels**, so only `needs-human` remained afterward. In the same round, #10 and #14 were handled by the framework's `_park_needs_human`, using `POST .../labels`, and all existing business labels were preserved. This shows that the problem is neither Gitea lacking an additive API nor the previously fixed server-side label filter, but that “the control plane delegated safety-critical writes to a general-purpose Agent.”
 
-标签并非装饰：上游用 `proposal/report/ready` 表示平面，用 `from-*` 表示来源，用 `P*` 和 `round-*` 做调试、筛选与归因，Vigil 自己还依赖 `ready/openagents/needs-human/review-*` 路由。一次 replace 会同时损坏多个消费者，且当前流程只能在下一 tick 看到 `needs-human` 后把它当作正常终态，无法指出元数据已丢失。
+Labels are not decorative: upstream uses `proposal/report/ready` to indicate the plane, `from-*` to indicate the source, and `P*` and `round-*` for debugging, filtering, and attribution. Vigil itself also relies on `ready/openagents/needs-human/review-*` for routing. A single replace operation damages multiple consumers at once, and the current flow can only see `needs-human` on the next tick and treat it as a normal terminal state, without identifying that metadata has been lost.
 
-因此必须建立两层保障：正常路径不再让 Agent 直接写阻塞标签；即使 Agent 忽略契约或使用原始 token，编排层也能发现一次动作造成的非预期删除并恢复。OpenAgents 不需要理解 auto-designer 的每类业务标签，只需维护通用不变量：“一个普通 Agent 动作可以追加事实，但不能静默删除它开始时已经存在的标签”。
+Two layers of protection are therefore necessary: the normal path must no longer have Agents write blocking labels directly; even if an Agent ignores the contract or uses the raw token, the orchestration layer must be able to detect and restore unintended deletions caused by an action. OpenAgents does not need to understand every category of auto-designer business label. It only needs to maintain a general invariant: “An ordinary Agent action may add facts, but must not silently delete labels that already existed when it began.”
 
 ## Guide-level explanation
 
-所有经 Vigil 派出的 Agent 仍能主动决定“这里必须交人”，但它的最后输出改为：
+All Agents dispatched through Vigil can still actively decide that “this must be handed to a human,” but their final output becomes:
 
 ```json
-{"needs_human": true, "reason": "上游测试服务持续返回 503，继续修改代码无法验证正确性"}
+{"needs_human": true, "reason": "The upstream test service keeps returning 503; further code changes cannot be verified for correctness"}
 ```
 
-它不再被要求查找 issue 编号、调用 GitHub/Gitea API、挑选 HTTP method 或自行签名。`reason` 必须非空，描述具体阻塞和已验证事实；正常完成时仍返回该 Agent 原有的最后行 JSON schema。
+The Agent is no longer required to look up the issue number, call GitHub/Gitea APIs, choose an HTTP method, or sign the comment itself. `reason` must be nonempty and describe the specific blocker and verified facts; on normal completion, the Agent still returns its original final-line JSON schema.
 
-运行时在普通角色结果校验之前识别这一特殊 envelope，并把它作为类型化的 `NeedsHumanRequest` 传回 Vigil。Vigil 捕获后调用唯一的收口函数 `_park_needs_human`：
+The runtime recognizes this special envelope before validating ordinary role results and passes it back to Vigil as a typed `NeedsHumanRequest`. Vigil catches it and calls the single central handling function, `_park_needs_human`:
 
 ```text
 Agent structured exit
@@ -115,9 +115,9 @@ Vigil _park_needs_human(subject, signed reason, agent_id)
         └── PR    → add_label       (additive)
 ```
 
-以 Gitea 为 forge 时，追加标签的请求必须是 `POST /issues/{n}/labels`；`PUT` 只代表显式替换，不允许出现在该路径。`_park_needs_human` 保留已有幂等与签名评论语义，下一 tick 仍把 subject 分类为 TERMINAL，行为对用户不变。
+When Gitea is the forge, the request to add labels must be `POST /issues/{n}/labels`; `PUT` means explicit replacement only and is not permitted in this path. `_park_needs_human` preserves the existing idempotency and signed-comment semantics, and the next tick still classifies the subject as TERMINAL, leaving user-visible behavior unchanged.
 
-编排层还会围绕每次 `_act` 做标签完整性检查：动作前记录 subject 的 labels，动作后重新读取。正常新增标签允许通过；若动作前存在的任意标签在动作后消失，并且这不是框架当前分支明确拥有的删除动作，则判为完整性违规。例如：
+The orchestration layer also checks label integrity around every `_act`: it records the subject's labels before the action and rereads them afterward. Normal label additions are allowed. If any label that existed before the action disappears afterward, and this is not a deletion explicitly owned by the framework's current branch, it is classified as an integrity violation. For example:
 
 ```text
 before: ready, from-synthesize, P1, round-1
@@ -125,147 +125,147 @@ after:  needs-human
 missing: ready, from-synthesize, P1, round-1
 ```
 
-Vigil 在恢复前再读一次最新标签，只用 additive API 补回仍缺失项，避免覆盖并发新增；随后经 `_park_needs_human` 留下带 Agent 身份、缺失标签和 subject 的诊断。最终状态应为：
+Before restoring labels, Vigil rereads the latest labels once more and uses only additive APIs to add back items that are still missing, avoiding overwriting concurrent additions. It then uses `_park_needs_human` to leave diagnostics containing the Agent identity, missing labels, and subject. The final state should be:
 
 ```text
 ready, from-synthesize, P1, round-1, needs-human
 ```
 
-也就是说，违规动作仍被阻塞、不会继续自动交付，但标签元数据恢复。新增标签不会被守卫移除。已经 merged/closed 的终态路径不做恢复；由 Vigil 明确执行的过期 review verdict 清理和 `needs-human` 人工解挂仍由现有框架函数负责，不会被误判为 Agent 删除。
+In other words, the violating action is still blocked and automatic delivery does not continue, but the label metadata is restored. The guard does not remove newly added labels. Terminal paths that are already merged/closed do not perform restoration. Cleanup of stale review verdicts explicitly performed by Vigil and human-triggered removal of the `needs-human` block remain the responsibility of existing framework functions and are not misclassified as Agent deletions.
 
 ## Reference-level explanation
 
-### 1. 结构化控制结果
+### 1. Structured control result
 
-`runtime.engine` 新增类型化 `NeedsHumanRequest`，至少包含非空 `reason: str`。`run_agent` 解析 Agent 最后一行 JSON 后，按以下顺序处理：
+`runtime.engine` adds a typed `NeedsHumanRequest`, containing at least a nonempty `reason: str`. After `run_agent` parses the Agent's final line of JSON, it processes it in the following order:
 
-1. JSON 是对象且 `needs_human is true`：校验 `reason` 为去除空白后非空字符串；合法则抛出类型化 `NeedsHumanRequest`；
-2. 出现 `needs_human` 但值不是 `true`，或 reason 缺失/为空：作为明确的协议错误失败，不降级成普通角色输出；
-3. 其它对象：继续既有 `parse_response` 与角色 schema 校验；
-4. 非 JSON、backend 失败和超时：保持既有错误路径。
+1. The JSON is an object and `needs_human is true`: validate that `reason` is a string that is nonempty after trimming whitespace; if valid, raise a typed `NeedsHumanRequest`;
+2. `needs_human` is present but its value is not `true`, or reason is missing/empty: fail with an explicit protocol error, without falling back to ordinary role output;
+3. Other objects: continue with the existing `parse_response` and role schema validation;
+4. Non-JSON output, backend failures, and timeouts: retain the existing error paths.
 
-特殊 envelope 必须先于各 Agent 不同的响应 schema，否则 merger、deliver、replier 等会把它视为缺字段的无效普通响应，无法统一收口。它只是一条控制结果，不算 Agent 已完成工作。
+The special envelope must take precedence over the different response schemas of individual Agents. Otherwise, merger, deliver, replier, and others would treat it as an invalid ordinary response with missing fields, preventing centralized handling. It is only a control result and does not count as the Agent having completed its work.
 
-`_NEEDS_HUMAN_CONTRACT` 改为要求输出上述单行 JSON，并明确禁止 Agent 自行修改标签或发送交接评论。该契约仍注入所有 Agent 分支，覆盖 replier 与 conflict resolver；旧 prompt 中“自己打标签”的措辞和针对该措辞的测试同步替换。
+`_NEEDS_HUMAN_CONTRACT` is changed to require the single-line JSON output above and explicitly prohibit Agents from modifying labels or sending handoff comments themselves. This contract remains injected into all Agent branches, including replier and conflict resolver; wording in old prompts that says “add the label yourself,” along with tests targeting that wording, is replaced at the same time.
 
-### 2. Vigil 中央收口
+### 2. Centralized handling in Vigil
 
-`_reconcile` 在调用 `_act` 的边界捕获 `NeedsHumanRequest`，但先保留该控制信号并执行动作后的标签完整性读取；若有缺失先恢复，再使用当前 subject 和 worker identity 生成签名正文并调用 `_park_needs_human`。当轮停止且不累计普通“零进展” attempt。正文至少包含 reason，不信任 Agent 提供 issue/PR 编号或任意评论签名。
+`_reconcile` catches `NeedsHumanRequest` at the boundary where it calls `_act`, but first retains that control signal and performs the post-action label integrity read. If labels are missing, it restores them first, then uses the current subject and worker identity to generate a signed body and calls `_park_needs_human`. The current round stops without incrementing the ordinary “zero progress” attempt count. The body contains at least the reason; issue/PR numbers or arbitrary comment signatures supplied by the Agent are not trusted.
 
-错误传播边界保持窄：只有类型化控制信号被转换为人工交接；普通异常继续现有 requeue/attempt/watchdog 流程，避免把解析 bug、网络瞬断全部误判为业务 needs-human。
+The error propagation boundary remains narrow: only the typed control signal is converted into a human handoff. Ordinary exceptions continue through the existing requeue/attempt/watchdog flow, avoiding misclassifying every parsing bug or transient network interruption as a business-level needs-human condition.
 
-### 3. 动作标签完整性守卫
+### 3. Action label integrity guard
 
-守卫只包围由 `_act` 发起的通用 Agent 动作，不改变 `_sense/_classify/_intake`。输入基线来自动作前刚观测到的 `facts.labels`；动作结束后通过现有 forge-neutral subject 读取路径获取最新 labels：
+The guard surrounds only general-purpose Agent actions initiated by `_act` and does not change `_sense/_classify/_intake`. Its input baseline comes from `facts.labels` observed immediately before the action; after the action finishes, it retrieves the latest labels through the existing forge-neutral subject read path:
 
 ```text
 missing = baseline_labels - latest_labels - allowed_removals
 ```
 
-`allowed_removals` 必须由调用分支显式给出，不能用标签前缀宽泛放行。本组初始规则：
+`allowed_removals` must be provided explicitly by the calling branch; broad exemptions based on label prefixes are not allowed. The initial rules for this group are:
 
-- 普通 issue/PR Agent 动作为空集；
-- merge/closed 后不恢复，因为 subject 已进入 forge 终态；
-- `review-or-fix` 只有在 facts 判定为“派 reviewer 生成新裁决”的子路径，才把 baseline 中陈旧的 `review-approved:<sha>`、`review-changes-requested:<sha>` 精确列入 allowlist；已有 CHANGES_REQUESTED@head 而派 implementer 返工的子路径仍为空集；
-- 人类越水位线后由框架执行的 `needs-human` 删除在 `_act` 之前完成，也不属于守卫窗口。
+- The set is empty for ordinary issue/PR Agent actions;
+- No restoration occurs after merge/closed, because the subject has entered a forge terminal state;
+- For `review-or-fix`, only the subpath where facts indicate “dispatch a reviewer to generate a new verdict” may place the exact stale `review-approved:<sha>` and `review-changes-requested:<sha>` labels from the baseline on the allowlist; the set remains empty for the subpath that dispatches an implementer for rework when CHANGES_REQUESTED@head already exists;
+- The framework's removal of `needs-human` after a human crosses the watermark completes before `_act` and is therefore outside the guard window.
 
-发现 missing 后：
+After detecting missing labels:
 
-1. 再读 subject，终态则只记录诊断并退出恢复；
-2. 计算仍缺失的标签，逐个调用 `issue_add_label` 或 `add_label`；这些调用必须幂等、additive；
-3. 调 `_park_needs_human`，评论列出缺失与恢复结果，并使用框架签名；
-4. 当轮停止，不继续 merge、review 或下一动作。
+1. Read the subject again; if it is terminal, only record diagnostics and exit restoration;
+2. Compute the labels that are still missing and call `issue_add_label` or `add_label` for each one; these calls must be idempotent and additive;
+3. Call `_park_needs_human`, with a comment listing the missing labels and restoration results, using the framework signature;
+4. Stop the current round without continuing to merge, review, or the next action.
 
-若恢复某一标签失败，异常继续向现有队列恢复机制传播；不得用 replace-all 试图一次性恢复，也不得移除 Agent 新增的标签。这样并发写入的最坏结果是重复 additive 请求，而不是再次覆盖。
+If restoring a label fails, the exception continues to propagate to the existing queue recovery mechanism. Do not attempt to restore everything at once with replace-all, and do not remove labels added by the Agent. This makes the worst-case outcome of concurrent writes duplicate additive requests, rather than another overwrite.
 
-结构化交接也执行完整性检查：即使 Agent 在返回 envelope 前已经用 raw API 破坏 labels，Vigil 先完成恢复，再落统一 `needs-human`。如果它没有破坏，中央 park 只追加标签。
+Structured handoff also performs the integrity check: even if the Agent has already damaged labels through a raw API before returning the envelope, Vigil completes restoration first and then applies the centralized `needs-human` handling. If no damage occurred, the central park operation only adds the label.
 
-### 4. Forge driver 契约
+### 4. Forge driver contract
 
-本组不新增“replace labels”公共能力。`openagents.utils.gitea.issue_add_label` 继续先解析 label id，再使用：
+This group does not add a public “replace labels” capability. `openagents.utils.gitea.issue_add_label` continues to resolve the label id first, then uses:
 
 ```text
 POST /api/v1/repos/{owner}/{repo}/issues/{number}/labels
 body: {"labels": [label_id]}
 ```
 
-PR 版 `add_label` 复用 issue 版，因为 Gitea PR 也是 issue。单测必须同时断言 path、body 和 HTTP method，防止未来把 POST 重构成语义不同的 PUT 而测试仍绿。GitHub driver 已通过 `gh issue edit --add-label` 提供 additive 语义，守卫只调用 forge 抽象，不按 auto-designer 的标签分类写分支。
+The PR version, `add_label`, reuses the issue version because a Gitea PR is also an issue. Unit tests must assert the path, body, and HTTP method together, preventing a future refactor from changing POST to the semantically different PUT while tests still pass. The GitHub driver already provides additive semantics through `gh issue edit --add-label`. The guard calls only the forge abstraction and does not branch on auto-designer's label categories.
 
-### 5. 验证与跨仓契约
+### 5. Validation and cross-repository contract
 
-单元测试覆盖：
+Unit tests cover:
 
-- 各角色正常 schema 不受特殊 envelope 影响；
-- 合法/非法 needs-human envelope；
-- Vigil 对结构化出口只调用一次 `_park_needs_human`，不让 Agent 自写 forge；
-- Agent 只新增标签不触发守卫；
-- Agent 删除一个或多个标签时，守卫二次读取、只补缺失并阻塞；
-- restore 前发生并发重加时不重复破坏；
-- merged/closed 与框架显式删除不被复活；
-- Gitea add-label 只允许 POST。
+- Normal schemas for each role remain unaffected by the special envelope;
+- Valid/invalid needs-human envelopes;
+- Vigil calls `_park_needs_human` exactly once for a structured exit, without having the Agent write to the forge itself;
+- An Agent that only adds labels does not trigger the guard;
+- When an Agent deletes one or more labels, the guard reads a second time, adds back only those still missing, and blocks;
+- A concurrent re-addition before restoration does not cause further damage;
+- merged/closed subjects and explicit framework deletions are not resurrected;
+- Gitea add-label permits only POST.
 
-确定性 E2E 脚本用 hermetic fake forge 模拟 Agent 把 `[ready, from-synthesize, P1, round-1]` 替换为 `[needs-human]`，断言恢复后的并集、签名诊断和 TERMINAL 分类。与 auto-designer 的配套 0039 规格做真实 Gitea 联调再验证：阻塞后 issue 详情仍投影为 `ready / from-synthesize / P1 / round-1`，timeline 只出现 additive `+needs-human`，无 metadata-loss 告警。
+A deterministic E2E script uses a hermetic fake forge to simulate an Agent replacing `[ready, from-synthesize, P1, round-1]` with `[needs-human]`, asserting the restored union, signed diagnostics, and TERMINAL classification. Integration testing against a real Gitea instance with auto-designer's companion specification 0039 further verifies that, after blocking, issue details still project as `ready / from-synthesize / P1 / round-1`, the timeline shows only the additive `+needs-human`, and there are no metadata-loss alerts.
 
-### 6. DAG 与文件分配
+### 6. DAG and File Allocation
 
 ```mermaid
 graph LR
-  T1[T1 规格活快照]
-  T2[T2 结构化控制结果]
-  T3[T3 Vigil 收口与完整性守卫]
-  T4[T4 Gitea 追加契约与 E2E]
+  T1[T1 Living specification snapshot]
+  T2[T2 Structured control results]
+  T3[T3 Vigil finalization and integrity guard]
+  T4[T4 Gitea additive contract and E2E]
   T1 --> T2
   T2 --> T3
   T3 --> T4
 ```
 
-| Task | 职责 | 独占文件 |
+| Task | Responsibility | Exclusive files |
 |---|---|---|
-| T1 | 0075 规格、故障边界与验收 | `docs/specs/0075-needs-human-label-integrity.md` |
-| T2 | 识别特殊 envelope，定义类型化控制信号 | `runtime/engine.py`, runtime tests |
-| T3 | 改写 Agent/merger 契约，中央 park，动作前后标签守卫 | `recipes/vigil.py`, `agents/merger.py`, vigil/merger tests |
-| T4 | 锁定 Gitea POST 语义，提供 hermetic E2E | `utils/gitea.py`, driver tests, e2e script |
+| T1 | 0075 specification, failure boundaries, and acceptance criteria | `docs/specs/0075-needs-human-label-integrity.md` |
+| T2 | Recognize the special envelope and define typed control signals | `runtime/engine.py`, runtime tests |
+| T3 | Revise Agent/merger contracts, centralize park, and guard labels before and after actions | `recipes/vigil.py`, `agents/merger.py`, vigil/merger tests |
+| T4 | Lock down Gitea POST semantics and provide hermetic E2E | `utils/gitea.py`, driver tests, e2e script |
 
-组内 `files` 互斥；T3 只依赖 forge-neutral 的 `github` 模块门面，T4 验证当前 Gitea backend 实现，不把 auto-designer 领域标签硬编码进 OpenAgents。
+The `files` allocations within this group are mutually exclusive; T3 depends only on the forge-neutral `github` module facade, while T4 verifies the current Gitea backend implementation without hardcoding auto-designer domain labels into OpenAgents.
 
 ## Drawbacks
 
-- 每次 Agent 动作后多一次 subject 读取，发现删除时还会二次读取并逐标签恢复。成本只发生在已经派 Agent 的动作边界，不进入纯观察轮询。
-- `NeedsHumanRequest` 成为所有角色 schema 之外的第二种输出 envelope，运行时和测试必须维护清晰优先级。
-- Agent 仍持有 forge token，理论上可以在进程退出前继续做破坏性写入；守卫能在 `_act` 返回时检测并修复标签删除，但不是权限沙箱。彻底消除能力需要凭据代理/最小权限 broker，超出本组范围。
-- 标签删除默认视为异常较保守。当前工作流的合法删除集中在框架函数中，因此边界可控；未来若新增 Agent 被授权改标签，必须显式扩充 action contract，而不是关闭守卫。
-- 已受损的 #7 不自动改写。历史修复需要人确认应恢复哪些标签，避免把一次代码发布偷偷变成数据迁移。
+- Each Agent action requires one additional subject read afterward. If a deletion is detected, a second read is required, followed by label-by-label restoration. This cost occurs only at action boundaries where an Agent has already been dispatched; it does not enter observation-only polling.
+- `NeedsHumanRequest` becomes a second output envelope outside all role schemas, so the runtime and tests must maintain clear precedence.
+- The Agent still holds a forge token and could theoretically continue making destructive writes before its process exits; the guard can detect and repair label deletions when `_act` returns, but it is not a permission sandbox. Completely eliminating this capability requires a credential proxy / least-privilege broker, which is outside this group's scope.
+- Treating label deletion as an anomaly by default is conservative. Legitimate deletions in the current workflow are concentrated in framework functions, so the boundary is manageable; if an Agent is authorized to change labels in the future, the action contract must be explicitly extended rather than disabling the guard.
+- The already-damaged #7 will not be automatically rewritten. Historical repair requires human confirmation of which labels should be restored, to avoid silently turning a code release into a data migration.
 
 ## Rationale and alternatives
 
-选择“结构化意图 + 编排层副作用”，因为 `needs-human` 是控制流而非业务实现结果。Vigil 已拥有 subject、agent identity、forge backend、幂等 park 和签名规则，让每个 Agent 重复这些细节只会扩大差异和 prompt 注入面。
+“Structured intent + orchestration-layer side effects” was chosen because `needs-human` is control flow rather than a business implementation result. Vigil already owns the subject, agent identity, forge backend, idempotent park, and signature rules; making every Agent repeat these details would only increase divergence and the prompt injection surface.
 
-同时保留完整性守卫，而不是只改 prompt。真实事故正是 Agent 没有使用框架 helper；提示词无法构成权限边界，模型升级或不同 backend 都可能重新选择 raw PUT。前后快照守卫不依赖具体命令，能覆盖直接 HTTP、CLI 误用以及未来同类回归。
+The integrity guard is retained as well, rather than only changing the prompt. The actual incident occurred precisely because the Agent did not use the framework helper; prompts cannot constitute a permission boundary, and a model upgrade or a different backend could lead to raw PUT being chosen again. The guard based on before-and-after snapshots does not depend on specific commands and can cover direct HTTP, CLI misuse, and similar future regressions.
 
-备选一是给 Agent 暴露一个 `openagents mark-needs-human` CLI，然后继续允许它自行调用。它比 raw curl 易用，但仍依赖 Agent 遵守提示，也无法发现其它命令造成的标签删除，因此不作为安全边界。
+The first alternative is to expose an `openagents mark-needs-human` CLI to the Agent and continue allowing it to invoke the command itself. This is easier to use than raw curl, but still depends on the Agent following the prompt and cannot detect label deletions caused by other commands, so it is not used as a safety boundary.
 
-备选二是完全不把 forge token 交给 Agent。方向更强，但当前 deliver/merger/replier 仍需推分支、开 PR、回复与合并；需要独立 capability broker 和每动作授权协议，属于后续安全架构，不应阻塞本次数据完整性修复。
+The second alternative is to withhold the forge token from the Agent entirely. This is a stronger direction, but deliver/merger/replier currently still need to push branches, open PRs, reply, and merge; it requires an independent capability broker and a per-action authorization protocol. That belongs to subsequent security architecture work and should not block this data integrity fix.
 
-备选三是在 auto-designer 看板用历史标签回填当前状态。它只能让污染“看起来正常”，不能恢复 Gitea 真源，Vigil 与其它消费者仍会读到坏数据；auto-designer 的配套 0039 规格因而只做观测和告警，不替代本仓修复。
+The third alternative is to backfill the current state on the auto-designer board using historical labels. This can only make the corruption “look normal”; it cannot restore the Gitea source of truth, and Vigil and other consumers would still read bad data. The accompanying auto-designer specification 0039 therefore provides only observation and alerting, rather than replacing the fix in this repository.
 
-选择逐标签 additive 恢复而非 PUT 恢复完整集合，是为了保留 baseline 之后的并发新增。Gitea 已提供 POST add-label，无需模拟 compare-and-swap；恢复前二次读取进一步缩小竞争窗口。
+Label-by-label additive restoration was chosen over restoring the complete set with PUT to preserve concurrent additions made after the baseline. Gitea already provides POST add-label, so there is no need to simulate compare-and-swap; a second read before restoration further narrows the race window.
 
 ## Prior art
 
-- GitHub Actions 的 step output、CI 的特殊退出码和 Kubernetes controller 的 typed reconcile error 都把“需要重试/需要人工”作为编排信号处理，而不是让业务进程直接改控制面状态。
-- Kubernetes controller 以 observe → diff → reconcile 维护对象不变量；本组的 label guard 同样比较动作前后事实并用幂等 additive 写恢复。
-- 数据库 migration 工具通常区分 INSERT/UPSERT 与整表 replace；Gitea 的 POST add-label / PUT replace-labels 也具有相同的危险边界，方法级测试应锁定语义而非只断言 URL。
+- GitHub Actions step outputs, special CI exit codes, and typed reconcile errors in Kubernetes controllers all treat “retry needed / human intervention needed” as orchestration signals, rather than having business processes directly change control-plane state.
+- Kubernetes controllers maintain object invariants through observe → diff → reconcile; this group's label guard likewise compares facts before and after an action and restores them through idempotent additive writes.
+- Database migration tools commonly distinguish INSERT/UPSERT from whole-table replacement; Gitea's POST add-label / PUT replace-labels has the same danger boundary, and method-level tests should lock down semantics rather than merely assert the URL.
 
 ## Unresolved questions
 
-本版没有阻塞实施的未决问题。初始守卫采用“Agent 不得删除任何既有标签”的保守契约；未来若确有一个 Agent 需要执行标签迁移，应给 `_act` action 增加显式、可测试的 `allowed_removals`，而不是按标签前缀或 Agent 名称隐式猜测。
+This version has no unresolved questions that block implementation. The initial guard adopts the conservative contract that “an Agent must not delete any existing labels”; if an Agent truly needs to perform a label migration in the future, explicit, testable `allowed_removals` should be added to the `_act` action, rather than implicitly guessing based on label prefixes or Agent names.
 
-是否进一步撤销 Agent 的 forge token 留到 capability broker 专项设计；本组验收不依赖该安全加固。
+Whether to further revoke Agents' forge tokens is deferred to a dedicated capability broker design; this group's acceptance criteria do not depend on that security hardening.
 
 ## Future possibilities
 
-- 引入最小权限 forge broker：Agent 只返回结构化操作提议，Vigil 校验后代为执行 comment/label/merge。
-- 把完整性违规形成结构化 telemetry，供 auto-designer 时间线显示 Agent id、恢复结果和关联 run。
-- 为标签增加声明式 policy（immutable、exclusive、framework-owned），让守卫由协议清单生成，而不是统一保守规则。
-- 在 GitHub 与 Gitea 的 contract tests 中复用一套 forge-neutral label monotonicity suite。
-- 经人工确认后提供一次性修复工具，从 Gitea timeline 预览并恢复既有受损 issue 的最后已知标签。
+- Introduce a least-privilege forge broker: Agents return only structured operation proposals, and Vigil validates them before executing comment/label/merge on their behalf.
+- Turn integrity violations into structured telemetry so the auto-designer timeline can display the Agent id, restoration result, and associated run.
+- Add declarative policy for labels (immutable, exclusive, framework-owned), allowing the guard to be generated from a protocol manifest rather than applying a uniform conservative rule.
+- Reuse a forge-neutral label monotonicity suite in the GitHub and Gitea contract tests.
+- After human confirmation, provide a one-time repair tool to preview and restore the last known labels of already-damaged issues from the Gitea timeline.

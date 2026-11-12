@@ -1,9 +1,9 @@
-"""Spec-0060/T2: runtime.engine.run_agent 单测——填占位符 / 派 backend / 校验末行 JSON。
+"""Spec-0060/T2: runtime.engine.run_agent Single Test - Fill in placeholders / send back/ Verify the endline JSON.
 
-假 backend 回可控字符串（模拟 agent 输出末行 JSON），聚焦：
-- Template 占位符被正确填进 task、work_dir/context 保留字被取出交给 backend；
-- 末行 JSON 解析成 dict 且键/类型符合 OUTPUT_SCHEMA；
-- 坏 JSON / 缺键 / 类型不符 / 缺 work_dir → 明确 raise AgentOutputError。
+false backend backstring back to controlable string (simulation of agent output end line JSON), focus:
+- Template placeholders are correctly filled in the name of the tab, work_dir/context reservation is removed to the back;
+- Last line JSON resolves to dict and key/type matches OUTPUT_SCHEMA;
+- Bad JSON/ missing key/ type does not match / missing work_dir  →  clearly raise Agent Output Error.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from openagents.runtime.engine import AgentOutputError
 
 
 class _FakeAgent:
-    PROMPT = Template("审 PR #$pr_number；issue：$issue_body")
+    PROMPT = Template("Review PR #$pr_number;issue: $issue_body")
     OUTPUT_SCHEMA = {"verdict": str, "reason": str}
 
 
@@ -77,7 +77,7 @@ class _LookupExceptionBackend:
         return AgentResult(
             changed=True,
             summary=(
-                '{"verdict":"PASS","reason":"ok","lookup_exception_reason":"现场版本与证据不一致"}'
+                '{"verdict":"PASS","reason":"ok","lookup_exception_reason":"The live version is not consistent with the evidence."}'
             ),
             tool_events=("Read",) * 7 + ("Edit",),
         )
@@ -113,21 +113,23 @@ def test_fills_placeholders_and_passes_reserved_to_backend():
         _FakeAgent,
         backend=backend,
         work_dir="/tmp/wt",
-        context="历史评论",
+        context="Historical review",
         pr_number=154,
-        issue_body="修 bug",
+        issue_body="Fix bug",
     )
     assert out == {"verdict": "PASS", "reason": "ok"}
     call = backend.calls[0]
     assert call["work_dir"] == "/tmp/wt"
-    assert call["context"] == "历史评论"
-    # 占位符填进 task；保留字 work_dir/context 不泄漏进 prompt。
-    assert "审 PR #154" in call["task"]
-    assert "修 bug" in call["task"]
+    assert call["context"] == "Historical review"
+    # placeholders fill the slot; retention work_dir/context does not leak into the prompt.
+    assert "Review PR #154" in call["task"]
+    assert "Fix bug" in call["task"]
 
 
 def test_last_line_json_parsed_even_with_trailing_prose():
-    backend = _CaptureBackend(summary='这是我的评审。\n{"verdict": "REWORK", "reason": "缺测试"}\n')
+    backend = _CaptureBackend(
+        summary='This is my review.\n{"verdict": "REWORK", "reason": "Short Test"}\n'
+    )
     out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
     assert out["verdict"] == "REWORK"
 
@@ -168,8 +170,8 @@ def test_protocol_error_gets_one_serialization_only_retry(tmp_path):
     assert out == {"verdict": "PASS", "reason": "checks passed"}
     assert len(backend.calls) == 2
     assert backend.calls[1]["work_dir"] != tmp_path
-    assert "机器协议格式修复器" in backend.calls[1]["task"]
-    assert "不得新增事实或证据" in backend.calls[1]["task"]
+    assert "Repair the machine output format" in backend.calls[1]["task"]
+    assert "or add facts or evidence" in backend.calls[1]["task"]
 
 
 def test_explicit_nested_schema_repairs_spec_coverage_field_names(tmp_path):
@@ -216,12 +218,14 @@ def test_explicit_nested_schema_repairs_spec_coverage_field_names(tmp_path):
 
 
 def test_parses_full_protocol_output_when_display_summary_was_truncated():
-    raw = "analysis " * 400 + '\n{"verdict":"REWORK","reason":"架构边界未闭合"}'
+    raw = (
+        "analysis " * 400 + '\n{"verdict":"REWORK","reason":"Structured boundaries are not closed"}'
+    )
     backend = _SplitOutputBackend(summary=raw[:2000], raw_output=raw)
 
     out = engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
-    assert out == {"verdict": "REWORK", "reason": "架构边界未闭合"}
+    assert out == {"verdict": "REWORK", "reason": "Structured boundaries are not closed"}
 
 
 def test_context_defaults_empty_when_omitted():
@@ -252,7 +256,9 @@ def test_records_structured_lookup_exception_reason(tmp_path):
         issue_body="x",
     )
     metric = tmp_path / ".openagents" / "tool-usage.jsonl"
-    assert '"lookup_exception_reason": "现场版本与证据不一致"' in metric.read_text(encoding="utf-8")
+    assert "The live version is not consistent with the evidence." in metric.read_text(
+        encoding="utf-8"
+    )
 
 
 def _token_rows(tmp_path):
@@ -367,19 +373,19 @@ def test_protocol_failures_have_one_token_row_each(tmp_path):
 
 
 def test_bad_json_raises():
-    backend = _CaptureBackend(summary="完全没有 JSON 的一段话")
+    backend = _CaptureBackend(summary="There is no JSON saying at all")
     with pytest.raises(AgentOutputError):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
 
 def test_missing_schema_key_raises():
-    backend = _CaptureBackend(summary='{"verdict": "PASS"}')  # 缺 reason
+    backend = _CaptureBackend(summary='{"verdict": "PASS"}')  # Lack
     with pytest.raises(AgentOutputError):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
 
 def test_wrong_type_raises():
-    backend = _CaptureBackend(summary='{"verdict": 1, "reason": "x"}')  # verdict 应为 str
+    backend = _CaptureBackend(summary='{"verdict": 1, "reason": "x"}')  # verdict should read sstr
     with pytest.raises(AgentOutputError):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
@@ -401,9 +407,11 @@ def test_int_schema_rejects_bool():
 
 
 def test_retired_control_envelope_fails_normal_role_schema_validation():
-    backend = _CaptureBackend(summary='{"needs_human": true, "reason": "  上游服务持续 503  "}')
+    backend = _CaptureBackend(
+        summary='{"needs_human": true, "reason": "  Upstream services were ongoing 503  "}'
+    )
 
-    with pytest.raises(AgentOutputError, match="schema 键 'verdict'"):
+    with pytest.raises(AgentOutputError, match="missing schema key 'verdict'"):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
 
@@ -420,7 +428,7 @@ def test_retired_control_envelope_fails_normal_role_schema_validation():
 def test_any_retired_control_envelope_is_protocol_error(payload):
     backend = _CaptureBackend(summary=payload)
 
-    with pytest.raises(AgentOutputError, match="schema 键 'verdict'"):
+    with pytest.raises(AgentOutputError, match="missing schema key 'verdict'"):
         engine.run_agent(_FakeAgent, backend=backend, work_dir=".", pr_number=1, issue_body="x")
 
 

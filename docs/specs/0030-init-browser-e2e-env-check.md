@@ -1,12 +1,12 @@
 ---
 number: "0030"
-title: init 环境体检：检测 browser MCP 与权限放行（非阻塞）+ 前端 e2e 方法论引导
+title: "init environment health check: detect browser MCP and unrestricted permissions (non-blocking) + guidance on frontend e2e methodology"
 issue: 85
 slug: init-browser-e2e-env-check
-summary: 在 openagents init 的 preflight 里加一段非阻塞环境体检：读 ~/.claude.json 检测 browser MCP（playwright/chrome-devtools）是否注册、读 OpenAgents 派 claude 的有效权限模式是否为全放行（bypassPermissions），缺失则打印安装/设置方式但不阻断 init；同时把「具备浏览器工具就优先设计前端浏览器 e2e」的条件式引导写进 in-code 方法论面（起草 prompt 模板 + reviewer rubric）。只检测+提示+方法论文案，不自动改 MCP 配置/权限、不在编排核心耦合 MCP、不驱动浏览器跑断言。
+summary: "Add a non-blocking environment health check to the openagents init preflight: read ~/.claude.json to check whether browser MCP servers (playwright/chrome-devtools) are registered, and check whether the effective permission mode OpenAgents uses to launch claude allows all permissions (bypassPermissions). If either is missing, print installation/setup instructions without blocking init. Also add conditional guidance to the in-code methodology layer (drafting prompt templates + reviewer rubric): \"If browser tools are available, prioritize designing frontend browser e2e tests.\" Only detection, guidance, and methodology wording; do not automatically modify MCP configuration or permissions, couple MCP to the orchestration core, or drive a browser to run assertions."
 tasks:
   - id: T1
-    title: 权限模式最小开关：常量改为读 OPENAGENTS_PERMISSION_MODE
+    title: "Minimal permission-mode switch: change the constant to read OPENAGENTS_PERMISSION_MODE"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/backends/claude_code.py
       - tests/test_backend_claude_code.py
-    scope: 把硬编码 _PERMISSION_MODE = "acceptEdits" 改为 effective_permission_mode()：读环境变量 OPENAGENTS_PERMISSION_MODE，缺省回退 acceptEdits（默认行为不变）；_run_claude_streaming 改用它拼 --permission-mode。不引入配置文件，与既有 OPENAGENTS_REVIEWERS 同款最小 env 旋钮。
-    acceptance: 未设 OPENAGENTS_PERMISSION_MODE 时 effective_permission_mode() 返回 acceptEdits、claude 命令行仍为 --permission-mode acceptEdits（默认不变）；设为 bypassPermissions 时命令行随之变为 --permission-mode bypassPermissions；单测覆盖默认/覆写两态；ruff + pytest 全绿。
+    scope: "Replace the hardcoded _PERMISSION_MODE = \"acceptEdits\" with effective_permission_mode(): read the OPENAGENTS_PERMISSION_MODE environment variable and fall back to acceptEdits when unset (default behavior unchanged); update _run_claude_streaming to use it when constructing --permission-mode. Do not introduce a configuration file; use a minimal environment-variable control in the same style as the existing OPENAGENTS_REVIEWERS."
+    acceptance: "When OPENAGENTS_PERMISSION_MODE is unset, effective_permission_mode() returns acceptEdits and the claude command line remains --permission-mode acceptEdits (default unchanged); when set to bypassPermissions, the command line changes accordingly to --permission-mode bypassPermissions; unit tests cover both the default and overridden states; ruff + pytest all pass."
   - id: T2
-    title: 体检核心模块 envcheck：browser MCP 检测 + 权限模式读取 + 报告渲染
+    title: "Core health-check module envcheck: browser MCP detection + permission-mode retrieval + report rendering"
     status: done
     priority: P1
     tags: []
@@ -30,10 +30,10 @@ tasks:
     files:
       - openagents/envcheck.py
       - tests/test_envcheck.py
-    scope: 新增纯函数 read-only 模块：detect_browser_mcp() 读 ~/.claude.json 顶层 mcpServers 判 playwright/chrome-devtools 是否在册（文件缺失/非法 JSON/无键均视为未注册、不抛）；effective_permission_mode() 转调 T1 暴露的访问器；render_report() 返回非阻塞报告文本（缺失项含安装命令/export 设置方式/取舍提示）。不直接 print、从不抛、只读不写 ~/.claude.json。
-    acceptance: detect_browser_mcp 对含/缺 mcpServers、缺文件、非法 JSON 各返回正确在册标志且不抛；render_report 在缺失态输出含 playwright 安装命令与 export OPENAGENTS_PERMISSION_MODE=bypassPermissions、在满足态输出两条 ✓ 且不含安装命令；模块不修改 ~/.claude.json；单测打桩 HOME/env 覆盖各分支；ruff + pytest 全绿。
+    scope: "Add a read-only module of pure functions: detect_browser_mcp() reads the top-level mcpServers in ~/.claude.json to determine whether playwright/chrome-devtools are registered (a missing file, invalid JSON, or a missing key all count as unregistered, without raising exceptions); effective_permission_mode() delegates to the accessor exposed by T1; render_report() returns non-blocking report text (missing items include installation commands/export setup instructions/tradeoff guidance). Do not print directly, never raise exceptions, and only read ~/.claude.json without writing to it."
+    acceptance: "detect_browser_mcp returns the correct registration flags without raising exceptions for files with/without mcpServers, missing files, and invalid JSON; in the missing state, render_report outputs the playwright installation command and export OPENAGENTS_PERMISSION_MODE=bypassPermissions; in the satisfied state, it outputs two ✓ marks and no installation commands; the module does not modify ~/.claude.json; unit tests stub HOME/env to cover each branch; ruff + pytest all pass."
   - id: T3
-    title: 把环境体检接进 openagents init（非阻塞）
+    title: "Wire the environment health check into openagents init (non-blocking)"
     status: done
     priority: P1
     tags: []
@@ -44,10 +44,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: 在 _cmd_init 既有 ensure_prerequisites + 「✓ 项目已就绪」打印之后，调 envcheck 渲染并 print 体检报告；不改变返回值（恒 return 0，除非既有 preflight 自身失败）。仅此一处接线，编排核心不感知体检。
-    acceptance: _cmd_init 在缺 browser MCP / 非全放行时打印含安装命令与设置方式的体检段且仍 return 0；满足态打印两条 ✓；体检不抛、不改 init 退出码；单测打桩 envcheck 断言输出与返回码；ruff + pytest 全绿。
+    scope: "In _cmd_init, after the existing ensure_prerequisites call and the \"✓ Project is ready\" message, call envcheck to render and print the health-check report; do not change the return value (always return 0 unless the existing preflight itself fails). Wire it in only at this location; the orchestration core remains unaware of the health check."
+    acceptance: "When browser MCP is missing / permissions are not unrestricted, _cmd_init prints a health-check section containing installation commands and setup instructions and still returns 0; in the satisfied state, it prints two ✓ marks; the health check does not raise exceptions or change the init exit code; unit tests stub envcheck to assert the output and return code; ruff + pytest all pass."
   - id: T4
-    title: 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric
+    title: "Conditional browser-e2e methodology wording: drafting prompt templates + reviewer rubric"
     status: done
     priority: P2
     tags: []
@@ -59,10 +59,10 @@ tasks:
       - openagents/reviewer.py
       - tests/test_orchestrator.py
       - tests/test_reviewer.py
-    scope: 在 orchestrator.py 的 _DRAFT_RFC_TASK / _BACKFILL_RFC_TASK 与 reviewer.py 的 _CODE_REVIEW_TASK/_RUBRIC_TAIL 各加一条条件式、由 agent 自检的引导：「若具备浏览器工具，优先设计基于浏览器的前端 e2e 而非仅声明脚本/跳过」。不检测 MCP、不在后端适配器 claude_code.py 注入、不耦合具体 MCP 生态。不写 .claude/（硬约束）——落 in-code 方法论面。
-    acceptance: _DRAFT_RFC_TASK / _BACKFILL_RFC_TASK / reviewer rubric 三处模板均含条件式「具备浏览器工具→优先浏览器前端 e2e」字样；措辞为条件式（由 agent 自检），不含「OpenAgents 检测到你有浏览器」式宣告；claude_code.py 不被改动；单测断言三处模板含该引导；ruff + pytest 全绿。
+    scope: "Add a conditional instruction for the agent to assess for itself to each of _DRAFT_RFC_TASK / _BACKFILL_RFC_TASK in orchestrator.py and _CODE_REVIEW_TASK/_RUBRIC_TAIL in reviewer.py: \"If browser tools are available, prioritize designing browser-based frontend e2e tests rather than merely declaring scripts or skipping them.\" Do not detect MCP, inject this into the backend adapter claude_code.py, or couple it to a specific MCP ecosystem. Do not write to .claude/ (hard constraint)—place it in the in-code methodology layer."
+    acceptance: "The three template locations—_DRAFT_RFC_TASK / _BACKFILL_RFC_TASK / reviewer rubric—all contain conditional wording expressing \"browser tools available → prioritize browser-based frontend e2e\"; the wording is conditional (assessed by the agent itself) and does not include declarations such as \"OpenAgents detected that you have a browser\"; claude_code.py is not modified; unit tests assert that all three template locations contain this guidance; ruff + pytest all pass."
   - id: T5
-    title: e2e 脚本：体检两态输出 + 方法论文案注入断言
+    title: "e2e script: assertions for health-check output in both states + methodology wording injection"
     status: done
     priority: P2
     tags: []
@@ -73,164 +73,163 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0030-init-env-check.sh
-    scope: 新增 hermetic e2e 脚本（不调真实 claude/GitHub）：打桩 ~/.claude.json 与 OPENAGENTS_PERMISSION_MODE，断言缺失态报告含安装命令/非全放行警告/export 设置方式、满足态含两条 ✓、非阻塞退出码 0；并 grep orchestrator.py/reviewer.py 确认条件式方法论文案已注入。
-    acceptance: bash scripts/e2e-spec-0030-init-env-check.sh 全绿：覆盖缺失/满足两态体检输出断言、非阻塞退出码 0、两处模板含 browser-e2e 引导；无外部依赖（真实 claude/GitHub）可稳定复跑。
+    scope: "Add a hermetic e2e script (without invoking real claude/GitHub): stub ~/.claude.json and OPENAGENTS_PERMISSION_MODE, assert that the report in the missing state contains installation commands/a warning that permissions are not unrestricted/export setup instructions, that the satisfied state contains two ✓ marks, and that the non-blocking exit code is 0; also grep orchestrator.py/reviewer.py to confirm that the conditional methodology wording has been injected."
+    acceptance: "bash scripts/e2e-spec-0030-init-env-check.sh passes completely: covers assertions for health-check output in both missing/satisfied states, a non-blocking exit code of 0, and browser-e2e guidance in both template locations; can be rerun reliably without external dependencies (real claude/GitHub)."
 ---
 
-# 0030 · init 环境体检：检测 browser MCP 与权限放行（非阻塞）+ 前端 e2e 方法论引导
+# 0030 · init environment health check: detect browser MCP and permission approval (non-blocking) + guidance on frontend e2e methodology
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-理念 8「以成果为中心、模型替人做端到端测试」要求前端类 issue 的真正验证落到浏览器自动化（Playwright / Chrome DevTools MCP）。但「装了 MCP 插件」≠「守夜派出的 agent 真能用上浏览器」——经核对 OpenAgents 调 claude 的方式（`openagents/backends/claude_code.py`）存在两道关卡，默认只过第一道。本组在 `openagents init` 的 preflight 里加一段**非阻塞的环境能力体检**：(1) 读 `~/.claude.json` 检测 browser MCP（`playwright` / `chrome-devtools`）是否已注册；(2) 读 OpenAgents 派 claude 时的**有效权限模式**是否为全放行（`bypassPermissions`）。任一缺失只**打印警告 + 安装/设置方式**，绝不阻断 init（后端类项目本就用不上浏览器）。同时——按理念 10 解耦、不让编排核心耦合 MCP——把「**具备浏览器工具就优先设计前端浏览器 e2e**」的**条件式方法论引导**写进 OpenAgents 自己的 **in-code 方法论面**（起草 spec 的 prompt 模板 `orchestrator.py:_DRAFT_RFC_TASK` + reviewer rubric `reviewer.py`），由 agent 自检自己的工具决定是否适用。**只检测 + 提示 + 方法论文案**：不自动改 MCP 配置、不自动改权限、不在后端适配器注入「你有浏览器能力」、不在本组驱动浏览器跑断言（后者留作后续单独 issue）。
+Principle 8, “Focus on outcomes; have the model perform end-to-end testing for the user,” requires actual verification of frontend issues through browser automation (Playwright / Chrome DevTools MCP). But “the MCP plugin is installed” ≠ “an agent dispatched by Vigil can actually use the browser”—inspection of how OpenAgents invokes claude (`openagents/backends/claude_code.py`) reveals two gates, only the first of which is passed by default. This group adds a **non-blocking environment capability health check** to the `openagents init` preflight: (1) read `~/.claude.json` to detect whether browser MCP (`playwright` / `chrome-devtools`) is registered; (2) read the **effective permission mode** used when OpenAgents dispatches claude to determine whether it allows everything (`bypassPermissions`). If either is missing, **only print a warning + installation/setup instructions**, never block init (backend projects have no need for a browser in the first place). At the same time—in accordance with Principle 10 on decoupling, keeping the orchestration core independent of MCP—add **conditional methodological guidance** to “**prioritize designing frontend browser e2e tests when browser tools are available**” to OpenAgents’ own **in-code methodology surfaces** (the spec-drafting prompt template `orchestrator.py:_DRAFT_RFC_TASK` + the reviewer rubric in `reviewer.py`), with the agent inspecting its own tools to decide whether it applies. **Detection + guidance + methodology text only**: do not automatically change MCP configuration, do not automatically change permissions, do not inject “you have browser capabilities” into the backend adapter, and do not drive a browser to run assertions in this group (the latter is reserved for a separate follow-up issue).
 
 ## Motivation
 
-**现状两道关卡（就地复述，来源：`openagents/backends/claude_code.py`）。** OpenAgents 的 vigil/orchestrator 派单时，通过 `ClaudeCodeBackend._run_claude_streaming` 以子进程非交互（headless / `-p`）方式调 claude，命令行恒为：
+**The two current gates (restated here; source: `openagents/backends/claude_code.py`).** When OpenAgents’ vigil/orchestrator dispatches tasks, it invokes claude through `ClaudeCodeBackend._run_claude_streaming` as a non-interactive subprocess (headless / `-p`), always with this command line:
 
 ```
 claude -p <prompt> --permission-mode acceptEdits --output-format stream-json --verbose
 ```
 
-其中权限模式硬编码为模块级常量 `_PERMISSION_MODE = "acceptEdits"`，且**未传** `--mcp-config` / `--strict-mcp-config`、**未传** `--allowedTools`。由此推出两道关卡：
+The permission mode is hardcoded as the module-level constant `_PERMISSION_MODE = "acceptEdits"`, and **neither** `--mcp-config` / `--strict-mcp-config` **nor** `--allowedTools` is passed. This yields two gates:
 
-1. **工具可见（默认✅通过）**：未传 `--mcp-config` / `--strict-mcp-config`，claude 会**继承用户级** `~/.claude.json` 里注册的 MCP server。所以只要用户在自己机器上 `claude mcp add` 过 playwright / chrome-devtools，派出去的 agent 的工具列表里就有 `browser_*` 工具。
-2. **权限放行（默认❌不通过）**：`acceptEdits` 只自动放行**文件编辑**类工具；而 `-p` 非交互模式下，未被显式允许的工具调用会被**直接拒绝**（headless 不弹窗确认）。于是 agent 真去调 `browser_*` / `mcp__playwright__*` 大概率被 **deny**。
+1. **Tool visibility (passes by default ✅)**: because `--mcp-config` / `--strict-mcp-config` is not passed, claude **inherits user-level** MCP servers registered in `~/.claude.json`. Thus, as long as the user has run `claude mcp add` for playwright / chrome-devtools on their machine, the dispatched agent’s tool list includes `browser_*` tools.
+2. **Permission approval (fails by default ❌)**: `acceptEdits` automatically approves only **file-editing** tools; in `-p` non-interactive mode, tool calls that have not been explicitly allowed are **rejected outright** (headless mode does not display a confirmation prompt). As a result, when the agent actually calls `browser_*` / `mcp__playwright__*`, it will very likely receive a **deny**.
 
-**后果与排查成本。** 用户以为「装了 MCP 就能在守夜里跑前端 e2e」，实际跑起来才发现要么根本没装 MCP（工具不可见），要么工具调用被静默拒（权限没放行）。两种失败都发生在派单数分钟之后、且无显式报错指向根因，排查成本高。
+**Consequences and troubleshooting cost.** Users assume that “installing MCP lets frontend e2e run in Vigil,” only to discover during an actual run that either MCP was never installed (tools are invisible) or tool calls are silently rejected (permissions were not approved). Both failures occur several minutes after dispatch, with no explicit error pointing to the root cause, making troubleshooting costly.
 
-**为什么放在 init。** init 是用户绑定项目、做 preflight 的唯一入口（`openagents/cli.py:_cmd_init` → `openagents/config.py:ensure_project` / `_bootstrap` 的交互体检模式已是既有范式）。在这里**提前**把「缺工具 / 缺放行」体检出来并给出设置方式，是把踩坑从「跑了几分钟才发现」前移到「init 的几秒内告知」，成本最低。
+**Why this belongs in init.** init is the sole entry point for users to associate a project and run preflight checks (the interactive health-check mode in `openagents/cli.py:_cmd_init` → `openagents/config.py:ensure_project` / `_bootstrap` is already an established pattern). Detecting “missing tools / missing approval” **in advance** here and providing setup instructions moves discovery from “after running for several minutes” to “notification within the few seconds of init,” at the lowest cost.
 
-**为什么「前端优先浏览器 e2e」是方法论、不是编排逻辑。** 真正的诉求是「让 agent 在设计成果测试时优先用浏览器验前端」。这是**方法论**，不该塞进编排核心：(1) 派出去的 `claude -p` agent **本来就知道自己有哪些工具**（browser MCP 工具就在它的工具列表里），OpenAgents 再往 prompt 里宣告一遍「你有浏览器能力」是**冗余**，且越界替 agent 管理它自己的工具认知，与「agent 去中心化、OpenAgents 只编排」相悖；(2) 把「检测 MCP→改 prompt」塞进编排核心，会让与后端无关的编排层**耦合到具体 MCP 生态**，违背理念 10。所以引导应是**条件式、由 agent 自检**的方法论文案（「如果你具备浏览器工具，就优先……」），落在方法论层而非后端适配器。
+**Why “prioritize browser e2e for frontend work” is methodology, not orchestration logic.** The actual need is to “have agents prioritize browser-based frontend verification when designing outcome tests.” This is **methodology** and should not be inserted into the orchestration core: (1) a dispatched `claude -p` agent **already knows which tools it has** (the browser MCP tools are in its tool list); having OpenAgents announce “you have browser capabilities” again in the prompt is **redundant** and oversteps by managing the agent’s awareness of its own tools, contrary to “decentralized agents; OpenAgents only orchestrates”; (2) inserting “detect MCP → modify prompt” into the orchestration core would **couple the backend-independent orchestration layer to a specific MCP ecosystem**, violating Principle 10. The guidance should therefore be **conditional methodology text, with the agent checking for itself** (“If you have browser tools, prioritize…”), placed in the methodology layer rather than the backend adapter.
 
 ## Guide-level explanation
 
-**体检在 init 里长这样（非阻塞）。** 用户在一个项目目录里跑 `openagents init`，既有的 preflight 跑完、打印 `✓ 项目已就绪：…` 之后，紧接着多出一段环境体检输出。全部通过时安静收尾（一行 OK 或无额外噪音）；有缺失时打印对应警告与设置方式，**但 init 仍正常返回 0**：
+**What the health check looks like in init (non-blocking).** A user runs `openagents init` in a project directory. After the existing preflight finishes and prints `✓ Project ready: …`, an additional environment health-check section immediately follows. If all checks pass, it finishes quietly (one OK line or no additional noise); if anything is missing, it prints the corresponding warning and setup instructions, **but init still returns 0 normally**:
 
 ```text
-✓ 项目已就绪：/path/to/repo（远端：git@github.com:owner/repo.git）
+✓ Project ready: /path/to/repo (remote: git@github.com:owner/repo.git)
 
-▶ 前端 e2e 环境体检（非阻塞，仅 claude-code 后端）
-  ⚠ 未检测到 browser MCP（playwright / chrome-devtools 均未在 ~/.claude.json 注册）
-    前端浏览器 e2e 需要浏览器自动化工具。安装方式：
+▶ Frontend e2e environment health check (non-blocking, claude-code backend only)
+  ⚠ No browser MCP detected (neither playwright nor chrome-devtools is registered in ~/.claude.json)
+    Frontend browser e2e requires browser automation tools. To install:
       claude mcp add playwright -s user -- npx @playwright/mcp@latest
       claude mcp add chrome-devtools -s user -- npx chrome-devtools-mcp@latest
       npx playwright install chromium
-  ⚠ 当前权限模式为 acceptEdits（非全放行 bypassPermissions）
-    headless 非交互下 browser MCP 工具调用会被直接拒绝 → 前端浏览器 e2e 将无法运行。
-    要可靠跑起来需全放行（移除无人值守安全栏杆，请知悉取舍后再开）：
+  ⚠ Current permission mode is acceptEdits (not unrestricted bypassPermissions)
+    In headless non-interactive mode, browser MCP tool calls are rejected outright → frontend browser e2e cannot run.
+    Reliable execution requires unrestricted permissions (this removes unattended-operation safety guardrails; understand the tradeoff before enabling):
       export OPENAGENTS_PERMISSION_MODE=bypassPermissions
-  提示：以上为非阻塞告知；后端类项目无需浏览器，可忽略。
+  Note: the above is a non-blocking notice; backend projects do not need a browser and may ignore it.
 ```
 
-两项都满足时：
+When both conditions are met:
 
 ```text
-▶ 前端 e2e 环境体检（非阻塞，仅 claude-code 后端）
-  ✓ browser MCP 已注册：playwright, chrome-devtools
-  ✓ 权限模式 bypassPermissions（全放行）：browser MCP 工具调用可被放行
+▶ Frontend e2e environment health check (non-blocking, claude-code backend only)
+  ✓ Browser MCP registered: playwright, chrome-devtools
+  ✓ Permission mode bypassPermissions (unrestricted): browser MCP tool calls can be approved
 ```
 
-**用户的选择权。** 体检只「告知」，不替用户做激进决定：它不自动 `claude mcp add`、不自动写 `~/.claude.json`、不自动把权限改成全放行。是否安装 MCP、是否开全放行（`export OPENAGENTS_PERMISSION_MODE=bypassPermissions`，本组新增的最小开关，默认仍 `acceptEdits`）都由用户读完取舍后自己决定。
+**User choice.** The health check only “informs”; it does not make aggressive decisions on the user’s behalf: it does not automatically run `claude mcp add`, write `~/.claude.json`, or change permissions to unrestricted. Whether to install MCP and whether to enable unrestricted permissions (`export OPENAGENTS_PERMISSION_MODE=bypassPermissions`, the minimal switch introduced by this group, with `acceptEdits` remaining the default) are decisions users make themselves after reading the tradeoffs.
 
-**方法论引导在 agent 那侧长这样。** 当 OpenAgents 派 agent 起草 spec（`rfc` / vigil 起草段）或派 reviewer 评审 PR 时，注入的任务 prompt 里多出一条**条件式**指引（措辞示例）：
+**What the methodological guidance looks like on the agent side.** When OpenAgents dispatches an agent to draft a spec (`rfc` / the Vigil drafting stage) or dispatches a reviewer to review a PR, the injected task prompt includes an additional **conditional** instruction (example wording):
 
-> 如果你具备浏览器工具（如 Playwright / Chrome DevTools MCP），就**优先设计基于浏览器的前端 e2e**（导航 / 交互 / 截图 / 断言 / console·network 检查），而不是仅声明 shell 脚本或跳过；是否具备由你自检自己的工具列表决定。
+> If you have browser tools (such as Playwright / Chrome DevTools MCP), **prioritize designing browser-based frontend e2e tests** (navigation / interaction / screenshots / assertions / console·network checks), rather than merely declaring shell scripts or skipping them; determine availability yourself by inspecting your own tool list.
 
-reviewer 侧同理：评成果测试时，若被评 PR 是前端改动且作者具备浏览器工具，rubric 要求它检查「是否优先设计了浏览器 e2e 而非仅声明脚本」。**OpenAgents 不检测 MCP、不替 agent 宣告能力**——条件成立与否由 agent 自检，天然后端无关。
+The reviewer side follows the same approach: when reviewing outcome tests, if the PR under review contains frontend changes and the author has browser tools, the rubric requires checking “whether browser e2e was prioritized in the design rather than merely declaring scripts.” **OpenAgents does not detect MCP or declare capabilities on the agent’s behalf**—the agent checks whether the condition holds, making this inherently backend-independent.
 
 ## Reference-level explanation
 
-### 技术方案
+### Technical approach
 
-**(A) 体检核心模块 `openagents/envcheck.py`（新增，纯函数、无副作用、read-only）。** 解耦设计（理念 10）：本模块只读文件 / 读环境变量并返回结构化结果，不碰 git/github/state，便于单测打桩。三个能力：
+**(A) Core health-check module `openagents/envcheck.py` (new, pure functions, no side effects, read-only).** Decoupled design (Principle 10): this module only reads files / environment variables and returns structured results; it does not touch git/github/state, making it easy to stub in unit tests. Three capabilities:
 
-- `detect_browser_mcp()` → 读 `~/.claude.json`（用户家目录，`Path.home() / ".claude.json"`），解析顶层 `mcpServers` 的 key 集合，返回 `playwright` / `chrome-devtools` 各自是否在册。文件不存在 / 非法 JSON / 无 `mcpServers` 键 → 视为「均未注册」（不抛）。**只读不写**——绝不修改 `~/.claude.json`（也呼应全局硬约束「不写 .claude」，本模块连读都只读家目录的 `~/.claude.json`，不碰仓库 `.claude/`）。
-  - 备选数据源 `claude mcp list`（子进程）：更权威但慢、依赖 claude 在 PATH、难 hermetic 测；故**默认走读 `~/.claude.json`**，`claude mcp list` 不在本组实现（见 Unresolved questions）。
-- `effective_permission_mode()` → 复用 **(B)** 在 `claude_code.py` 暴露的同名访问器（单一真相源：体检报告的权限模式必须等于派单实际用的模式，否则告知会撒谎）。
-- `render_report(*, mcp, permission_mode)` → 把上面两项结果渲染成上文 Guide-level 展示的那段文本（含缺失项的安装命令 / `export` 设置方式 / 取舍提示）。**纯函数返回字符串**，由调用方（init）打印；本模块不直接 print，便于测断言文本。
+- `detect_browser_mcp()` → read `~/.claude.json` (the user’s home directory, `Path.home() / ".claude.json"`), parse the set of keys in the top-level `mcpServers`, and return whether `playwright` / `chrome-devtools` is registered individually. Missing file / invalid JSON / missing `mcpServers` key → treat as “neither registered” (do not raise). **Read only, never write**—never modify `~/.claude.json` (also consistent with the global hard constraint “do not write .claude”; even reads in this module are limited to `~/.claude.json` in the home directory, without touching the repository’s `.claude/`).
+  - Alternative data source: `claude mcp list` (subprocess). More authoritative, but slow, dependent on claude being on PATH, and difficult to test hermetically; therefore **read `~/.claude.json` by default**. `claude mcp list` is not implemented in this group (see Unresolved questions).
+- `effective_permission_mode()` → reuse the accessor with the same name exposed in `claude_code.py` by **(B)** (single source of truth: the permission mode reported by the health check must equal the mode actually used for dispatch; otherwise the notice would be misleading).
+- `render_report(*, mcp, permission_mode)` → render the two results above into the text shown in Guide-level explanation (including installation commands for missing items / `export` setup instructions / tradeoff notices). **A pure function returning a string**, printed by the caller (init); this module does not print directly, making text assertions easy to test.
 
-体检是**非阻塞**的：`envcheck` 只返回报告文本与「是否全通过」布尔，**从不抛异常、从不返回非零**，init 拿到后只 `print`，不据此改变退出码。
+The health check is **non-blocking**: `envcheck` only returns report text and an “all checks passed” boolean, **never raises exceptions, and never returns a nonzero status**; init only calls `print` on the result and does not change its exit code based on it.
 
-**(B) 最小权限模式开关 `openagents/backends/claude_code.py`。** 把硬编码常量 `_PERMISSION_MODE = "acceptEdits"` 改为从环境变量解析的小函数 `effective_permission_mode()`：读 `OPENAGENTS_PERMISSION_MODE`，缺省回退 `"acceptEdits"`（**默认行为不变**——非侵入），`_run_claude_streaming` 改用它拼 `--permission-mode`。这是让体检的「设置方式」**真正可操作**的最小开关（理念 8 风险/取舍里「(a) 用户按提示开全放行」必须有处可设，否则告知是空头支票），也是 envcheck 权限检测的单一真相源。**不**引入配置文件、不引入第二个旋钮（奥卡姆）；env 旋钮与既有 `OPENAGENTS_REVIEWERS`（`reviewer.py`）同款最小可配集风格。
+**(B) Minimal permission-mode switch in `openagents/backends/claude_code.py`.** Replace the hardcoded constant `_PERMISSION_MODE = "acceptEdits"` with a small environment-variable parsing function, `effective_permission_mode()`: read `OPENAGENTS_PERMISSION_MODE`, falling back to `"acceptEdits"` when unset (**default behavior remains unchanged**—non-intrusive), and change `_run_claude_streaming` to use it when constructing `--permission-mode`. This is the minimal switch that makes the health check’s “setup instructions” **actually actionable** (Principle 8’s risks/tradeoffs item “(a) users enable unrestricted permissions as instructed” must have somewhere to configure it, or the notice would be an empty promise), and it is also the single source of truth for envcheck’s permission detection. Introduce **no** configuration file and no second knob (Occam’s razor); the environment-variable knob follows the same minimally configurable style as the existing `OPENAGENTS_REVIEWERS` (`reviewer.py`).
 
-**(C) 把体检接进 init `openagents/cli.py:_cmd_init`。** 在既有 `github.ensure_prerequisites()` + `print("✓ 项目已就绪…")` 之后，追加调用 `envcheck` 渲染并 `print` 报告。体检不改变 `_cmd_init` 返回值（恒 `return 0`，除非既有 preflight 自身失败）。仅此一处接线，编排核心（vigil/orchestrator）不感知体检。
+**(C) Wire the health check into init at `openagents/cli.py:_cmd_init`.** After the existing `github.ensure_prerequisites()` + `print("✓ Project ready…")`, append a call to `envcheck` to render and `print` the report. The health check does not change `_cmd_init`’s return value (always `return 0`, unless the existing preflight itself fails). This is the only integration point; the orchestration core (vigil/orchestrator) is unaware of the health check.
 
-**(D) 条件式方法论文案落 in-code 方法论面。** 两处 prompt 模板各加一条**条件式、由 agent 自检**的引导句（不检测 MCP、不在后端适配器 `claude_code.py` 注入）：
+**(D) Place conditional methodology text in the in-code methodology surfaces.** Add **conditional guidance, with the agent checking for itself**, to the prompt templates in two places (do not detect MCP; do not inject it into the backend adapter `claude_code.py`):
 
-- 起草侧 `openagents/orchestrator.py`：`_DRAFT_RFC_TASK`（据 issue 起草 spec）与 `_BACKFILL_RFC_TASK`（反推 spec）追加一句「设计成果测试时，若具备浏览器工具，优先设计浏览器前端 e2e」。这是**起草 spec 的方法论注入点**——本仓库里它是 in-repo 可编辑面，承担 issue 所说「写进 spec/RFC 起草 skill」的等价职责（见下「关于 `.claude/` 边界」）。
-- 评审侧 `openagents/reviewer.py`：`_CODE_REVIEW_TASK` / `_RUBRIC_TAIL` 追加一句「若被评为前端改动且作者具备浏览器工具，检查是否优先设计了浏览器 e2e 而非仅声明脚本」。这正是 issue 所说「reviewer rubric」，且 rubric 就在代码里（`reviewer.py`），可直接编辑。
+- Drafting side, `openagents/orchestrator.py`: append to `_DRAFT_RFC_TASK` (draft a spec from an issue) and `_BACKFILL_RFC_TASK` (derive a spec retrospectively) a sentence saying, “When designing outcome tests, if browser tools are available, prioritize designing browser-based frontend e2e tests.” This is the **methodology injection point for drafting specs**—in this repository, it is an editable in-repo surface that fulfills the equivalent role of the issue’s “write it into the spec/RFC drafting skill” (see “About the `.claude/` boundary” below).
+- Review side, `openagents/reviewer.py`: append to `_CODE_REVIEW_TASK` / `_RUBRIC_TAIL` a sentence saying, “If the change under review is classified as a frontend change and the author has browser tools, check whether browser e2e was prioritized in the design rather than merely declaring scripts.” This is precisely the “reviewer rubric” described in the issue, and the rubric lives in code (`reviewer.py`), where it can be edited directly.
 
-> **关于 `.claude/` 边界（重要）。** issue 原文把方法论落点写作「spec/RFC 起草的 **skill**」与「reviewer rubric」。本仓库存在**全局硬约束：禁止写入 / 改动 `.claude/` 目录下任何内容**，而 spec 起草 skill 的文档恰在 `.claude/skills/spec-driven-development/`。故本组**不写 `.claude/`**，改把同等的条件式引导落到 OpenAgents 自己的 **in-code 方法论面**：`orchestrator.py` 的起草 prompt 模板（驱动起草 agent 的方法论注入点）+ `reviewer.py` 的 rubric。二者都是 in-repo 可编辑、后端无关、且正是「方法论层」而非后端适配器拼接——既守住硬约束，又达成 issue 的真实诉求。`.claude/` 下 skill 文档的同步留作仓库维护者人工处理（见 Unresolved questions）。
+> **About the `.claude/` boundary (important).** The original issue specifies the methodology destinations as the “spec/RFC drafting **skill**” and “reviewer rubric.” This repository has a **global hard constraint: writing or modifying anything under `.claude/` is prohibited**, while the spec-drafting skill documentation happens to reside in `.claude/skills/spec-driven-development/`. Therefore, this group **does not write to `.claude/`**, instead placing equivalent conditional guidance in OpenAgents’ own **in-code methodology surfaces**: the drafting prompt templates in `orchestrator.py` (the methodology injection point driving the drafting agent) + the rubric in `reviewer.py`. Both are editable in-repo, backend-independent, and precisely in the “methodology layer” rather than assembled in the backend adapter—upholding the hard constraint while meeting the issue’s actual need. Synchronizing the skill documentation under `.claude/` is left for repository maintainers to handle manually (see Unresolved questions).
 
-### Task DAG 与文件分配（files 互斥，单一 writer——理念 6）
+### Task DAG and file assignment (mutually exclusive files, single writer—Principle 6)
 
-| Task | 范围 | owns files | 依赖 |
+| Task | Scope | owns files | Dependencies |
 |---|---|---|---|
-| T1 | 权限模式最小开关：`_PERMISSION_MODE` 常量 → `effective_permission_mode()`（读 `OPENAGENTS_PERMISSION_MODE`，默认 acceptEdits 不变） | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | — |
-| T2 | 体检核心模块：`detect_browser_mcp` / `effective_permission_mode`（转调 T1）/ `render_report`，纯函数 read-only 不抛 | `openagents/envcheck.py`, `tests/test_envcheck.py` | T1 |
-| T3 | 把体检接进 init：`_cmd_init` 末尾渲染并打印报告，不改退出码 | `openagents/cli.py`, `tests/test_cli.py` | T2 |
-| T4 | 条件式 browser-e2e 方法论文案：起草 prompt 模板 + reviewer rubric | `openagents/orchestrator.py`, `openagents/reviewer.py`, `tests/test_orchestrator.py`, `tests/test_reviewer.py` | — |
-| T5 | e2e 脚本：断言体检在缺失/满足两态下的输出，与方法论文案已注入两处模板 | `scripts/e2e-spec-0030-init-env-check.sh` | T3, T4 |
+| T1 | Minimal permission-mode switch: `_PERMISSION_MODE` constant → `effective_permission_mode()` (reads `OPENAGENTS_PERMISSION_MODE`; the default remains acceptEdits) | `openagents/backends/claude_code.py`, `tests/test_backend_claude_code.py` | — |
+| T2 | Core environment-check module: `detect_browser_mcp` / `effective_permission_mode` (delegates to T1) / `render_report`; pure functions, read-only, no exceptions raised | `openagents/envcheck.py`, `tests/test_envcheck.py` | T1 |
+| T3 | Integrate the environment check into init: render and print the report at the end of `_cmd_init`, without changing the exit code | `openagents/cli.py`, `tests/test_cli.py` | T2 |
+| T4 | Conditional browser-e2e methodology guidance: drafting prompt template + reviewer rubric | `openagents/orchestrator.py`, `openagents/reviewer.py`, `tests/test_orchestrator.py`, `tests/test_reviewer.py` | — |
+| T5 | e2e script: assert the environment-check output in both the missing-prerequisites and satisfied-prerequisites states, and verify that the methodology guidance has been injected into both templates | `scripts/e2e-spec-0030-init-env-check.sh` | T3, T4 |
 
 ```mermaid
 graph LR
-  T1[T1 权限模式开关] --> T2[T2 envcheck 核心]
-  T2 --> T3[T3 接进 init]
-  T3 --> T5[T5 e2e 断言]
-  T4[T4 方法论文案] --> T5
+  T1[T1 Permission-mode switch] --> T2[T2 envcheck core]
+  T2 --> T3[T3 Integrate into init]
+  T3 --> T5[T5 e2e assertions]
+  T4[T4 Methodology guidance] --> T5
 ```
 
-T1↔T4 互不依赖，可并行起步；T4 与 T1/T2/T3 文件完全不相交（`orchestrator.py` / `reviewer.py` vs `claude_code.py` / `envcheck.py` / `cli.py`）。
+T1↔T4 have no dependencies on each other and can start in parallel; T4's files are entirely disjoint from those of T1/T2/T3 (`orchestrator.py` / `reviewer.py` vs `claude_code.py` / `envcheck.py` / `cli.py`).
 
-### 端到端验证
+### End-to-end validation
 
-`bash scripts/e2e-spec-0030-init-env-check.sh`——hermetic、不调真实 claude / GitHub。脚本断言：
+`bash scripts/e2e-spec-0030-init-env-check.sh`—hermetic, with no calls to real claude / GitHub. The script asserts:
 
-1. **体检渲染**：以打桩的 `~/.claude.json`（无 mcpServers）+ 默认权限，调 `envcheck.render_report`（或经临时 `HOME` 跑 `openagents init` 的体检段），输出含 `playwright` 安装命令、含「非全放行」警告与 `export OPENAGENTS_PERMISSION_MODE=bypassPermissions`；
-2. **满足态**：打桩 `~/.claude.json` 含 `playwright` + `chrome-devtools`、`OPENAGENTS_PERMISSION_MODE=bypassPermissions`，输出含两条 `✓`、不含安装命令；
-3. **非阻塞**：缺失态下 init 段不致使整体非零退出（断言退出码 0 / 体检不抛）；
-4. **方法论文案**：grep `openagents/orchestrator.py` 与 `openagents/reviewer.py`，确认两处模板均含条件式「具备浏览器工具 → 优先浏览器前端 e2e」字样。
+1. **Environment-check rendering**: with a stubbed `~/.claude.json` (no mcpServers) + default permissions, call `envcheck.render_report` (or run the environment-check portion of `openagents init` with a temporary `HOME`); the output contains the `playwright` installation command, a “permissions are not fully unrestricted” warning, and `export OPENAGENTS_PERMISSION_MODE=bypassPermissions`;
+2. **Satisfied state**: with a stubbed `~/.claude.json` containing `playwright` + `chrome-devtools` and `OPENAGENTS_PERMISSION_MODE=bypassPermissions`, the output contains two `✓` marks and no installation commands;
+3. **Non-blocking behavior**: in the missing-prerequisites state, the init portion does not cause an overall nonzero exit (assert exit code 0 / no exception raised by the environment check);
+4. **Methodology guidance**: grep `openagents/orchestrator.py` and `openagents/reviewer.py` to confirm that both templates contain conditional wording to the effect of “browser tools available → prioritize browser-based frontend e2e.”
 
-脚本路径写进本段，供 PR 的 e2e 指路牌（`signpost`）抽取贴进 PR 正文（理念 8）。
+The script path is included in this section so that the PR's e2e signpost (`signpost`) can extract it and insert it into the PR body (Principle 8).
 
 ## Drawbacks
 
-- **claude-code 专属、非后端无关**：体检读 `~/.claude.json` 与 claude 的权限模式语义，绑定 claude-code 后端；codex / nexau 有各自的工具可见性 / 权限机制，本组不强绑（保持理念 10 的「针对 claude-code 后端」边界，其它后端另行处理）。体检文案显式标注「仅 claude-code 后端」以免误导。
-- **推荐全放行移除安全栏杆**：体检把 `bypassPermissions` 作为「让 browser MCP 在 headless 下确实能跑」的推荐路径，代价是移除无人值守的安全栏杆，且与默认自动 merge 叠加后风险更大（全放行的 agent 半夜自动改、自动合）。本组只能「把取舍讲清、把选择权留给用户」，无法在告知层面消除该风险。
-- **体检只告知、不闭环**：真正让前端 e2e 跑起来还需配套——(a) 用户按提示开全放行、安装 MCP；(b) 守夜成果测试环节实际驱动浏览器跑断言（**单独 issue**，不在本组）。本组交付「告知 + 方法论引导」，不交付「跑」，存在「体检全绿但 e2e 仍未真正被驱动」的预期落差。
-- **方法论文案与 `.claude/` skill 文档可能漂移**：本组把引导落到 in-code 模板，`.claude/skills/` 下 skill 文档因硬约束不在本组同步；二者措辞可能短期不一致，需仓库维护者人工对齐。
-- **`~/.claude.json` 结构假设**：检测依赖 claude 当前以顶层 `mcpServers` 存 MCP 注册；若 claude 改了配置 schema，检测会失准（退化为「均未注册」误报）。属外部依赖的固有成本。
+- **Specific to claude-code, not backend-agnostic**: the environment check reads `~/.claude.json` and uses claude's permission-mode semantics, tying it to the claude-code backend; codex / nexau have their own tool-visibility / permission mechanisms, which this work does not force into the same model (preserving Principle 10's boundary of “for the claude-code backend”; other backends will be handled separately). The environment-check messages explicitly state “claude-code backend only” to avoid misleading users.
+- **Recommending unrestricted permissions removes safety guardrails**: the environment check recommends `bypassPermissions` as the way to “ensure browser MCP can actually run in headless mode.” The cost is removing safety guardrails for unattended operation, with greater risk when combined with automatic merge by default (an agent with unrestricted permissions automatically makes changes and merges them overnight). This work can only “explain the tradeoff clearly and leave the choice to the user”; informing users cannot eliminate this risk.
+- **The environment check only informs; it does not close the loop**: actually getting frontend e2e running also requires (a) the user to enable unrestricted permissions and install MCP as prompted; (b) the Vigil result-testing stage to actually drive a browser and run assertions (**a separate issue**, outside this work). This work delivers “notification + methodology guidance,” not “execution,” leaving a potential expectation gap where “all environment checks are green, but e2e is still not actually being driven.”
+- **Methodology guidance may drift from `.claude/` skill documents**: this work places the guidance in in-code templates; because of a hard constraint, synchronizing skill documents under `.claude/skills/` is outside its scope. Their wording may differ temporarily, requiring repository maintainers to align them manually.
+- **Assumption about the structure of `~/.claude.json`**: detection relies on claude currently storing MCP registrations in the top-level `mcpServers` field; if claude changes its configuration schema, detection will become inaccurate (degrading into false reports that “none are registered”). This is an inherent cost of an external dependency.
 
 ## Rationale and alternatives
 
-**选「init 非阻塞体检 + in-code 方法论文案 + 最小权限 env 开关」**，是因为它在最早入口（init 数秒内）把两道关卡讲清、不阻断后端类项目、不替用户做激进决定，同时用一个与既有 `OPENAGENTS_REVIEWERS` 同款的最小 env 开关让「设置方式」真正可操作；方法论引导落 in-code 模板既守住 `.claude/` 硬约束、又避免编排核心耦合 MCP（理念 10）。
+**The choice of “non-blocking environment check during init + in-code methodology guidance + minimal permission environment-variable switch”** explains both gates at the earliest entry point (within seconds during init), avoids blocking backend-oriented projects, and avoids making aggressive decisions on the user's behalf. At the same time, a minimal environment-variable switch patterned after the existing `OPENAGENTS_REVIEWERS` makes the “configuration method” actionable. Placing methodology guidance in in-code templates both respects the hard constraint on `.claude/` and avoids coupling the orchestration core to MCP (Principle 10).
 
-- **备选 A：阻塞式体检（缺工具 / 缺放行就让 init 失败或强制确认）**——能逼用户当场处理，但后端类项目根本用不上浏览器，阻断纯属误伤；与 issue「非阻塞、不阻断 init」明确冲突。否决。
-- **备选 B：OpenAgents 检测到 MCP 后，往派单 agent 的 prompt 里注入「你有浏览器能力，请用浏览器测」**——看似直接，但 (1) agent 本就知道自己有哪些工具，宣告冗余且越界替 agent 管认知；(2) 把「检测 MCP→改 prompt」塞进编排/后端适配器，使编排层耦合具体 MCP 生态，违背理念 10。改用「条件式、由 agent 自检」的方法论文案规避。否决。
-- **备选 C：本组直接自动开全放行（把默认权限模式改成 `bypassPermissions`）**——能让 browser MCP 开箱即跑，但单方面移除安全栏杆是激进决定，且与自动 merge 叠加风险大；issue 明确「不自动改权限，改不改由用户决定」。故只提供默认 `acceptEdits` 的 opt-in 开关 + 告知。否决。
-- **备选 D：不加权限 env 开关，体检只打印一段「如何手动改」的说明**——更省代码，但「设置方式」无处落地（用户无法真正开全放行，除非改 OpenAgents 源码），告知沦为空头支票；最小 env 开关是让告知可操作的最小代价。否决。
-- **备选 E：检测数据源用 `claude mcp list` 子进程而非读 `~/.claude.json`**——更权威，但慢、依赖 claude 在 PATH、难 hermetic 测；读 `~/.claude.json` 已足够判断「是否注册」，故默认读文件，`claude mcp list` 留作后续增强。否决（默认）。
+- **Alternative A: a blocking environment check (fail init or require confirmation when tools / unrestricted permissions are missing)**—this could force users to address the issue immediately, but backend-oriented projects have no use for a browser, so blocking them would cause needless collateral damage; it directly conflicts with the issue's explicit requirement for “non-blocking behavior that does not block init.” Rejected.
+- **Alternative B: after detecting MCP, OpenAgents injects “you have browser capabilities; please test using a browser” into the prompt of the agent receiving the task**—this seems direct, but (1) the agent already knows which tools it has, making the declaration redundant and overstepping into managing the agent's awareness; (2) placing “detect MCP → modify prompt” in the orchestration / backend adapter couples the orchestration layer to a specific MCP ecosystem, violating Principle 10. Conditional methodology guidance that leaves the agent to check its own capabilities avoids this instead. Rejected.
+- **Alternative C: automatically enable unrestricted permissions as part of this work (change the default permission mode to `bypassPermissions`)**—this would let browser MCP run out of the box, but unilaterally removing safety guardrails is an aggressive decision, with substantial risk when combined with automatic merge; the issue explicitly states “do not change permissions automatically; the user decides whether to change them.” Therefore, provide only an opt-in switch with `acceptEdits` as the default, plus notification. Rejected.
+- **Alternative D: add no permission environment-variable switch, and have the environment check print only instructions for “how to change it manually”**—this saves more code, but leaves no actionable way to apply the setting (users cannot actually enable unrestricted permissions unless they modify the OpenAgents source), reducing the notification to an empty promise; the minimal environment-variable switch is the smallest cost of making the notification actionable. Rejected.
+- **Alternative E: use a `claude mcp list` subprocess as the detection data source instead of reading `~/.claude.json`**—more authoritative, but slow, dependent on claude being in PATH, and difficult to test hermetically; reading `~/.claude.json` is sufficient to determine “whether registered,” so file reading is the default, with `claude mcp list` left as a future enhancement. Rejected (as the default).
 
 ## Prior art
 
-- **「装好后做环境体检 / doctor」是 CLI 工具通行做法**：`flutter doctor`、`brew doctor`、`npx playwright install`（安装后校验浏览器二进制）等都在「安装 / 初始化后给一段能力体检 + 缺啥提示啥」，且多为非阻塞告知。本组把该惯例落到 `openagents init`。
-- **本仓库内部先例**：`openagents/config.py` 的 `ensure_project` / `_bootstrap` 已是「init 时交互体检缺失项（缺 git / 缺 remote）并给补齐方式」的范式；本组的环境体检是同一范式在「缺 browser MCP / 缺放行」维度的延伸。`reviewer.py` 的 `OPENAGENTS_REVIEWERS` 是「最小 env 旋钮、缺省取默认」的内部先例，本组权限开关沿用同款。
-- **Playwright / Chrome DevTools MCP 的安装命令**来源于其官方注册方式（`claude mcp add <name> -s user -- npx <pkg>@latest`），体检原样复述给用户，不自创命令。
-- 两道关卡的事实依据见 `openagents/backends/claude_code.py` 现有实现（`_PERMISSION_MODE = "acceptEdits"`、未传 `--mcp-config` / `--allowedTools`、headless `-p` 调用）——本组据实复述，不引入新行为假设。
+- **“Run an environment check / doctor after installation” is common practice for CLI tools**: `flutter doctor`, `brew doctor`, `npx playwright install` (validating browser binaries after installation), and others all provide “a capability check after installation / initialization, with prompts for whatever is missing,” and most provide non-blocking notifications. This work applies that convention to `openagents init`.
+- **Precedents within this repository**: `ensure_project` / `_bootstrap` in `openagents/config.py` already follow the pattern of “interactively checking for missing prerequisites during init (missing git / missing remote) and explaining how to supply them”; this work's environment check extends the same pattern to “missing browser MCP / missing unrestricted permissions.” `OPENAGENTS_REVIEWERS` in `reviewer.py` is an internal precedent for a “minimal environment-variable knob that uses the default when unset”; this work's permission switch follows the same pattern.
+- **The Playwright / Chrome DevTools MCP installation commands** come from their official registration method (`claude mcp add <name> -s user -- npx <pkg>@latest`); the environment check repeats them verbatim for users rather than inventing commands.
+- The factual basis for the two gates is the existing implementation in `openagents/backends/claude_code.py` (`_PERMISSION_MODE = "acceptEdits"`, no `--mcp-config` / `--allowedTools` passed, headless `-p` invocation)—this work restates those facts without introducing assumptions about new behavior.
 
 ## Unresolved questions
 
-- **检测数据源是否要补 `claude mcp list`**：默认读 `~/.claude.json` 足以判断注册与否；是否再加 `claude mcp list` 子进程做交叉校验（覆盖「在 project / local scope 注册」的情形）留待实现期或后续 issue 按需求决定。
-- **`.claude/` skill 文档的同步**：本组因全局硬约束不写 `.claude/`，spec 起草 skill 文档里的同款条件式引导由仓库维护者人工补齐（或另起一个不受本约束限制的流程）；本组只保证 in-code 方法论面（`orchestrator.py` / `reviewer.py`）落地。
-- **权限模式取值校验范围**：`OPENAGENTS_PERMISSION_MODE` 是否限定枚举（acceptEdits / bypassPermissions / …）并对非法值告警，还是原样透传给 claude 由其报错，留待实现期定（倾向最小：透传，仅在体检里识别 `bypassPermissions` 为「全放行」）。
-- **体检默认是否对纯后端项目静默**：当前设计是「全通过则一两行 OK」；是否进一步在检测到项目无前端迹象时整段跳过，留作后续优化（本组先做无条件非阻塞告知）。
+- **Whether to supplement the detection data source with `claude mcp list`**: reading `~/.claude.json` by default is sufficient to determine whether registration exists; whether to add a `claude mcp list` subprocess for cross-checking (covering registration at project / local scope) remains to be decided during implementation or in a subsequent issue, according to need.
+- **Synchronizing `.claude/` skill documents**: because of a global hard constraint, this work does not write to `.claude/`; repository maintainers must manually add the equivalent conditional guidance to the spec-drafting skill documents (or initiate a separate process not subject to this constraint). This work guarantees only that the in-code methodology guidance (`orchestrator.py` / `reviewer.py`) is implemented.
+- **Scope of permission-mode value validation**: whether `OPENAGENTS_PERMISSION_MODE` should be restricted to an enumeration (acceptEdits / bypassPermissions / …) with warnings for invalid values, or passed through unchanged to claude to report errors, remains to be decided during implementation (the preference is minimal: pass it through, and recognize only `bypassPermissions` as “unrestricted permissions” in the environment check).
+- **Whether the environment check should be silent by default for backend-only projects**: the current design is “one or two OK lines if all checks pass”; whether to go further and skip the entire section when no signs of a frontend are detected is left as a future optimization (this work starts with unconditional, non-blocking notification).
 
 ## Future possibilities
 
-- **守夜成果测试实际驱动浏览器**（单独 issue）：体检告知 + 方法论引导就位后，下一步让 `e2e.py` / reviewer 在成果测试环节真正调浏览器跑导航 / 断言 / 截图——这是「以成果为中心」闭环的运行时一侧，本组只做前置告知。
-- **后端无关的能力体检框架**：把「browser MCP 体检」抽象成「后端能力探针」接口，让 codex / nexau 各自实现自己的工具可见性 / 权限探针，体检层只编排、不绑某一后端。
-- **init 体检联动自动安装**（需用户显式同意）：在保持非侵入前提下，提供一个 opt-in 的 `--fix` 让 init 在用户确认后代跑 `claude mcp add` / 改权限，把「告知」升级为「一键就绪」。
-- **体检结果进成果看板**：把「browser MCP / 权限就绪度」作为一项展示进 `results.py` 的本地看板，让「这个项目能不能跑前端 e2e」一眼可见。
-
+- **Actually driving a browser during Vigil result testing** (separate issue): once environment-check notifications + methodology guidance are in place, the next step is for `e2e.py` / the reviewer to actually invoke a browser during result testing to perform navigation / assertions / screenshots—this is the runtime side of closing the “results-centered” loop; this work provides only advance notification.
+- **A backend-agnostic capability-check framework**: abstract the “browser MCP environment check” into a “backend capability probe” interface, letting codex / nexau each implement their own tool-visibility / permission probes, while the environment-check layer only orchestrates and is not tied to a particular backend.
+- **Automatic installation linked to the init environment check** (requires explicit user consent): while remaining nonintrusive, provide an opt-in `--fix` that lets init run `claude mcp add` / change permissions on the user's behalf after confirmation, upgrading “notification” to “one-click readiness.”
+- **Environment-check results in the results dashboard**: display “browser MCP / permission readiness” as an item in the local dashboard in `results.py`, making it clear at a glance “whether this project can run frontend e2e.”

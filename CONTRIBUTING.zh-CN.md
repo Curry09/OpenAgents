@@ -32,4 +32,4 @@ NexAU 可选检查、跨仓探针及离线和真实验收的边界见[验证指�
 
 ## 双语文档
 
-根目录的 README、CONTRIBUTING、SECURITY 和 THIRD_PARTY 各提供英文版（`.md`）与简体中文版（`.zh-CN.md`）。修改其中一版时，请同步另一版的内容、命令和链接，并保留顶部的语言切换入口。`docs/` 下的使用指南也提供两种语言；设计 Spec 主要使用中文。
+根目录的 README、CONTRIBUTING、SECURITY 和 THIRD_PARTY 各提供英文版（`.md`）与简体中文版（`.zh-CN.md`）。修改其中一版时，请同步另一版的内容、命令和链接，并保留顶部的语言切换入口。`docs/` 下的使用指南也提供两种语言；现行 Spec、角色提示词和源码注释使用英文。[中文 Spec 原文](docs/specs-zh-CN/README.md)作为历史记录保留。

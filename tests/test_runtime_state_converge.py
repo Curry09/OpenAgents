@@ -1,7 +1,7 @@
-"""# Spec-0063/T1: runtime.RuntimeState 扩容单测——agent_id/ui_capable 顶层存取 + 权威 STATUS_*。
+"""#Spec-0063/T1: runtime.RuntimeState amplification single — agent_id/ui_capable top layer access + authoritative STATUS_*
 
-用 tmp_path 真实读写临时 runtime-state.json（hermetic，不触网）；覆盖 agent_id/ui_capable 的
-读写与缺键/损坏容错、与 runs 平级不互相覆盖的隔离性，以及 STATUS_* 权威常量字面量。
+Use tmp_path Real reading and writing temporary runtime-state.json（hermetic, no net; overwhelm agent_id/ui_capable It’s...
+Read-write and write-deficit/damage error, isolation from the runs level, and STATUS_* authoritative constant.
 """
 
 from openagents.runtime.state import (
@@ -17,7 +17,7 @@ from openagents.runtime.state import (
 
 
 def _new_state(tmp_path):
-    """构造一个指向临时 runtime-state.json 的 RuntimeState。"""
+    """Construct a Runtestate that points to temporary runtime-state.json."""
     return RuntimeState(path=tmp_path / ".openagents" / "runtime-state.json")
 
 
@@ -71,7 +71,7 @@ def test_ui_capable_false_when_file_corrupt(tmp_path):
 
 
 def test_top_level_keys_isolated_from_runs(tmp_path):
-    """先 set_run 再 set agent_id/ui_capable：三者互不干扰（顶层键与 runs 平级）。"""
+    """set_run and set agent_id/ui_capable: Three are non-interference (top and runs level)."""
     state = _new_state(tmp_path)
     state.set_run(issue_number=5, status=STATUS_SOLVING, branch="openagents/issue-5", pr_number=0)
     state.set_agent_id(agent_id="agent-iso")
@@ -84,7 +84,7 @@ def test_top_level_keys_isolated_from_runs(tmp_path):
 
 
 def test_runs_isolated_from_top_level_keys(tmp_path):
-    """反向：先 set agent_id/ui_capable 再 set_run，run 落盘后 agent_id/ui_capable 仍在。"""
+    """Reverse: Set agent_id/ui_capable first, set_run, run-off agent_id/ui_capable is still in place."""
     state = _new_state(tmp_path)
     state.set_agent_id(agent_id="agent-rev")
     state.set_ui_capable(value=True)

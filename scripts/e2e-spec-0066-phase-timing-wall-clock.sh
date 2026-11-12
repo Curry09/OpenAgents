@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Spec-0066/T1-T3 端到端测试启动脚本：阶段计时——墙钟 per-phase 时延（旁路 append-only 事件流 + 跨轮重建）。
+# Spec-0066/T1 -T3 End-to-end test start-up script: Phase Time - Wall clock per-case time extension (append-only event stream + multi-wheel reconstruction).
 #
-# 证明「墙钟阶段计时旁路埋点 + 跨轮时长重建」在离线确定性链路上成立（intent，见 spec e2e 块）：
-#   - T1 timing 模块：record append 五键合法 JSON + UTC ISO8601；注入 open/write 抛异常 → record 静默吞掉
-#     不 raise（容错）；load_events 跳损坏行；timelines 跨轮重建各 phase duration（phase 复现分两段累加、
-#     末条 terminal 时长 0）；phase_stats 出每 phase p50/p90 + 最长尾 + interval 精度下限字段。
-#   - T2 vigil 旁路埋点：once 跑一 tick 后 timing.jsonl 生成含 dispatch(solve)/等待(awaiting-*)/合并各段；
-#     _phase_of 四值 verdict × facts 逐态归一；record 抛异常时 _consider 照常返回（容错端到端）；_fingerprint
-#     埋点前后相等（旁路不进 fp、不触护栏一自毁）；合并段 awaiting-ci（CI-wait）与 review-or-fix 可区分。
-#   - T3 CLI：oa report 对造好的 timing.jsonl 输出单 subject 时间线 + 跨 subject p50/p90 + 「精度下限 =
-#     interval」字样；空/缺文件友好提示、退出码 0。
+# Proof that the "wall clock phase timed the side road site + the inter-wheel time-long reconstruction" was set up on the offline definitive chain (incent, see spec e2e):
+#   - T1 Timing Module: record append 5 is valid JSON + UTC ISO8601; injecting open/write drop abnormal  → record silent swallowing
+#     No raise (incorrect); load_events jump-default line; Timelines multi-wheel recreate each case duration (case recurrence)
+#     The end of the terminal 0; phase_stats exits the field at the limit of 0 for each verse p50/p90+ maximum end + interval precision.
+#   - T2 vigil sidewalk site: timing.jsonl after tick Zonce produces dispatch/waiting-*/merging paragraphs;
+#     _phase_of 4 values vedidididect x facts
+#     The burial site is equal (fp by-pass, self-destructing without touching the fence); the merged section WAIT-ci (CI-wait) can be distinguished from the review-or-fix.
+#   - T3 CLI: aa report for the constructed timing.jsonl output list subject time line + cross subject p50/p90 + "Accuracy Lower ="
+#     Interval "; empty/missing file friendly hint, exit code 0.
 #
-# 形态说明（evidence 分层，理念 8）：本组是**纯后端埋点 + 聚合 + CLI 报告**，无 product-facing 前端可导航；
-# 已自检工具列表：无 Playwright / Chrome DevTools MCP，故不设浏览器 e2e，沿用前几批离线确定性测法（针对性
-# 单测 + grep 锚点）。真实自主环冒烟（`oa vigil --once` 后 `oa report` 出真报告）作为成果验收在 runbook 记录。
+# Form description (evidence stratification, philosophy 8): This group is ** pure backend burial point + polymer + CLI report**, no produd-facing frontend to navigate;
+# List of Self-checked Tools: Playwright / Crope DevTools MCP, therefore, does not have browser e2e, following previous batch offline certainty (targeting)
+# Single + grep anchor. Real, autonomous smoke-smoke (after `oa vigil --once` and `oa report` report) is recorded as a result acceptance in Runbook.
 #
-# 用法：
+# Usage:
 #   bash scripts/e2e-spec-0066-phase-timing-wall-clock.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/4] 离线确定性验证（lint + format）"
+echo "==> [1/4] Offline certainty verification (%2)lint + format）"
 uv run --extra dev ruff check .
 uv run --extra dev ruff format --check .
 
 echo
-echo "==> [2/4] timing 模块 + vigil 旁路埋点 + CLI report 针对性单测"
+echo "==> [2/4] timing Modules + vigil Put some bypass. + CLI report Targeted singles"
 uv run --extra dev pytest -q \
   tests/test_runtime_timing.py \
   tests/test_recipe_vigil_timing.py \
@@ -35,48 +35,48 @@ uv run --extra dev pytest -q \
   tests/test_cli.py
 
 echo
-echo "==> [3/4] spec 校验 + 生成物无漂移"
+echo "==> [3/4] spec Verify + Generating without drift"
 uv run spec validate
 uv run spec graph --check
 
 echo
-echo "==> [4/4] grep 锚点：timing 零 vigil 依赖（无循环 import）/ 埋点仅两处 / record 容错兜底"
+echo "==> [4/4] grep anchor:timing nil vigil Dependence (no cycle) import）/ There’s only two places to bury. / record I’m not gonna let you go."
 
 fail() {
-  echo "✗ 锚点失败：$1" >&2
+  echo "✗ Organisation$1" >&2
   exit 1
 }
 
-# 4a. timing 模块对 recipes.vigil **零依赖**（phase 是纯字符串、归一逻辑留 vigil）——杜绝循环 import。
+# 4a. Timing module recipes.vigil** zero dependency** (case is pure string, logic is left) - uncycled report.
 grep -qE 'recipes|vigil' openagents/runtime/timing.py \
-  && fail "runtime/timing.py 引用了 recipes/vigil（应零依赖，否则循环 import）"
+  && fail "runtime/timing.py I quote. recipes/vigil(Count on zero, otherwise circular import）"
 
-# 4b. 计时写入点**只在** vigil.py 的两处判定咽喉（_consider 生产者 / _reconcile worker）经 _record_timing
-# 旁路挂出；record 自身不该在别处被直接调（旁路收口于单一 helper，防散落埋点漂移）。
+# 4b. Timeline Writing Point**Only** vigil.py I'm going to get a new one._consider Producers / _reconcile worker）The long term _record_timing
+# The next step is to get the rest of the world to get the rest of the world, and to get the rest of the world to get the rest of the world.
 grep -q "def _record_timing" openagents/recipes/vigil.py \
-  || fail "vigil 缺 _record_timing 旁路收口 helper"
+  || fail "vigil Missing _record_timing By-pass. helper"
 uv run --extra dev python -c "
 import inspect
 from openagents.recipes import vigil
-assert '_record_timing(' in inspect.getsource(vigil._consider), '生产者 _consider 未旁路盖阶段戳'
-assert '_record_timing(' in inspect.getsource(vigil._reconcile), 'worker _reconcile 未旁路盖阶段戳'
-" || fail "两处判定咽喉未挂 _record_timing 埋点"
+assert '_record_timing(' in inspect.getsource(vigil._consider), 'Producers _consider No road cover phase'
+assert '_record_timing(' in inspect.getsource(vigil._reconcile), 'worker _reconcile No road cover phase'
+" || fail "Two of them found their throats hanging. _record_timing Bury it."
 
-# 4c. record 容错（except 兜底）就位——写失败只丢一条计时、绝不掀翻守夜主流程。
+# 4c. record is in position for error - failure to write is a single time, and never turns the Vigil.
 uv run --extra dev python -c "
 import inspect
 from openagents.runtime import timing
 src = inspect.getsource(timing.record)
-assert 'except' in src and 'return' in src, 'timing.record 无 except 容错兜底（写失败会掀翻守夜主流程）'
-" || fail "timing.record 缺容错兜底"
+assert 'except' in src and 'return' in src, 'timing.record None except ”The wrong side of the wall.”'
+" || fail "timing.record I’m not in the right place."
 
-# 4d. 事件流文件与状态文件**文件级零耦合**（理念 10）：timing 落 timing.jsonl，不碰 runtime-state.json。
+# 4d. Event stream file and status file** file level zero-coup** (idea 10): Timing down timing.jsonl without touching runtime-state.json.
 grep -q 'timing.jsonl' openagents/runtime/timing.py \
-  || fail "timing 未落 timing.jsonl"
+  || fail "timing Unset timing.jsonl"
 grep -q 'runtime-state.json' openagents/runtime/timing.py \
-  && fail "timing.py 触碰了 runtime-state.json（应文件级零耦合）"
+  && fail "timing.py Touched. runtime-state.json(to be Zero-Coded)"
 
-echo "✓ grep 锚点全部通过：timing 零 vigil 依赖、埋点仅 _consider/_reconcile 两处、record 容错兜底、"
-echo "  timing.jsonl 与 runtime-state.json 文件级零耦合"
+echo "✓ grep All anchor points pass:timing nil vigil   Dependence, burying just   _consider/_reconcile Two places.record ”And the wrong side,"
+echo "  timing.jsonl with runtime-state.json File-level zero-collation"
 echo
-echo "✅ Spec-0066 离线 e2e 全绿"
+echo "✅ Spec-0066 Offline e2e All green."

@@ -1,24 +1,16 @@
-"""spec JSON Schema —— 组 markdown frontmatter / Task 的结构校验单一真源。
-
-Spec-0014/T1（2026-06-24 spec-markdown-form 更新）：
-用 JSON Schema draft 2020-12 声明式描述源数据形状与枚举（决策 D8）：
-- TASK_SCHEMA：frontmatter `tasks` 列表里的单个 Task 对象
-- GROUP_FRONTMATTER_SCHEMA：组 markdown 文件的 frontmatter（number/title/issue/slug/summary/tasks）
-
-校验逻辑在 validate.py 调用这两个 schema；这里只放声明，保持单一真源。
-"""
+"""Define the JSON Schema for Spec frontmatter and tasks."""
 
 from __future__ import annotations
 
 _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
-# Spec-0014/T1：枚举集中定义，schema 与（未来）文档共用。
+# Spec-0014/T1: Element-Closed Definition, Schema shares with (future) documents.
 STATUS_VALUES = ("pending", "in-progress", "done", "abandoned")
 PRIORITY_VALUES = ("P0", "P1", "P2", "P3")
 RELATES_TYPE_VALUES = ("extends", "supersedes", "note")
 
-# issue #69：Task 退化为工作分解行，只保留两个一行短 prose（进 frontmatter）。
-# 重设计叙述上移到组级 Overview 9 段（正文，不进 frontmatter，故不在此 schema）。
+# Assue #69: Task is degraded to work breakup, with only two short lines of proste.
+# Redesign description to group Overview 9 ( body, not frontmotter, therefore not here schema).
 _PROSE_KEYS = (
     "scope",
     "acceptance",
@@ -34,7 +26,7 @@ _RELATES_TO_SCHEMA = {
     "additionalProperties": False,
 }
 
-# Spec-0014/T1：单个 Task 对象的 schema。id/title/status/priority 必填，其余可选。
+# Spec-0014/T1: Schema for a single Task object. id/title/status/priority will be filled, the rest is optional.
 TASK_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
@@ -57,17 +49,17 @@ TASK_SCHEMA: dict = {
         "derived-from": {"type": "array", "items": {"type": "string"}},
         **{key: {"type": "string"} for key in _PROSE_KEYS},
     },
-    # issue #69：files（单一 writer 所有权）+ acceptance（可验证）每行必填。
+    # #69: Fill in each line (single writer ownership) + acceptance (verifiable).
     "required": ["id", "title", "status", "priority", "files", "acceptance"],
     "additionalProperties": False,
 }
 
-# Spec-0055/T2：组级 e2e 测法（RFC 阶段声明的成果验证意图 + 怎么测）。从 0040 的 {form,intent,
-# acceptance[]} 瘦身为 {intent, method}——`intent` 一句话意图（验什么，RFC 闸批准后冻结），`method`
-# 一段 prose 测法（怎么测，人话步骤，**不含精确命令**——命令由 executor 运行时自己敲）。砍掉 form
-# 枚举（executor 运行时自检工具选路，不再按形态分派）与 acceptance（并进 method prose）。schema 只
-# 声明结构与类型，intent/method 非空由 validate._e2e_checks 语义强制。整块**可选**——不列入 required，
-# 既有无 e2e 块的 spec 零回归。
+# Spec-0055/T2: Group e2e (Results Validation Intention + How to Test)
+# Acceptance [} Skinned as {intent, method} - `intent` with a single intent (to check what, RFC gate freeze) `method`
+# A prose measurement (how to measure, human-speech steps,** do not contain precise orders** - commands are knocked by executor when running). Cut off form
+# Element count (executor self-checking tool path selection, no longer assigned by morphology) and acceptance (and go to method prose).
+# Declaration of structure and type, intent/method is not emptied by validate._e2e_checks syntax. The whole block** is optional** - not included in required,
+# There is no e2e piece of spec no behavior change.
 E2E_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -141,8 +133,8 @@ VERIFICATION_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-# 2026-06-24 spec-markdown-form：组 markdown 文件的 frontmatter schema（取代 metadata + history）。
-# 组元数据 number/title/issue/slug + tasks 列表（每项复用 TASK_SCHEMA）。
+# 2026-06-24 spec-markdown-form: group markdown file frontmatter scheme (replaces metada+ history).
+# List of group metadata number/title/issue/slug + questions (each re-use TASK_SCHEMA).
 GROUP_FRONTMATTER_SCHEMA: dict = {
     "$schema": _DRAFT,
     "type": "object",
@@ -151,12 +143,12 @@ GROUP_FRONTMATTER_SCHEMA: dict = {
         "title": {"type": "string"},
         "issue": {"type": "integer"},
         "slug": {"type": "string"},
-        # Spec-0015：组级人话 TL;DR。schema 只声明类型；非空由 validate 的 _summary_checks 强制。
+        # Spec-0015: Group Verbale TL; DR. Schema only declares type; non-empty is forced by _summary_checks of Validate.
         "summary": {"type": "string"},
-        # Spec-0072/T1：组级「原子交付」声明（可选）。非空即豁免 >6 Task 软上限的 warning
-        # （validate._task_count_checks）；schema 只声明类型，语义由 validate 处理。
+        # Spec-0072/T1: Group-level "Atom Delivery" declaration (optional). Non-empty i.e. exemption > 6 Task soft cap warning
+        # (validate._task_count_checks); Schema only states type, semantics are processed by valaidate.
         "oversized-rationale": {"type": "string"},
-        # Spec-0040/T1：组级 e2e 粗规划（可选，不进 required——无 e2e 块的既有 spec 零回归）。
+        # Spec-0040/T1: Group e2e rough plan (optional, not required - no e2e spec no behavior change).
         "e2e": E2E_SCHEMA,
         "architecture": ARCHITECTURE_SCHEMA,
         "verification": VERIFICATION_SCHEMA,

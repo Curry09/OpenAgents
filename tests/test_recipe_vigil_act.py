@@ -1,25 +1,25 @@
-"""Spec-0065/T2: recipes.vigil 的**动作面**（`_act` 与七个 `_do_*` 分支）契约单测。
+"""Spec-0065/T2: recipes.vigil** Action side** (`_act` and seven `_do_*` branches) is a single measurement.
 
-`tests/test_recipe_vigil.py` 覆盖的是**感知面**（sense/classify/fingerprint/watchdog/队列/存活探测），它
-在每处都把 `_act` 打桩掉了——于是「判定说该干 X」与「真的去干了 X」之间那一段（路由 + 七个分支的副作用）
-一行都没被执行过。本文件补的正是那一段，钉死四件事：
+`tests/test_recipe_vigil.py` covers ** sensory ** (sense/classify/fingerprint/watchdog/ queue/survival detection)
+`_act` is taken off every corner -- so the section between ”declared dry X” and ”dry dry X” (routing + side effects of seven branches)
+None of the lines have been executed. This document adds to that paragraph, which is the crucifying of four things:
 
-- **路由是机械的**：`verdict.action` → 唯一的 stage/agent，每支各一个测试（派谁、在哪个 worktree、对哪个
-  issue/PR）。三态 `human` 一律落 `_park_gate`（打 needs-human、**零 agent 调用**）。
-- **一等出口契约必达**：`_NEEDS_HUMAN_CONTRACT` 必须出现在**每个**派 agent 的分支交给 agent 的上下文里
-  （含 `_do_reply` / `_do_rebase`——少了它，「答不了 / 解不动冲突」就只能靠护栏兜，兜底当场变主路径）。
-  断言打在 `engine.run_agent` 这个**唯一的派 agent 出口**上，故 stage 内部怎么组占位符都逃不掉。
-- **worktree 不共享**：两个**不同的裸 PR**（无 issue 归属）必须拿到**不同的** worktree 目录——都退化成
-  `issue-0` 的话，两个 worker 的 agent 会在同一个目录里改代码、把改动推到别人的 PR 上（flock 拦不住：
-  它们本就是两个 subject，共享的是**资源**）。
-- **硬超时杀对进程**：`_TimedBackend` 超时 → `_ActTimeout` + 只杀**本次调用自报**的 PID（别的线程自报的
-  一个都不许碰——杀错进程时真正挂死的 agent 还活着继续 push，双跑就从这个洞漏出来）。
+- **Routes are mechanical.**：`verdict.action` → The only stage/agent One test each. worktree Which one?
+  issue/PR. Three-state `human` is all down `_park_gate` (ticks needs-human,** zero anggent call**).
+- **First-class export contracts are in place.**：`_NEEDS_HUMAN_CONTRACT` It has to be there.**Every one.**Pie. agent I’ll give you the branch. agent ..in the context of the
+  (Incl. `_do_reply` / `_do_rebase` - without it, ”failed / undefended conflict” can only be used to support the main path on the spot.
+  The claim is that `engine.run_agent`, the only **agent exit, **, so the stage is not able to escape from the rest of the placeholders.
+-**worktree not shared**: two** different standalone PR** (no issue) must have **** worktree directory - all degraded to
+  `issue-0` will change the code in the same directory for two working-time parties to push the change to another ’PR’ (flock cannot stop):
+  They were two sub-projects, shared with ** resources**).
+- ** Hard-timed kill-to-time process**: `_TimedBackend` timeout  →  `_ActTimeout` + Kill only **PID called this time in self-report** (others  →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →  ** ** ** This time-to-time kill PID called in self-report**
+  No one touches -- the one who really hangs when the wrong process is going to go on and push, and double-digs just leak out of this hole.
 
-全程假 backend + 打桩 engine/stages 的 IO 边界（github/git/gates/identity/proc），不触真实 LLM/网络/仓库，
-也不真杀任何进程。
+Full time off backend + - Prick. engine/stages It’s... IO Border (Boundary)github/git/gates/identity/proc）  Don’t touch the truth   LLM/Network/The warehouse,
+And it’s not really killing any process.
 
-Spec-0056 / Spec-0017 补充：2026-09-09-delivery-review-snapshot-tests-design.md
-同时覆盖错误审批与正常交付的可推进性；修复后所有回归均作为普通测试执行。
+Spec-0056 / Spec-0017 Supplement: 2026-09-09-delivery-review-snapshot-tests-design.md
+The prodigability of wrong approvals and normal deliveries is also covered; all returns after repair are performed as routine tests.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ _NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
 _HEAD = "abc1234def5678901234567890123456789abcde"
 _SHA7 = _HEAD[:7]
 
-# Spec-0065/T2: 各 agent 的 OUTPUT_SCHEMA 合规的假裁决（engine 被打桩，故这里就是「agent 说了什么」）。
+# Spec-0065/T2: A false decision (engine is a stake, so here is "agent says what") by OUTPUT_SCHEMA by each agent.
 _AGENT_OUTPUTS: dict[str, dict] = {
     "spec_writer": {
         "status": "READY",
@@ -91,18 +91,18 @@ _AGENT_OUTPUTS: dict[str, dict] = {
     "drafter": {
         "delivered": True,
         "head_sha": _HEAD,
-        "summary": "spec 已起草",
+        "summary": "spec drafted",
         "evidence_pack": [],
     },
-    "implementer": {"summary": "已按反馈修改"},
+    "implementer": {"summary": "Modified by feedback"},
     "executor": {
-        "summary": "已按 compact spec 实现",
+        "summary": "Achieved by means of a command spec",
         "head_sha": _HEAD,
         "lookup_exception_reason": "",
     },
     "acceptance": {
         "verdict": "PASS",
-        "reason": "原 issue 已满足",
+        "reason": "Original issue satisfied",
         "evidence": [
             {
                 "case_id": "original",
@@ -124,27 +124,32 @@ _AGENT_OUTPUTS: dict[str, dict] = {
             },
         ],
     },
-    "reviewer": {"verdict": "PASS", "reason": "看着没问题"},
+    "reviewer": {"verdict": "PASS", "reason": "It looks good."},
     "tester": {
         "verdict": "PASS",
-        "reason": "e2e 全绿",
+        "reason": "E2e Full green",
         "evidence": [
             {"case_id": "p", "kind": "behavior", "observed": "ok", "expected": "ok", "path": "log"}
         ],
     },
-    "replier": {"reply": "已回应你的问题", "resolved": True},
-    "deliver": {"delivered": True, "base_sha": "0" * 40, "head_sha": _HEAD, "summary": "已 push"},
-    "merger": {"merged": True, "summary": "已合并"},  # Spec-0017/T3: 合并动作下放 merger agent
+    "replier": {"reply": "I’ve answered your question.", "resolved": True},
+    "deliver": {
+        "delivered": True,
+        "base_sha": "0" * 40,
+        "head_sha": _HEAD,
+        "summary": "Push already",
+    },
+    "merger": {"merged": True, "summary": "Merged"},  # Spec-0017/T3: merge action
 }
 
 
 # --------------------------------------------------------------------------------------------------
-# 夹具：facts / config 造型（与 test_recipe_vigil.py 同款）+ 一套记录所有对外副作用的探针 `_Rig`。
+# Plugin: acts / config model (same as test_recipe_vigil.py)+ set of probes to record all external side effects `_Rig`.
 # --------------------------------------------------------------------------------------------------
 
 
 def _facts(**overrides) -> _Facts:
-    """一个「万事俱备、只欠合并」的 facts（分支⑪），各测试按需改单个字段退回某一支。"""
+    """A ”all-in-all, all-in-all” fact sheet (subsection 11) is returned to one of the units on a single field-by-field basis."""
     base = _Facts(
         subject="issue:5",
         pr_number=12,
@@ -182,12 +187,14 @@ def _config(**overrides) -> agent_config.AgentConfig:
 
 
 class _Rig:
-    """一次 `_act` 的全部对外副作用探针：兼作 `RuntimeState` 替身（set_run / get_cursor / set_cursor）。"""
+    """All external side effects probes for `_act` at a time: Both `RuntimeState` doubles (set_run/ get_cursor/ set_cursor)."""
 
     def __init__(self) -> None:
-        self.agents: list[tuple[str, dict]] = []  # (agent 模块名, engine 收到的占位符)
-        self.backends: list[object] = []  # 每次派 agent 时的 backend（应恒为 _TimedBackend）
-        self.gh: list[tuple] = []  # github 调用流水
+        self.agents: list[
+            tuple[str, dict]
+        ] = []  # (agent module name, placeholder received by engine)
+        self.backends: list[object] = []  # Back in every pie agent (consistent _timedback)
+        self.gh: list[tuple] = []  # gthub to run water
         self.runs: list[tuple] = []  # state.set_run
         self.cursors: list[tuple] = []  # state.set_cursor
         self.comments: list[tuple] = []  # identity.post_signed_comment
@@ -196,7 +203,7 @@ class _Rig:
         self.review_feedback: dict[int, dict[str, str]] = {}
         self.delivered = True  # Default fixture models an already-pushed candidate.
 
-    # --- RuntimeState 替身（vigil 只用这三个方法） ---
+    # --- Runtimestate (vigil only) ---
     def set_run(
         self,
         *,
@@ -237,7 +244,7 @@ class _Rig:
     def set_cursor(self, *, pr_number: int, comment_id: str) -> None:
         self.cursors.append((pr_number, comment_id))
 
-    # --- 便捷查询 ---
+    # --- Easy Query ---
     def agent_names(self) -> list[str]:
         return [name for name, _ in self.agents]
 
@@ -249,7 +256,7 @@ class _Rig:
 
 
 class _FakeWorkspace:
-    """`git.Workspace` 替身：不碰 git，按真实实现的命名规则派生 worktree 路径并记录键。"""
+    """`git.Workspace` double: Do not touch guit, produce worktree path and record key."""
 
     def __init__(self, *, work_dir: Path) -> None:
         self._work_dir = Path(work_dir)
@@ -280,22 +287,22 @@ class _FakeWorkspace:
         return self._work_dir / ".openagents" / "worktrees" / f"issue-{issue_number}"
 
 
-# `_FakeWorkspace` 由 vigil 内部 `git.Workspace(...)` 构造，拿不到测试的闭包 → 探针挂模块级，由 fixture 重置。
+# `_FakeWorkspace` is constructed from the vigil internal `git.Workspace(...)`, untested closed  →  probe mounted module level, reset by fixture.
 _RIG = _Rig()
 
 
 class _Backend:
-    """假 backend——engine 已被打桩，它不该被真的 run（被调到即测试有洞）。"""
+    """The fake backend-engine has been put on a stake and it should not be really run."""
 
     name = "fake"
 
-    def run(self, *, work_dir, task, context):  # pragma: no cover - 不该被调到
-        raise AssertionError("engine.run_agent 已打桩，backend.run 不该被调用")
+    def run(self, *, work_dir, task, context):  # No cover - should not be transferred
+        raise AssertionError("engine.run_agent staked, backend.run should not be called")
 
 
 @pytest.fixture
 def rig(monkeypatch) -> _Rig:
-    """打桩 `_act` 的全部 IO 边界：engine（唯一的派 agent 出口）/ github / git / gates / identity。"""
+    """All IO boundaries for `_act` stakes: engine (single-source export)/ git /get /gates / education."""
     global _RIG
     _RIG = _Rig()
     probe = _RIG
@@ -308,7 +315,7 @@ def rig(monkeypatch) -> _Rig:
 
     monkeypatch.setattr(engine, "run_agent", _run_agent)
 
-    # gates：交付类阶段（rfc/deliver/conflict）的三道确定性硬闸——本文件不测它们（T1 已钉），放行即可。
+    # gates: Three sets of certainty gates for the delivery class (rfc/deliver/conflict) - this document is unsuspected (T1 nailed) and release is sufficient.
     monkeypatch.setattr(gates, "snapshot_head", lambda *, workspace: "0" * 40)
     monkeypatch.setattr(gates, "assert_head_advanced", lambda *, before, workspace: _HEAD)
     monkeypatch.setattr(gates, "assert_evidence_stamp", lambda *, head_sha, claimed: None)
@@ -356,7 +363,7 @@ def rig(monkeypatch) -> _Rig:
         "assert_minimal_design_approved",
         lambda **kwargs: None,
     )
-    # Spec-0017/T3: 合并硬闸——本文件不测它（T3 test_runtime_gates 已钉），放行即可；只验合并动作下放 merger。
+    # Spec-0017/T3: Merge the hardlock - This document is unsuspected (T3 test_runtime_gates nailed), let go; only check for merger action to decentralize meger.
     monkeypatch.setattr(
         gates,
         "assert_merge_allowed",
@@ -368,7 +375,7 @@ def rig(monkeypatch) -> _Rig:
     # This keeps the recipe tests hermetic now that minimal_spec verifies remote
     # delivery before stamping the host-observed HEAD.
     monkeypatch.setattr(vigil_module.stages, "Workspace", _FakeWorkspace)
-    # Spec-0074: rfc:skip 态的确定性 seed 分支（空 commit+push）——打桩记录，不真碰 git。
+    # Spec-0074: refc:skip-state certainty id branch (empty commission+push) - Pile record, not real grate.
     monkeypatch.setattr(
         git,
         "seed_branch",
@@ -382,7 +389,7 @@ def rig(monkeypatch) -> _Rig:
 
         monkeypatch.setattr(github, name, _call)
 
-    _gh("get_issue", github.Issue(5, "标题", "issue 正文", []))
+    _gh("get_issue", github.Issue(5, "Title", "- Yes, sir.", []))
     _gh("create_pr", github.PR(12, "https://example.invalid/pr/12"))
     _gh("mark_ready")
     _gh("merge_pr")
@@ -393,10 +400,10 @@ def rig(monkeypatch) -> _Rig:
     _gh("issue_add_label")
     _gh("issue_comment")
     _gh("post_comment")
-    # park 的理由评论幂等：先读回评论流去重（空 → 没说过 → 照贴）。漏了这两个桩，测试会真去调 `gh`。
+    # Park's reason comment book etc.: Read back the comment stream and re-heavy (no emptiness). The two stakes are missing, and the test will really be done with `gh`.
     _gh("list_issue_comments", [])
     _gh("list_comments", [])
-    _gh("update_branch", False)  # 默认「机械 update-branch 不行」→ 下放 agent 解冲突
+    _gh("update_branch", False)  # Default "mechanical update-branch"
     _gh("check_logs", ["FAILED tests/test_x.py::test_y"])
     monkeypatch.setattr(github, "pr_head_branch", lambda *, pr_number: f"branch-of-pr-{pr_number}")
 
@@ -404,7 +411,7 @@ def rig(monkeypatch) -> _Rig:
         identity,
         "new_human_comments",
         lambda *, pr_number, since: [
-            github.Comment(7, "human", "这里为什么这么写？", "2026-07-14T11:00:00Z")
+            github.Comment(7, "human", "Why do you write that here?", "2026-07-14T11:00:00Z")
         ],
     )
     monkeypatch.setattr(
@@ -418,10 +425,10 @@ def rig(monkeypatch) -> _Rig:
 def _act(
     *, rig: _Rig, facts: _Facts, work_dir: Path, config=None, lock_fd: int | None = None
 ) -> str:
-    """跑一次 `_act`——verdict 由**真** `_classify` 算出，路由与分支表因此不可能各说各话。
+    """One run by `_act` - vedict from **Sin** `_classify`, it is impossible to say a word between route and branch table.
 
-    `lock_fd` = 该认领行的 flock fd，透传给 `_TimedBackend` 让 agent 子进程继承（存活证明跟着干活的进程走）。
-    这些用例只测路由与副作用，不起真子进程，故默认不传 fd。
+    `lock_fd` = the accepted flock fd, passed to `_TimedBackend` to allow the agent subprocess to inherit (survival certificate following the work process).
+    These examples are only for route and side effects, and do not lend themselves to the real-son process, so the default is not passed on to fd.
     """
     return vigil_module._act(
         backend=_Backend(),
@@ -469,7 +476,7 @@ def test_design_recovery_requires_an_actual_pass(rig, tmp_path, monkeypatch, vot
     timed = _TimedBackend(inner=_Backend(), timeout_seconds=10, lock_fd=None)
     kwargs = dict(backend=timed, state=rig, work_dir=tmp_path, facts=_facts())
     if votes[-1] == "REWORK":
-        with pytest.raises(gates.GateError, match="仍未获批准"):
+        with pytest.raises(gates.GateError, match="remains unapproved after revision"):
             vigil_module._refresh_design_approval(**kwargs)
         assert rig.get_run(issue_number=5)["design_digest"] == "old"
     else:
@@ -535,7 +542,7 @@ def test_integrity_repair_rechecks_the_delivered_tree(rig, tmp_path, monkeypatch
 
 @pytest.fixture
 def delivery_snapshot(rig, tmp_path, monkeypatch):
-    """Spec-0056/0017 补充：恢复真实 assert_delivered/merge_allowed，其余沿用 rig。"""
+    """Spec-0056/0017 Supplement: Restore real assert_delivered/merge_allowed, with the rest following Rig."""
     snapshot = {"head": _HEAD, "remote": _HEAD, "status": "", "effects": {}, "git": []}
     _issue_worktree(tmp_path, 5).mkdir(parents=True)
     compact = _issue_worktree(tmp_path, 5) / "docs" / "objectives" / "issue-5.md"
@@ -563,7 +570,7 @@ def delivery_snapshot(rig, tmp_path, monkeypatch):
         elif command in {"fetch", "ls-remote", "worktree", "branch"}:
             output = ""
         else:
-            # 新 IO 需显式建模，不允许靠静默放行换绿。
+            # The new IO needs a visible modeling, and it is not allowed to be left silent for green.
             raise RuntimeError(f"snapshot test has no Git stub for {args!r}")
         return SimpleNamespace(returncode=0, stdout=output, stderr="")
 
@@ -606,7 +613,7 @@ def delivery_snapshot(rig, tmp_path, monkeypatch):
 
 
 def _delivery_snapshot_labels(*, rig):
-    """Spec-0017 补充：从实际 forge 写入投影标签，不凭测试假定已经批准。"""
+    """Spec-0017 supplements: Write projection labels from actual forge, which are approved without test assumptions."""
     labels = set()
     for name, call in rig.gh:
         if name == "add_label":
@@ -617,7 +624,7 @@ def _delivery_snapshot_labels(*, rig):
 
 
 def _delivery_snapshot_finish(*, rig, snapshot, work_dir, config):
-    """Spec-0017 补充：只用真实产生的审批驱动下一次合并，不伪造 PASS。"""
+    """Spec-0017 Supplement: Only the actual approvals generated drive the next merger, without forging PASS."""
     labels = _delivery_snapshot_labels(rig=rig)
     head = snapshot["remote"]
     assert f"review-approved:{head[:7]}" in labels
@@ -642,9 +649,9 @@ def _delivery_snapshot_finish(*, rig, snapshot, work_dir, config):
 def test_delivery_snapshot_normal_review_reaches_merge_without_extra_delivery(
     rig, delivery_snapshot, tmp_path, flow, ignored_artifacts
 ):
-    """Spec-0017 补充：正常候选可完成；Git 已忽略的缓存不造成额外模型调用。"""
+    """Spec-0017: Normal candidate is complete; Git’s neglected cache does not result in additional model calls."""
     if ignored_artifacts:
-        # 此处模拟 Git 已应用 ignore 后返回空 status，不自行按文件名豁免源码。
+        # Simulates here Git has applied ignore and returns empty status without using file name as an exemption source.
         cache = _issue_worktree(tmp_path, 5) / ".pytest_cache"
         cache.mkdir()
         (cache / "lastfailed").write_text("{}\n")
@@ -674,7 +681,7 @@ def test_delivery_snapshot_normal_review_reaches_merge_without_extra_delivery(
 def test_delivery_snapshot_never_approves_a_different_candidate(
     rig, delivery_snapshot, tmp_path, flow, change
 ):
-    """Spec-0017 补充：相同 HEAD 的脏代码、未推送提交、评审中换版都不能冒领 PASS。"""
+    """Spec-0017: The same HEAD code, the submission not pushed, and the review of the new editions cannot be used to pass on the PASS."""
     snapshot = delivery_snapshot
     newer = "b" * 40
     if change == "dirty-before":
@@ -709,26 +716,28 @@ def test_delivery_snapshot_never_approves_a_different_candidate(
             config=_config(flow=flow),
         )
     except (WorkspaceError, gates.GateError, gates.MergeNotReady):
-        # 本用例只钉安全性：明确拒绝可以。恢复用例不吞异常，另行要求能继续完成。
+        # This example is used only to ensure security: an express refusal is granted.
         pass
     approved = [
         label
         for label in _delivery_snapshot_labels(rig=rig)
         if label.startswith("review-approved:")
     ]
-    # 允许实现通过同步/续交付后重新评审恢复，但必须真正审过最后的干净候选。
+    # Reevaluation of recovery through synchronization/renewal of delivery is permitted, provided that the final clean candidate is truly reviewed.
     if approved:
         assert snapshot["head"] == snapshot["remote"] and not snapshot["status"]
         assert reviewed and reviewed[-1] == (snapshot["remote"], "")
         assert approved == [f"review-approved:{snapshot['remote'][:7]}"]
-    assert "close_issue" not in rig.gh_names(), "评审动作不得自行结束交付"
+    assert "close_issue" not in rig.gh_names(), (
+        "The evaluation shall not terminate delivery on its own."
+    )
 
 
 @pytest.mark.parametrize("action", ["fix-ci", "review-rework", "draft-ready"])
 def test_delivery_snapshot_dirty_work_does_not_block_development_actions(
     rig, delivery_snapshot, tmp_path, action
 ):
-    """Spec-0017 补充：未交付是可恢复状态，不能在所有动作入口统一拒绝。"""
+    """Spec-0017 supplements: Failure to deliver is recoverable and cannot be refused at all action entry points."""
     delivery_snapshot["status"] = " M entry.py\n"
 
     def complete_existing_work():
@@ -741,7 +750,7 @@ def test_delivery_snapshot_dirty_work_does_not_block_development_actions(
             _facts(review_state="CHANGES_REQUESTED", review_commit_id=_SHA7),
             ["implementer"],
         ),
-        # Gitea draft 即使报 DIRTY 也必须能先转正，不回到旧死锁。
+        # Gitea draft, even reporting DIRTY, must be able to get it straight first and not back to the old dead lock.
         "draft-ready": (_facts(is_draft=True, mergeable_state="dirty"), []),
     }
     facts, agents = cases[action]
@@ -753,7 +762,7 @@ def test_delivery_snapshot_dirty_work_does_not_block_development_actions(
     assert delivery_snapshot["status"] == (" M entry.py\n" if action == "draft-ready" else "")
     assert not any(
         command[0] in {"worktree", "reset", "clean"} for command in delivery_snapshot["git"]
-    ), "继续开发不能先强制重建/清理工作区"
+    ), "Continued development of areas that cannot be forcibly rebuilt/cleaned"
     if action == "draft-ready":
         assert "mark_ready" in rig.gh_names()
 
@@ -762,7 +771,7 @@ def test_delivery_snapshot_dirty_work_does_not_block_development_actions(
 def test_delivery_snapshot_timeout_recovery_must_finish_not_just_block(
     rig, delivery_snapshot, tmp_path, residue
 ):
-    """Spec-0056/0017 补充：超时后复用同一 PR 和工作区，最终审批最新交付并合并。"""
+    """Spec-0056/0017 Supplement: Reuse the same PR and workspace after time has elapsed, and final approval of the latest delivery and consolidation."""
     snapshot = delivery_snapshot
     newer = "b" * 40
 
@@ -786,7 +795,7 @@ def test_delivery_snapshot_timeout_recovery_must_finish_not_just_block(
         snapshot["head"] = snapshot["remote"] = newer
         snapshot["status"] = ""
 
-    # 模型替身会成功续交付；只有框架真正调了已有角色才会发生，不由测试手动纠正状态。
+    # Modeling of a double will succeed in delivery; only if the framework truly transfers the role already in place will it occur and the situation will not be corrected manually by testing.
     snapshot["effects"].update(implementer=finish_delivery, deliver=finish_delivery)
     facts = _facts(
         head_sha=snapshot["remote"],
@@ -818,7 +827,7 @@ def test_delivery_snapshot_timeout_recovery_must_finish_not_just_block(
             break
 
     assert snapshot["remote"] == newer and snapshot["status"] == "", (
-        "被挡住后必须续交付，而非永久停住或审批 Spec-only 提交"
+        "Blocked must be renewed instead of permanently suspended or approved Spec-only for submission"
     )
     assert sum(name == "create_pr" for name in rig.gh_names()) == 1
     assert not any(command[0] in {"worktree", "reset", "clean"} for command in snapshot["git"])
@@ -835,7 +844,7 @@ def test_delivery_snapshot_timeout_recovery_must_finish_not_just_block(
 def test_delivery_snapshot_first_implementation_handoff_reaches_merge(
     rig, delivery_snapshot, tmp_path, monkeypatch, implementation_result
 ):
-    """Spec-0056 补充：正常开发交接不仅要接住未提交，还要接住已提交但未推送。"""
+    """Spec-0056: The normal development of the interface not only captures the non-submission but also the submission but not the delivery."""
     snapshot = delivery_snapshot
     newer = "b" * 40
 
@@ -964,12 +973,12 @@ def test_skipped_reader_does_not_trigger_delivery_recovery(rig, tmp_path, stage)
 
 
 # --------------------------------------------------------------------------------------------------
-# 路由：verdict.action → 唯一的 stage/agent（每支一个测试）。
+# Route: verdict.action  →  the only stage/agent (one test per unit).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_act_reply_dispatches_replier_and_posts_signed_comment(rig, tmp_path):
-    """分支②：最新评论是人发的 → 派 replier + 回一条签名评论 + 推进游标（**不派任何写码 agent**）。"""
+    """Branch 2: The latest comment is sent by a person who sent a copy of the replier + returned to a signed comment + advanced the cursor (** without any writing number agent**)."""
     facts = _facts(latest_comment_is_ours=False)
     assert _classify(facts=facts, in_flight=False).action == _ACT_REPLY
 
@@ -979,20 +988,20 @@ def test_act_reply_dispatches_replier_and_posts_signed_comment(rig, tmp_path):
     placeholders = rig.agents[0][1]
     assert placeholders["pr_number"] == 12
     assert "comment_body" not in placeholders
-    assert placeholders["context"].count("这里为什么这么写？") == 1
-    assert rig.comments == [(12, "已回应你的问题", "bot")]
+    assert placeholders["context"].count("Why do you write that here?") == 1
+    assert rig.comments == [(12, "I’ve answered your question.", "bot")]
     assert rig.cursors == [(12, "2026-07-14T11:00:00Z")]
-    assert summary == "已回应你的问题"
+    assert summary == "I’ve answered your question."
 
 
 def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
-    """分支④：还没有 PR → worktree → rfc(drafter) → 开 draft PR → implement → deliver。
+    """Branch 4: No PR  →  worktree  →  refc(drafter)  →  draft PR  →  effect – deliver.
 
-    **不在此阻塞等 CI/review**：那两支是 `_classify` 的⑦⑩，回到 `_reconcile` 的循环自然会走到——故这里
-    绝不该出现 reviewer/tester。
+    ** Not here to block CI/review**: Those are 710 of `_classify`, and the return to `_reconcile` cycle will naturally come -- so here.
+    Never should reviewer/tester.
 
-    Spec-0017/T2：`_do_solve` **不再确定性直调 `github.mark_ready`**——转正归 deliver agent（其完成判据含
-    「PR 非 draft」）；脱靶残留 draft 由 `_classify` ⑪ 兜底转正。故 gh 调用流水里不再有 `mark_ready`。
+    Spec-0017/T2: `_do_solve`** no more certainty accurate `github.mark_ready`** -  ** - Revert to deliver agent (its completion of sentence)
+    ”PR non-draft” ; draft from `_classify` 11 rounded straight. gh no longer calls `mark_ready` in current water.
     """
     rig.delivered = False  # Developer leaves changes for the existing delivery role.
     facts = _facts(pr_number=None)
@@ -1005,9 +1014,9 @@ def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
         ("prepare", 5, "openagents/issue-5", "main")
     ]
     worktree = _issue_worktree(tmp_path, 5)
-    assert rig.agents[1][1]["work_dir"] == worktree  # implementer 在隔离 worktree 里写码
+    assert rig.agents[1][1]["work_dir"] == worktree  # Implementer in quarantine, worktree.
     assert rig.agents[1][1]["issue_number"] == 5
-    assert rig.gh_names() == ["get_issue", "create_pr"]  # Spec-0017/T2: 不再直调 mark_ready
+    assert rig.gh_names() == ["get_issue", "create_pr"]  # Spec-0017/T2: No more straight mark_ready
     assert "mark_ready" not in rig.gh_names()
     assert rig.runs[-1] == (5, "pr-open", "openagents/issue-5", 12)
     assert all(call[1] == "iterating" for call in rig.runs[:-1])
@@ -1016,7 +1025,7 @@ def test_act_solve_cuts_a_vertical_slice_and_never_blocks_on_ci(rig, tmp_path):
 def test_soft_advice_reaches_developer_alongside_unchanged_original_issue(rig, tmp_path):
     from openagents.runtime import preflight
 
-    issue = github.Issue(5, "标题", "issue 正文", [])
+    issue = github.Issue(5, "Title", "- Yes, sir.", [])
     preflight.write(
         work_dir=tmp_path,
         data={
@@ -1033,10 +1042,10 @@ def test_soft_advice_reaches_developer_alongside_unchanged_original_issue(rig, t
     )
     draft = rig.context_of(agent="drafter")
     implementation = rig.context_of(agent="implementer")
-    assert "issue 正文" in draft
+    assert "- Yes, sir." in draft
     assert "inspect shared loop before reuse" in draft
     assert "inspect shared loop before reuse" in implementation
-    assert implementation.count("issue 正文") == 1
+    assert implementation.count("- Yes, sir.") == 1
     assert "NOT requirements or blockers" in implementation
 
 
@@ -1091,9 +1100,9 @@ def test_minimal_flow_role_sequence_is_exactly_three_subjective_calls(rig, tmp_p
 
     _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path, config=config)
     assert rig.agent_names() == ["spec_writer", "implementer"]
-    assert "issue 正文" in rig.context_of(agent="implementer")
+    assert "- Yes, sir." in rig.context_of(agent="implementer")
     assert "objective contract" in rig.context_of(agent="implementer")
-    assert "严禁 cd /work/harness" in rig.context_of(agent="implementer")
+    assert "Do not switch to /work/harness" in rig.context_of(agent="implementer")
 
     _act(
         rig=rig,
@@ -1236,10 +1245,10 @@ def test_minimal_ci_failure_stops_without_second_implementation(rig, tmp_path):
 
 
 def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):
-    """`rfc: skip` = 不设此闸 → 不派 drafter，但 PR/implement/deliver 照常（`skip` 关的是闸，不是活）。
+    """`rfc: skip` = No gate set  →  no daffer, but PR/implement/deliver as usual (`skip` is closed, not alive).
 
-    Spec-0074 实证修复：skip 态没有 drafter 落「首个 commit + push」，远端无 head 分支 → create_pr
-    404。确定性 seed 分支（git.seed_branch 空 commit + push）必须在 create_pr 之前补位。
+    Spec-0074 empirical fixation: no dragt ”first line + push” without draffer, no head branch create_pr
+    404. The void branch (git.seed_branch empty line + push) must be filled before create_pr.
     """
     _act(
         rig=rig,
@@ -1248,17 +1257,17 @@ def test_act_solve_skips_rfc_when_that_stage_is_skipped(rig, tmp_path):
         config=_config(stages=_stages_policy(rfc="skip")),
     )
     assert rig.agent_names() == ["implementer"]  # Fixture already pushed; no redundant deliver.
-    assert ("seed", "openagents/issue-5") in rig.worktrees  # 无它 create_pr 404
+    assert ("seed", "openagents/issue-5") in rig.worktrees  # create_pr 404
 
 
 def test_act_solve_agent_rfc_does_not_seed_branch(rig, tmp_path):
-    """rfc=agent 态首个 commit+push 归 drafter 交付协议——seed 分支不该多此一举。"""
+    """rifc=the first part of the state is the drafter delivery agreement - the feed branch should not be so much."""
     _act(rig=rig, facts=_facts(pr_number=None), work_dir=tmp_path)
     assert all(record[0] != "seed" for record in rig.worktrees)
 
 
 def test_retired_architecture_owner_is_rejected_before_implementer(rig, tmp_path) -> None:
-    with pytest.raises(ValueError, match="未知 stage owner"):
+    with pytest.raises(ValueError, match="Unknown"):
         _act(
             rig=rig,
             facts=_facts(pr_number=None),
@@ -1333,19 +1342,19 @@ def test_solve_reuses_drafter_evidence_for_architect_and_implementer(
 
 
 def test_act_rebase_tries_mechanical_update_branch_before_any_agent(rig, tmp_path, monkeypatch):
-    """分支⑥：只是 base 前移（无真冲突）→ 机械 `update_branch` 就够 → **零 LLM 调用**。"""
+    """Branch 6: Only the case forward (no real conflict) mechanical `update_branch` is enough to call ** zero LLM**."""
     monkeypatch.setattr(github, "update_branch", lambda *, pr_number, rebase: True)
     facts = _facts(mergeable_state="dirty")
     assert _classify(facts=facts, in_flight=False).action == _ACT_REBASE
 
     summary = _act(rig=rig, facts=facts, work_dir=tmp_path)
 
-    assert rig.agents == [], "机械 update-branch 成功时不许叫 agent"
+    assert rig.agents == [], "Mechanical update-branch."
     assert "update-branch" in summary
 
 
 def test_act_rebase_falls_back_to_deliver_agent_when_update_branch_fails(rig, tmp_path):
-    """机械 `update_branch` 不行（真冲突）→ 下放 deliver agent 变基（`stages.conflict`）。"""
+    """Mechanical `update_branch` No (real conflict) Decentralisation deliver agent (`stages.conflict`)."""
     _act(rig=rig, facts=_facts(mergeable_state="dirty"), work_dir=tmp_path)
 
     assert rig.agent_names() == ["deliver"]
@@ -1373,7 +1382,10 @@ def test_act_rebase_turns_unresolved_delivery_into_bounded_failure(rig, tmp_path
     monkeypatch.setattr(
         vigil_module.stages,
         "conflict",
-        lambda **kwargs: {"delivered": False, "reason": "仍有语义资源冲突"},
+        lambda **kwargs: {
+            "delivered": False,
+            "reason": "There are still semantic resources conflicts.",
+        },
     )
     with pytest.raises(WorkspaceError, match="conflict_fp="):
         _act(rig=rig, facts=_facts(mergeable_state="dirty"), work_dir=tmp_path)
@@ -1385,7 +1397,7 @@ def test_conflict_context_contains_snapshot_and_deterministic_protocol(rig, tmp_
     prompt = rig.context_of(agent="deliver")
     assert "conflict snapshot" in prompt
     assert "conflict_fingerprint" in prompt
-    assert "重复 spec 编号" in prompt
+    assert "If a Spec number collides" in prompt
     assert (
         _conflict_fingerprint(
             # Resolver attempts refresh the forge snapshot first, so this fixture's
@@ -1399,7 +1411,7 @@ def test_conflict_context_contains_snapshot_and_deterministic_protocol(rig, tmp_
 
 
 def test_act_fix_ci_feeds_failing_check_logs_to_implementer(rig, tmp_path):
-    """分支⑧：当前 head 上 CI 红 → 把失败 check 的日志喂给 implementer 去修（在该 PR 的 worktree 里）。"""
+    """Branch 8: Current Head CI Red Zoom Feed failed check logs to implementer to fix (in the PR worktree)."""
     facts = _facts(ci="failure")
     assert _classify(facts=facts, in_flight=False).action == _ACT_FIX_CI
 
@@ -1418,7 +1430,7 @@ def test_act_fix_ci_feeds_failing_check_logs_to_implementer(rig, tmp_path):
 
 
 def test_act_e2e_stamps_evidence_with_the_head_it_was_run_against(rig, tmp_path):
-    """分支⑨：派 tester；PASS → 贴一条**带 head 溯源戳**的证据评论（戳里的 head 就是这一版代码的 head）。"""
+    """Branch 9: Pie tester; PASS  →  a review of evidence ** with head trace** (the head in this version of code)."""
     facts = _facts(e2e_head_sha=None)
     rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
     assert _classify(facts=facts, in_flight=False).action == _ACT_E2E
@@ -1435,17 +1447,17 @@ def test_act_e2e_stamps_evidence_with_the_head_it_was_run_against(rig, tmp_path)
 
 
 def test_act_e2e_never_stamps_evidence_when_the_run_failed(rig, tmp_path, monkeypatch):
-    """tester 判 REWORK → **不盖戳**（盖了就等于用一份失败的证据放行——张冠李戴的另一面）。"""
+    """tester sentenced ReWORK  →  ** without a stamp** (which is equivalent to a failed evidence - the other side of the crown Li)."""
     monkeypatch.setitem(
-        _AGENT_OUTPUTS, "tester", {"verdict": "REWORK", "reason": "e2e 挂了", "evidence": []}
+        _AGENT_OUTPUTS, "tester", {"verdict": "REWORK", "reason": "E2e, hang up.", "evidence": []}
     )
     _act(rig=rig, facts=_facts(e2e_head_sha=None), work_dir=tmp_path)
     assert rig.agent_names() == ["tester"]
-    assert rig.comments == [], "e2e 没过还盖证据戳 = 拿失败的证据放行"
+    assert rig.comments == [], "A failed e2e run must not post an evidence stamp."
 
 
 def test_act_review_dispatches_reviewer_and_binds_the_verdict_to_the_head_sha(rig, tmp_path):
-    """分支⑩：无裁决 → 派 reviewer；裁决落 label 时**把当前 head 的 sha7 嵌进 label 名**（裁决绑 commit）。"""
+    """Branch 10: No decision  →  reviewer; ** embedding the current head ssha7 into the name of the label** (decision bound to committee) when the award falls."""
     facts = _facts(review_state=None, review_commit_id=None, labels=frozenset())
     rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
     assert _classify(facts=facts, in_flight=False).action == _ACT_REVIEW_OR_FIX
@@ -1462,8 +1474,10 @@ def test_act_review_dispatches_reviewer_and_binds_the_verdict_to_the_head_sha(ri
 def test_act_review_clears_stale_verdict_labels_before_landing_the_new_one(
     rig, tmp_path, monkeypatch
 ):
-    """新裁决落下前先摘掉所有旧 `review-*:<sha7>`——留着不伤正确性（sha 对不上就不被承认）但会让人看见一排矛盾裁决。"""
-    monkeypatch.setitem(_AGENT_OUTPUTS, "reviewer", {"verdict": "REWORK", "reason": "要改"})
+    """Take all old ones off before the new decision falls. `review-*:<sha7>`——Keep it unharmed.sha The decision is not recognized if it is not accepted) but it will be seen in a row of contradictory decisions."""
+    monkeypatch.setitem(
+        _AGENT_OUTPUTS, "reviewer", {"verdict": "REWORK", "reason": "I’m gonna change it."}
+    )
     facts = _facts(
         review_state=None,
         review_commit_id=None,
@@ -1472,21 +1486,26 @@ def test_act_review_clears_stale_verdict_labels_before_landing_the_new_one(
     _act(rig=rig, facts=facts, work_dir=tmp_path)
 
     removed = [call[1]["name"] for call in rig.gh if call[0] == "remove_label"]
-    assert removed == ["review-approved:0000000"], "只摘 review-* 裁决 label，别的一个不碰"
+    assert removed == ["review-approved:0000000"], "Only extract-* award label, one more untouched"
     added = [call[1]["name"] for call in rig.gh if call[0] == "add_label"]
-    assert added == [f"review-changes-requested:{_SHA7}"]  # REWORK 的裁决同样绑当前 head
-    assert rig.review_feedback[5] == {"head_sha": _HEAD, "reason": "要改"}
+    assert added == [
+        f"review-changes-requested:{_SHA7}"
+    ]  # REWORK's ruling is also tied to the current head
+    assert rig.review_feedback[5] == {"head_sha": _HEAD, "reason": "I’m gonna change it."}
 
 
 def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_path):
-    """分支⑩另一半：已是 `CHANGES_REQUESTED@当前 head` → 派 implementer 改代码（**不再重审一遍**）。"""
+    """branch ⑩ The other half: yes ’CHANGES_REQUESTED@Current head’ → Pie. implementer Change Code**No more re-examination.**）。"""
     facts = _facts(
         review_state="CHANGES_REQUESTED",
         review_commit_id=_SHA7,
         labels=frozenset({f"review-changes-requested:{_SHA7}"}),
     )
     rig.run_records[5] = {"evidence_pack": [{"fact": "timeout is polled", "path": "entry.py"}]}
-    rig.review_feedback[5] = {"head_sha": _HEAD, "reason": "必须运行 live GLM 验证 BC1-BC3"}
+    rig.review_feedback[5] = {
+        "head_sha": _HEAD,
+        "reason": "Live GM must run BC1-BC3 authentication",
+    }
     assert _classify(facts=facts, in_flight=False).action == _ACT_REVIEW_OR_FIX
 
     _act(rig=rig, facts=facts, work_dir=tmp_path)
@@ -1494,49 +1513,51 @@ def test_act_review_or_fix_sends_changes_requested_back_to_implementer(rig, tmp_
     assert rig.agent_names() == ["implementer"]
     assert "feedback" not in rig.agents[0][1]
     assert "[review]" in rig.agents[0][1]["context"]
-    assert "live GLM 验证 BC1-BC3" in rig.agents[0][1]["context"]
+    assert "Live GM must run BC1-BC3" in rig.agents[0][1]["context"]
     assert "timeout is polled" in rig.agents[0][1]["context"]
 
 
 def test_act_ready_promotes_residual_draft_via_mark_ready(rig, tmp_path):
-    """分支⑪（Spec-0017/T2）：全绿+approved@head 但仍 draft → 确定性 `github.mark_ready` 转正（level-triggered 安全网）。
+    """Branch 11 (Spec-0017/T2): All green + applied@head but still draft  →  certainty `github.mark_ready` is back in order (level-triggered safety net).
 
-    零判断的机械动作，**不派任何 agent**（为何不派新 promoter agent 见 Spec-0017 Rationale）；happy-path
-    转正归 deliver agent，本支是那一枪脱靶后的兜底。
+    No mechanical action for zero judgement,** no anggen** (why not send a new promoter agent to Spec-0017 Rationale);
+    Turn back to deliver agent, the head of the gun.
     """
-    facts = _facts(is_draft=True)  # 其余全绿、只欠转正
+    facts = _facts(is_draft=True)  # The rest are green, but they're not right.
     assert _classify(facts=facts, in_flight=False).action == _ACT_READY
 
     summary = _act(rig=rig, facts=facts, work_dir=tmp_path)
 
-    assert rig.agents == [], "转正是确定性机械动作，不该叫任何 agent"
+    assert rig.agents == [], "It’s a certain mechanical move. It’s not supposed to be any of them."
     assert ("mark_ready", {"pr_number": 12}) in rig.gh
-    assert "merge_pr" not in rig.gh_names()  # 排在 merge 前：draft 态绝不落合并
-    assert "转正" in summary
+    assert "merge_pr" not in rig.gh_names()  # Line before merge: draft state never merge
+    assert "Marked ready for review" in summary
 
 
 def test_act_merge_dispatches_merger_agent_behind_the_gate(rig, tmp_path):
-    """分支⑫（Spec-0017/T2/T3）：全绿 + approved@head + 非 draft → 经确定性硬闸放行后**下放 merger agent** 合并 + 关 issue + 置 done。
+    """Branch 12 (Spec-0017/T2/T3): All Green + applied@head + non-draft **merger union** + issue + doe.
 
-    合并不可逆：先 `gates.assert_merge_allowed`（本文件放行）把守红线，放行后经 `stages.merge` 派 merger
-    agent 落 `gh pr merge`——**不再是确定性 `github.merge_pr` 直调**。
+    Merger irreversible: First `gates.assert_merge_allowed` (display this document) secures the red line, then then pass `stages.merge` to meger
+    Agent `gh pr merge` - ** no longer definitive `github.merge_pr` Tweet**.
     """
-    facts = _facts()  # is_draft 默认 False
+    facts = _facts()  # Default is_draft for False
     assert _classify(facts=facts, in_flight=False).action == _ACT_MERGE
 
     summary = _act(rig=rig, facts=facts, work_dir=tmp_path)
 
-    assert rig.agent_names() == ["merger"], "合并动作下放 merger agent（闸放行后）"
+    assert rig.agent_names() == ["merger"], (
+        "Merger action delegatedr agent (after the gate is released)"
+    )
     assert rig.agents[0][1]["pr_number"] == 12
-    assert isinstance(rig.backends[0], _TimedBackend)  # 经 _TimedBackend 派，超时可杀
+    assert isinstance(rig.backends[0], _TimedBackend)  # Timeout by _TimedBackend
     assert ("close_issue", {"number": 5}) in rig.gh
     assert rig.runs == [(5, "done", "openagents/issue-5", 12)]
     assert summary == "merged"
 
 
 def test_act_rejects_an_unknown_action(rig, tmp_path):
-    """路由是穷举的：未知动作必须**当场炸**，绝不静默 no-op（静默 = 一个 subject 永远不动、无人知晓）。"""
-    with pytest.raises(ValueError, match="未知动作"):
+    """The route is numerous: unknown action must be blown up on the spot** and never silent no-op (quiet = a subject never moves and nobody knows)."""
+    with pytest.raises(ValueError, match="Unknown action"):
         vigil_module._act(
             backend=_Backend(),
             state=rig,
@@ -1554,7 +1575,7 @@ def test_act_rejects_an_unknown_action(rig, tmp_path):
 def test_act_wraps_the_backend_in_a_timed_backend_on_every_agent_branch(
     rig, tmp_path, monkeypatch, budget
 ):
-    """每个派 agent 的分支拿到的都必须是 `_TimedBackend`——裸 backend 挂死了没人管（flock 判不出这种死法）。"""
+    """Every branch of the faction of agent must have been `_TimedBackend` - naked backend hung by no one (flock can’t rule out this way)."""
     monkeypatch.setenv("OPENAGENTS_CLAUDE_MAX_WALL", budget)
     _act(rig=rig, facts=_facts(ci="failure"), work_dir=tmp_path)
     assert rig.backends and all(isinstance(backend, _TimedBackend) for backend in rig.backends)
@@ -1562,7 +1583,7 @@ def test_act_wraps_the_backend_in_a_timed_backend_on_every_agent_branch(
 
 
 # --------------------------------------------------------------------------------------------------
-# 三态：可配闸 owner=human → `_park_gate` 打 needs-human 停等人（**零 agent 调用**）。
+# 3-state: owner = human `_park_gate` hit needs-human stop-and-go (** zero agent call**).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -1580,7 +1601,7 @@ def test_act_wraps_the_backend_in_a_timed_backend_on_every_agent_branch(
     ],
 )
 def test_act_rejects_retired_stage_owner(rig, tmp_path, stage, overrides):
-    with pytest.raises(ValueError, match="未知 stage owner"):
+    with pytest.raises(ValueError, match="Unknown"):
         _act(
             rig=rig,
             facts=_facts(**overrides),
@@ -1591,23 +1612,32 @@ def test_act_rejects_retired_stage_owner(rig, tmp_path, stage, overrides):
 
 
 # --------------------------------------------------------------------------------------------------
-# 一等出口契约：`_NEEDS_HUMAN_CONTRACT` 必须进到**每个**派 agent 的分支交给 agent 的上下文里。
+# First-class export contract: `_NEEDS_HUMAN_CONTRACT` must enter the context of ** branch of each **-party agent to agent.
 # --------------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "overrides,agent",
     [
-        ({"latest_comment_is_ours": False}, "replier"),  # 分支②：人问的问题它也可能答不了
-        ({"pr_number": None}, "drafter"),  # 分支④：起草
-        ({"pr_number": None}, "implementer"),  # 分支④：实现
-        ({"mergeable_state": "dirty"}, "deliver"),  # 分支⑥：冲突解不动正是该交人的场景
-        ({"ci": "failure"}, "implementer"),  # 分支⑧：CI 是上游 flaky 时该交人
-        ({"e2e_head_sha": None}, "tester"),  # 分支⑨
+        (
+            {"latest_comment_is_ours": False},
+            "replier",
+        ),  # Branch 2: He may not be able to answer the questions asked.
+        ({"pr_number": None}, "drafter"),  # Branch 4: Drafting
+        ({"pr_number": None}, "implementer"),  # Branch 4: Achieved
+        (
+            {"mergeable_state": "dirty"},
+            "deliver",
+        ),  # Branch 6: The scene of the conflict is the one that should be used to solve the conflict.
+        (
+            {"ci": "failure"},
+            "implementer",
+        ),  # Branch 8:CI is the one who should be delivered at the time of the flashy upstream.
+        ({"e2e_head_sha": None}, "tester"),  # Branch 9
         (
             {"review_state": None, "review_commit_id": None, "labels": frozenset()},
             "reviewer",
-        ),  # 分支⑩
+        ),  # Branch 10
         (
             {
                 "review_state": "CHANGES_REQUESTED",
@@ -1615,14 +1645,14 @@ def test_act_rejects_retired_stage_owner(rig, tmp_path, stage, overrides):
                 "labels": frozenset({f"review-changes-requested:{_SHA7}"}),
             },
             "implementer",
-        ),  # 分支⑩返工
+        ),  # Branch 10 is back on the job.
     ],
 )
 def test_autonomous_contract_reaches_every_agent_invoking_branch(rig, tmp_path, overrides, agent):
-    """**主路径收口的前提**：agent 看不到这条契约，就不会返回结构化交人请求——兜底当场变成主路径。
+    """** Precondition for main path closing**: agent does not see the contract and will not return to structured contact request - the bottom of the field becomes the main path.
 
-    断言打在 `engine.run_agent` 这个唯一的派 agent 出口上（stage 内部怎么组占位符都逃不掉）。`_do_reply`
-    与 `_do_rebase` 曾漏掉它——它们分别是「答不了人的提问」和「解不动冲突」，恰恰是最该主动交人的两支。
+    The word is ”yes.” `engine.run_agent` This is the only pie. agent Export Up (stage How can you not escape from the inner set of placeholders?`_do_reply`
+    `_do_rebase` has missed it — they are the ”failure to answer questions” and ”undefended conflict” — the two most deserving of active communication.
     """
     _act(rig=rig, facts=_facts(**overrides), work_dir=tmp_path)
     assert agent in rig.agent_names()
@@ -1630,40 +1660,40 @@ def test_autonomous_contract_reaches_every_agent_invoking_branch(rig, tmp_path, 
 
 
 def test_autonomous_contract_reaches_the_replier(rig, tmp_path):
-    """回归：`_do_reply` 的契约拼在**人的那条评论正文之后**（既给回应对象、也给一等出口）。"""
+    """Return: `_do_reply` contract is spelled after the **-person’s review body** (for both the respondent and the first-class export)."""
     _act(rig=rig, facts=_facts(latest_comment_is_ours=False), work_dir=tmp_path)
     context = rig.context_of(agent="replier")
-    assert context == f"--- human comment ---\n这里为什么这么写？{_AUTONOMOUS_CONTRACT}"
+    assert context == f"--- human comment ---\nWhy do you write that here?{_AUTONOMOUS_CONTRACT}"
 
 
 def test_autonomous_contract_reaches_the_conflict_resolver(rig, tmp_path):
-    """回归：`_do_rebase` 经 `stages.conflict(context_text=…)` 把契约透传进 deliver agent 的上下文。"""
+    """Returns: `_do_rebase` passed the contract through `stages.conflict(context_text=…)` into the context of the deliver agent."""
     _act(rig=rig, facts=_facts(mergeable_state="dirty"), work_dir=tmp_path)
     assert _AUTONOMOUS_CONTRACT in rig.context_of(agent="deliver")
 
 
 def test_autonomous_contract_forbids_forge_writes_and_keeps_role_schema():
-    assert "本角色既有 JSON schema" in _AUTONOMOUS_CONTRACT
-    assert "不要空转" in _AUTONOMOUS_CONTRACT
-    assert "自行修改 forge 标签" in _AUTONOMOUS_CONTRACT
+    assert "JSON schema" in _AUTONOMOUS_CONTRACT
+    assert "do not keep retrying" in _AUTONOMOUS_CONTRACT
+    assert "change forge labels" in _AUTONOMOUS_CONTRACT
     assert vigil_module._LABEL_AUTOMATION_FAILED == github.AUTOMATION_FAILED_LABEL
 
 
 # --------------------------------------------------------------------------------------------------
-# worktree 归属：两个不同的裸 PR **必须**拿到两个不同的目录（都退化成 issue-0 = 往别人的 PR 上推代码）。
+# Worktree belongs: two different standalone PR** must** get two different directories (both degraded to issue-0 = push code on the PR of others).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_bare_prs_get_distinct_worktrees(tmp_path, monkeypatch):
-    """裸 PR（无 issue 归属）按 **PR 号**取目录键，而不是「无 issue → 0」。
+    """standalone PR (no issue) press **PR** instead of ”no issue  → 0”
 
-    `Workspace.ensure` 的目录名只吃 `issue_number`，且**目录已存在就直接返回、不查当前在哪个分支上**——
-    两个裸 PR 都传 0 的话，`pr:12` 与 `pr:13` 会拿到**同一个** `.worktrees/issue-0`：两个 worker 的 agent
-    在同一个目录里改代码，且后来者其实站在前者的分支上，会把改动推到**别人的 PR** 上。subject 级 flock 拦
-    不住这个——它们本就是两个 subject，共享的是**资源**。
+    `Workspace.ensure` only eats `issue_number` and ** returns directly when the directory exists, without checking which branch is currently in** —
+    `pr:12` and `pr:13` will get **** `.worktrees/issue-0`: two agents of worker
+    Change the code in the same directory, and later the person who is in the former branch will push the change onto the other person ’s PR**. subsubject level block
+    Not here -- they were two sub-projects, shared ** resources**.
 
-    这里用**真** `git.Workspace`：三个候选目录都预先建好（含 issue-0），故 `ensure` 全部走「已存在 → 直接
-    返回」的短路、一次 git 都不跑；退化成 issue-0 的实现会在此**返回同一个路径**而被当场抓住。
+    Here is ** True** `git.Workspace`: The three candidate directories are pre-established (including issue-0), so all `ensure` moves ”Existing direct”
+    ”Return” short-term, one-time guit; the degradation of the ”issue-0” will be here** and the same path** will be caught.
     """
     monkeypatch.setattr(github, "pr_head_branch", lambda *, pr_number: f"feature/pr-{pr_number}")
     for number in (0, 12, 13):
@@ -1672,13 +1702,13 @@ def test_bare_prs_get_distinct_worktrees(tmp_path, monkeypatch):
     first = _pr_worktree(work_dir=tmp_path, facts=_facts(subject="pr:12", pr_number=12))
     second = _pr_worktree(work_dir=tmp_path, facts=_facts(subject="pr:13", pr_number=13))
 
-    assert first != second, "两个裸 PR 共用一个 worktree = 把改动推到别人的 PR 上"
+    assert first != second, "Two naked PRs, one worktree = push the change on someone else’s PR"
     assert first.name == "issue-12"
     assert second.name == "issue-13"
 
 
 def test_issue_subject_worktree_is_keyed_by_the_issue_number(tmp_path, monkeypatch):
-    """issue 归属的 subject 仍按 issue 号取 worktree + 走 `openagents/issue-<n>` 分支（承旧串行 vigil）。"""
+    """The subject of issue still uses the issue + go to `openagents/issue-<n>` branch (old string vigil)."""
     monkeypatch.setattr(git, "Workspace", _FakeWorkspace)
     global _RIG
     _RIG = _Rig()
@@ -1688,12 +1718,12 @@ def test_issue_subject_worktree_is_keyed_by_the_issue_number(tmp_path, monkeypat
 
 
 # --------------------------------------------------------------------------------------------------
-# 硬超时：flock 只回答「进程在不在」；`_TimedBackend` 补的是「进程活着但挂死在一个不返回的调用上」。
+# Hard timeout: flock only answers "Is the process in place"; `_TimedBackend` adds "The process is alive but hung on a call that does not return".
 # --------------------------------------------------------------------------------------------------
 
 
 class _HangingBackend:
-    """永不返回的 backend；`Popen` 之后**自报 PID**（认领靠自报，不靠猜——diff 会认错别人的 gh/git）。"""
+    """Backend; `Popen` ** Self-reported PID** (under oath, not guess - diff would recognize someone else’s gh/git)."""
 
     name = "hanging"
 
@@ -1709,10 +1739,10 @@ class _HangingBackend:
 
 @pytest.fixture
 def killed(monkeypatch) -> list[tuple[int, object]]:
-    """打桩 `proc.kill_tree`，只记录 `(pid, handle)`——本测试文件不真杀任何进程。
+    """Pile `proc.kill_tree`, only `(pid, handle)` - This test file does not really kill any process.
 
-    连 `handle` 一起记：超时方必须把 backend 自报的那个 `Popen` 一并递给 `kill_tree`（句柄是「这个 PID 还是
-    不是当年那个进程」的唯一依据；丢了它就只剩裸 PID 可杀，PID 回绕时会杀到别的 worker 的 agent）。
+    Even `handle`: The timeout must hand over the `Popen` self-reported by the backend to `kill_tree`.
+    ”Not the only basis for the process of the year”; the missing one is only a naked PID that can kill, and the PID will kill another agent when it turns around.
     """
     record: list[tuple[int, object]] = []
     monkeypatch.setattr(proc, "kill_tree", lambda *, pid, handle: record.append((pid, handle)))
@@ -1720,31 +1750,31 @@ def killed(monkeypatch) -> list[tuple[int, object]]:
 
 
 def test_timed_backend_kills_exactly_the_pids_this_call_published(killed):
-    """超时 → 杀**本次调用自报的** PID，且**只杀它**：杀错进程时真挂死的 agent 还活着继续 push（双跑）。"""
-    proc.track()  # 主线程也开一个桶（模拟另一个 worker / 生产者的 gh、git 子进程）
-    proc.publish(pid=999_001)  # 它自报的 PID 一个都不许被这次超时杀掉
+    """Timeout killing** this call for self-reported** PID,** only killing it**: the dead agent who died while he was killing the wrong process is still alive and push (driving)."""
+    proc.track()  # One barrel is also opened (simulate another gh, git subprocess of the worker/ producer)
+    proc.publish(pid=999_001)  # It's self-reported PID.
     backend = _HangingBackend(pid=424_242)
     try:
         with pytest.raises(_ActTimeout, match="424242") as exc:
             _TimedBackend(inner=backend, timeout_seconds=1, lock_fd=None).run(
                 work_dir=Path("."), task="t", context="c"
             )
-        assert killed == [(424_242, None)], "只许杀本次 agent 调用自报的进程树"
-        assert "时间预算耗尽" in str(exc.value)
-        assert "挂死" not in str(exc.value)
-        # 别人的桶原样健在（桶是 {PID: 句柄}——这里的 gh/git 没给句柄，记 None）。
+        assert killed == [(424_242, None)], "Only this agent calling the self-reported process tree"
+        assert "wall-clock limit" in str(exc.value)
+        assert "Hang on." not in str(exc.value)
+        # Someone else's bucket is in place. {PID: Snack}——Here. gh/git No one's got a handle on it. Remember that. None）。
         assert proc.untrack(thread_id=threading.get_ident()) == {999_001: None}
     finally:
         proc.untrack(thread_id=threading.get_ident())
 
 
 def test_timed_backend_passes_the_published_handle_to_kill_tree(killed):
-    """超时时递给 `kill_tree` 的必须是 backend **自报的那个句柄**——它是 PID 验明正身的唯一依据。
+    """The timeout to `kill_tree` must be the entry ** of the report ** - it is the only basis for PID to identify the body.
 
-    没有句柄，`kill_tree` 只能按裸 PID 杀：那个 PID 若已被 reap 并回绕（长跑守夜每 tick 起若干 gh/git），
-    受害者就是本进程另一个 worker 的 agent → 那行被回收重领 → 双跑。
+    No handle.`kill_tree` I’m gonna press naked. PID Kill: That. PID If it’s been reap And back and forth. tick Start a few gh/git），
+    The victim is another agent of the process that was recycled and re-runed.
     """
-    handle = object()  # 替 Popen；`kill_tree` 已被打桩，不会真去 poll 它
+    handle = object()  # For Popen; `kill_tree` has been put on a stake, not really go to the Poll
 
     class _HangingWithHandle:
         name = "hanging"
@@ -1758,11 +1788,11 @@ def test_timed_backend_passes_the_published_handle_to_kill_tree(killed):
             work_dir=Path("."), task="t", context="c"
         )
     assert killed == [(424_245, handle)]
-    assert killed[0][1] is handle  # 是**那一个**句柄，不是别的
+    assert killed[0][1] is handle  # It's that one. It's nothing else.
 
 
 def test_timed_backend_untracks_the_bucket_after_a_timeout(killed):
-    """超时线程被丢弃 → 它的认领桶必须一并取走（否则 `_TRACKED` 随每次超时无限长）。"""
+    """The time-out thread is discarded and its recognized collar cans must be removed (otherwise, `_TRACKED` is available for an unlimited period of time each time)."""
     backend = _HangingBackend(pid=424_243)
     with pytest.raises(_ActTimeout):
         _TimedBackend(inner=backend, timeout_seconds=1, lock_fd=None).run(
@@ -1772,7 +1802,7 @@ def test_timed_backend_untracks_the_bucket_after_a_timeout(killed):
 
 
 def test_timed_backend_kills_nothing_on_a_fast_call_and_untracks_cleanly(killed):
-    """正常返回 → 一个进程都不杀、结果原样透传、桶清干净（超时闸不许对正常路径收任何税）。"""
+    """The result is not killed, the result is passed, the barrel is clean (no tax on normal routes is allowed for the time-out)."""
 
     class _Fast:
         name = "fast"
@@ -1782,7 +1812,7 @@ def test_timed_backend_kills_nothing_on_a_fast_call_and_untracks_cleanly(killed)
 
         def run(self, *, work_dir, task, context):
             self.thread_id = threading.get_ident()
-            proc.publish(pid=424_244)  # 起过子进程，但按时收工
+            proc.publish(pid=424_244)  # Starts the sub-process, but closes on time
             return "ok"
 
     backend = _Fast()
@@ -1790,7 +1820,7 @@ def test_timed_backend_kills_nothing_on_a_fast_call_and_untracks_cleanly(killed)
         work_dir=Path("."), task="t", context="c"
     )
     assert result == "ok"
-    assert killed == [], "按时返回的调用一个进程都不许杀"
+    assert killed == [], "No one can kill a process that returns on time."
     assert backend.thread_id not in proc._TRACKED
 
 
@@ -1823,15 +1853,15 @@ def test_disabled_budget_waits_for_completion_and_keeps_tracking(monkeypatch, ki
 
 
 def test_timed_backend_reraises_the_inner_error_without_killing(killed):
-    """backend 自己抛错（gh 抖动等）→ 原样重抛、**不杀进程**（它已经收工了）→ 上层走回队重试而非 park。"""
+    """Back on its own, throw it back, ** no-killing process** (it’s closed) and go back to the top and try again instead of Park."""
 
     class _Boom:
         name = "boom"
 
         def run(self, *, work_dir, task, context):
-            raise RuntimeError("后端抽风")
+            raise RuntimeError("Back-end wind.")
 
-    with pytest.raises(RuntimeError, match="后端抽风"):
+    with pytest.raises(RuntimeError, match="Back-end wind."):
         _TimedBackend(inner=_Boom(), timeout_seconds=30, lock_fd=None).run(
             work_dir=Path("."), task="t", context="c"
         )
@@ -1839,12 +1869,12 @@ def test_timed_backend_reraises_the_inner_error_without_killing(killed):
 
 
 # --------------------------------------------------------------------------------------------------
-# 存活证明跟着干活的进程走：`_TimedBackend(lock_fd=N)` → 跑 backend 的**那条线程**登记 fd N 供子进程继承。
+# The survival certificate follows the work process: `_TimedBackend(lock_fd=N)`  →  Run backend** The thread** registers fd N for son succession.
 # --------------------------------------------------------------------------------------------------
 
 
 class _FdProbeBackend:
-    """按时返回的 backend，顺手记下**自己这条线程**看到的继承 fd 登记（backend 就是在这里起 `Popen` 的）。"""
+    """Back on time, write down the succession fd registration (this is where `Popen` started) as you see in your own ** thread."""
 
     name = "fd-probe"
 
@@ -1854,21 +1884,23 @@ class _FdProbeBackend:
 
     def run(self, *, work_dir, task, context):
         self.thread_id = threading.get_ident()
-        self.inherited = proc.inherited_fds()  # backend 起子进程时正是拿这个当 pass_fds
+        self.inherited = (
+            proc.inherited_fds()
+        )  # Backend, this is what you used to do with the pass_fds.
         return "ok"
 
 
 def test_timed_backend_holds_the_lock_fd_on_the_thread_that_runs_the_backend(tmp_path, killed):
-    """Spec-0065/T2：`lock_fd=N` → 在**跑 backend 的那条线程**上 `proc.hold_fd(fd=N)`，故 agent 子进程继承
-    flock（`backends.claude_code` 的 `Popen(pass_fds=proc.inherited_fds())` 读的正是这份登记）。
+    """Spec-0065/T2: `lock_fd=N`  →  on the **back** `proc.hold_fd(fd=N)`, so agent subprocesse inherited
+    flock（`backends.claude_code` It’s... `Popen(pass_fds=proc.inherited_fds())` This is the same registration.
 
-    **存活证明必须跟着真正在干活的那个进程走**：守夜被 SIGKILL/OOM/`docker stop` 打死时，它起的 agent 是被
-    **孤儿化而不是被杀**（还能从容跑完一次 `git push`）。锁若只在守夜手里，内核当场放锁 → `_reclaim_dead`
-    抢到 → 判「持有者已死」→ 行回 queued → 另一个 worker 领走同一个 subject → **双跑**。让 agent 继承 fd 后，
-    锁的语义变成「守夜**或**它的 agent 还有一个活着」，这个入口就此封死。
+    ** Survivors have to follow the process that really works** : When the watch was killed by SIGKILL/OOM/Z`docker stop`, it started ant
+    Orphaned rather than killed** (and run once from Yon. `git push`). If the lock is only in the Vigil, the kernel will be locked on the spot. `_reclaim_dead`
+    The Quuued  →  Another worker takes the same subject ** double run**. After having given an agent to inherit fd, the Quuued  →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →   →
+    The word for the lock becomes ”or its watch** or its agent has one alive” and the entrance is sealed.
 
-    登记必须落在**那条线程**上（`_INHERIT` 按 thread ident 分桶）：落在主线程上等于没落——backend 在子线程
-    里读 `inherited_fds()` 会读到空，fd 根本不会被传给 `Popen`。
+    Registration must be on the ** thread** (`_INHERIT` press thread ident): Falling on the main thread equals falling --backend in the sub-routine
+    Read `inherited_fds()`, which is empty, and fd will not be passed to `Popen` at all.
     """
     fd = os.open(str(tmp_path / "issue-5.lock"), os.O_CREAT | os.O_RDWR, 0o644)
     backend = _FdProbeBackend()
@@ -1878,28 +1910,28 @@ def test_timed_backend_holds_the_lock_fd_on_the_thread_that_runs_the_backend(tmp
         )
 
         assert result == "ok"
-        assert backend.inherited == (fd,), (
-            "跑 backend 的那条线程必须看得见这个 fd（否则子进程继承不到锁）"
+        assert backend.inherited == (fd,), "The circuit running backend must see this fd."
+        assert backend.thread_id != threading.get_ident()  # It's another line.
+        assert os.get_inheritable(fd), (
+            "fd must be held as inheritable (PEP 446 default close-on-exec)"
         )
-        assert (
-            backend.thread_id != threading.get_ident()
-        )  # 确实是另一条线程（不是主线程侥幸看到的）
-        assert os.get_inheritable(fd), "fd 必须被置为可继承（PEP 446 默认 close-on-exec）"
-        assert proc.inherited_fds() == (), "主线程不该被登记任何 fd"
-        assert backend.thread_id not in proc._INHERIT, "收工后必须 release_fds，登记不许泄漏"
+        assert proc.inherited_fds() == (), "The main line should not be registered any fd"
+        assert backend.thread_id not in proc._INHERIT, (
+            "After work, release_fds must be registered and no leaks must be made."
+        )
     finally:
         os.close(fd)
 
 
 def test_timed_backend_holds_no_fd_when_there_is_no_claim(killed):
-    """`lock_fd=None`（生产者线程的 triager/curator：**没有认领的行、没有锁**）→ 一个 fd 都不许登记。
+    """`lock_fd=None`”Producer’s threads” triager/curator：**No claim, no lock.**）→ One. fd No registration is allowed.
 
-    多登记一个 fd = 让那次调用起的子进程白拿一把它不该持有的锁：它苟活时会把**别人的**行钉在 claimed 上，
-    `_reclaim_dead` 判不了死 → 那个 subject 永远动不了。
+    The new ‘Fd’ program is to use the key that it should not have: it will crucify ** someone else’s ** when it survives.
+    `_reclaim_dead` can’t judge death  →  that subject never moves.
     """
     backend = _FdProbeBackend()
     _TimedBackend(inner=backend, timeout_seconds=30, lock_fd=None).run(
         work_dir=Path("."), task="t", context="c"
     )
-    assert backend.inherited == (), "没有认领的行就没有存活证明可传"
+    assert backend.inherited == (), "There’s no proof of survival without a claim."
     assert backend.thread_id not in proc._INHERIT

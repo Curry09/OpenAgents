@@ -1,105 +1,105 @@
-# 设计文档:spec 转 rust-RFC 形态(总览先行 + 单 spec 自包含)
+# Design Document: Converting specs to a rust-RFC Format (Overview First + Self-Contained Individual Specs)
 
-> Dated 设计文档(前向设计史,写完冻结、append-only)。对应 issue #69。
-> 落地后会新建对应的 spec 组(本组自身用新格式 dogfood)。
+> Dated design document (forward-looking design history; frozen once written, append-only). Corresponds to issue #69.
+> After implementation, a corresponding spec group will be created (this group will itself dogfood the new format).
 
-## 背景与问题(issue #69)
+## Background and Problems (issue #69)
 
-当前 spec 单独看「看不太懂」,根因是**语义不完整**,两条:
+Individual specs are currently “hard to understand on their own.” The root cause is **incomplete semantics**, in two respects:
 
-1. **单个 spec 不自包含**:正文大量「见 Spec-0012 决策 7 / 决策 8 / 决策 2」式跨 spec 引用,把关键设计依据甩到别处。读者(人或 agent)拿到一个 spec 必须再翻另外几个才能拼出完整语义。
-2. **没有 feature 总览就直接拆 Task**:`spec new` 后马上 `spec add-task`,组级只有一句 `summary`,读者上来面对一张 Task 表,没有先建立整体认知。
+1. **Individual specs are not self-contained**: The body contains many cross-spec references such as “see Spec-0012 Decision 7 / Decision 8 / Decision 2,” offloading key design rationale elsewhere. Readers (human or agent) given one spec must consult several others to piece together its full meaning.
+2. **Tasks are broken down before there is a feature overview**: `spec new` is immediately followed by `spec add-task`, with only a one-line `summary` at the group level. Readers are presented with a Task table before they have developed an overall understanding.
 
-还有一个**代码层面的隐藏缺陷**(调查时发现):0023 里手写的 `## 总览(feature overview)` 段落,`openagents/spec/model.py` 的解析器根本不解析——它只认 `## T<n>` Task 小节(`_TASK_HEADING_RE = ^##\s+(T...)`)。于是这段总览**不进数据模型**,下次任何 `spec render` / 工具改写组文件时会被**直接丢弃**。所以「数据模型支持组级总览字段」不是可选项,是必须做。
+There is also a **hidden code-level defect** (discovered during investigation): The parser in `openagents/spec/model.py` does not parse the manually written `## Overview (feature overview)` section in 0023 at all—it only recognizes `## T<n>` Task sections (`_TASK_HEADING_RE = ^##\s+(T...)`). Consequently, this overview **never enters the data model** and will be **discarded outright** the next time any `spec render` / tool rewrites the group file. Therefore, “supporting group-level overview fields in the data model” is mandatory, not optional.
 
-## 决策:spec = 一篇 rust 风格 RFC,Task DAG 收进设计节
+## Decision: A spec = a rust-style RFC, with the Task DAG Incorporated into the Design Section
 
-参考 [rust-lang/rfcs](https://github.com/rust-lang/rfcs) 的 `0000-template.md`(9 段模板)与 `README.md`(流程/生命周期),把 spec 的**主体**从「Task DAG 骨架 + 每个 Task 各写 prose」翻成「**feature 级 RFC 9 段 prose 为主体**,Task 退化成设计节里的工作分解 + 文件分配表」。
+Following `0000-template.md` (the nine-section template) and `README.md` (process/lifecycle) in [rust-lang/rfcs](https://github.com/rust-lang/rfcs), change the **main body** of a spec from “a Task DAG skeleton + separate prose for each Task” to “**nine sections of feature-level RFC prose as the main body**, with Tasks reduced to a work breakdown + file allocation table in the design section.”
 
-关键认识:**RFC 与 DAG+文件分配不冲突**。rust 之所以 RFC 里没有 DAG,是因为它把设计(RFC 仓库)与实现(主仓 issue/PR)彻底分离;OpenAgents 选择让二者共存——RFC 9 段讲清 feature 全貌,DAG 收进 **Reference-level explanation** 一节,理念 6「并行 = DAG + 文件分配」原样保住。
+The key insight: **RFCs do not conflict with a DAG + file allocation**. rust RFCs omit DAGs because rust completely separates design (the RFC repository) from implementation (issues/PRs in the main repository); OpenAgents chooses to let both coexist—the nine RFC sections explain the feature as a whole, while the DAG goes into **Reference-level explanation**, preserving principle 6, “parallelism = DAG + file allocation,” unchanged.
 
-### 新的 spec 文件结构
+### New spec File Structure
 
-**Frontmatter(机器读,结构化源数据)**
-- 组元数据:`number / title / issue / slug / summary(一句话 TL;DR) / status`
-- `tasks[]`:**保留**,但只剩结构化字段 + 两个一行短 prose:
-  `id / title / status / priority / tags / depends-on / relates-to / parallel / files / scope(一句话改什么) / acceptance(可验证验收)`
-  这就是 DAG + 文件分配,`spec render` / `spec graph` / `spec validate` 继续吃它。
+**Frontmatter (machine-readable, structured source data)**
+- Group metadata: `number / title / issue / slug / summary(one-line TL;DR) / status`
+- `tasks[]`: **Retained**, but limited to structured fields + two short, single-line prose fields:
+  `id / title / status / priority / tags / depends-on / relates-to / parallel / files / scope(one sentence describing what changes) / acceptance(verifiable acceptance criteria)`
+  This is the DAG + file allocation; `spec render` / `spec graph` / `spec validate` continue to consume it.
 
-**正文(人/agent 读,rust 9 段组级 prose)**
+**Body (read by humans/agents, nine sections of group-level prose from rust)**
 
-| 段(rust 原名) | 写什么 |
+| Section (original rust name) | What to write |
 |------|------|
-| **Summary** | 一段话讲清这个 feature 是什么 |
-| **Motivation** | 现状 + 为什么改;**背景就地复述完整**,禁止把必要信息留给「见 Spec-00XX」 |
-| **Guide-level explanation** | 当它已存在,如何向人讲解(以例子为主) |
-| **Reference-level explanation** | 技术方案细节 + **DAG + 文件分配就放这一节**(Task 分解表 / mermaid 依赖图) |
-| **Drawbacks** | 为什么*不*该做 |
-| **Rationale and alternatives** | 为什么这个方案最好;**至少一个备选方案**及不选它的理由 |
-| **Prior art** | 相关先例(其它项目/语言/论文);无则注明 |
-| **Unresolved questions** | 仍待解决的问题(取代原 Task 级 `Open-Questions`) |
-| **Future possibilities** | 自然的后续演化 |
+| **Summary** | One paragraph explaining what this feature is |
+| **Motivation** | The current situation + why change it; **restate the background fully in place**, without leaving necessary information behind a “see Spec-00XX” reference |
+| **Guide-level explanation** | How to explain it to someone as though it already exists (primarily through examples) |
+| **Reference-level explanation** | Technical design details + **the DAG + file allocation belong in this section** (Task breakdown table / mermaid dependency diagram) |
+| **Drawbacks** | Why this should *not* be done |
+| **Rationale and alternatives** | Why this approach is best; **at least one alternative** and the reason for rejecting it |
+| **Prior art** | Relevant precedents (other projects/languages/papers); state explicitly if there are none |
+| **Unresolved questions** | Questions still to be resolved (replaces the former Task-level `Open-Questions`) |
+| **Future possibilities** | Natural subsequent evolution |
 
-### 为什么这样能消除「重叠」
+### Why This Eliminates “Overlap”
 
-旧模型每个 Task 各写 `Design / Interface / Tradeoffs / Open-Questions`,若组级再塞 9 段会与 Task 级 prose 语义打架。新模型里**设计叙述只在 feature 级讲一遍(9 段)**,Task 退化成 Reference-level 里的一张工作分解/文件分配表。无重叠,且天然满足 issue #69 的两条验收:总览先行 + 单 spec 自包含。
+In the old model, each Task has its own `Design / Interface / Tradeoffs / Open-Questions`; adding nine sections at the group level would create semantic conflicts with the Task-level prose. In the new model, **the design narrative is told only once, at the feature level (nine sections)**, and Tasks are reduced to a work breakdown/file allocation table within Reference-level explanation. There is no overlap, and this naturally satisfies the two acceptance criteria in issue #69: overview first + self-contained individual specs.
 
-### 文件分配 = OpenAgents 版「所有权唯一」(为 issue #71 预留扩展点)
+### File Allocation = OpenAgents’ Version of “Unique Ownership” (Reserving an Extension Point for issue #71)
 
-Reference-level 里那张「Task → `files`」分配表,本质是 OpenAgents 版的 **Rust 所有权模型**:每个 Task 是它名下 `files` 的**单一 writer**(`&mut` 独占),互斥分配就是「aliasing XOR mutability」搬到协同模式上——这正是理念 6 让多 agent 同组并行不冲突的根。
+The “Task → `files`” allocation table in Reference-level explanation is essentially OpenAgents’ version of the **Rust ownership model**: Each Task is the **single writer** for the `files` assigned to it (exclusive `&mut` access), and mutually exclusive allocation brings “aliasing XOR mutability” into the collaboration model—this is precisely the foundation of principle 6 that allows multiple agents to work in parallel within the same group without conflicts.
 
-[issue #71](https://github.com/Curry09/OpenAgents/issues/71) 会把这层 ownership 从「**设计期声明**」推进到「**运行期强制**」(lease / 版本化共享状态 / capability)。**本设计为它预留扩展点**,硬约束一条:
+[issue #71](https://github.com/Curry09/OpenAgents/issues/71) will advance this ownership layer from “**design-time declarations**” to “**runtime enforcement**” (lease / versioned shared state / capability). **This design reserves an extension point for it**, with one hard constraint:
 
-> **`tasks[].files` 必须保留为 frontmatter 里的结构化机器源**,而非只在 Reference-level 正文里写一张人读表。这样将来 orchestrator/harness 能据 `tasks[].files` 做运行期 owner 检查(越权写非自己 `files` → 拒),无需重新解析散文。
+> **`tasks[].files` must remain a structured, machine-readable source in frontmatter**, rather than existing only as a human-readable table in the Reference-level explanation body. This allows a future orchestrator/harness to perform runtime ownership checks based on `tasks[].files` (unauthorized writes to files outside its own `files` → reject), without reparsing prose.
 
-这也反推一条 RFC 写作准则(同步进 skill 的 quality bar):**凡是想写进正文「调用方请务必……」的软约定,先问能不能改成 frontmatter 字段 / `spec validate` 规则让它根本无法违反**——`files` 互斥已是同组 error,即此准则的现存实例。
+This also implies an RFC writing rule (to be incorporated into the skill’s quality bar): **Whenever you want to put a soft convention such as “callers must…” into the body, first ask whether it can become a frontmatter field / `spec validate` rule that makes violation impossible**—overlapping `files` within a group already produces an error, which is an existing example of this rule.
 
-## 数据模型改动(`openagents/spec/`)
+## Data Model Changes (`openagents/spec/`)
 
 1. **`model.py`**
-   - `Group`(或新增 `GroupProse`)新增 9 个组级 prose 字段:`summary / motivation / guide_level / reference_level / drawbacks / rationale_alternatives / prior_art / unresolved_questions / future_possibilities`。
-   - `Task` **删除**重 prose 字段(`motivation / design / interface / tradeoffs / tests / references / open_questions`),保留结构化字段 + 新增/保留两个一行短字段 `scope / acceptance`(进 frontmatter)。
-   - 正文解析 `_parse_body`:从「按 `## T<n>` 切 Task」改为「按 `## <rust 段名>` 切 9 个组级段」;`_render_body` 对称渲染 9 段。
-   - `_TASK_FM_ORDER` 增加 `scope / acceptance`。
+   - Add nine group-level prose fields to `Group` (or a new `GroupProse`): `summary / motivation / guide_level / reference_level / drawbacks / rationale_alternatives / prior_art / unresolved_questions / future_possibilities`.
+   - **Remove** the long-form prose fields from `Task` (`motivation / design / interface / tradeoffs / tests / references / open_questions`), retaining structured fields + adding/retaining two short, single-line fields, `scope / acceptance` (in frontmatter).
+   - Change body parsing in `_parse_body` from “split Tasks by `## T<n>`” to “split the nine group-level sections by `## <rust section name>`”; `_render_body` renders the nine sections symmetrically.
+   - Add `scope / acceptance` to `_TASK_FM_ORDER`.
 2. **`schema.py` / `validate.py`**
-   - 质量门槛(quality bar)新增校验:① 9 段中**必填段**(Summary / Motivation / Reference-level / Rationale and alternatives)非空;② Motivation/正文**不得出现「见 Spec-NNNN」式承载必要信息的裸引用**(可提编号作线索,但用 lint 规则提示自包含——以告警或 error 形式,见 Open questions);③ `tasks[]` 每行有 `files`(互斥)+ `acceptance`。
-3. **`render.py`**(OVERVIEW.md):组卡片改为展示组级 Summary 段 + Task 分解表(而非旧的逐 Task prose)。
-4. **`cli.py`**:`spec new` 生成含 9 段空模板的组文件;`spec add-task` 仍往 `tasks[]` 加行(prose 不再挂 Task)。
-5. **`graph.py`**:不受影响(吃 import 图 + docstring),仅确认 ARCHITECTURE 渲染不引用已删字段。
+   - Add quality-bar validation: ① The **required sections** among the nine (Summary / Motivation / Reference-level / Rationale and alternatives) must be nonempty; ② Motivation/the body **must not contain bare references such as “see Spec-NNNN” that carry necessary information** (numbers may be mentioned as pointers, but lint rules should prompt self-containment—as warnings or errors; see Open questions); ③ Every row in `tasks[]` must have `files` (mutually exclusive) + `acceptance`.
+3. **`render.py`** (OVERVIEW.md): Change group cards to display the group-level Summary section + Task breakdown table (instead of the former per-Task prose).
+4. **`cli.py`**: `spec new` generates a group file containing an empty nine-section template; `spec add-task` still adds rows to `tasks[]` (prose is no longer attached to Tasks).
+5. **`graph.py`**: Unaffected (consumes the import graph + docstrings); only confirm that ARCHITECTURE rendering does not reference deleted fields.
 
-## 改动面清单(一个 PR 全塞)
+## Scope of Changes (All in One PR)
 
-- `openagents/spec/`:model / schema / validate / render / cli(+ 对应单测 TDD)。
-- `.claude/skills/spec-driven-development/`:SKILL.md Phase 2 改为「先写 9 段 RFC 总览 → 再用 add-task 补 DAG 行」;quality bar 写入「单 spec 自包含、禁止跨 spec 承载必要信息」;references/ 更新字段表。
-- `docs/specs/README.md`:对齐 rust RFCs README 风格(何时需要 spec / 流程 / 模板指引 / 生命周期 status)。
-- `openagents/orchestrator.py`:`_DRAFT_RFC_TASK` / `_REFINE_RFC_TASK` prompt 改为「按 RFC 9 段写,DAG 进 Reference-level」。
-- **22 个存量 spec**:全部重写成新形态——补 9 段总览,把跨 spec 引用里「理解本 spec 必需」的内容就地复述;首当其冲 0023 / 0012 及含「见 Spec-00XX 决策」的。
-- **89 处 `# Spec-NNNN/T*` 代码注释**:祖父化保留(spec 号仍有效,`/T*` 后缀作为历史线索不强制清理;新代码用 `# Spec-NNNN`)。
+- `openagents/spec/`: model / schema / validate / render / cli (+ corresponding unit tests using TDD).
+- `.claude/skills/spec-driven-development/`: Change Phase 2 in SKILL.md to “first write the nine-section RFC overview → then use add-task to add DAG rows”; add “individual specs must be self-contained; cross-spec references must not carry necessary information” to the quality bar; update field tables in references/.
+- `docs/specs/README.md`: Align with the rust RFCs README style (when a spec is needed / process / template guidance / lifecycle status).
+- `openagents/orchestrator.py`: Change the `_DRAFT_RFC_TASK` / `_REFINE_RFC_TASK` prompts to “write the nine RFC sections, with the DAG in Reference-level explanation.”
+- **22 existing specs**: Rewrite all of them into the new format—add the nine-section overview and restate in place any content in cross-spec references that is “necessary to understand this spec”; prioritize 0023 / 0012 and those containing “see Spec-00XX Decision.”
+- **89 `# Spec-NNNN/T*` code comments**: Grandfather them in (spec numbers remain valid; `/T*` suffixes serve as historical pointers and do not require cleanup; new code uses `# Spec-NNNN`).
 
-## 取舍与备选(Rationale and alternatives)
+## Tradeoffs and Alternatives (Rationale and alternatives)
 
-- **备选 A:单 freeform `overview` 字段**(不强制 9 段)。更省,但不满足「严格按 rust 模板」,也难形成稳定可校验的质量门槛。**否决**:用户明确要严格按 rust。
-- **备选 B:去掉 Task,纯设计文档**(rust 式设计/实现彻底分离)。会废掉理念 6 的组内文件分配并行,blast radius 更大。**否决**:用户澄清 DAG 可与 RFC 共存,收进设计节即可。
-- **采用:RFC 9 段为主体 + frontmatter 保留 `tasks[]` DAG**。机器可读性(graph/validate)与人可读性(9 段自包含)兼得。
+- **Alternative A: A single freeform `overview` field** (without requiring nine sections). Less work, but it does not meet the requirement to “strictly follow the rust template,” and makes it difficult to establish a stable, verifiable quality bar. **Rejected**: The user explicitly requires strict adherence to rust.
+- **Alternative B: Remove Tasks and use a pure design document** (complete separation of design/implementation, as in rust). This would eliminate the within-group parallelism through file allocation in principle 6 and have a larger blast radius. **Rejected**: The user clarified that a DAG can coexist with an RFC; it simply needs to be incorporated into the design section.
+- **Chosen: Nine RFC sections as the main body + retain the `tasks[]` DAG in frontmatter**. This provides both machine readability (graph/validate) and human readability (nine self-contained sections).
 
-## 边界(不做什么)
+## Boundaries (What Is Out of Scope)
 
-- 不引入 rust 的 FCP / sub-team / rfcbot 评审流程(YAGNI;OpenAgents 用 PR + reviewer 闸已覆盖)。
-- 不强制清洗 89 处历史 `/T*` 注释(祖父化)。
-- 不改 orchestrator/vigil 的闸门逻辑,只改派活 prompt 文案。
-- ARCHITECTURE.md / graph 机制不变。
-- **不实现 issue #71 的运行期 owner 强制**(lease/CAS/capability);本 PR 只保证 `tasks[].files` 仍是机器可解析的结构化源,为 #71 留好接口。
+- Do not introduce rust’s FCP / sub-team / rfcbot review process (YAGNI; OpenAgents already covers this with PRs + the reviewer gate).
+- Do not require cleanup of the 89 historical `/T*` comments (grandfathered in).
+- Do not change orchestrator/vigil gate logic; only change the task-assignment prompt wording.
+- ARCHITECTURE.md / graph mechanisms remain unchanged.
+- **Do not implement the runtime ownership enforcement in issue #71** (lease/CAS/capability); this PR only ensures that `tasks[].files` remains a machine-parseable structured source, preserving an interface for #71.
 
 ## Unresolved questions
 
-- 「禁止跨 spec 裸引用」用 **error(CI 拦)** 还是 **warning(提示)**?(已定:先 **warning**——避免一上来卡住存量回填;待全绿后可升 error。)
-- `tasks[]` 的 `acceptance` 是否仍要求每行都有?(已定:**必填**,保持可验证。)
+- Should “no bare cross-spec references” produce an **error (blocked by CI)** or a **warning (advisory)**? (Decided: Start with **warning**—to avoid immediately blocking backfilling existing specs; it can be raised to an error once everything is green.)
+- Should `acceptance` still be required for every row in `tasks[]`? (Decided: **Required**, to preserve verifiability.)
 
 ## Future possibilities
 
-- **运行期所有权强制([issue #71](https://github.com/Curry09/OpenAgents/issues/71))**:把 Reference-level 的 `files` 分配从设计期声明推进到运行期——共享状态单一 writer + 版本化快照读 + capability 声明,越权写在编排层被拒。本设计保留 `tasks[].files` 结构化源即为此铺路。
+- **Runtime ownership enforcement ([issue #71](https://github.com/Curry09/OpenAgents/issues/71))**: Move Reference-level `files` assignments from design-time declarations to runtime enforcement—a single writer for shared state + versioned snapshot reads + capability declarations, with unauthorized writes rejected at the orchestration layer. This design retains `tasks[].files` as a structured source to pave the way for this.
 
-## 参考(已逐字查看,理念 7)
+## References (reviewed word for word, Principle 7)
 
-- rust RFC 模板:`rust-lang/rfcs` `0000-template.md`(9 段及其指引文字)。
-- rust RFC 流程/生命周期:`rust-lang/rfcs` `README.md`(When you need to follow this process / What the process is / The RFC life-cycle)。
+- Rust RFC template: `rust-lang/rfcs` `0000-template.md` (9 sections and their guidance text).
+- Rust RFC process/lifecycle: `rust-lang/rfcs` `README.md` (When you need to follow this process / What the process is / The RFC life-cycle).

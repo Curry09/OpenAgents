@@ -131,5 +131,5 @@ def test_acceptance_head_mismatch_prevents_merge():
     adapter.accept = wrong_head
     result = run_batch(issues=_issues(1), adapter=adapter)
     assert result.nodes[1].status == "FAILED"
-    assert "当前 HEAD" in result.nodes[1].reason
+    assert "current Developer HEAD" in result.nodes[1].reason
     assert ("merge", 1) not in adapter.events

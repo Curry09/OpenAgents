@@ -28,24 +28,26 @@ def validate_manifest(
     if verdict != "PASS":
         return
     if not evidence:
-        raise EvidenceError("PASS 缺少 evidence manifest")
+        raise EvidenceError("PASS missing evidence")
     required = {"case_id", "kind", "observed", "expected", "path"}
     for item in evidence:
         if not isinstance(item, dict) or not required.issubset(item):
-            raise EvidenceError("evidence item 缺少 case_id/kind/observed/expected/path")
+            raise EvidenceError("case_id/kind/observed/expected/path missing item")
         if not all(isinstance(item[field], str) and item[field].strip() for field in required):
             raise EvidenceError(
-                "evidence item 的 case_id/kind/observed/expected/path 必须是非空字符串"
+                "case_id/kind/observed/expected/path for evidence item must be a non-empty string"
             )
         passed = item.get("passed")
         if passed is not None and not isinstance(passed, bool):
-            raise EvidenceError(f"case {item['case_id']} 的 passed 必须是布尔值")
+            raise EvidenceError(
+                f"case {item['case_id']} , and then the pased must be a boolean value"
+            )
         if passed is False:
-            raise EvidenceError(f"case {item['case_id']} 明确标记为未通过")
+            raise EvidenceError(f"case {item['case_id']} Mark explicitly as not passed")
     if require_behavior and not any(item.get("kind") == "behavior" for item in evidence):
-        raise EvidenceError("行为变化不能仅由 static/grep 证据放行")
+        raise EvidenceError("Behavioural change cannot be allowed by static/grep evidence alone")
     if required_source is not None and not any(
         item.get("kind") == "behavior" and item.get("source") == required_source
         for item in evidence
     ):
-        raise EvidenceError(f"PASS 缺少 source={required_source} 的实际行为证据")
+        raise EvidenceError(f"PASS Missing source={required_source} Evidence of actual behaviour")

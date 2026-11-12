@@ -1,4 +1,4 @@
-"""RFC-0001 T1: AgentBackend 协议与 AgentResult 的契约测试。"""
+"""RFC-0001 T1: AgentBackend protocol with AgentResult contract test."""
 
 import pytest
 
@@ -6,10 +6,10 @@ from openagents.backends.base import AgentBackend, AgentResult, TokenUsage
 
 
 def test_agent_result_holds_changed_and_summary():
-    result = AgentResult(changed=True, summary="改了 foo.py")
+    result = AgentResult(changed=True, summary="Changed foo.py")
     assert result.changed is True
-    assert result.summary == "改了 foo.py"
-    assert result.protocol_output == "改了 foo.py"
+    assert result.summary == "Changed foo.py"
+    assert result.protocol_output == "Changed foo.py"
     assert result.usage is None
 
 
@@ -39,7 +39,7 @@ def test_agent_result_is_frozen():
         result.changed = True  # type: ignore[misc]
     except Exception:
         return
-    raise AssertionError("AgentResult 应为不可变（frozen）")
+    raise AssertionError("AgentResult should read non-change")
 
 
 def test_conforming_object_is_instance_of_backend():

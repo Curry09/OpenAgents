@@ -1,12 +1,12 @@
 ---
 number: "0073"
-title: openagents 桌面 app：并行看板 + 大窗流式 + tab 待看导航
+title: "openagents desktop app: parallel board + large streaming view + Tab navigation for items awaiting review"
 issue: 170
 slug: desktop-app
-summary: Electron 桌面前端呈现 vigil --parallel N 的并行成果:N 个小窗看板(成果/状态)、点击进大窗看实时流式 agent 会话、Tab 按优先级跳到下一个待看窗;只读呈现,后端加 per-subject 流分流 + 本地 daemon 接口两样加法
+summary: "An Electron desktop frontend presents the parallel results of vigil --parallel N: N small board panes (results/status); click to open a large view showing the live streaming agent session; Tab jumps to the next pane awaiting review in priority order. Read-only presentation, with two backend additions: per-subject stream routing + a local daemon interface"
 tasks:
   - id: T1
-    title: 后端：agent 输出按 subject 分流(stream tee)
+    title: "Backend: route agent output by subject (stream tee)"
     status: done
     priority: P1
     tags: []
@@ -18,10 +18,10 @@ tasks:
       - openagents/backends/claude_code.py
       - openagents/recipes/vigil.py
       - tests/test_streams.py
-    scope: 新增 streams.py:thread-local subject sink 注册表 + per-subject 定长 ring buffer;claude_code 的 print 换成 streams.emit(照旧打 stdout + 追加当前线程绑定 subject 的 buffer);vigil worker 认领 subject 进 _reconcile 前 bind、收工/异常 unbind
-    acceptance: 单测:两线程各 bind 一个 subject 并发 emit,各自 ring buffer 只含自己的行不串扰;claude_code emit 落当前线程 sink;未绑定线程 emit 仅打 stdout 行为不变;既有 claude_code/vigil 测试替身更新且全绿
+    scope: "Add streams.py: a thread-local subject sink registry + a fixed-length ring buffer per subject; replace print in claude_code with streams.emit (continue writing to stdout as before + append to the buffer for the subject bound to the current thread); after a vigil worker claims a subject, bind before entering _reconcile, and unbind on completion/exception"
+    acceptance: "Unit tests: two threads each bind a subject and emit concurrently; each ring buffer contains only its own lines, with no cross-contamination; claude_code emit writes to the current thread's sink; emit from an unbound thread only writes to stdout, preserving existing behavior; update existing claude_code/vigil test doubles and ensure all tests pass"
   - id: T2
-    title: 后端：本地 daemon 接口(HTTP+SSE)
+    title: "Backend: local daemon interface (HTTP+SSE)"
     status: done
     priority: P1
     tags: []
@@ -34,10 +34,10 @@ tasks:
       - openagents/desktop/daemon.py
       - openagents/cli.py
       - tests/test_desktop_daemon.py
-    scope: 新增 desktop/daemon.py:只听 127.0.0.1 的 stdlib http.server;GET /board 读 work_queue+GitHub 快照+每 subject 待看类别返 JSON;GET /stream/<subject> SSE 先补发再持续推 T1 ring buffer;cli 加 desktop 子命令启动 daemon(可 --port/--open)
-    acceptance: 起服务 GET /board 返回 subjects/status/pr/待看类别 JSON;GET /stream/<subject> 以 SSE 逐条推该 subject ring buffer 行;端口占用/subject 不存在返明确错误 JSON;test_desktop_daemon 覆盖两端点 + 错误路径
+    scope: "Add desktop/daemon.py: stdlib http.server listening only on 127.0.0.1; GET /board reads work_queue + a GitHub snapshot + each subject's category of items awaiting review and returns JSON; GET /stream/<subject> uses SSE to replay buffered output first, then continuously push the T1 ring buffer; add a desktop subcommand to cli to start the daemon (with optional --port/--open)"
+    acceptance: "With the service running, GET /board returns JSON containing subjects/status/pr/categories of items awaiting review; GET /stream/<subject> pushes that subject's ring buffer lines one by one via SSE; return explicit error JSON if the port is occupied or the subject does not exist; test_desktop_daemon covers both endpoints + error paths"
   - id: T3
-    title: 前端：Electron 外壳 + client + App 基座
+    title: "Frontend: Electron shell + client + App foundation"
     status: done
     priority: P1
     tags: []
@@ -56,10 +56,10 @@ tasks:
       - apps/desktop/src/renderer/src/App.tsx
       - apps/desktop/src/renderer/src/daemon-client.ts
       - apps/desktop/src/renderer/src/types.ts
-    scope: Electron 主进程/preload/渲染入口;daemon 的 HTTP+SSE client;镜像 daemon JSON 的共享 TS 类型;App 持有 /board 轮询数据+选中 subject+待看列表经 context 下发,用 React.lazy 动态挂载 Board/Detail/Nav 三扩展点(不静态依赖 feature,避免循环)
-    acceptance: electron-vite dev 起窗口;client 能拉 /board 与订 /stream/<subject>;App 渲染出 Board 空态占位;lazy slot 与 feature task 无静态循环依赖;tsc 通过
+    scope: "Electron main process/preload/renderer entry point; HTTP+SSE client for the daemon; shared TS types mirroring the daemon JSON; App holds /board polling data + the selected subject + the list of items awaiting review and distributes them through context, using React.lazy to dynamically mount the three extension points Board/Detail/Nav (no static dependencies on features, to avoid cycles)"
+    acceptance: "electron-vite dev opens a window; the client can fetch /board and subscribe to /stream/<subject>; App renders the Board empty-state placeholder; no static circular dependencies between lazy slots and feature tasks; tsc passes"
   - id: T4
-    title: 前端：看板小窗(board)
+    title: "Frontend: small board panes (board)"
     status: done
     priority: P2
     tags: []
@@ -72,10 +72,10 @@ tasks:
       - apps/desktop/src/renderer/src/board/Card.tsx
       - apps/desktop/src/renderer/src/board/useBoard.ts
       - apps/desktop/src/renderer/src/board/Board.test.tsx
-    scope: N 小窗网格 + 成果卡(阶段/PR/证据戳/评论数/needs-human 徽标),消费 context 的 board 数据;卡片点击发 onOpen(subject) 事件;字段/配色以 board.html 为起点
-    acceptance: vitest:给定 mock board 数据渲染 N 张卡,状态/徽标/PR 链接正确;点击卡片触发 onOpen(subject);空态渲染不报错
+    scope: "A grid of N small panes + result cards (phase/PR/evidence timestamp/comment count/needs-human badge), consuming board data from context; clicking a card emits an onOpen(subject) event; use board.html as the starting point for fields/colors"
+    acceptance: "vitest: given mock board data, render N cards with correct statuses/badges/PR links; clicking a card triggers onOpen(subject); rendering the empty state produces no errors"
   - id: T5
-    title: 前端：大窗流式 + 快切
+    title: "Frontend: large streaming view + quick switching"
     status: done
     priority: P2
     tags: []
@@ -88,10 +88,10 @@ tasks:
       - apps/desktop/src/renderer/src/detail/StreamView.tsx
       - apps/desktop/src/renderer/src/detail/useStream.ts
       - apps/desktop/src/renderer/src/detail/DetailOverlay.test.tsx
-    scope: 全屏大窗:上半 SSE 订 /stream/<subject> 实时渲染 agent 会话流,下半成果锚点(PR/diff 链接/阶段时间线);'下一个 ▶'按钮切下一 subject 重订流;Esc/关闭回看板
-    acceptance: vitest:mock SSE 事件逐条渲染进 StreamView;'下一个'按钮切换 subject 并重订流;关闭触发 onClose;订阅在切换/卸载时正确清理
+    scope: "Fullscreen large view: the upper half subscribes to /stream/<subject> via SSE and renders the agent session stream in real time; the lower half contains result anchors (PR/diff links/phase timeline); the 'Next ▶' button switches to the next subject and resubscribes to the stream; Esc/close returns to the board"
+    acceptance: "vitest: mock SSE events render one by one in StreamView; the 'Next' button switches subjects and resubscribes to the stream; closing triggers onClose; subscriptions are properly cleaned up on switching/unmounting"
   - id: T6
-    title: 前端：Tab 待看导航 + 优先级
+    title: "Frontend: Tab navigation for items awaiting review + priorities"
     status: done
     priority: P2
     tags: []
@@ -103,184 +103,187 @@ tasks:
       - apps/desktop/src/renderer/src/nav/useTabNav.ts
       - apps/desktop/src/renderer/src/nav/pending.ts
       - apps/desktop/src/renderer/src/nav/pending.test.ts
-    scope: 纯函数 pending.ts:从 subject 状态推待看类别与序(①needs-human>②PR等合并>③新评论待回>④刚变状态,同级按 enqueued_at);useTabNav 装 Tab 键 handler,把焦点/大窗跳到下一个待看 subject,循环到底回头,无待看则无操作
-    acceptance: vitest:混合状态列表经 pending 排序符合四级优先级+同级 enqueued 序;Tab 从当前跳下一个待看并循环;无待看时 Tab 无操作
+    scope: "Pure function pending.ts: derive categories of items awaiting review and their order from subject statuses (①needs-human>②PR awaiting merge>③new comments awaiting replies>④recently changed status, ordered by enqueued_at within the same priority); useTabNav installs a Tab key handler to move focus/the large view to the next subject awaiting review, wrapping back to the beginning at the end and doing nothing when no subjects await review"
+    acceptance: "vitest: pending sorts a mixed-status list according to the four priority levels + enqueued order within the same priority; Tab moves from the current subject to the next subject awaiting review and wraps around; Tab does nothing when no subjects await review"
 ---
 
-# 0073 · openagents 桌面 app：并行看板 + 大窗流式 + tab 待看导航
+# 0073 · openagents desktop app: parallel board + streaming detail view + Tab navigation for items awaiting attention
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG); the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给 OpenAgents 造一个 **Electron 桌面 app**（独立 `apps/desktop`），把 `vigil --parallel N` 的并行成果
-可视化：`N` 个正在被处理的 subject 呈现为 **N 个小窗看板**（小窗=成果/状态：阶段、PR、证据戳、评论数、
-`needs-human` 徽标，轮询 `work_queue` + GitHub）；**点击小窗进大窗**，大窗以 **SSE 实时流**呈现该 worker 的
-coding-agent 会话，一个按钮**快切下一个**；**Tab 键**把焦点跳到**下一个「待看」小窗**，四类待看按优先级循环
-（① `needs-human` 挂起 > ② PR 等你合并 > ③ 人类新评论待回 > ④ 刚完成/刚变状态）。前端**只读呈现**（审批/
-合并/回评论仍回 GitHub 或 CLI）。后端只做**两样纯加法**：① 把每个 worker 的 agent 输出**按 subject 分流**
-（tee 到 per-subject ring buffer）喂大窗流式；② 一个**本地 daemon 接口**（localhost HTTP + SSE）供 Electron
-主进程读 `work_queue`/GitHub/流。
+Build an **Electron desktop app** for OpenAgents (a standalone `apps/desktop`) to visualize the parallel results of
+`vigil --parallel N`: the `N` subjects being processed appear as **N small board windows** (small window = results/status: stage, PR, evidence stamps, comment count,
+`needs-human` badge, polling `work_queue` + GitHub); **click a small window to enter a detail view**, which presents that worker's
+coding-agent session as a **live SSE stream**, with a button to **quickly switch to the next one**; the **Tab key** moves focus to
+the **next small window awaiting attention**, cycling through four categories in priority order
+(① suspended with `needs-human` > ② PR waiting for you to merge > ③ new human comments awaiting a reply > ④ just completed/just changed state). The frontend
+**displays information read-only** (approvals/merges/comment replies still happen on GitHub or through the CLI). The backend makes
+**only two additive changes**: ① **route each worker's agent output by subject**
+(tee into a per-subject ring buffer) to feed the streaming detail view; ② provide a **local daemon interface** (localhost HTTP + SSE) for the Electron
+main process to read `work_queue`/GitHub/streams.
 
 ## Motivation
 
-**现状。** `openagents vigil --parallel 3` 会起一个生产者 + K 个 worker，并行推进多个 subject（`issue:N` /
-`pr:N`）到卡住为止。但人类当前唯一的观测面是**一条 stderr 文本流**：所有 worker 的进度、所有 agent 的实时
-输出，全都**交织**在同一条终端流里（`recipes/vigil.py` 的 `_log` 打到 stderr；`backends/claude_code.py` 的
-stream-json 事件也 `print` 到同一 stdout）。并行度一上去，「谁在干什么、哪个卡了、哪个等我」就**糊成一段**，
-无法宏观把控。唯一的结构化成果视图是 `openagents/utils/templates/board.html`（RFC-0001 决策 9 的静态表：
-issue→状态→PR→摘要），既非实时、也不能进单个 agent 的会话看它在改什么。
+**Current state.** `openagents vigil --parallel 3` starts one producer + K workers, advancing multiple subjects (`issue:N` /
+`pr:N`) in parallel until they get stuck. But the only observation surface currently available to humans is **a single stderr text stream**: all workers' progress and all agents' live
+output are **interleaved** in the same terminal stream (`_log` in `recipes/vigil.py` writes to stderr; stream-json events in
+`backends/claude_code.py` also `print` to the same stdout). As parallelism increases, “who is doing what, which one is stuck, which one is waiting for me” all
+**blur together**, making high-level oversight impossible. The only structured results view is `openagents/utils/templates/board.html`
+(the static table from RFC-0001 decision 9: issue→status→PR→summary), which is neither live nor able to open an individual agent's session to see what it is changing.
 
-**为什么现在要做。** CLAUDE.md 理念 8「以成果为中心，人不再做代码层面的测试，而是面向成果测试」+ 目标 2
-「改变人类负责的部分（不再是细节，而是宏观把控）」——这正需要一个**成果呈现面**：让人一眼看到 N 路并行各自
-的产出，Tab 一下就跳到下一个需要他拍板的地方。商业上对标 cursor/windsurf 的交互式 agent 场景（CLAUDE.md
-「总体原则」），一个看得见成果的前端是必需品。
+**Why do this now.** CLAUDE.md principle 8, “Focus on results: humans no longer test at the code level, but test results,” + goal 2,
+“Change what humans are responsible for (from details to high-level oversight)”—these call for a **results presentation surface**:
+let a person see the outputs of N parallel tracks at a glance and press Tab once to jump to the next place that needs their decision. Commercially, the benchmark is the interactive agent experience of cursor/windsurf (CLAUDE.md
+“General Principles”); a frontend that makes results visible is essential.
 
-**它解决的具体痛点。**
-- 并行进度不可分辨 → N 小窗看板，一窗一 subject。
-- 看不到某路 agent 正在改什么 → 大窗 SSE 流式会话。
-- 不知道该先看谁 → Tab 按「待看」优先级导航，把「宏观把控」落成一个键。
+**The specific pain points it addresses.**
+- Parallel progress is indistinguishable → a board of N small windows, one subject per window.
+- No way to see what a particular agent is changing → a detail view with an SSE session stream.
+- No way to know which one to inspect first → Tab navigation ordered by priority for items awaiting attention, turning “high-level oversight” into a single key.
 
 ## Guide-level explanation
 
-一次典型使用（人类视角）：
+A typical usage flow (from the human's perspective):
 
-1. 后台已在跑 `openagents vigil --parallel 3`。人类另起一条 `openagents desktop`（本 spec 新增命令，启动
-   本地 daemon 并拉起 Electron 窗口）。
-2. **看板**：窗口里出现 3 个小窗，每个小窗是一个 subject 的**成果卡**——标题（`issue:163`）、当前阶段
-   （`↻ 推进 3/8` / `⏸ needs-human` / `✅ PR#170 等合并`）、PR 链接、证据戳、评论数、`needs-human` 徽标。
-   小窗每 ~2s 轮询刷新（数据来自 daemon 的 `/board`）。
-3. **进大窗**：点任意小窗 → 全屏大窗。大窗上半是该 worker 的**实时 agent 会话流**（SSE 逐条推 coding-agent
-   的文本与工具动作，像看它敲键盘），下半是该 subject 的成果锚点（PR、diff 链接、阶段时间线）。
-4. **快切**：大窗右上角一个「下一个 ▶」按钮，一键切到下一个 subject 的大窗（重订它的流），不必退回看板。
-5. **Tab 待看导航**：任意位置按 **Tab**，焦点/大窗跳到**下一个「待看」窗**。「待看」按四级优先级排序：先
-   `needs-human`（机器投降、等你），再 PR-等合并（一键出成果），再有人类新评论待回，最后刚完成/刚变状态
-   （瞥一眼）。同级按入队顺序。循环到底回头；没有待看则 Tab 无动作。
-6. 人类**只读**地看完，去 GitHub 点合并 / 回评论 / 摘 `needs-human` label——前端不写 GitHub。
+1. `openagents vigil --parallel 3` is already running in the background. The human separately runs `openagents desktop` (a command added
+   by this spec, which starts the local daemon and opens the Electron window).
+2. **Board**: the window displays 3 small windows, each a **results card** for one subject—title (`issue:163`), current stage
+   (`↻ Advancing 3/8` / `⏸ needs-human` / `✅ PR#170 awaiting merge`), PR link, evidence stamps, comment count, and `needs-human` badge.
+   The small windows refresh by polling every ~2s (data comes from the daemon's `/board`).
+3. **Open the detail view**: click any small window → a full-screen detail view. Its upper half shows that worker's **live agent session stream**
+   (SSE pushes the coding-agent's text and tool actions event by event, like watching it type); its lower half shows the subject's result anchors (PR, diff link, stage timeline).
+4. **Quick switch**: a “Next ▶” button in the upper-right corner of the detail view switches to the next subject's detail view with one click
+   (resubscribing to its stream), without returning to the board.
+5. **Tab navigation for items awaiting attention**: press **Tab** anywhere, and focus/the detail view jumps to the **next window awaiting attention**.
+   Items awaiting attention are sorted into four priority levels: first `needs-human` (the machine has given up and is waiting for you), then PRs awaiting merge
+   (one click delivers the result), then new human comments awaiting a reply, and finally just completed/just changed state
+   (take a glance). Within each level, use enqueue order. Wrap around at the end; if nothing is awaiting attention, Tab does nothing.
+6. After viewing the information **read-only**, the human goes to GitHub to merge / reply to comments / remove the `needs-human` label—the frontend does not write to GitHub.
 
 ## Reference-level explanation
 
-### 后端加法一：agent 输出按 subject 分流（T1）
+### Backend addition one: route agent output by subject (T1)
 
-**埋点。** `backends/claude_code.py` 的 `_run_claude_streaming` 里 `for raw in proc.stdout:`（现约 184 行）
-逐行读 stream-json 事件并 `print(human)`。这是唯一把「这一路 agent 说了什么」变成文本的地方。改法：新增
-`openagents/utils/streams.py`，提供一个 **thread-local 的 subject sink 注册表** + **per-subject ring buffer**
-（定长环，防长会话吃爆内存）。`claude_code.py` 把 `print(...)` 换成 `streams.emit(line=...)`：既照旧打
-stdout（行为不变），又把行追加进**当前线程绑定的 subject** 的 ring buffer。`recipes/vigil.py` 的 worker 在
-认领某 subject、进入 `_reconcile` 前 `streams.bind(subject=...)`，收工/异常时 `streams.unbind()`。
+**Instrumentation.** In `_run_claude_streaming` in `backends/claude_code.py`, `for raw in proc.stdout:` (currently around line 184)
+reads stream-json events line by line and calls `print(human)`. This is the only place where “what this agent said” becomes text. The change: add
+`openagents/utils/streams.py`, providing a **thread-local subject sink registry** + **per-subject ring buffers**
+(fixed-length rings to prevent long sessions from exhausting memory). In `claude_code.py`, replace `print(...)` with `streams.emit(line=...)`: it both writes to
+stdout as before (unchanged behavior) and appends the line to the ring buffer for **the subject bound to the current thread**. A worker in `recipes/vigil.py`
+calls `streams.bind(subject=...)` after claiming a subject and before entering `_reconcile`, then calls `streams.unbind()` on completion or exception.
 
-**为什么 thread-local 键得住。** 领取时的 `subject UNIQUE` 已保证一个 worker 线程**同一时刻只处理一个
-subject**（见 `vigil.py` `_worker_loop` 注释），故「当前线程 → 当前 subject」是一一映射，无需把 subject
-参数一路透传穿过 `engine.run_agent`→`backend.run`（那会污染 `AgentBackend` 协议）。未绑定的线程（非 vigil
-调用方，如 `oa solve` 单跑）`emit` 只打 stdout、不进任何 buffer——行为完全不变。
+**Why thread-local binding works.** The `subject UNIQUE` constraint at claim time already guarantees that a worker thread **processes only one
+subject at a time** (see the `_worker_loop` comment in `vigil.py`), so “current thread → current subject” is a one-to-one mapping. There is no need to
+pass a subject parameter all the way through `engine.run_agent`→`backend.run` (which would pollute the `AgentBackend` protocol). For unbound threads
+(non-Vigil callers, such as a standalone `oa solve` run), `emit` only writes to stdout and does not enter any buffer—behavior remains entirely unchanged.
 
-### 后端加法二：本地 daemon 接口（T2）
+### Backend addition two: local daemon interface (T2)
 
-新增 `openagents/desktop/daemon.py`：一个只听 `127.0.0.1` 的轻量 HTTP 服务（stdlib `http.server`，理念 1
-不引重依赖），两个端点：
-- `GET /board` → 读 `work_queue`（subject/status/worker/attempts）+ GitHub 快照（PR/label/评论数）+ 每个
-  subject 的**待看类别**（见下），返回 JSON 数组。前端轮询它渲染小窗。
-- `GET /stream/<subject>` → **SSE**（`text/event-stream`），把 T1 那个 subject 的 ring buffer 已有内容
-  先补发、再持续推新行。大窗订它。
+Add `openagents/desktop/daemon.py`: a lightweight HTTP service listening only on `127.0.0.1` (stdlib `http.server`; principle 1:
+do not introduce heavy dependencies), with two endpoints:
+- `GET /board` → reads `work_queue` (subject/status/worker/attempts) + GitHub snapshots (PR/label/comment count) + each
+  subject's **category of attention needed** (see below), returning a JSON array. The frontend polls it to render the small windows.
+- `GET /stream/<subject>` → **SSE** (`text/event-stream`), first replaying the existing contents of that subject's ring buffer from T1,
+  then continuously pushing new lines. The detail view subscribes to it.
 
-`openagents/cli.py` 新增 `desktop` 子命令：启动 daemon（默认端口，可 `--port`），可选 `--open` 拉起 Electron。
-端口占用 / subject 不存在 → 明确错误 JSON，不静默。
+Add a `desktop` subcommand in `openagents/cli.py`: start the daemon (default port, configurable with `--port`), optionally launch Electron with `--open`.
+Port in use / subject does not exist → explicit error JSON, never silent failure.
 
-### 前端：Electron 桌面（T3 基座 / T4 看板 / T5 大窗 / T6 导航）
+### Frontend: Electron desktop (T3 foundation / T4 board / T5 detail view / T6 navigation)
 
-对标 multica `apps/desktop` 结构（见 Prior art）：Electron 主进程 + preload + React 渲染层。**基座（T3）**
-含主进程/preload/渲染入口、daemon 的 HTTP+SSE client、镜像 daemon JSON 的共享 TS 类型、以及 `App` —— `App`
-持有 `/board` 轮询数据 + 选中 subject + 待看列表，经 React context 下发，并用 `React.lazy` **动态挂载**
-Board/Detail/Nav 三个扩展点（动态 import，故 T3 不静态依赖 feature task，避免循环依赖）。**看板（T4）**、
-**大窗（T5）**、**导航（T6）** 都是 context 的纯消费者，互不 import，可并行开发。
+Use multica's `apps/desktop` structure as a reference (see Prior art): Electron main process + preload + React renderer. The **foundation (T3)**
+includes the main process/preload/renderer entry points, an HTTP+SSE client for the daemon, shared TS types mirroring the daemon JSON, and `App`—`App`
+holds the `/board` polling data + selected subject + list of items awaiting attention, distributes them through React context, and uses `React.lazy` to **dynamically mount**
+the Board/Detail/Nav extension points (dynamic imports, so T3 has no static dependencies on feature tasks, avoiding circular dependencies). The **board (T4)**,
+**detail view (T5)**, and **navigation (T6)** are all pure consumers of context, do not import one another, and can be developed in parallel.
 
-**待看优先级（T6，纯函数 `nav/pending.ts`）。** 对每个 subject 从其状态推出类别与序：
+**Priority for items awaiting attention (T6, pure function `nav/pending.ts`).** Derive each subject's category and ordering from its state:
 ```
-① needs-human 挂起      (最高：机器投降、不动你活儿就停)
-② PR CI/e2e/review 全绿、等人合并
-③ issue/PR 有人类新评论、agent 尚未回应
-④ 本轮刚发生状态跃迁（新开 PR / 刚合并 / 刚推进）   (最低：仅 FYI)
-无类别 → 不在待看集
+① Suspended with needs-human      (highest: the machine has given up; work stops unless you act)
+② PR CI/e2e/review all green, awaiting human merge
+③ New human comments on the issue/PR, with no agent response yet
+④ A state transition just occurred in this round (new PR / just merged / just advanced)   (lowest: FYI only)
+No category → excluded from the set awaiting attention
 ```
-Tab 从当前焦点在「① 优先、同级按 `enqueued_at`」的序里取下一个，循环到底回头。
+Tab selects the next item after the current focus in the order “① first, then `enqueued_at` within each level,” wrapping around at the end.
 
-### Task DAG + 文件分配（协同模式，files 两两不相交）
+### Task DAG + file allocation (collaborative mode, pairwise-disjoint files)
 
-| Task | 标题 | depends-on | files（单一 writer） |
+| Task | Title | depends-on | files (single writer) |
 |------|------|-----------|----------------------|
-| T1 | 后端：agent 输出按 subject 分流 | — | `openagents/utils/streams.py`(新) · `openagents/backends/claude_code.py` · `openagents/recipes/vigil.py` · `tests/test_streams.py` |
-| T2 | 后端：本地 daemon 接口(HTTP+SSE) | T1 | `openagents/desktop/__init__.py`(新) · `openagents/desktop/daemon.py`(新) · `openagents/cli.py` · `tests/test_desktop_daemon.py` |
-| T3 | 前端：Electron 外壳 + client + App 基座 | T2 | `apps/desktop/package.json` · `apps/desktop/tsconfig.json` · `apps/desktop/electron.vite.config.ts` · `apps/desktop/src/main/index.ts` · `apps/desktop/src/preload/index.ts` · `apps/desktop/src/renderer/index.html` · `apps/desktop/src/renderer/src/main.tsx` · `apps/desktop/src/renderer/src/App.tsx` · `apps/desktop/src/renderer/src/daemon-client.ts` · `apps/desktop/src/renderer/src/types.ts` |
-| T4 | 前端：看板小窗(board) | T3 | `apps/desktop/src/renderer/src/board/Board.tsx` · `.../board/Card.tsx` · `.../board/useBoard.ts` · `.../board/Board.test.tsx` |
-| T5 | 前端：大窗流式 + 快切 | T3 | `apps/desktop/src/renderer/src/detail/DetailOverlay.tsx` · `.../detail/StreamView.tsx` · `.../detail/useStream.ts` · `.../detail/DetailOverlay.test.tsx` |
-| T6 | 前端：Tab 待看导航 + 优先级 | T3 | `apps/desktop/src/renderer/src/nav/useTabNav.ts` · `.../nav/pending.ts` · `.../nav/pending.test.ts` |
+| T1 | Backend: route agent output by subject | — | `openagents/utils/streams.py` (new) · `openagents/backends/claude_code.py` · `openagents/recipes/vigil.py` · `tests/test_streams.py` |
+| T2 | Backend: local daemon interface (HTTP+SSE) | T1 | `openagents/desktop/__init__.py` (new) · `openagents/desktop/daemon.py` (new) · `openagents/cli.py` · `tests/test_desktop_daemon.py` |
+| T3 | Frontend: Electron shell + client + App foundation | T2 | `apps/desktop/package.json` · `apps/desktop/tsconfig.json` · `apps/desktop/electron.vite.config.ts` · `apps/desktop/src/main/index.ts` · `apps/desktop/src/preload/index.ts` · `apps/desktop/src/renderer/index.html` · `apps/desktop/src/renderer/src/main.tsx` · `apps/desktop/src/renderer/src/App.tsx` · `apps/desktop/src/renderer/src/daemon-client.ts` · `apps/desktop/src/renderer/src/types.ts` |
+| T4 | Frontend: small board windows (board) | T3 | `apps/desktop/src/renderer/src/board/Board.tsx` · `.../board/Card.tsx` · `.../board/useBoard.ts` · `.../board/Board.test.tsx` |
+| T5 | Frontend: streaming detail view + quick switch | T3 | `apps/desktop/src/renderer/src/detail/DetailOverlay.tsx` · `.../detail/StreamView.tsx` · `.../detail/useStream.ts` · `.../detail/DetailOverlay.test.tsx` |
+| T6 | Frontend: Tab navigation for items awaiting attention + priorities | T3 | `apps/desktop/src/renderer/src/nav/useTabNav.ts` · `.../nav/pending.ts` · `.../nav/pending.test.ts` |
 
-并行度：T1→T2→T3 串行（后端契约先于前端基座）；T3 之后 **T4 / T5 / T6 三路并行**（context 纯消费者，
-文件不相交）。
+Parallelism: T1→T2→T3 run sequentially (the backend contract precedes the frontend foundation); after T3, **T4 / T5 / T6 run in three parallel tracks**
+(pure context consumers with disjoint files).
 
-### 端到端验证脚本
+### End-to-end validation script
 
-`scripts/e2e-desktop.sh`（form=cli，离线可跑、作门控成果）：起 daemon 打向一份 seed 过的 fake `work_queue`
-+ 桩 GitHub → `curl /board` 断言 JSON（subjects/status/待看类别）→ `curl -N /stream/<subject>` 断言 SSE 逐条
-推出 ring buffer 行 → 跑前端 `vitest`（Board/Detail/pending 组件与纯函数单测）→ `electron-vite build` 冒烟。
-桌面窗口的**视觉交互**（点击进大窗、Tab 循环的观感）列为**人工验证步骤**（无 browser MCP 的 headless 环境
-跑不了真实 Electron GUI，见 Drawbacks），不进离线门控。
+`scripts/e2e-desktop.sh` (form=cli, runnable offline, serves as a gating deliverable): start the daemon against a seeded fake `work_queue`
++ stub GitHub → `curl /board` to assert JSON (subjects/status/categories awaiting review) → `curl -N /stream/<subject>` to assert that SSE emits
+ring buffer lines one by one → run frontend `vitest` (unit tests for Board/Detail/pending components and pure functions) → `electron-vite build` smoke test.
+Desktop window **visual interactions** (clicking to open a large window, the look and feel of Tab cycling) are listed as **manual validation steps** (a headless environment without browser MCP
+cannot run a real Electron GUI; see Drawbacks) and are excluded from the offline gate.
 
 ## Drawbacks
 
-- **顶撞奥卡姆（理念 1）。** Electron = 一整套独立 Node/TS 栈（`apps/desktop` 几十个文件 + 主进程 + 打包
-  链），与 Python 后端两条栈并存，是本仓最大的一次「增实体」。用户在设计环节**明确选择**全 multica 对标而非
-  更轻的本地 Web/TUI（见 Rationale），故接受此代价。
-- **`spec graph` 覆盖不到前端。** ARCHITECTURE.md 由 Python import 图 + docstring 生成，TS 文件不进图；前端
-  的「对代码映射」只靠本 spec 正文 + `# Spec-0073/T*` 注释，无自动漂移闸兜底。
-- **只读的天花板。** 看到「PR 等合并」却要切去 GitHub 点，动作面割裂；这是 MVP 边界的自觉取舍（见 Future）。
-- **触碰共享后端文件。** T1 改 `claude_code.py` / `vigil.py`，可能碰既有测试替身（历史教训：shared prod code
-  会打破 `_Fake*` 双),T1 验收含「既有测试更新且全绿」。
-- **桌面 GUI 无离线 e2e。** 真实 Electron 窗口的视觉验证进不了 CI 门控，退化为人工步骤。
+- **At odds with Occam's razor (Principle 1).** Electron = an entire independent Node/TS stack (dozens of files in `apps/desktop` + a main process + a packaging
+  pipeline), coexisting with the Python backend as two separate stacks. This is the largest single addition of entities in this repository. During design, the user **explicitly chose** full multica parity over
+  a lighter local Web/TUI (see Rationale), so this cost is accepted.
+- **`spec graph` does not cover the frontend.** ARCHITECTURE.md is generated from the Python import graph + docstrings; TS files are not included in the graph. The frontend's
+  mapping to code relies solely on the body of this spec + `# Spec-0073/T*` comments, with no automated drift gate as a backstop.
+- **The read-only ceiling.** Users can see “PR awaiting merge” but must switch to GitHub to click, fragmenting the action interface; this is a deliberate tradeoff at the MVP boundary (see Future).
+- **Touches shared backend files.** T1 modifies `claude_code.py` / `vigil.py`, potentially affecting existing test doubles (historical lesson: shared prod code
+  can break `_Fake*` doubles). T1 acceptance criteria include “existing tests updated and all passing.”
+- **No offline e2e for the desktop GUI.** Visual validation of real Electron windows cannot be included in the CI gate and falls back to manual steps.
 
 ## Rationale and alternatives
 
-**为什么 Electron 桌面（而非本地 Web / TUI）。** 设计环节给了四个形态：本地 Web（Python 起 HTTP+SSE，
-浏览器跑 SPA，最省、最贴奥卡姆）、静态轮询 HTML（扩展 board.html，最小）、终端 TUI（贴 vigil 终端老家）、
-Electron 桌面（全 multica 对标，最重）。用户明确选 **Electron**，要一步到位对标 multica 的桌面体验。本 spec
-把 Web 前端的资产**尽量复用**（渲染层是标准 React + SSE，将来可塞进任意壳）以对冲重量。
+**Why an Electron desktop app (rather than local Web / TUI).** Four forms were offered during design: local Web (Python serves HTTP+SSE,
+the browser runs an SPA; the most economical and closest to Occam's razor), static polling HTML (extend board.html; minimal), terminal TUI (close to vigil's terminal home),
+and Electron desktop (full multica parity; the heaviest). The user explicitly chose **Electron**, seeking parity with multica's desktop experience in one step. This spec
+**reuses as much as possible** of the Web frontend assets (the rendering layer is standard React + SSE and can be placed inside any shell in the future) to offset the weight.
 
-**为什么小窗成果 / 大窗流式（而非都流式或都成果）。** 用户拍板：看板层要「一眼看全局」，故小窗只呈现成果/
-状态（轮询即可，不改后端流）；深入某一路才需要实时流，故只有大窗订 SSE。这把「按 subject 分流」的后端改动
-**收窄到大窗需要时**，看板层零后端负担。
+**Why results in small windows / streaming in large windows (rather than streaming in both or results in both).** The user decided that the board should provide “the whole picture at a glance,” so small windows present only results/
+status (polling suffices, with no changes to backend streams); real-time streaming is needed only when drilling into an individual subject, so only large windows subscribe to SSE. This
+**limits backend changes for per-subject stream routing to where large windows need them**, with zero backend burden from the board layer.
 
-**为什么只读。** 理念 8「面向成果测试」+ 理念 5「PR 需人审」——审批合并的权威面是 GitHub。前端先做**呈现**、
-不接管**操作**，MVP 边界最干净、零鉴权/零 GitHub 写风险。可操作留给 Future。
+**Why read-only.** Principle 8, “test for outcomes,” + Principle 5, “PRs require human review”—GitHub is the authoritative interface for approval and merging. The frontend initially handles **presentation**
+without taking over **operations**, giving the cleanest MVP boundary, with zero authentication / zero risk from GitHub writes. Action capabilities are left to Future.
 
-**备选：不做前端，改进 stderr 日志分流。** 给 `_log` 加 subject 前缀 + 每路一个日志文件。成本极低，但给不了
-看板/大窗/Tab 导航的**并行宏观视图**，不满足目标 2。故否。
+**Alternative: no frontend; improve stderr log routing.** Add a subject prefix to `_log` + one log file per subject. The cost is extremely low, but this cannot provide
+the **parallel overview** offered by the board / large windows / Tab navigation, and does not satisfy Goal 2. Rejected for that reason.
 
 ## Prior art
 
-- **multica（github.com/multica-ai/multica，已读源码）** —— 双前端：`apps/web`(Next.js dashboard
-  `/[workspace]/(dashboard)/agents/[id]`) + `apps/desktop`(Electron)。桌面结构直接借鉴：`tab-bar.tsx` /
-  `tab-content.tsx` / `window-overlay.tsx`(+`stores/window-overlay-store.ts`)。架构：daemon 每 3s 轮询 server、
-  spawn CLI agent、**stream results back**，CLI↔server 走 HTTP REST + `--since` 增量——我们的 daemon↔desktop
-  同构（本地 HTTP + SSE）。**注意分歧**：multica 的 `window-overlay-store` 是**单 overlay、无 next/prev**
-  （只用于 onboarding 流），其 `keyboard-shortcuts.ts` 只有 zoom/关 tab、**无窗口循环**——故「小窗↔大窗 +
-  Tab 待看循环」是**本 spec 净新增**，不照搬。
-- **本仓 `openagents/utils/templates/board.html`（RFC-0001 决策 9）** —— 现有静态成果表，作 T4 看板卡的字段
-  与配色起点。
-- **`backends/claude_code.py`（RFC-0003 决策 6）** —— 现有 stream-json 逐行透传，是 T1 tee 的埋点。
+- **multica (github.com/multica-ai/multica, source code reviewed)** — Two frontends: `apps/web` (Next.js dashboard
+  `/[workspace]/(dashboard)/agents/[id]`) + `apps/desktop` (Electron). The desktop structure is borrowed directly: `tab-bar.tsx` /
+  `tab-content.tsx` / `window-overlay.tsx` (+`stores/window-overlay-store.ts`). Architecture: the daemon polls the server every 3s,
+  spawns a CLI agent, and **streams results back**; CLI↔server uses HTTP REST + incremental updates via `--since`—our daemon↔desktop
+  has the same structure (local HTTP + SSE). **Note the differences**: multica's `window-overlay-store` has **a single overlay, no next/prev**
+  (used only for the onboarding flow), and its `keyboard-shortcuts.ts` only supports zoom/closing tabs, **with no window cycling**—so “small window↔large window +
+  Tab cycling through items awaiting review” is **entirely new in this spec**, rather than copied.
+- **This repository's `openagents/utils/templates/board.html` (RFC-0001 Decision 9)** — The existing static results table serves as the starting point for the fields
+  and colors of T4 board cards.
+- **`backends/claude_code.py` (RFC-0003 Decision 6)** — The existing line-by-line stream-json passthrough is the instrumentation point for T1's tee.
 
 ## Unresolved questions
 
-- daemon 与 vigil 的进程关系：`openagents desktop` 是**只连**一个已在跑的 vigil（读它的 sqlite `work_queue`
-  + ring buffer），还是可**代拉**一个 vigil？ring buffer 跨进程可见性（vigil 进程内存 vs. 落文件）需在 T1/T2
-  之间定契约——倾向 ring buffer 落 `.openagents/streams/<subject>.log` 尾部，使 daemon 与 vigil 可分进程。
-- 端口与多仓库：默认端口固定还是探测？多仓库并行守夜时一个 daemon 管几仓还是一仓一 daemon？
-- `apps/desktop` 的构建/发布是否纳入现有 CI（Node 工具链、lefthook）还是独立流水线？
+- The process relationship between the daemon and vigil: does `openagents desktop` **only connect** to an already-running vigil (reading its sqlite `work_queue`
+  + ring buffer), or can it **launch** a vigil on the user's behalf? A contract for ring buffer visibility across processes (vigil process memory vs. files on disk) needs to be established between T1/T2
+  —the preference is to persist the ring buffer at the tail of `.openagents/streams/<subject>.log`, allowing the daemon and vigil to run as separate processes.
+- Ports and multiple repositories: should the default port be fixed or discovered? When running Vigil for multiple repositories in parallel, should one daemon manage several repositories, or should each repository have its own daemon?
+- Should the build/release of `apps/desktop` be incorporated into existing CI (Node toolchain, lefthook), or use a separate pipeline?
 
 ## Future possibilities
 
-- **可操作面**：大窗内直接 approve/merge PR、回 `needs-human`、摘 label（接 GitHub 写 + 鉴权）。
-- **Electron 打包分发**：托盘常驻、自动更新（对齐 multica SELF_HOSTING）。
-- **多仓库看板**：一个窗口聚合多仓守夜（承 `agent_config` 的 `repos` 段）。
-- **取代 board.html**：静态成果表并入桌面 app 的一个只读快照视图。
-- **依赖图可视化**：把 curator 排的 `blocked_by` 边画成 DAG，看板按依赖分层。
-
+- **Action interface**: approve/merge PRs, respond to `needs-human`, and remove labels directly within large windows (add GitHub writes + authentication).
+- **Electron packaging and distribution**: persistent system tray presence and automatic updates (align with multica SELF_HOSTING).
+- **Multi-repository board**: aggregate Vigil runs for multiple repositories in one window (building on the `repos` section of `agent_config`).
+- **Replace board.html**: incorporate the static results table into the desktop app as a read-only snapshot view.
+- **Dependency graph visualization**: draw the `blocked_by` edges arranged by the curator as a DAG, with the board layered by dependency.

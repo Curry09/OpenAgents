@@ -1,4 +1,4 @@
-# Conventional Commits 校验（对应 CLAUDE.md「提交信息」约定）
+# Conventional Commit checks for the rules in CLAUDE.md
 extends: ['@commitlint/config-conventional']
 rules:
   scope-enum:

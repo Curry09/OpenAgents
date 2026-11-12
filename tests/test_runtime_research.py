@@ -28,13 +28,16 @@ def test_normalize_keeps_only_bounded_objective_fields() -> None:
 
 def test_render_is_compact_and_caps_item_count() -> None:
     rendered = research.render(
-        [{"fact": f"事实{i}" + "x" * 500, "path": "入口.py"} for i in range(research.MAX_ITEMS + 5)]
+        [
+            {"fact": f"Café{i}" + "x" * 500, "path": "entry.py"}
+            for i in range(research.MAX_ITEMS + 5)
+        ]
     )
     decoded = json.loads(rendered)
     assert len(decoded) == research.MAX_ITEMS
     assert len(decoded[0]["fact"]) == 400
-    assert "事实" in rendered
-    assert "\\u4e8b" not in rendered
+    assert "Café" in rendered
+    assert "\\u00e9" not in rendered
     assert " " not in rendered
 
 

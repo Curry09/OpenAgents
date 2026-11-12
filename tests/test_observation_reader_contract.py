@@ -19,7 +19,7 @@ def test_offline_reader_contract():
 def test_unavailable_evidence_is_not_a_pass():
     with pytest.raises(AssertionError):
         reader.verify_scope(
-            scope={"sessions": [], "context": "证据不可用"},
+            scope={"sessions": [], "context": "Evidence is not available."},
             expected={"sessions": []},
             digest="0" * 64,
         )

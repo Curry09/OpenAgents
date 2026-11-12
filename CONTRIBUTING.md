@@ -1,8 +1,8 @@
 # Contributing
 
-English | [简体中文](CONTRIBUTING.zh-CN.md)
+English | [CREDIT Chinese](CONTRIBUTING.zh-CN.md)
 
-We welcome reproducible bug reports, documentation fixes, and focused implementation changes. Read the [README](README.md) and [spec guide](docs/specs/README.md) (Chinese) first. Update the relevant design contract before adding a feature or changing behavior across modules. Do not manually edit the generated `docs/specs/OVERVIEW.md` or `docs/specs/ARCHITECTURE.md` files.
+We welcome reproducible bug reports, documentation fixes, and focused implementation changes. Read the [README](README.md) and [Spec guide](docs/specs/README.md) first. Update the relevant design contract before adding a feature or changing behavior across modules. Do not manually edit the generated `docs/specs/OVERVIEW.md` or `docs/specs/ARCHITECTURE.md` files.
 
 ## Local checks
 
@@ -32,4 +32,4 @@ By contributing, you confirm that you have the right to submit your contribution
 
 ## Bilingual documentation
 
-The root README, CONTRIBUTING, SECURITY, and THIRD_PARTY documents each have an English version (`.md`) and a Simplified Chinese version (`.zh-CN.md`). When editing either version, update the content, commands, and links in the other version as well, and retain the language switch at the top. User guides under `docs/` also provide both languages. Design specs are primarily in Chinese.
+The root README, CONTRIBUTING, SECURITY, and THIRD_PARTY documents each have an English version (`.md`) and a Simplified Chinese version (`.zh-CN.md`). When editing either version, update the content, commands, and links in the other version as well, and retain the language switch at the top. User guides under `docs/` also provide both languages. Write active Specs, role prompts, and source comments in English. The [original Chinese Specs](docs/specs-zh-CN/README.md) are a historical snapshot.

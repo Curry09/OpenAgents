@@ -1,20 +1,5 @@
-"""Spec-0030/T2: init 前端 e2e 环境体检（纯函数、read-only、从不抛、非阻塞）。
-
-理念 8「以成果为中心、模型替人做端到端测试」要求前端类 issue 的真正验证落到浏览器
-自动化（Playwright / Chrome DevTools MCP）。但「装了 MCP 插件」≠「守夜派出的 agent 真能
-用上浏览器」——经核对 OpenAgents 调 claude 的方式（`backends/claude_code.py`）存在两道关卡：
-(1) 工具可见：未传 --mcp-config，claude 继承用户级 ~/.claude.json 注册的 MCP；
-(2) 权限放行：headless `-p` 下 acceptEdits 只放行编辑类工具，browser_* 调用会被静默拒。
-
-本模块只**检测 + 渲染报告**，供 init 非阻塞打印（见 Spec-0030 Reference-level (A)）：
-- detect_browser_mcp(): 读 ~/.claude.json 顶层 mcpServers 判 playwright / chrome-devtools 在册；
-- effective_permission_mode(): 转调 claude_code 的同名访问器（单一真相源——报告里的模式必须
-  等于派单实际用的模式，否则告知会撒谎）；
-- render_report(): 把两项结果渲染成非阻塞报告文本（缺失项含安装命令 / export 设置方式 / 取舍）。
-
-解耦（理念 10）：只读家目录 ~/.claude.json、读环境变量，不碰 git / github / state，便于单测
-打桩。绝不修改 ~/.claude.json（只读家目录文件，不碰仓库 .claude/，呼应全局硬约束）。
-"""
+# Spec-0030/T2
+"""Check optional browser verification prerequisites without changing the environment."""
 
 from __future__ import annotations
 
@@ -27,13 +12,13 @@ from openagents.backends.claude_code import (
     effective_permission_mode,
 )
 
-# Spec-0030/T2: 体检关注的 browser MCP server 名（claude mcp add 时的注册名）。
+# Spec-0030/T2: Names used to register browser MCP servers with claude mcp add.
 BROWSER_MCP_NAMES = ("playwright", "chrome-devtools")
 
-# 全放行模式名——headless 下唯有它能放行 browser MCP 工具调用（见 Spec-0030 Motivation 关卡 2）。
+# Permission mode required to call browser MCP tools headlessly.
 _FULL_ACCESS_MODE = "bypassPermissions"
 
-# 安装 / 设置方式：原样复述官方注册命令，不自创（见 Spec-0030 Prior art）。
+# Registration commands from the references in Spec-0030.
 _INSTALL_HINTS = (
     "claude mcp add playwright -s user -- npx @playwright/mcp@latest",
     "claude mcp add chrome-devtools -s user -- npx chrome-devtools-mcp@latest",
@@ -44,7 +29,7 @@ _PERMISSION_HINT = f"export {PERMISSION_MODE_ENV}={_FULL_ACCESS_MODE}"
 
 @dataclass(frozen=True)
 class BrowserMcpStatus:
-    """Spec-0030/T2: 各 browser MCP server 是否在 ~/.claude.json 注册的快照。"""
+    """Spec-0030/T2: Record which browser MCP servers are registered in ~/.claude.json."""
 
     registered: tuple[str, ...]
     missing: tuple[str, ...]
@@ -55,15 +40,14 @@ class BrowserMcpStatus:
 
 
 def _claude_json_path() -> Path:
-    # Spec-0030/T2: 用户级 claude 配置固定在家目录顶层 ~/.claude.json。
+    # Spec-0030/T2: Claude Code stores user-level configuration in ~/.claude.json.
     return Path.home() / ".claude.json"
 
 
 def detect_browser_mcp() -> BrowserMcpStatus:
-    """Spec-0030/T2: 读 ~/.claude.json 顶层 mcpServers，判断 browser MCP 是否在册。
+    """Spec-0030/T2: Read the top-level mcpServers mapping without changing the file.
 
-    文件不存在 / 非法 JSON / 无 mcpServers 键 / mcpServers 非 dict → 一律视为「均未注册」，
-    **从不抛**（体检非阻塞，见 Spec-0030 (A)）。只读不写。
+    Treat absent, unreadable, or invalid configuration as unregistered.
     """
     registered_names: set[str] = set()
     try:
@@ -82,48 +66,48 @@ def detect_browser_mcp() -> BrowserMcpStatus:
 
 @dataclass(frozen=True)
 class EnvReport:
-    """Spec-0030/T2: 体检结果——报告文本 + 是否全通过布尔（非阻塞，不携带退出码）。"""
+    """Spec-0030/T2: Hold the advisory text and whether all checks passed."""
 
     text: str
     all_ok: bool
 
 
 def render_report(*, mcp: BrowserMcpStatus, permission_mode: str) -> EnvReport:
-    """Spec-0030/T2: 把检测结果渲染成非阻塞报告文本（纯函数返回字符串，本模块不 print）。
-
-    缺失项输出安装命令 / export 设置方式 / 取舍提示；满足态输出两条 ✓。由调用方（init）
-    打印，便于测断言文本。
-    """
+    """Spec-0030/T2: Format the advisory checks and remediation without printing."""
     full_access = permission_mode == _FULL_ACCESS_MODE
-    lines = ["▶ 前端 e2e 环境体检（非阻塞，仅 claude-code 后端）"]
+    lines = ["▶ Optional browser test prerequisites (Claude Code only)"]
 
     if mcp.all_present:
-        lines.append(f"  ✓ browser MCP 已注册：{', '.join(mcp.registered)}")
+        lines.append(f"  ✓ Browser MCP servers registered: {', '.join(mcp.registered)}")
     else:
         missing = " / ".join(mcp.missing)
-        lines.append(f"  ⚠ 未检测到 browser MCP（{missing} 未在 ~/.claude.json 注册）")
-        lines.append("    前端浏览器 e2e 需要浏览器自动化工具。安装方式：")
+        lines.append(f"  ⚠ Missing browser MCP registration in ~/.claude.json: {missing}")
+        lines.append("    Browser tests require browser automation. To install it:")
         lines.extend(f"      {hint}" for hint in _INSTALL_HINTS)
 
     if full_access:
-        lines.append(f"  ✓ 权限模式 {_FULL_ACCESS_MODE}（全放行）：browser MCP 工具调用可被放行")
+        lines.append(f"  ✓ Permission mode {_FULL_ACCESS_MODE} allows browser MCP tool calls")
     else:
-        lines.append(f"  ⚠ 当前权限模式为 {permission_mode}（非全放行 {_FULL_ACCESS_MODE}）")
         lines.append(
-            "    headless 非交互下 browser MCP 工具调用会被直接拒绝 → 前端浏览器 e2e 将无法运行。"
+            f"  ⚠ Current permission mode is {permission_mode}; browser tests require {_FULL_ACCESS_MODE}"
         )
-        lines.append("    要可靠跑起来需全放行（移除无人值守安全栏杆，请知悉取舍后再开）：")
+        lines.append("    Headless Claude Code will block browser MCP tool calls in this mode.")
+        lines.append(
+            "    Enable the mode only in a trusted environment; it bypasses permission prompts:"
+        )
         lines.append(f"      {_PERMISSION_HINT}")
 
     all_ok = mcp.all_present and full_access
     if not all_ok:
-        lines.append("  提示：以上为非阻塞告知；后端类项目无需浏览器，可忽略。")
+        lines.append(
+            "  These checks are advisory. Skip browser setup for projects that do not need browser tests."
+        )
 
     return EnvReport(text="\n".join(lines), all_ok=all_ok)
 
 
 def check() -> EnvReport:
-    """Spec-0030/T2: 体检入口——采集两项检测并渲染，供 init 直接取报告打印（T3 接线点）。"""
+    """Spec-0030/T2: Collect browser registration and permission mode, then render the report."""
     return render_report(
         mcp=detect_browser_mcp(),
         permission_mode=effective_permission_mode(),
@@ -131,14 +115,10 @@ def check() -> EnvReport:
 
 
 def ui_capable() -> bool:
-    """Spec-0055/T1: 本机是否具备「真跑前端 e2e」能力——browser MCP 在册 ∧ 权限全放行。
+    """Return whether headless browser verification is available.
+    Spec-0055/T1.
 
-    两道关卡缺一不可（见本模块 docstring 关卡 1/2）：(1) browser MCP（playwright/chrome-devtools）
-    注册在 ~/.claude.json，headless claude 才可见这些工具；(2) 权限模式 bypassPermissions，否则
-    headless `-p` 下 browser_* 调用被静默拒。二者皆真时 executor 派出的 agent 才可能真开浏览器截图。
-
-    纯函数、read-only、从不抛（复用 detect_browser_mcp / effective_permission_mode 的容错）：供 cli
-    在守夜/单步入口启动时调一次、把结果固化进 state（单一真相源），下游 RFC 起草/评审据它分流测法
-    要求（Spec-0055：能力只在「写测法」时读，executor 执行时自检工具、不读本状态量）。
+    Both a registered browser MCP tool and the required permission mode are
+    necessary. The CLI records this read-only check for verification planning.
     """
     return detect_browser_mcp().all_present and effective_permission_mode() == _FULL_ACCESS_MODE

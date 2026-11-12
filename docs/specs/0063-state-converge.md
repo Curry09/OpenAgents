@@ -1,12 +1,12 @@
 ---
 number: "0063"
-title: state 归一：折叠旧 State 进 RuntimeState 并删 state.py，flat 层收敛为 cli+__init__
+title: "state consolidation: fold the old State into RuntimeState and delete state.py, reducing the flat layer to cli+__init__"
 issue: 145
 slug: state-converge
-summary: 承接 Spec-0062 两栈合一收尾：把旧 openagents/state.py 仍存活的三处生产读（agent_id 存储 / ui_capable 存储 / release+board 的 all_runs+RunRecord）迁到新栈 runtime.RuntimeState，STATUS_* 与 BLOCKED_LABEL/PR 改由权威源（runtime + utils.github）供给，随后删掉 state.py——flat 顶层最终仅剩 cli.py + __init__.py。因 .openagents/ 全 gitignore、state 文件为本地临时态，无需数据迁移。
+summary: "Complete the unification of the two stacks from Spec-0062: migrate the three remaining production reads of the old openagents/state.py (agent_id storage / ui_capable storage / all_runs+RunRecord for release+board) to runtime.RuntimeState in the new stack, source STATUS_* and BLOCKED_LABEL/PR from the authoritative sources (runtime + utils.github), then delete state.py—the flat top level will ultimately contain only cli.py + __init__.py. Because all of .openagents/ is gitignored and state files hold temporary local state, no data migration is required."
 tasks:
   - id: T1
-    title: RuntimeState 扩容：agent_id/ui_capable 顶层存取 + 权威 STATUS_* 常量
+    title: "Expand RuntimeState: top-level agent_id/ui_capable access + authoritative STATUS_* constants"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/runtime/state.py
       - tests/test_runtime_state_converge.py
-    scope: 给 runtime.RuntimeState 补旧 State 独有、但仍被生产读的两组顶层存取：get_agent_id/set_agent_id、get_ui_capable/set_ui_capable（落进 runtime-state.json 顶层键，与 runs/cursors 平级）；并在 runtime 层定义权威 STATUS_* 常量（solving/rfc-review/pr-open/iterating/done/closed/blocked），作为 release 及后续消费方的唯一状态词表来源（旧 state.py 的同名副本随之退役）。additive，不动现有 runs/cursors 行为。
-    acceptance: RuntimeState 提供 get/set_agent_id 与 get/set_ui_capable（hermetic 可测，落盘顶层键）；runtime 暴露公共 STATUS_*；现有 runs/cursors 测试不回归；ruff 绿。
+    scope: "Add the two groups of top-level accessors that are exclusive to the old State but still read in production to runtime.RuntimeState: get_agent_id/set_agent_id and get_ui_capable/set_ui_capable (persisted as top-level keys in runtime-state.json, alongside runs/cursors); also define authoritative STATUS_* constants (solving/rfc-review/pr-open/iterating/done/closed/blocked) in the runtime layer as the sole source of the status vocabulary for release and subsequent consumers (the copies with the same names in the old state.py are retired accordingly). This is additive and does not change existing runs/cursors behavior."
+    acceptance: "RuntimeState provides get/set_agent_id and get/set_ui_capable (testable hermetically, persisted as top-level keys); runtime exposes public STATUS_* constants; existing runs/cursors tests show no regressions; ruff passes."
   - id: T2
-    title: identity 改接 RuntimeState（agent_id 存储）
+    title: "Switch identity to RuntimeState (agent_id storage)"
     status: done
     priority: P1
     tags: []
@@ -30,10 +30,10 @@ tasks:
     files:
       - openagents/utils/identity.py
       - tests/test_identity.py
-    scope: 把 utils.identity 里对旧 State 的依赖（类型注解 + get_agent_id/set_agent_id 调用）改为 runtime.RuntimeState；resolve_agent_id 经 RuntimeState 存取本实例签名。
-    acceptance: identity 不再 import openagents.state；agent_id 幂等解析行为不变；test_identity 全绿；ruff 绿。
+    scope: "Replace the dependency on the old State in utils.identity (type annotations + get_agent_id/set_agent_id calls) with runtime.RuntimeState; resolve_agent_id reads and writes this instance's signature through RuntimeState."
+    acceptance: "identity no longer imports openagents.state; idempotent agent_id resolution behavior remains unchanged; all test_identity tests pass; ruff passes."
   - id: T3
-    title: release + results/board 改接 RuntimeState + utils.github
+    title: "Switch release + results/board to RuntimeState + utils.github"
     status: done
     priority: P1
     tags: []
@@ -46,10 +46,10 @@ tasks:
       - openagents/utils/results.py
       - tests/test_release.py
       - tests/test_results.py
-    scope: release：all_runs()→list_runs()（dict 记录），STATUS_BLOCKED 改从 runtime 权威源、BLOCKED_LABEL 改从 utils.github；挂起预检语义不变。results/board：RunRecord→RuntimeState dict，render 只呈现新记录实有字段（issue_number/status/branch/pr_number/closed_at，pr_url 由 pr_number 派生或省略），退役旧栈专属列（rounds/fingerprint 等）。
-    acceptance: release/board 不再 import openagents.state；release 挂起阻断行为不变；board 渲染 RuntimeState 记录；test_release/test_results 全绿；ruff 绿。
+    scope: "release: all_runs()→list_runs() (dict records), source STATUS_BLOCKED from the authoritative runtime source and BLOCKED_LABEL from utils.github; suspension precheck semantics remain unchanged. results/board: RunRecord→RuntimeState dict; render displays only fields actually present in the new records (issue_number/status/branch/pr_number/closed_at, with pr_url derived from pr_number or omitted), retiring columns exclusive to the old stack (rounds/fingerprint, etc.)."
+    acceptance: "release/board no longer import openagents.state; release's blocking behavior on suspension remains unchanged; board renders RuntimeState records; all test_release/test_results tests pass; ruff passes."
   - id: T4
-    title: CLI 去 _state_for：ui_capable/agent_id/board/release 全走 RuntimeState
+    title: "Remove _state_for from CLI: ui_capable/agent_id/board/release all use RuntimeState"
     status: done
     priority: P1
     tags: []
@@ -60,10 +60,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: 删 cli._state_for 工厂与 from openagents.state import State；_persist_ui_capable、_agent_id_for、board、release 四条路径全部经 _new_runtime_state_for 拿 RuntimeState。cli 顶层不再有对 openagents.state 的任何 import。
-    acceptance: oa 全命令解析并分发；cli 无 import openagents.state；ui_capable/agent_id 经 RuntimeState 存取；test_cli 全绿；ruff 绿。
+    scope: "Delete the cli._state_for factory and from openagents.state import State; all four paths—_persist_ui_capable, _agent_id_for, board, and release—obtain RuntimeState through _new_runtime_state_for. The cli top level no longer contains any imports of openagents.state."
+    acceptance: "All oa commands parse and dispatch; cli has no import of openagents.state; ui_capable/agent_id are read and written through RuntimeState; all test_cli tests pass; ruff passes."
   - id: T5
-    title: 删 state.py + 收敛 state 测试 + docs 再生成
+    title: "Delete state.py + consolidate state tests + regenerate docs"
     status: done
     priority: P1
     tags: []
@@ -76,102 +76,101 @@ tasks:
       - tests/test_state.py
       - tests/test_state_closed_at.py
       - tests/test_state_code_fingerprint.py
-    scope: 删除 openagents/state.py（其 BLOCKED_LABEL/PR 再导出的残余消费方改直连 utils.github）；删/重写 9 个 test_state*.py（行为已迁 RuntimeState 的删，仍有价值的迁到 test_runtime_*）；flat 顶层最终仅剩 cli.py+__init__.py。spec render/graph 再生成 OVERVIEW/ARCHITECTURE。
-    acceptance: openagents/ 顶层仅 cli.py+__init__.py；全库 grep 对 openagents.state 的 import 零命中；全量 pytest 绿；spec validate 无 error；OVERVIEW/ARCHITECTURE drift-free。
+    scope: "Delete openagents/state.py (switch any remaining consumers of its BLOCKED_LABEL/PR re-exports to utils.github directly); delete/rewrite the 9 test_state*.py files (delete tests for behavior already migrated to RuntimeState, and migrate tests that retain value to test_runtime_*); the flat top level will ultimately contain only cli.py+__init__.py. Regenerate OVERVIEW/ARCHITECTURE with spec render/graph."
+    acceptance: "The top level of openagents/ contains only cli.py+__init__.py; repository-wide grep finds zero imports of openagents.state; the full pytest suite passes; spec validate reports no errors; OVERVIEW/ARCHITECTURE are drift-free."
 ---
 
-# 0063 · state 归一：折叠旧 State 进 RuntimeState 并删 state.py，flat 层收敛为 cli+__init__
+# 0063 · State unification: fold the old State into RuntimeState and delete state.py, reducing the flat layer to cli+__init__
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is structured source data (including the tasks DAG), and the body is a group-level overview in nine rust-RFC sections. -->
 
 ## Summary
 
-Spec-0062 已把编排/判断类旧模块删净、原语物理搬进 `utils`，flat 顶层收敛到只剩三个文件：`cli.py`、`__init__.py`、`state.py`。本 spec 收掉最后一个——把旧 `openagents/state.py`（`State` 类 + `RunRecord` + `STATUS_*` 词表）**仍存活的三处生产读**迁到新栈 `runtime.RuntimeState`，权威常量改由 `runtime` 与 `utils.github` 供给，随后**删掉 `state.py`**。flat 顶层最终只剩 `cli.py` + `__init__.py`，state 从此单一模型、单一落盘文件（`runtime-state.json`），彻底两栈合一。因 `.openagents/` 全程 gitignore、state 文件是本地临时态，**无需数据迁移**。
+Spec-0062 removed all legacy orchestration/decision modules and physically moved the primitives into `utils`, reducing the flat top level to just three files: `cli.py`, `__init__.py`, and `state.py`. This spec takes care of the last one: migrate the **three remaining production reads** of the old `openagents/state.py` (`State` class + `RunRecord` + `STATUS_*` vocabulary) to the new stack's `runtime.RuntimeState`, source authoritative constants from `runtime` and `utils.github`, and then **delete `state.py`**. The flat top level will ultimately contain only `cli.py` + `__init__.py`, with a single state model and a single persisted file (`runtime-state.json`), fully unifying the two stacks. Because `.openagents/` has been gitignored throughout and the state files hold temporary local state, **no data migration is required**.
 
 ## Motivation
 
-现状：项目里并存**两个 state 模型**。旧 `openagents/state.py`（440 行）的 `State` 有一个 15 字段的富 `RunRecord`（issue/pr/status/summary + rounds/review_invalid/block_gate/merge_attempts/fingerprint 等一堆旧栈跨轮计数器），落盘 `.openagents/state.json`（`runs` 是 list、按 issue 去重）。新栈 `runtime/state.py`（116 行）的 `RuntimeState` 只留 status/branch/pr_number(/closed_at) 四键，落盘 `.openagents/runtime-state.json`（`runs` 是按 issue_number 索引的 dict）。Spec-0062 已让所有新栈 recipe（rfc_lifecycle/merge_pr/vigil/poll_comments）走 `RuntimeState`，并**有意丢弃**那些跨轮计数器（新栈无 MAX_ROUNDS 预算，见 merge_pr/vigil 注释）。
+Current situation: **two state models** coexist in the project. The old `State` in `openagents/state.py` (440 lines) has a rich, 15-field `RunRecord` (issue/pr/status/summary + rounds/review_invalid/block_gate/merge_attempts/fingerprint and various other legacy counters spanning rounds), persisted to `.openagents/state.json` (`runs` is a list, deduplicated by issue). The new stack's `RuntimeState` in `runtime/state.py` (116 lines) retains only four keys: status/branch/pr_number(/closed_at), persisted to `.openagents/runtime-state.json` (`runs` is a dict indexed by issue_number). Spec-0062 already moved all new-stack recipes (rfc_lifecycle/merge_pr/vigil/poll_comments) to `RuntimeState` and **deliberately discarded** those counters spanning rounds (the new stack has no MAX_ROUNDS budget; see the merge_pr/vigil comments).
 
-问题：`state.py` 之所以还没删，是因为**三处生产读仍绑在旧 `State` 上**，且新栈无等价物——
-1. **agent_id 存储**：`utils.identity.resolve_agent_id`（经 `cli._agent_id_for`）用 `State.get_agent_id/set_agent_id` 存本实例签名（`.openagents/state.json` 顶层 `agent_id` 键）。`RuntimeState` 没有顶层 agent_id。
-2. **ui_capable 存储**：`cli._persist_ui_capable` 用 `State.set_ui_capable` 固化 e2e 能力状态量（顶层 `ui_capable` 键）。`RuntimeState` 没有。
-3. **release + board**：`utils.release` 用 `State.all_runs()` + `RunRecord.status==STATUS_BLOCKED` 做发布前挂起预检；`utils.results.board` 用 `all_runs()` + `RunRecord` 字段渲染成果看板。二者还依赖 `state.py` 再导出的 `BLOCKED_LABEL` 和只在 `state.py` 定义的 `STATUS_BLOCKED`。
+The problem: `state.py` has not yet been deleted because **three production reads still depend on the old `State`**, with no equivalents in the new stack—
+1. **agent_id storage**: `utils.identity.resolve_agent_id` (via `cli._agent_id_for`) uses `State.get_agent_id/set_agent_id` to store this instance's signature (the top-level `agent_id` key in `.openagents/state.json`). `RuntimeState` has no top-level agent_id.
+2. **ui_capable storage**: `cli._persist_ui_capable` uses `State.set_ui_capable` to persist the e2e capability state variable (the top-level `ui_capable` key). `RuntimeState` has no equivalent.
+3. **release + board**: `utils.release` uses `State.all_runs()` + `RunRecord.status==STATUS_BLOCKED` for a pre-release check for blocked runs; `utils.results.board` uses `all_runs()` + `RunRecord` fields to render the results board. Both also depend on `BLOCKED_LABEL`, re-exported by `state.py`, and `STATUS_BLOCKED`, defined only in `state.py`.
 
-只要这三处还读旧 `State`，`state.py` 就删不掉，flat 层就停在「两栈合一差最后一步」的中间态——认知上要记「新栈用 RuntimeState、但发布/看板/签名还偷偷用旧 State」，落盘上要同时维护 `state.json` 和 `runtime-state.json` 两个文件。本 spec 就是收掉这最后一步。
+As long as these three places still read the old `State`, `state.py` cannot be deleted, leaving the flat layer in an intermediate state, “one last step away from unifying the two stacks.” Conceptually, one must remember that “the new stack uses RuntimeState, but releases/the board/signatures still quietly use the old State”; on disk, both `state.json` and `runtime-state.json` must be maintained. This spec completes that final step.
 
 ## Guide-level explanation
 
-迁移完成后，state 只有一个模型 `runtime.RuntimeState`、一个文件 `runtime-state.json`：
-- **agent_id / ui_capable**：升级成 `RuntimeState` 的顶层存取（`get/set_agent_id`、`get/set_ui_capable`），和 `runs`/`cursors` 平级落进 `runtime-state.json`。`identity` 与 `cli` 改调它。
-- **状态词表**：`STATUS_*`（solving/rfc-review/pr-open/iterating/done/closed/blocked）在 `runtime` 层定一份**权威公共常量**，`release` 从这里拿 `STATUS_BLOCKED`。（新栈各 recipe 现有的 module-private `_STATUS_*` 字面量本 spec 不强行收编，避免范围外扩；权威源就位后它们可在后续自然收敛。）
-- **release / board**：`all_runs()`（返回 `RunRecord`）换成 `list_runs()`（返回 dict）；`BLOCKED_LABEL` 直连 `utils.github`；board 的渲染退役旧栈专属列（rounds/fingerprint 等旧计数器新记录里根本没有），只呈现新记录实有字段。
-- **`state.py` 删除**：其唯一还在被外部依赖的两个再导出 `BLOCKED_LABEL`/`PR` 本就权威定义在 `utils.github`，残余消费方改直连即可。
+After migration, state has just one model, `runtime.RuntimeState`, and one file, `runtime-state.json`:
+- **agent_id / ui_capable**: add top-level accessors to `RuntimeState` (`get/set_agent_id`, `get/set_ui_capable`), persisting these keys alongside `runs`/`cursors` in `runtime-state.json`. Update `identity` and `cli` to call them.
+- **Status vocabulary**: define one set of **authoritative public constants** for `STATUS_*` (solving/rfc-review/pr-open/iterating/done/closed/blocked) in the `runtime` layer, from which `release` obtains `STATUS_BLOCKED`. (This spec does not require incorporating each new-stack recipe's existing module-private `_STATUS_*` literals, to avoid expanding scope; once the authoritative source is in place, they can naturally converge in subsequent work.)
+- **release / board**: replace `all_runs()` (returns `RunRecord`) with `list_runs()` (returns dict); source `BLOCKED_LABEL` directly from `utils.github`; retire the board's legacy-stack-only columns (old counters such as rounds/fingerprint do not exist in new records at all), displaying only fields actually present in new records.
+- **Delete `state.py`**: its only two re-exports still depended on externally, `BLOCKED_LABEL`/`PR`, already have authoritative definitions in `utils.github`; remaining consumers can simply reference that module directly.
 
-对用户/agent 行为**零可见变化**：签名幂等、发布挂起阻断、看板呈现语义都保持；变的只是这些数据从哪个模块、哪个文件读写。
+There is **zero visible change** to user/agent behavior: signature idempotency, release blocking for blocked runs, and the semantics of the board's presentation all remain intact. Only the module and file used to read and write this data change.
 
 ## Reference-level explanation
 
-**分界线不变**：state 是确定性存储原语，归 `runtime`（机制层），非 agent 判断。本 spec 是纯机械归一，无新判断下放。
+**The boundary remains unchanged**: state is a deterministic storage primitive belonging to `runtime` (the mechanism layer), not agent judgment. This spec is purely mechanical unification, with no new judgment delegated downward.
 
-**无数据迁移**：`.gitignore:17` 忽略整个 `.openagents/`，`state.json`/`runtime-state.json` 都是本地临时态，不进版本库。删 `state.py` 后旧 `state.json` 自然废弃，新 run 重新填 `runtime-state.json`。故本 spec 不写任何 JSON 迁移/兼容 shim（Occam）。
+**No data migration**: `.gitignore:17` ignores the entire `.openagents/` directory; `state.json`/`runtime-state.json` both hold temporary local state and are not versioned. After `state.py` is deleted, the old `state.json` is naturally abandoned, and new runs repopulate `runtime-state.json`. Therefore, this spec adds no JSON migration/compatibility shim (Occam).
 
-**Task DAG（5 Task，≤6 上限内）**：
+**Task DAG (5 Tasks, within the ≤6 limit)**:
 
 ```
-T1（RuntimeState 扩容：agent_id/ui_capable 存取 + 权威 STATUS_*）
- ├─→ T2（identity → RuntimeState）
- └─→ T3（release + results/board → RuntimeState + utils.github）
-        T2, T3 ─→ T4（CLI 去 _state_for，四路径全走 RuntimeState）
-                    └─→ T5（删 state.py + 收敛 9 个 state 测试 + docs 再生成）
+T1 (Expand RuntimeState: agent_id/ui_capable accessors + authoritative STATUS_*)
+ ├─→ T2 (identity → RuntimeState)
+ └─→ T3 (release + results/board → RuntimeState + utils.github)
+        T2, T3 ─→ T4 (Remove _state_for from CLI; all four paths use RuntimeState)
+                    └─→ T5 (Delete state.py + consolidate 9 state tests + regenerate docs)
 ```
 
-T2 ∥ T3 可并行（文件不相交）。
+T2 ∥ T3 can run in parallel (their files do not overlap).
 
-**文件分配（两两不相交，单一 writer）**：
+**File assignments (pairwise disjoint, single writer)**:
 
-| Task | files | 依赖 |
+| Task | files | Dependencies |
 |---|---|---|
 | T1 | `openagents/runtime/state.py`, `tests/test_runtime_state_converge.py` | — |
 | T2 | `openagents/utils/identity.py`, `tests/test_identity.py` | T1 |
 | T3 | `openagents/utils/release.py`, `openagents/utils/results.py`, `tests/test_release.py`, `tests/test_results.py` | T1 |
 | T4 | `openagents/cli.py`, `tests/test_cli.py` | T2, T3 |
-| T5 | `openagents/state.py`(删), `tests/test_state.py`, `tests/test_state_closed_at.py`, `tests/test_state_code_fingerprint.py` | T4 |
+| T5 | `openagents/state.py` (delete), `tests/test_state.py`, `tests/test_state_closed_at.py`, `tests/test_state_code_fingerprint.py` | T4 |
 
-> T5 的 `files` 列关键删除项；实际 T5 还会删/重写其余 6 个 `test_state_*.py`（merge_unblock/needs_human_unblock/unblock_detail 等，测旧栈跨轮阻塞字段，行为已随计数器废弃）——这些桩测的是 0062 已判定作废的旧栈语义，直接删。它们不与其它 Task 的 files 重叠，故不逐一列进 frontmatter。
+> T5's `files` column lists the key deletion targets; in practice, T5 will also delete/rewrite the other 6 `test_state_*.py` files (merge_unblock/needs_human_unblock/unblock_detail, etc., which test legacy blocking fields spanning rounds, whose behavior was abandoned along with the counters)—these stub tests cover legacy-stack semantics already declared obsolete in 0062, so delete them outright. They do not overlap with any other Task's files, so they are not individually listed in the frontmatter.
 
-**e2e 脚本**：本 spec 无独立 e2e；归一后跑既有全量 `pytest`（0062 基线 669 passed）+ `oa --help` 冒烟即验收。
+**e2e script**: this spec has no standalone e2e test; after unification, acceptance is verified by running the existing full `pytest` suite (0062 baseline: 669 passed) + an `oa --help` smoke test.
 
-**验收硬闸（每 Task）**：ruff check+format 绿、相关 pytest 绿、`spec validate` 无 error；T5 额外要求全库 grep `openagents.state` import 零命中 + OVERVIEW/ARCHITECTURE drift-free。
+**Mandatory acceptance gates (per Task)**: ruff check+format passes, relevant pytest tests pass, and `spec validate` reports no errors; T5 additionally requires zero matches for `openagents.state` imports in a repository-wide grep + drift-free OVERVIEW/ARCHITECTURE.
 
 ## Drawbacks
 
-- **丢弃旧栈富字段**：`RunRecord` 的 rounds/review_invalid/block_gate/merge_attempts/block_watermark/unblock_detail/两个 fingerprint 随 `state.py` 一起消失。这些是旧栈 messages/orchestrator 的跨轮预算与 sticky-gate 记账，新栈已按设计放弃（无跨轮 rounds 预算）。若将来新栈要重建「跨轮记账」，得在 `RuntimeState` 上重新设计，而非复活旧字段——这是刻意的账，不是遗漏。
-- **board 信息变薄**：成果看板不再显示 rounds/fingerprint 列。但看板面向「成果」（issue→PR→状态），这些旧计数器本就不是成果维度，变薄反而更聚焦。
-- **一次性删 ~9 个 state 测试**：test coverage 数字会降，但删的是测已废语义的桩，非真实回归保护。
+- **Discarding the legacy stack's rich fields**: `RunRecord`'s rounds/review_invalid/block_gate/merge_attempts/block_watermark/unblock_detail/two fingerprints disappear along with `state.py`. These provide budget and sticky-gate bookkeeping across rounds for the legacy stack's messages/orchestrator; the new stack has already abandoned them by design (no rounds budget spanning rounds). If the new stack needs to rebuild “bookkeeping across rounds” in the future, it must be redesigned on `RuntimeState` rather than reviving the old fields—this is a deliberate cost, not an omission.
+- **Less information on the board**: the results board no longer displays rounds/fingerprint columns. But the board focuses on “results” (issue→PR→status), and these old counters were never dimensions of results; reducing the information makes it more focused.
+- **Deleting ~9 state tests in one go**: the test coverage figure will decrease, but what is being deleted consists of stub tests for obsolete semantics, not real regression protection.
 
 ## Rationale and alternatives
 
-**选定方案**：把三处生产读迁到 `RuntimeState`、给它补 agent_id/ui_capable 顶层键与权威 STATUS_*，然后删 `state.py`。理由：`RuntimeState` 已是新栈唯一 state、已被全部 recipe 采用，让它多承载两个顶层标量键（agent_id/ui_capable）成本极低（schema 本就是开放 dict），是通往「单一 state 模型」的最短路径。
+**Selected approach**: migrate the three production reads to `RuntimeState`, add top-level agent_id/ui_capable keys and authoritative STATUS_* constants, then delete `state.py`. Rationale: `RuntimeState` is already the new stack's sole state model and has been adopted by every recipe. Having it carry two additional top-level scalar keys (agent_id/ui_capable) costs very little (the schema is already an open dict) and is the shortest path to “a single state model.”
 
-**备选 1：保留 state.py 只做薄壳再导出**（像 0062 前的 utils shim 那样，state.py 再导出 RuntimeState）。否决：那不是归一，是再加一层间接；用户诉求是**删掉** flat 层，不是给它套壳。
+**Alternative 1: retain state.py solely as a thin re-export wrapper** (like the utils shims before 0062, with state.py re-exporting RuntimeState). Rejected: that adds another layer of indirection rather than achieving unification; the user wants the flat layer **deleted**, not wrapped.
 
-**备选 2：把富 RunRecord 15 字段整体搬进 RuntimeState**（保旧栈计数器）。否决：违背 0062 已定的「新栈放弃跨轮预算」，把已作废的旧栈记账复活进新栈，增实体反奥卡姆。只迁**仍被读**的字段。
+**Alternative 2: move all 15 fields of the rich RunRecord into RuntimeState** (preserving the legacy stack's counters). Rejected: this contradicts 0062's established decision that “the new stack abandons budgets spanning rounds,” resurrecting obsolete legacy bookkeeping in the new stack and multiplying entities against Occam's principle. Migrate only fields **still being read**.
 
-**备选 3：给 agent_id/ui_capable 另立独立小模块**（如 `runtime/identity_state.py`）而非塞进 RuntimeState。否决：它俩是 per-project 单标量，和 runs/cursors 同属「项目运行态」，同文件同类最自然；另立模块是过度拆分。
+**Alternative 3: create a separate small module for agent_id/ui_capable** (such as `runtime/identity_state.py`) instead of putting them into RuntimeState. Rejected: both are single per-project scalars and, like runs/cursors, belong to “project runtime state”; keeping them in the same file and class is most natural. A separate module would be excessive fragmentation.
 
 ## Prior art
 
-- **Spec-0062**（本波前序，已开 PR#158）：删净编排类旧模块、15 原语搬进 utils，把 flat 层从 28 文件压到 `{cli,__init__,state}` 三文件。本 spec 是它显式留的尾巴（0062/T5 正文：「state.py 因新旧 state 未归一暂留，其删除随 state 归一另开 Spec-0063」）。
-- **Spec-0060/0061**：立起 `runtime.RuntimeState` 及其 `runs`/`cursors` 落盘、`find_run(pr_number=)`/`list_runs()` 接口（0062/T3 补入），是本 spec 扩容的基底。
-- 旧 `State` 的字段谱系（RFC-0001 起，RFC-0011 agent_id、RFC-0012 rounds、Spec-0021/0031/0032/0042/0053/0055 陆续加的记账字段）——本 spec 是它们的终点：仍被读的迁走，旧栈专属的废弃。
+- **Spec-0062** (the predecessor in this wave, PR#158 already opened): removed all legacy orchestration modules and moved 15 primitives into utils, reducing the flat layer from 28 files to the three files `{cli,__init__,state}`. This spec addresses the loose end it explicitly left (0062/T5 body: “state.py is temporarily retained because the old and new state models have not been unified; its deletion will be addressed separately in Spec-0063 as part of state unification”).
+- **Spec-0060/0061**: established `runtime.RuntimeState` and persistence for its `runs`/`cursors`, along with the `find_run(pr_number=)`/`list_runs()` interfaces (added in 0062/T3), providing the foundation for this spec's expansion.
+- The old `State` field lineage (starting with RFC-0001, followed by RFC-0011 agent_id, RFC-0012 rounds, and bookkeeping fields added successively in Spec-0021/0031/0032/0042/0053/0055)—this spec is their endpoint: migrate those still being read and discard those exclusive to the legacy stack.
 
 ## Unresolved questions
 
-- **recipe-private `_STATUS_*` 是否收编进权威 STATUS_***：本 spec 只保证 `release` 有权威源可用，不强制改 rfc_lifecycle/merge_pr/vigil 里各自的 module-private `_STATUS_*`（改它们属 0062 已迁 recipe 的内部整理，范围外）。留作后续可选清理。
-- **board 是否需要 pr_url 列**：`RuntimeState` 记录只有 pr_number。渲染时是「由 pr_number + 仓库 slug 派生 PR 链接」还是「只显示 pr_number」，T3 实现时按最小改动定；不影响归一目标。
+- **Whether recipe-private `_STATUS_*` should be incorporated into the authoritative STATUS_***: This spec only guarantees that an authoritative source is available for `release`; it does not require changes to the module-private `_STATUS_*` in rfc_lifecycle/merge_pr/vigil (changing them would be internal cleanup of recipes already migrated under 0062 and is out of scope). This remains optional cleanup for later.
+- **Whether board needs a pr_url column**: `RuntimeState` records contain only pr_number. Whether rendering should “derive a PR link from pr_number + the repository slug” or “display only pr_number” will be decided during T3 implementation based on the smallest change; this does not affect the unification goal.
 
 ## Future possibilities
 
-- state 单一模型就位后，可给 `RuntimeState` 加一层**运行期 owner 校验/lease**（issue #71 的方向：把 files-allocation 的设计期所有权变成运行期强制），因为现在只有一个 state 真源，加锁/租约不用两处同步。
-- 若将来要「跨 issue 的全局运行态仪表盘」，统一到单文件 `runtime-state.json` 后，一个读取点即可聚合，不用合并两个模型。
-
+- Once a single state model is in place, a layer of **runtime owner validation/leases** could be added to `RuntimeState` (the direction of issue #71: turning design-time ownership in files-allocation into runtime enforcement), because there is now only one source of truth for state, so locking/leases do not require synchronization across two places.
+- If a “global runtime-state dashboard across issues” is needed in the future, unifying state into a single `runtime-state.json` file will allow aggregation from a single read point, without merging two models.

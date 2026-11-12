@@ -1,6 +1,6 @@
 # OpenAgents
 
-English | [简体中文](README.zh-CN.md)
+English | [CREDIT Chinese](README.zh-CN.md)
 
 **Spec-driven, multi-agent software delivery.** OpenAgents turns issues into specifications, code changes, verified results, and reviewed pull requests. A persistent delivery loop coordinates the work and merges PRs once the configured gates pass.
 

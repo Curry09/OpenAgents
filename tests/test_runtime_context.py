@@ -1,7 +1,7 @@
-"""Spec-0060/T5: runtime.context + runtime.state 单测。
+"""Spec-0060/T5: runtime.context + runtime.state single-measured.
 
-context：各阶段占位符 dict 键齐全、issue 正文/PR 历史经 utils.github 注入（打桩、不触网）。
-state：读写走独立命名空间文件 runtime-state.json，与旧 state.json 文件级零冲突。
+Contact: Phase placeholder dict is complete, issue text/PR history utils.github injected (prick, net-free).
+State: Read and write the independent namespace file runtime-state.json, which conflicts with the old state.json file level zero.
 """
 
 from __future__ import annotations
@@ -29,12 +29,14 @@ def _ctx(*, pr_number):
 
 
 def test_for_plan_keys(monkeypatch):
-    _stub_github(monkeypatch, issue=Issue(number=145, title="重构", body="正文X"), comments=[])
+    _stub_github(
+        monkeypatch, issue=Issue(number=145, title="Reconstruct", body="Text X"), comments=[]
+    )
     payload = _ctx(pr_number=154).for_plan(issue_number=145)
     assert payload["work_dir"] == Path("/tmp/wt")
     assert payload["issue_number"] == 145
-    assert payload["issue_body"] == "正文X"
-    assert "正文X" in payload["context"]
+    assert payload["issue_body"] == "Text X"
+    assert "Text X" in payload["context"]
 
 
 def test_for_implement_and_iterate_feedback(monkeypatch):
@@ -43,16 +45,16 @@ def test_for_implement_and_iterate_feedback(monkeypatch):
     impl = ctx.for_implement(issue_number=145)
     assert impl["feedback"] == ""
     assert impl["pr_number"] == 154
-    itr = ctx.for_iterate(issue_number=145, feedback="补测试")
-    assert itr["feedback"] == "补测试"
+    itr = ctx.for_iterate(issue_number=145, feedback="Completing Test")
+    assert itr["feedback"] == "Completing Test"
 
 
 def test_for_review_injects_pr_history(monkeypatch):
-    comments = [Comment(id="1", author="curry", body="改这里", created_at="2026-07-09")]
+    comments = [Comment(id="1", author="curry", body="Change it here.", created_at="2026-07-09")]
     _stub_github(monkeypatch, issue=Issue(number=145, title="t", body="b"), comments=comments)
     payload = _ctx(pr_number=154).for_review(issue_number=145)
     assert payload["pr_number"] == 154
-    assert "改这里" in payload["context"]
+    assert "Change it here." in payload["context"]
     assert "@curry" in payload["context"]
 
 
@@ -67,7 +69,7 @@ def test_workspace_property():
 
 
 def test_review_context_without_pr(monkeypatch):
-    # 无 PR 号：只给 issue 上下文，不调 list_comments。
+    # No PR: Only the context of the issue, without list_comments.
     _stub_github(monkeypatch, issue=Issue(number=145, title="t", body="b"), comments=[])
     payload = _ctx(pr_number=None).for_review(issue_number=145)
     assert "PR #" not in payload["context"]
@@ -82,7 +84,7 @@ def test_runtime_state_roundtrip_independent_namespace(tmp_path):
     assert got == {"status": "solving", "branch": "openagents/issue-145", "pr_number": 154}
     state.set_cursor(pr_number=154, comment_id="c-9")
     assert state.get_cursor(pr_number=154) == "c-9"
-    # 独立命名空间：文件名是 runtime-state.json，不是旧 state.json。
+    # Independent Namespace: File name runtime-state.json, not old state.json.
     assert path.name == "runtime-state.json"
     assert path.exists()
 
@@ -91,7 +93,7 @@ def test_runtime_state_tolerates_corrupt_file(tmp_path):
     path = tmp_path / RUNTIME_STATE_FILENAME
     path.write_text("{not json", encoding="utf-8")
     state = RuntimeState(path=path)
-    assert state.get_run(issue_number=1) is None  # 损坏视为空状态、不抛
+    assert state.get_run(issue_number=1) is None  # Damage is considered empty, undiscarded.
 
 
 # Spec-0093/T2: mutable body/config cannot erase a previously accepted dispatch requirement.

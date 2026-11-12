@@ -1,12 +1,12 @@
 ---
 number: "0045"
-title: Spec-0037 后清理旧 rebase/indexheal 口径
+title: "Clean up stale rebase/indexheal terminology after Spec-0037"
 issue: 110
 slug: cleanup-rebase-indexheal-stale-idioms
-summary: 扫掉 rebase.py/indexheal.py/sync-prs 删除后残留在 openagents/tests 注释里的 rebase_open_prs、rebase.CONFLICT_COMMENT、indexheal→conflict→人工 等活文档口径，让注释与拉式同步现状对齐
+summary: "Remove references such as rebase_open_prs, rebase.CONFLICT_COMMENT, and indexheal→conflict→manual intervention that remain in openagents/tests comments as current documentation after the deletion of rebase.py/indexheal.py/sync-prs, aligning the comments with the current pull-based synchronization model"
 tasks:
   - id: T1
-    title: conflictdiag 诊断模块去 rebase 口径
+    title: "Remove rebase terminology from the conflictdiag diagnostic module"
     status: done
     priority: P1
     tags: []
@@ -15,10 +15,10 @@ tasks:
     parallel: false
     files:
       - openagents/conflictdiag.py
-    scope: 改写 conflictdiag.py 的模块 docstring 与 format_blocker/make_diagnoser docstring：删掉「合并扇出冲突评论」「供 rebase_open_prs 注入」；空诊断兜底表述改成退回本模块 conflictdiag.CONFLICT_COMMENT；诊断器来源改成 messages._make_diagnoser / merge 闸复用。不动运行时逻辑。
-    acceptance: openagents/conflictdiag.py 内 grep 不到 rebase_open_prs 与 rebase.CONFLICT_COMMENT，也不再出现「合并扇出」字样；ruff/pytest 保持全绿。
+    scope: "Rewrite the module docstring and the format_blocker/make_diagnoser docstrings in conflictdiag.py: remove “merge fan-out conflict comments” and “for injection by rebase_open_prs”; describe the fallback for empty diagnostics as falling back to this module's conflictdiag.CONFLICT_COMMENT; change the description of the diagnoser's source to messages._make_diagnoser / reuse by the merge gate. Do not change runtime logic."
+    acceptance: "grep finds no rebase_open_prs or rebase.CONFLICT_COMMENT in openagents/conflictdiag.py, and the phrase “merge fan-out” no longer appears; ruff/pytest remain fully green."
   - id: T2
-    title: conflict 模块去 indexheal 降级链口径
+    title: "Remove terminology describing the indexheal fallback chain from the conflict module"
     status: done
     priority: P1
     tags: []
@@ -27,10 +27,10 @@ tasks:
     parallel: false
     files:
       - openagents/conflict.py
-    scope: 改写 conflict.py:1-13 模块说明：把「indexheal（确定性，仅 OVERVIEW）→ conflict（通用）→ 人工」分层降级改成「本模块负责语义解冲突；对生成式索引 docs/specs/OVERVIEW.md 用 spec render 确定性重渲，其余语义解决，失败 merge --abort 回落人工」；软化 line36 prompt 注释里指向已删 indexheal 模块的措辞。不动 _RESOLVE_TASK 运行时字符串语义与逻辑。
-    acceptance: openagents/conflict.py 内 grep 不到 indexheal；模块 docstring 不再出现「indexheal → conflict → 人工」降级链；ruff/pytest 保持全绿。
+    scope: "Rewrite the module description at conflict.py:1-13: replace the layered fallback “indexheal (deterministic, OVERVIEW only) → conflict (general-purpose) → manual intervention” with “this module handles semantic conflict resolution; for the generated index docs/specs/OVERVIEW.md, use spec render for deterministic re-rendering; resolve other conflicts semantically, and on failure run merge --abort and fall back to manual intervention”; soften the wording in the line36 prompt comment that points to the deleted indexheal module. Do not change the semantics of the _RESOLVE_TASK runtime string or the logic."
+    acceptance: "grep finds no indexheal in openagents/conflict.py; the module docstring no longer contains the “indexheal → conflict → manual intervention” fallback chain; ruff/pytest remain fully green."
   - id: T3
-    title: 邻接 runtime 注释扫尾（github/messages/orchestrator）
+    title: "Finish cleaning up adjacent runtime comments (github/messages/orchestrator)"
     status: done
     priority: P2
     tags: []
@@ -41,10 +41,10 @@ tasks:
       - openagents/github.py
       - openagents/messages.py
       - openagents/orchestrator.py
-    scope: 'github.py:755/781 的 list_open_prs/update_branch docstring 去 rebase_open_prs，改成拉式同步语境；messages.py:207 的「沿用 rebase_open_prs 风格」软化为不指向死符号的错误隔离风格；orchestrator.py:86/104 的「indexheal 同源」软化为不指向已删模块（保留 issue #48 证据链）。不动运行时逻辑。'
-    acceptance: openagents/github.py、messages.py、orchestrator.py 内 grep 不到 rebase_open_prs 与作为活模块的 indexheal；ruff/pytest 保持全绿。
+    scope: "Remove rebase_open_prs from the list_open_prs/update_branch docstrings at github.py:755/781 and rewrite them in the context of pull-based synchronization; soften “follow the rebase_open_prs style” at messages.py:207 to describe the error-isolation style without referring to a defunct symbol; soften “shares its origin with indexheal” at orchestrator.py:86/104 so that it no longer points to the deleted module (preserve the evidence trail for issue #48). Do not change runtime logic."
+    acceptance: "grep finds no rebase_open_prs or references to indexheal as a current module in openagents/github.py, messages.py, or orchestrator.py; ruff/pytest remain fully green."
   - id: T4
-    title: 测试注释去 sync-prs/rebase_open_prs 口径
+    title: "Remove sync-prs/rebase_open_prs terminology from test comments"
     status: done
     priority: P2
     tags: []
@@ -55,10 +55,10 @@ tasks:
       - tests/test_messages_resolve.py
       - tests/test_messages.py
       - tests/test_conflict_guidance.py
-    scope: test_messages_resolve.py:91 去掉「手动 sync-prs」当活构造路径的说法；test_messages.py:228/1003 的「无需再桩 rebase_open_prs」软化为不提死符号；test_conflict_guidance.py:1-8 顶部说明改 Spec-0037 后口径（guidance 非空拼指导段，guidance+pr_number 拼 reply-comment 工具段，不强调「逐字节同今天」）。不改任何测试断言与逻辑。
-    acceptance: tests/ 内 grep 不到 sync-prs 与 rebase_open_prs；三处测试注释改成拉式同步/Spec-0037 后口径；pytest 保持全绿。
+    scope: "At test_messages_resolve.py:91, remove the description of “manual sync-prs” as a current construction path; soften “no longer need to stub rebase_open_prs” at test_messages.py:228/1003 so that it does not mention a defunct symbol; rewrite the introductory description at test_conflict_guidance.py:1-8 to reflect the post-Spec-0037 behavior (nonempty guidance appends a guidance section, guidance+pr_number appends a reply-comment tool section, without emphasizing “byte-for-byte identical to today”). Do not change any test assertions or logic."
+    acceptance: "grep finds no sync-prs or rebase_open_prs in tests/; the three sets of test comments are updated to reflect pull-based synchronization / post-Spec-0037 behavior; pytest remains fully green."
   - id: T5
-    title: 端到端成果测试脚本（组级死口径 grep 归零收口）
+    title: "End-to-end outcome test script (final group-wide verification that grep finds zero stale references)"
     status: done
     priority: P1
     tags: []
@@ -71,203 +71,203 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0045-cleanup-stale-idioms.sh
-    scope: 新建本 spec 交付的成果测试脚本 scripts/e2e-spec-0045-cleanup-stale-idioms.sh（脚本名对齐既有 e2e-spec-NNNN-slug 约定，理念 8）。内容为 Reference-level「e2e 脚本路径」那段 bash：先跑 ruff check + ruff format --check + pytest -q，再做组级死口径 grep 归零校验——`! grep -rn "rebase_open_prs\|rebase\.CONFLICT_COMMENT" openagents tests`、`! grep -rn "indexheal" openagents`、`! grep -rn "sync-prs" tests`，全过则打印 ALL GREEN。作为 T1–T4 之上的汇合校验，单一 owner 对组级成果负责；只写脚本，不改任何 openagents/tests 源。
-    acceptance: T1–T4 落地后跑 `bash scripts/e2e-spec-0045-cleanup-stale-idioms.sh` 全绿——ruff/pytest 通过且三条死口径 grep 全部归零（无残留），脚本 `set -euo pipefail` 任一段失败即非零退出；脚本被 PR 指路牌拾取。
+    scope: "Create the outcome test script delivered by this spec, scripts/e2e-spec-0045-cleanup-stale-idioms.sh (the script name follows the existing e2e-spec-NNNN-slug convention, principle 8). Its contents are the bash code in the Reference-level “e2e script path” section: first run ruff check + ruff format --check + pytest -q, then verify that group-wide grep checks find zero stale references—`! grep -rn \"rebase_open_prs\\|rebase\\.CONFLICT_COMMENT\" openagents tests`, `! grep -rn \"indexheal\" openagents`, and `! grep -rn \"sync-prs\" tests`—and print ALL GREEN if all checks pass. This serves as the combined verification above T1–T4, with a single owner responsible for the group-wide outcome; write only the script and do not modify any openagents/tests source."
+    acceptance: "After T1–T4 are implemented, run `bash scripts/e2e-spec-0045-cleanup-stale-idioms.sh` and obtain an all-green result—ruff/pytest pass and all three grep checks for stale references return zero matches (no remnants); with `set -euo pipefail`, the script exits with a nonzero status if any stage fails; the script is picked up by the PR signpost."
 ---
 
-# 0045 · Spec-0037 后清理旧 rebase/indexheal 口径
+# 0045 · Clean Up Stale rebase/indexheal Descriptions After Spec-0037
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-一次纯文档/注释清理。前序工作把「合并冲突推式扇出 rebase」重构成「拉式同步」并删掉了三个模块/命令：
-`openagents/rebase.py`（内含 `rebase_open_prs` 扇出模块与静态 `rebase.CONFLICT_COMMENT` 兜底串）、
-`openagents/indexheal.py`（确定性重渲 `OVERVIEW.md` 的旧模块）、CLI 子命令 `sync-prs`（手动扇出入口）。
-但删除时留下了一批**活文档口径漂移**：`openagents/` 与 `tests/` 里的模块 docstring / 行注释仍把
-**当前**实现描述成靠 `rebase_open_prs` 注入、退回 `rebase.CONFLICT_COMMENT`、走
-`indexheal → conflict → 人工` 分层降级，或把已删的手动 `sync-prs` 当成活着的构造路径。本 spec 逐处把这些
-注释改写成当前事实（拉式 `update_branch` 同步 + `conflictdiag.CONFLICT_COMMENT` 兜底 +
-`conflict` 语义解冲突且对 `OVERVIEW.md` 用 `spec render` 确定性重渲），**不动任何运行时代码**。成果测试
-= `ruff` + `pytest` 全绿 **且** 全仓 `openagents/tests` 不再 grep 到这些死符号口径。
+A cleanup limited to documentation and comments. Earlier work refactored “push-based fan-out rebase for merge conflicts” into “pull-based synchronization” and deleted three modules/commands:
+`openagents/rebase.py` (containing the `rebase_open_prs` fan-out module and the static `rebase.CONFLICT_COMMENT` fallback string),
+`openagents/indexheal.py` (the old module for deterministically re-rendering `OVERVIEW.md`), and the CLI subcommand `sync-prs` (the manual fan-out entry point).
+However, those deletions left behind **drift in live documentation**: module docstrings and inline comments in `openagents/` and `tests/` still describe the
+**current** implementation as relying on injection by `rebase_open_prs`, falling back to `rebase.CONFLICT_COMMENT`, using
+the layered fallback chain `indexheal → conflict → manual intervention`, or treating the deleted manual `sync-prs` as an available construction path. This spec rewrites each of these
+comments to reflect the current facts (pull-based `update_branch` synchronization + the `conflictdiag.CONFLICT_COMMENT` fallback +
+semantic conflict resolution by `conflict`, with deterministic re-rendering of `OVERVIEW.md` using `spec render`), **without changing any runtime code**. Acceptance testing
+= `ruff` + `pytest` both fully passing **and** no grep matches for these descriptions involving dead symbols anywhere in the repository's `openagents/tests`.
 
 ## Motivation
 
-**背景就地复述（单 spec 自包含）。** OpenAgents 是一个 RFC/Spec 驱动的多 Agent 框架：一个 issue 派一个
-agent 解决、提 PR，PR 合并进 main 后其余还开着的 PR 需要跟上最新 main。这套「跟上 main」的机制经历过一次
-架构翻修：
+**Background restated here to make this spec self-contained.** OpenAgents is an RFC/Spec-driven multi-agent framework: an issue is assigned to an
+agent to resolve and submit a PR; after that PR merges into main, the remaining open PRs need to catch up with the latest main. This mechanism for “catching up with main” has undergone an
+architectural overhaul:
 
-- **旧架构（推式扇出，已废）**：某 PR 合并后，`openagents/rebase.py` 的 `rebase_open_prs` 会主动枚举其余
-  open PR、逐个 `gh pr update-branch` 把 main 推进去（扇出）；撞冲突时贴一句永不带诊断的静态兜底串
-  `rebase.CONFLICT_COMMENT`（"OpenAgents 在 main 更新后尝试自动同步本 PR 分支，但存在无法自动解决的冲突……"）。
-  还提供手动入口 CLI `openagents sync-prs` 触发同一扇出。对生成式索引 `docs/specs/OVERVIEW.md` 的机械冲突，
-  另有独立模块 `openagents/indexheal.py` 做**确定性**重渲消解；其余真冲突则由 `openagents/conflict.py` 派
-  coding agent 语义解决，解不了才回落人工——文档把这条链写成 **`indexheal`（确定性，仅 OVERVIEW）→
-  `conflict`（通用，啃真冲突）→ 人工兜底**。
+- **Old architecture (push-based fan-out, retired)**: After a PR merged, `rebase_open_prs` in `openagents/rebase.py` would proactively enumerate the other
+  open PRs and run `gh pr update-branch` on each to push main into them (fan-out); on a conflict, it would post a static fallback string that never included diagnostics,
+  `rebase.CONFLICT_COMMENT` (“OpenAgents attempted to automatically synchronize this PR branch after main was updated, but there are conflicts that cannot be resolved automatically…”).
+  It also provided the manual CLI entry point `openagents sync-prs` to trigger the same fan-out. For mechanical conflicts in the generated index `docs/specs/OVERVIEW.md`,
+  a separate module, `openagents/indexheal.py`, performed **deterministic** re-rendering to resolve them; other substantive conflicts were handled by `openagents/conflict.py`, which dispatched
+  a coding agent to resolve them semantically, falling back to manual intervention only if that failed—the documentation described this chain as **`indexheal` (deterministic, OVERVIEW only) →
+  `conflict` (general-purpose, tackles substantive conflicts) → manual fallback**.
 
-- **新架构（拉式同步，现状）**：合并后不再主动扇出。改为每个 PR 各自轮到时，`messages._process_coding`
-  在可合并性预检里发现分支 `BEHIND`（落后 main）就调 `github.update_branch` 把 main **拉**进本分支（拉式同步）；
-  撞冲突走 `conflict.resolve_branch` 派 agent 语义解冲突。`rebase.py` 连同 `rebase_open_prs`、
-  `rebase.CONFLICT_COMMENT` 一起删除——静态兜底串迁到 `openagents/conflictdiag.py`，改名
-  `conflictdiag.CONFLICT_COMMENT`（诊断为空时的退回文案），诊断器由 `messages._make_diagnoser` 构造、供
-  merge 闸挂起评论复用。`indexheal.py` 也删除——对 `OVERVIEW.md` 的确定性重渲不再是独立模块，而是
-  `conflict._RESOLVE_TASK` 的 prompt 要求 agent 自己跑 `spec render` 按合并后的 spec 源整表重渲。CLI 的
-  `sync-prs` 一并移除（拉式同步下无需手动扇出入口，理念 1 奥卡姆）。
+- **New architecture (pull-based synchronization, current state)**: Merges no longer trigger proactive fan-out. Instead, when each PR's own turn comes, if `messages._process_coding`
+  finds that its branch is `BEHIND` (behind main) during the mergeability precheck, it calls `github.update_branch` to **pull** main into that branch (pull-based synchronization);
+  conflicts go through `conflict.resolve_branch`, which dispatches an agent to resolve them semantically. `rebase.py` was deleted along with `rebase_open_prs` and
+  `rebase.CONFLICT_COMMENT`—the static fallback string moved to `openagents/conflictdiag.py` and was renamed
+  `conflictdiag.CONFLICT_COMMENT` (the fallback message when diagnostics are empty); the diagnoser is constructed by `messages._make_diagnoser` and reused
+  for merge-gate suspension comments. `indexheal.py` was also deleted—deterministic re-rendering of `OVERVIEW.md` is no longer a separate module; instead,
+  the prompt in `conflict._RESOLVE_TASK` requires the agent itself to run `spec render` to re-render the entire table from the merged spec sources. The CLI's
+  `sync-prs` was removed as well (pull-based synchronization needs no manual fan-out entry point; principle 1, Occam).
 
-**为什么现在要清。** 代码本身已经是新架构且 `ruff`/`pytest` 全绿，但删模块时**没同步改注释**，导致下列
-「活文档」仍在描述一个**已不存在**的实现（下表为本 spec 起草时的全仓实测 grep，`docs/specs/OVERVIEW.md`
-等生成视图不在本 spec 范围，见 Unresolved）：
+**Why clean this up now.** The code already implements the new architecture, and `ruff`/`pytest` both pass in full, but the module deletions **were not accompanied by comment updates**, leaving the following
+“live documentation” describing an implementation that **no longer exists** (the table below comes from an actual repository-wide grep when this spec was drafted; generated views such as `docs/specs/OVERVIEW.md`
+are outside this spec's scope; see Unresolved):
 
-| 文件:行 | 现注释口径（死） | 死在哪 |
+| File:line | Current comment wording (obsolete) | What makes it obsolete |
 |---|---|---|
-| `openagents/conflictdiag.py:3,14,114,133,137` | "供 merge 闸挂起评论与合并**扇出**冲突评论"、"供 `rebase_open_prs` / messages 注入"、"退回 `rebase.CONFLICT_COMMENT`" | `rebase.py`/`rebase_open_prs` 已删；兜底串已就在本模块 = `conflictdiag.CONFLICT_COMMENT` |
-| `openagents/conflict.py:1,3,8,10,36` | 模块说明把 **`indexheal → conflict → 人工`** 写成当前降级链；prompt 注释"对齐 issue #48 `indexheal` 的确定性路径" | `indexheal.py` 已删，无独立 `indexheal` 模块 |
-| `openagents/github.py:755,781` | `list_open_prs`/`update_branch` docstring 说"供……`rebase_open_prs` 枚举/捕获" | `rebase_open_prs` 已删；`update_branch` 现服务拉式同步 |
-| `openagents/messages.py:207` | "沿用 RFC-0004 决策 8 / **`rebase_open_prs`** 风格" | 引用已删符号做血缘 |
-| `openagents/orchestrator.py:86,104` | "别留给 merge 闸机械式报错（issue #48 **`indexheal`** 同源）" | 引用已删模块名 |
-| `tests/test_messages_resolve.py:91` | "如手动 **`sync-prs`** / 老夹具" 当成活着的构造路径 | `sync-prs` 命令已删 |
-| `tests/test_messages.py:228,1003` | "无需再桩 **`rebase_open_prs`**" | 提及已删符号 |
-| `tests/test_conflict_guidance.py:1-8` | 顶部说明强调 guidance="" 时 task "逐字节同今天" | 旧回归口径，未讲清拉式同步后 `guidance + pr_number` 的 `reply-comment` 工具段 |
+| `openagents/conflictdiag.py:3,14,114,133,137` | “For merge-gate suspension comments and merge **fan-out** conflict comments,” “for injection by `rebase_open_prs` / messages,” “fall back to `rebase.CONFLICT_COMMENT`” | `rebase.py`/`rebase_open_prs` have been deleted; the fallback string is already in this module = `conflictdiag.CONFLICT_COMMENT` |
+| `openagents/conflict.py:1,3,8,10,36` | The module description presents **`indexheal → conflict → manual intervention`** as the current fallback chain; a prompt comment says “align with the deterministic path in issue #48 `indexheal`” | `indexheal.py` has been deleted; there is no separate `indexheal` module |
+| `openagents/github.py:755,781` | The `list_open_prs`/`update_branch` docstrings say “for … `rebase_open_prs` to enumerate/catch” | `rebase_open_prs` has been deleted; `update_branch` now serves pull-based synchronization |
+| `openagents/messages.py:207` | “Follow the style of RFC-0004 decision 8 / **`rebase_open_prs`**” | Cites a deleted symbol as provenance |
+| `openagents/orchestrator.py:86,104` | “Do not leave it to the merge gate to mechanically report an error (same origin as issue #48 **`indexheal`**)” | References a deleted module name |
+| `tests/test_messages_resolve.py:91` | Treats “such as manual **`sync-prs`** / old fixtures” as an available construction path | The `sync-prs` command has been deleted |
+| `tests/test_messages.py:228,1003` | “No longer need to stub **`rebase_open_prs`**” | Mentions a deleted symbol |
+| `tests/test_conflict_guidance.py:1-8` | The opening description emphasizes that when guidance="", the task is “byte-for-byte identical to today's” | Old regression wording that does not clearly explain the `reply-comment` tool section for `guidance + pr_number` after pull-based synchronization |
 
-活文档漂移直接违反 CLAUDE.md 设计理念 4（RFC/注释是 agent 对齐代码的锚）：别的 agent 读这些注释会去找
-一个不存在的 `rebase_open_prs` / `indexheal`，误判架构。清掉是低风险、纯注释的还债。
+Drift in live documentation directly violates design principle 4 in CLAUDE.md (RFCs/comments are anchors for agents to align with the code): other agents reading these comments will look for
+a nonexistent `rebase_open_prs` / `indexheal` and misunderstand the architecture. Removing this drift is low-risk debt repayment limited to comments.
 
 ## Guide-level explanation
 
-改完之后，任何人（或 agent）在 `openagents/` 与 `tests/` 里读到「合并后如何跟上 main」的注释，看到的都是
-**一致的拉式同步叙事**：
+After the changes, anyone (or any agent) reading comments in `openagents/` and `tests/` about “how to catch up with main after a merge” will see
+**a consistent account of pull-based synchronization**:
 
-- 想知道兜底文案 → `conflictdiag.CONFLICT_COMMENT`（不是 `rebase.CONFLICT_COMMENT`）。
-- 想知道诊断器谁构造 → `messages._make_diagnoser`（不是 `rebase_open_prs`）。
-- 想知道 `OVERVIEW.md` 冲突怎么解 → `conflict` 的 agent 跑 `spec render` 确定性重渲（不是独立 `indexheal` 模块）。
-- 想知道有没有手动扇出命令 → 没有，拉式同步下各 PR 轮到自己时 `update_branch`（`sync-prs` 已删）。
+- Where is the fallback message? → `conflictdiag.CONFLICT_COMMENT` (not `rebase.CONFLICT_COMMENT`).
+- Who constructs the diagnoser? → `messages._make_diagnoser` (not `rebase_open_prs`).
+- How are `OVERVIEW.md` conflicts resolved? → The agent dispatched by `conflict` runs `spec render` for deterministic re-rendering (not a separate `indexheal` module).
+- Is there a manual fan-out command? → No. With pull-based synchronization, each PR uses `update_branch` when its turn comes (`sync-prs` has been deleted).
 
-具体到每处：把「合并扇出冲突评论」删掉、把 `rebase_open_prs` 换成 `messages._make_diagnoser` / merge 闸复用、
-把 `rebase.CONFLICT_COMMENT` 换成 `conflictdiag.CONFLICT_COMMENT`；把 `conflict.py` 顶部的
-`indexheal → conflict → 人工` 分层降级改写成「本模块负责语义解冲突：对生成式索引 `docs/specs/OVERVIEW.md`
-用 `spec render` 确定性重渲，其余文件语义解决，失败 `merge --abort` 回落人工」；把 `github.py` 两个 docstring
-里的 `rebase_open_prs` 改成拉式同步语境；把 `messages.py`/`orchestrator.py` 引用已删符号的血缘注释软化为
-不指向死符号；把三处测试注释改成 Spec-0037 后口径。**没有一行运行时代码改变**，所以行为零回归、测试无需新增
-断言（既有 `pytest` 已覆盖运行时行为）。
+At each affected location: remove “merge fan-out conflict comments,” replace `rebase_open_prs` with `messages._make_diagnoser` / reuse by the merge gate,
+and replace `rebase.CONFLICT_COMMENT` with `conflictdiag.CONFLICT_COMMENT`; rewrite the
+`indexheal → conflict → manual intervention` layered fallback description at the top of `conflict.py` as “this module handles semantic conflict resolution: for the generated index `docs/specs/OVERVIEW.md`,
+use `spec render` for deterministic re-rendering; resolve other files semantically; on failure, run `merge --abort` and fall back to manual intervention”; update the two docstrings in `github.py`
+that mention `rebase_open_prs` to describe pull-based synchronization; soften the provenance comments in `messages.py`/`orchestrator.py` that reference deleted symbols so that they
+no longer point to dead symbols; update the three sets of test comments to reflect the post-Spec-0037 state. **Not a single line of runtime code changes**, so there are no behavioral regressions, and the tests need no new
+assertions (the existing `pytest` suite already covers runtime behavior).
 
 ## Reference-level explanation
 
-### 技术方案
+### Technical approach
 
-纯文本改写，逐文件替换 docstring / 注释字符串，运行时逻辑一字不动。改写原则：
+Text-only edits: replace docstrings / comment strings file by file, leaving runtime logic completely unchanged. Editing principles:
 
-1. **只改死口径**：一处注释只有在它把**当前**实现描述成已删符号/已废链路时才改。像 `cli.py:94`
-   "拉式同步重构后移除了 push 扇出（含手动 sync-prs）" 这类**正确描述"已被移除"**的历史说明保留不动
-   （它没有把 sync-prs 说成活的）。
-2. **就地对齐现状**，指向真实存在的符号（`conflictdiag.CONFLICT_COMMENT` / `messages._make_diagnoser` /
-   `conflict` / `update_branch` 拉式同步）。
-3. **保留证据链**：`issue #48` / `issue #92` 这类来源引用（理念 7）可留，但不再把已删**模块名**当成活模块。
-4. Spec ID 注释规范：被改写的注释若原带 `# Spec-NNNN/T*` 前缀，保留原 Spec 血缘（这些代码归属未变），
-   本次只清口径，不改归属。
+1. **Change only obsolete descriptions**: change a comment only when it describes the **current** implementation in terms of deleted symbols or retired paths. Historical explanations such as `cli.py:94`,
+   “The pull-based synchronization refactor removed push fan-out (including manual sync-prs),” which **correctly describe something as “removed,”** remain unchanged
+   (they do not describe sync-prs as still available).
+2. **Align each location with the current state**, pointing to symbols that actually exist (`conflictdiag.CONFLICT_COMMENT` / `messages._make_diagnoser` /
+   `conflict` / `update_branch` pull-based synchronization).
+3. **Preserve the evidence chain**: source references such as `issue #48` / `issue #92` (principle 7) may remain, but deleted **module names** must no longer be treated as live modules.
+4. Spec ID comment convention: if a rewritten comment originally has a `# Spec-NNNN/T*` prefix, preserve its original Spec provenance (ownership of this code has not changed);
+   this cleanup changes only the wording, not ownership.
 
-### DAG + 文件分配
+### DAG + file allocation
 
-T1–T4 全部是互不重叠的纯注释改写，彼此无代码依赖 → **四者全并行，无 `depends-on`**；T5 是组级成果测试的
-汇合校验，`depends-on: [T1,T2,T3,T4]`——「死口径 grep 归零」逻辑上要等四处清理都完成才成立，故由 T5 单一
-owner 承载、四清理完成后收口。`files` 组内互斥（单一 writer 所有权，理念 6）：
+T1–T4 are all non-overlapping, comment-only edits with no code dependencies on one another → **all four run in parallel, with no `depends-on`**; T5 is the
+converging check for group-level acceptance testing, with `depends-on: [T1,T2,T3,T4]`—logically, “zero grep matches for obsolete descriptions” can hold only after all four cleanups are complete, so T5 has a single
+owner and closes out the work after the four cleanups finish. `files` are mutually exclusive within the group (single-writer ownership, principle 6):
 
-| Task | 标题 | files（互斥） | scope |
+| Task | Title | files (mutually exclusive) | scope |
 |---|---|---|---|
-| T1 | conflictdiag 诊断模块去 rebase 口径 | `openagents/conflictdiag.py` | 问题 1：去 `rebase_open_prs`/`rebase.CONFLICT_COMMENT`/合并扇出 |
-| T2 | conflict 模块去 indexheal 降级链 | `openagents/conflict.py` | 问题 2：改写 `indexheal → conflict → 人工` 为语义解冲突叙事 |
-| T3 | 邻接 runtime 注释扫尾 | `openagents/github.py`, `openagents/messages.py`, `openagents/orchestrator.py` | 全仓扫尾：github/messages/orchestrator 里残留的 `rebase_open_prs`/`indexheal` 血缘 |
-| T4 | 测试注释去 sync-prs/rebase_open_prs 口径 | `tests/test_messages_resolve.py`, `tests/test_messages.py`, `tests/test_conflict_guidance.py` | 问题 3 + 扫尾：测试说明改 Spec-0037 后口径 |
-| T5 | 端到端成果测试脚本（组级收口） | `scripts/e2e-spec-0045-cleanup-stale-idioms.sh` | 收口：ruff/pytest 全绿 + 三条死口径 grep 归零，跨 T1–T4 的汇合校验 |
+| T1 | Remove rebase descriptions from the conflictdiag diagnostic module | `openagents/conflictdiag.py` | Problem 1: remove `rebase_open_prs`/`rebase.CONFLICT_COMMENT`/merge fan-out |
+| T2 | Remove the indexheal fallback chain from the conflict module | `openagents/conflict.py` | Problem 2: rewrite `indexheal → conflict → manual intervention` as an account of semantic conflict resolution |
+| T3 | Clean up adjacent runtime comments | `openagents/github.py`, `openagents/messages.py`, `openagents/orchestrator.py` | Repository-wide cleanup: remaining `rebase_open_prs`/`indexheal` provenance references in github/messages/orchestrator |
+| T4 | Remove sync-prs/rebase_open_prs descriptions from test comments | `tests/test_messages_resolve.py`, `tests/test_messages.py`, `tests/test_conflict_guidance.py` | Problem 3 + cleanup: update test descriptions to reflect the post-Spec-0037 state |
+| T5 | End-to-end acceptance test script (group-level closeout) | `scripts/e2e-spec-0045-cleanup-stale-idioms.sh` | Closeout: ruff/pytest fully passing + zero matches from three greps for obsolete descriptions; converging check across T1–T4 |
 
 ```mermaid
 graph TD
     T1["T1 conflictdiag.py"]
     T2["T2 conflict.py"]
     T3["T3 github/messages/orchestrator"]
-    T4["T4 tests 注释"]
-    T5["T5 e2e 成果测试脚本"]
+    T4["T4 test comments"]
+    T5["T5 e2e acceptance test script"]
     T1 --> T5
     T2 --> T5
     T3 --> T5
     T4 --> T5
 ```
 
-（T1–T4 四点无连边——完全并行，协同模式下可四个 session 各认领一个，因 `files` 不相交而零冲突；四者
-落地后由 T5 汇合，产出并跑通组级成果测试脚本。）
+(The four nodes T1–T4 have no edges between them—fully parallel. In collaboration mode, four sessions can each claim one task, with zero conflicts because their `files` do not overlap; after all four
+are implemented, T5 brings them together to produce and successfully run the group-level acceptance test script.)
 
-### e2e 脚本路径
 
-`scripts/e2e-spec-0045-cleanup-stale-idioms.sh`（本 spec 交付的成果测试脚本，**由本组 T5 产出并持有**，`depends-on: [T1,T2,T3,T4]`——组级「死口径 grep 归零」是跨四个清理 Task 的汇合校验，由 T5 单一 owner 负责；脚本名对齐既有 `e2e-spec-NNNN-slug` 约定，理念 8；PR 路标会自动收录）。内容：
+### e2e script path
+
+`scripts/e2e-spec-0045-cleanup-stale-idioms.sh` (the outcome test script delivered by this spec, **produced and owned by this group's T5**, `depends-on: [T1,T2,T3,T4]`—the group-level “zero grep matches for obsolete descriptions” check is a convergence check across the four cleanup Tasks, with T5 as its sole owner; the script name follows the existing `e2e-spec-NNNN-slug` convention, Principle 8; the PR signposts will include it automatically). Contents:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-# Spec-0045/T5：文档口径清理的成果测试——lint/格式/测试全绿 + 死口径 grep 归零。
+# Spec-0045/T5: Outcome test for documentation cleanup—all lint/format/test checks pass + zero grep matches for obsolete descriptions.
 uv run --extra dev ruff check openagents tests
 uv run --extra dev ruff format --check openagents tests
 uv run --extra dev pytest -q
 
-echo "== 死口径 grep 归零校验 =="
-# 已删符号绝不应再作为「当前实现」出现在代码/测试里。
+echo "== Verify zero grep matches for obsolete descriptions =="
+# Deleted symbols must never appear in code/tests as part of the "current implementation."
 ! grep -rn "rebase_open_prs\|rebase\.CONFLICT_COMMENT" openagents tests
-# indexheal.py 已删，openagents 源里不应再出现该模块名。
+# indexheal.py has been deleted; this module name should no longer appear in the openagents source.
 ! grep -rn "indexheal" openagents
-# sync-prs 命令已删，测试注释里不应再把它当活着的构造路径。
+# The sync-prs command has been deleted; test comments should no longer treat it as an active construction path.
 ! grep -rn "sync-prs" tests
-echo "ALL GREEN: 无残留死口径"
+echo "ALL GREEN: No obsolete descriptions remain"
 ```
 
-**关于浏览器 e2e（自检工具后说明）**：本会话确实具备 `chrome-devtools` / `playwright` MCP 工具，但本 spec
-是**纯注释/文档清理，无任何产品可见界面或运行时行为变化**（不新增/改动 CLI 输出、无前端、无 API 响应）。
-没有可被浏览器驱动、截图、断言的成果面，故浏览器 e2e **不适用**；成果测试落在 `ruff`/`pytest` 全绿 + 死口径
-grep 归零的确定性断言上（脚本可复跑、可 CI 化）。
+**Regarding browser e2e (explanation after checking the available tools)**: This session does have `chrome-devtools` / `playwright` MCP tools, but this spec
+is **strictly comment/documentation cleanup, with no changes to any product-visible interface or runtime behavior** (no CLI output added or changed, no frontend, no API responses).
+There is no delivered surface that a browser can drive, capture in screenshots, or assert against, so browser e2e is **not applicable**; outcome testing rests on the deterministic assertions
+that all `ruff`/`pytest` checks pass and grep finds zero obsolete descriptions (the script can be rerun and integrated into CI).
 
 ## Drawbacks
 
-- **纯注释改动的收益是"防误导"而非功能**，理论上可以攒到别的 PR 里顺手改。但活文档漂移会持续误导后续 agent
-  对架构的判断（理念 4），单开一个小 PR 一次清干净、可 grep 验收，比"下次顺手"更可靠。
-- **判断边界主观**：哪些注释算"把当前实现描述成死符号"、哪些算"正确记录已被移除"存在灰度（如
-  `test_messages.py` 的"无需再桩 rebase_open_prs" 本身是正确的移除说明）。缓解：Reference-level 定了明确
-  改写原则（只改把死符号当**当前**实现的处），并对每处在 T1–T4 的 scope 里点名。
+- **The benefit of comment-only changes is “preventing misleading information,” rather than functionality**, so in theory they could be saved for another PR and handled along the way. However, drift in living documentation will continue to mislead subsequent agents
+  about the architecture (Principle 4). A small, dedicated PR that cleans everything up at once and can be accepted through grep checks is more reliable than “doing it next time.”
+- **The boundary is subjective**: There are gray areas between comments that “describe the current implementation in terms of obsolete symbols” and those that “correctly record a removal” (for example,
+  “no longer need to stub rebase_open_prs” in `test_messages.py` is itself a correct removal note). Mitigation: Reference-level establishes explicit
+  rewriting principles (change only places that treat obsolete symbols as the **current** implementation), and each location is explicitly named in the scope of T1–T4.
 
 ## Rationale and alternatives
 
-**本方案**：单开一个纯文档清理 spec，按文件分 4 个并行 Task，用 grep 归零做机器可验收的成果测试。
+**This proposal**: Create a dedicated documentation-only cleanup spec, divide it by file into 4 parallel Tasks, and use zero grep matches as the machine-verifiable outcome test.
 
-**备选 A：不单开 spec，等下次碰这些文件时顺手改。** 弃用——漂移会长期误导 agent（理念 4），且散在多个 PR
-里无法一次 grep 验收，容易漏。
+**Alternative A: Do not create a separate spec; make the changes the next time these files are touched.** Rejected—the drift would mislead agents for a long time (Principle 4), and changes scattered across multiple PRs
+could not be accepted with a single grep check, making omissions likely.
 
-**备选 B：把清理并进删除 rebase/indexheal 的那个 PR（Spec-0037）里回溯补丁。** 弃用——那个 PR 已合并，回溯
-改动会污染其历史；且 issue #110 本就是对该 PR 的 review 产物，独立成 issue/PR 更符合"review→单独清障"的
-节奏（理念 5，PR 为交付单位）。
+**Alternative B: Fold the cleanup retroactively into the PR that deleted rebase/indexheal (Spec-0037).** Rejected—that PR has already been merged, and retroactive
+changes would muddy its history; moreover, issue #110 itself resulted from review of that PR, so a separate issue/PR better fits the
+“review → separate cleanup” workflow (Principle 5: the PR is the unit of delivery).
 
-**备选 C：连 `docs/specs/OVERVIEW.md` 生成视图里的 `rebase_open_prs`/`sync-prs`（Spec-0009 的 done Task）
-一起清。** 弃用（本 spec 范围外）——`OVERVIEW.md` 是 `spec render` 的生成物，不能手改；要清得去 amend/abandon
-Spec-0009 的 T2/T4 源 Task（那属于"死代码删除后 spec 快照未同步"的另一类账），本 spec 只清 `openagents/tests`
-的手写注释。列入 Unresolved。
+**Alternative C: Also clean up `rebase_open_prs`/`sync-prs` in the generated view `docs/specs/OVERVIEW.md` (done Tasks from Spec-0009).**
+Rejected (outside this spec's scope)—`OVERVIEW.md` is generated by `spec render` and cannot be edited manually; cleaning it up would require amending/abandoning
+the source Tasks T2/T4 in Spec-0009 (a separate category of debt: “spec snapshots not synchronized after dead code removal”). This spec cleans up only handwritten comments in `openagents/tests`.
+Listed under Unresolved.
 
 ## Prior art
 
-- **rust-lang/rfcs** 的活文档纪律：设计文档随实现演进更新，避免陈述与代码脱节。本 spec 即在补这门课的欠账。
-- OpenAgents 自身的 **living-snapshot** 原则（spec-driven-development skill 核心原则 1）：快照永远映射活代码，
-  不留 legacy。手写注释是这一原则在**代码内联文档**层面的延伸——注释也不该残留已删符号。
-- **Spec-0034**（`conflictdiag` 模块）与 **Spec-0028**（`conflict` 语义解冲突）：本次被清理注释的两个模块的
-  设计来源；此处仅当线索指路，其关键内容已在 Motivation 就地复述完整。
+- The living-documentation discipline of **rust-lang/rfcs**: Update design documents as the implementation evolves so that statements do not diverge from the code. This spec addresses accumulated debt in that practice.
+- OpenAgents' own **living-snapshot** principle (core principle 1 of the spec-driven-development skill): Snapshots always map to live code,
+  leaving no legacy behind. Handwritten comments extend this principle to **inline code documentation**—comments should not retain deleted symbols either.
+- **Spec-0034** (the `conflictdiag` module) and **Spec-0028** (`conflict` semantic conflict resolution): The design sources for the two modules whose comments
+  are being cleaned up here; they serve only as pointers here, as their key content has already been restated in full in Motivation.
 
 ## Unresolved questions
 
-- `docs/specs/OVERVIEW.md`（及 `ARCHITECTURE.md`）作为 `spec render`/`spec graph` 的生成视图，仍展示
-  Spec-0009 的 `rebase_open_prs 扇出模块`(files=`openagents/rebase.py`) / `sync-prs 命令` 两个 done Task，
-  而这些文件已删——属"死代码删除后 spec 源快照未同步"。是否在本 spec 顺带 abandon Spec-0009/T2、T4？
-  倾向**否**（越界，且需碰 `docs/specs/0009-*.md` 源，与本 spec 的 `openagents/tests` 文件分配不相交），
-  留作独立跟进。**待用户拍板**是否扩大范围。
-- `orchestrator.py` / `conflict._RESOLVE_TASK` 里对 `issue #48` 的证据引用：软化措辞时保留 issue 编号链接
-  即可，还是连编号也去掉？倾向保留编号（理念 7 证据链），只去掉"活模块 `indexheal`"的暗示。
+- As generated views from `spec render`/`spec graph`, `docs/specs/OVERVIEW.md` (and `ARCHITECTURE.md`) still display
+  the two done Tasks from Spec-0009, `rebase_open_prs fan-out module` (files=`openagents/rebase.py`) / `sync-prs command`,
+  even though those files have been deleted—this is a case of “spec source snapshots not synchronized after dead code removal.” Should this spec also abandon Spec-0009/T2 and T4?
+  The preference is **no** (outside the scope, and it requires touching the `docs/specs/0009-*.md` sources, which do not overlap with this spec's file assignments in `openagents/tests`),
+  leaving it for separate follow-up. **Awaiting the user's decision** on whether to expand the scope.
+- Evidence references to `issue #48` in `orchestrator.py` / `conflict._RESOLVE_TASK`: When softening the wording, is retaining the linked issue number
+  sufficient, or should the number also be removed? The preference is to retain the number (Principle 7: the evidence chain) and remove only the implication that “`indexheal` is a live module.”
 
 ## Future possibilities
 
-- 把"死符号不得作为当前实现出现在注释里"沉淀成 CI 关卡（一条 grep-denylist 检查），让口径漂移**无法**再
-  悄悄合入（呼应 skill 的"软约定硬化"——把自觉变成 error）。denylist 维护成本需权衡，故此处仅作未来项。
-- 若后续真要清 `docs/specs/OVERVIEW.md` 的 Spec-0009 死 Task，可另开 spec 用 `spec abandon` 处理，与本次
-  代码注释清理形成"代码注释层 + spec 快照层"两层活文档对齐的完整闭环。
-
+- Turn “obsolete symbols must not appear in comments as part of the current implementation” into a CI gate (a grep-denylist check), making it **impossible** for descriptive drift
+  to slip into a merge again (echoing the skill's “hardening soft conventions”—turning voluntary compliance into an error). The maintenance cost of the denylist requires consideration, so this remains a future item.
+- If the obsolete Spec-0009 Tasks in `docs/specs/OVERVIEW.md` are eventually cleaned up, a separate spec can use `spec abandon` to handle them, completing
+  alignment of living documentation across both the “code comment layer + spec snapshot layer” together with this cleanup of code comments.

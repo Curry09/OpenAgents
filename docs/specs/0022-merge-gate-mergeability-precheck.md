@@ -1,12 +1,12 @@
 ---
 number: "0022"
-title: 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
+title: "Code gate mergeability precheck + poll error isolation + decision comment idempotency"
 issue: 62
 slug: merge-gate-mergeability-precheck
-summary: 代码闸（merge gate）三处加固：合并前预检 PR 可合并性（不可合并直接跳过、不空转崩溃 poll）、poll 阶段隔离单个 PR 的错误不拖垮整轮、裁决评论幂等避免刷屏重复 PASS。迁移自旧 metadata（原无 summary，按标题与任务补齐）。
+summary: "Three improvements to the code gate (merge gate): precheck PR mergeability before merging (skip unmergeable PRs immediately, without busy-looping or crashing poll), isolate individual PR errors during poll so they do not bring down the entire round, and make decision comments idempotent to avoid spamming duplicate PASS comments. Migrated from legacy metadata (which originally had no summary; filled in based on the title and tasks)."
 tasks:
   - id: T1
-    title: github.mergeability：查询 PR 可合并性（mergeable / mergeStateStatus）
+    title: "github.mergeability: query PR mergeability (mergeable / mergeStateStatus)"
     status: done
     priority: P1
     tags: []
@@ -16,10 +16,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github.py
-    scope: 在 github.py 新增只读查询 mergeability(*, pr_number)，经 _gh_json 跑 gh pr view <n> --json mergeable,mergeStateStatus，返回 frozen dataclass Mergeability{mergeable, merge_state_status}，字段保持 GitHub 原值大写字符串不归一化；判定语义留给 T2。结构镜像 is_merged/is_closed/check_status，全关键字参数、纯读无副作用。
-    acceptance: 单测（monkeypatch _run_gh/_gh_json，hermetic）断言：DIRTY/CONFLICTING、CLEAN/MERGEABLE、UNKNOWN/UNKNOWN 三组字段均如实回传且 UNKNOWN 不抛错；_gh_json 返回非 dict 或缺字段抛 GithubError；传给 gh 的参数恰为 pr view <n> --json mergeable,mergeStateStatus。
+    scope: "Add a read-only query mergeability(*, pr_number) in github.py, running gh pr view <n> --json mergeable,mergeStateStatus through _gh_json and returning a frozen dataclass Mergeability{mergeable, merge_state_status}. Preserve the fields as GitHub's original uppercase strings without normalization; leave interpretation to T2. Mirror the structure of is_merged/is_closed/check_status, with keyword-only parameters and read-only behavior without side effects."
+    acceptance: "Unit tests (monkeypatch _run_gh/_gh_json, hermetic) must assert that all three field combinations—DIRTY/CONFLICTING, CLEAN/MERGEABLE, and UNKNOWN/UNKNOWN—are returned faithfully and UNKNOWN does not raise an exception; _gh_json returning a non-dict or missing fields raises GithubError; and the arguments passed to gh are exactly pr view <n> --json mergeable,mergeStateStatus."
   - id: T2
-    title: 代码闸可合并性预检 + poll 单 PR 错误隔离
+    title: "Code gate mergeability precheck + per-PR error isolation in poll"
     status: done
     priority: P0
     tags: []
@@ -30,10 +30,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages.py
-    scope: 改 messages.py 两处。(1) _process_coding 最前插入可合并性预检：mergeStateStatus==DIRTY 或 mergeable==CONFLICTING 视为真冲突，复用 rebase.CONFLICT_COMMENT 经 identity.post_signed_comment 发一次 rebase 提示后走 _block(gate="merge")，返回 reason="unmergeable"；UNKNOWN return None 下轮重查；CLEAN 照走 CI→reviewer→merge。(2) poll 逐 record 把 _process_run 包进 try/except，捕获后追加 reason="error" 事件并 continue、不改 state、不拖垮整轮。
-    acceptance: 单测（monkeypatch github/identity/orchestrator，hermetic）断言：DIRTY/CONFLICTING→不调 review_code/merge_pr、post_signed_comment 恰 1 次且 body 为 rebase.CONFLICT_COMMENT、record 置 STATUS_BLOCKED+needs-human、事件 reason=="unmergeable"；第二轮该 record return None（恰一条评论回归）；UNKNOWN 不评审不 block 不发评论；CLEAN 零回归走既有路径；某 record 抛 GithubError 时 poll 不抛、产 reason=="error" 事件且其余 record 照常处理。
+    scope: "Make two changes in messages.py. (1) Insert a mergeability precheck at the very beginning of _process_coding: treat mergeStateStatus==DIRTY or mergeable==CONFLICTING as a genuine conflict, reuse rebase.CONFLICT_COMMENT to post one rebase prompt through identity.post_signed_comment, then call _block(gate=\"merge\") and return reason=\"unmergeable\"; for UNKNOWN, return None and check again in the next round; for CLEAN, continue through CI→reviewer→merge as usual. (2) In poll, wrap _process_run in try/except for each record; when an exception is caught, append an event with reason=\"error\" and continue, without changing state or bringing down the entire round."
+    acceptance: "Unit tests (monkeypatch github/identity/orchestrator, hermetic) must assert: DIRTY/CONFLICTING→no calls to review_code/merge_pr, exactly 1 call to post_signed_comment with rebase.CONFLICT_COMMENT as the body, the record set to STATUS_BLOCKED+needs-human, and event reason==\"unmergeable\"; in the second round, that record returns None (regression check for exactly one comment); UNKNOWN triggers no review, no block, and no comment; CLEAN follows the existing path without regressions; when a record raises GithubError, poll does not raise, produces an event with reason==\"error\", and processes the remaining records as usual."
   - id: T3
-    title: 裁决评论幂等：同一裁决不每轮重发
+    title: "Decision comment idempotency: do not repost the same decision every round"
     status: done
     priority: P1
     tags: []
@@ -43,96 +43,98 @@ tasks:
     files:
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
-    scope: 改 orchestrator._post_review_decision：发评论前用 github.list_comments（只读）查既有评论，靠 reviewer.render_decision 稳定抬头「## 评审闸裁决」+ kind 识别裁决评论，按裁决结论（PASS/非 PASS）去重——最近一条同 kind 裁决结论与本轮相同则跳过（_progress 记一句），不同或无既往裁决则照发；list_comments 或比对异常一律降级照发（fail-open，best-effort 旁路）。不按正文逐字节比对、不改 reviewer/github。
-    acceptance: 单测（monkeypatch github.list_comments/identity.post_signed_comment/reviewer，hermetic）断言：既有同 kind PASS 裁决时本轮 PASS 不再调 post_signed_comment（同结论跳过）；PASS↔非 PASS 翻转照发；无既往裁决首次照发；rfc 与 code 裁决互不抑制（kind 隔离）；list_comments 抛错时不抛出、降级照发且 ReviewDecision 不受影响。
+    scope: "Modify orchestrator._post_review_decision: before posting a comment, query existing comments using github.list_comments (read-only), identify decision comments by reviewer.render_decision's stable heading \"## Review gate verdict\" + kind, and deduplicate by decision outcome (PASS/non-PASS)—if the latest decision of the same kind has the same outcome as the current round, skip posting (record a line with _progress); if the outcome differs or there is no previous decision, post as usual. Any exception from list_comments or comparison must fall back to posting as usual (fail-open, best-effort bypass). Do not compare bodies byte for byte or modify reviewer/github."
+    acceptance: "Unit tests (monkeypatch github.list_comments/identity.post_signed_comment/reviewer, hermetic) must assert: when a PASS decision of the same kind already exists, PASS in the current round does not call post_signed_comment again (skip identical outcomes); PASS↔non-PASS transitions post as usual; the first decision posts as usual when there is no previous decision; rfc and code decisions do not suppress each other (kind isolation); when list_comments raises an exception, it does not propagate, posting proceeds as the fallback, and ReviewDecision is unaffected."
 ---
 
-# 0022 · 代码闸可合并性预检 + poll 错误隔离 + 裁决评论幂等
+# 0022 · Code gate mergeability precheck + poll error isolation + decision comment idempotency
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+> Historical labels are translated here for readability. See the [original text](../specs-zh-CN/0022-merge-gate-mergeability-precheck.md) for exact historical values.
+
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-给代码闸（merge gate）做三处加固，对症 issue #62 暴露的「不可合并 PR 让 poll 空转又崩溃、还把同一裁决刷成几十条评论」：(1) 在跑 reviewer 之前先预检 PR 与 base 的真实可合并性，真冲突一次性进 blocked + needs-human + 留一次 rebase 提示，不再每轮空转；(2) 给 poll 逐 record 处理加错误隔离，单个 PR 失败（含 merge_pr 抛错）只记一条错误事件并继续，不拖垮整轮；(3) 让裁决评论幂等，同一裁决结论不每轮重发。三件事分解为 T1（github 叶子查询）→ T2（代码闸预检 + 错误隔离）与正交的 T3（裁决去重）。
+Harden the code gate (merge gate) in three places to address the problem exposed by issue #62: “an unmergeable PR makes poll repeatedly do useless work and crash, while posting the same decision as dozens of comments”: (1) precheck the PR’s actual mergeability with the base before running the reviewer; for a genuine conflict, transition once to blocked + needs-human + post one rebase prompt, instead of repeating useless work every round; (2) isolate errors in poll’s per-record processing, so that a single PR failure (including an exception from merge_pr) records just one error event and processing continues, without taking down the entire round; (3) make decision comments idempotent, so that the same decision outcome is not reposted every round. These three changes are divided into T1 (github leaf-level query) → T2 (code gate precheck + error isolation), and the orthogonal T3 (decision deduplication).
 
 ## Motivation
 
-**根因复现（issue #62 / PR #61，完整复述，不要求读者去翻别的 spec）。** 当前代码闸 `messages._process_coding` 进闸前**完全不看 PR 可合并性**：只要 CI 绿 + reviewer 裁决 PASS 就直接 `github.merge_pr`（messages.py:230，该调用**无 try/except**）。而 `merge_pr` 遇冲突会经 `_run_gh` 抛 `GithubError`，`poll()` 逐 record 循环（messages.py:117-125）也不兜异常 —— 于是一旦某个 PR 不可合并，**整轮 poll 直接崩**。又因进闸前不查可合并性，每个 interval 会重跑一遍 reviewer（白烧一次 agent 运行）→ 又判 PASS → 又 merge 失败 → 又崩。
+**Root-cause reproduction (issue #62 / PR #61, restated in full so readers do not need to consult another spec).** The current code gate, `messages._process_coding`, **does not check PR mergeability at all** before gate evaluation: as long as CI is green + the reviewer returns PASS, it calls `github.merge_pr` directly (messages.py:230; this call has **no try/except**). When `merge_pr` encounters a conflict, it raises `GithubError` through `_run_gh`, and the per-record loop in `poll()` (messages.py:117-125) does not catch exceptions either—so once any PR is unmergeable, **the entire poll round crashes immediately**. Because mergeability is not checked before gate evaluation, each interval reruns the reviewer (wasting another agent run) → returns PASS again → fails to merge again → crashes again.
 
-实例 PR #61：14 个 `docs/specs/*/metadata.yaml` 是**内容冲突**（`mergeable=CONFLICTING`、`mergeStateStatus=DIRTY`），自动 rebase 救不回来（`update-branch` 非真 rebase，heal 自愈只重渲 OVERVIEW.md、动不了 metadata），结果它被重复判 PASS 33 次、刷出 33 条一模一样的 `## 评审闸裁决 ✅ PASS`、永远合不进去。
+Concrete example, PR #61: 14 `docs/specs/*/metadata.yaml` files had **content conflicts** (`mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`) that automatic rebase could not resolve (`update-branch` is not a true rebase, and heal’s self-repair only re-renders OVERVIEW.md and cannot modify metadata). As a result, it received PASS 33 times, accumulated 33 identical `## Review gate decision ✅ PASS` comments, and could never be merged.
 
-**为什么要改。** 这条恶性循环有三个独立病灶，恰对应 issue #62 的三条验收期望：闸进闸前不查可合并性（空转源头）、poll 不兜单 record 异常（整轮崩源头）、裁决回贴无条件每轮发（刷屏源头）。三者需分别止血。
+**Why this needs to change.** This vicious cycle has three independent causes, corresponding exactly to the three acceptance criteria in issue #62: no mergeability check before gate evaluation (the source of useless repeated work), no per-record exception handling in poll (the source of entire-round crashes), and unconditional decision comments every round (the source of comment spam). Each needs its own fix.
 
-**裁决刷屏的来历。** RFC-0018 让 reviewer 闸把裁决回贴 PR（恢复人对评审闸的可观测性），但回贴是**无条件每轮发**：只要 record 仍在 coding/rfc-review 阶段、每个 interval 重跑一次 reviewer，就重发一条裁决评论。PR 长期 open 且裁决不变时（不限于冲突场景）便会刷屏。
+**How decision comment spam arose.** RFC-0018 made the reviewer gate post decisions back to the PR (restoring human visibility into the review gate), but posting is **unconditional every round**: as long as a record remains in the coding/rfc-review phase and the reviewer reruns each interval, another decision comment is posted. When a PR stays open for a long time and the decision does not change (not limited to conflict scenarios), this produces comment spam.
 
 ## Guide-level explanation
 
-三处加固各自独立、互不依赖运行时状态：
+The three hardening changes are independent and do not depend on one another’s runtime state:
 
-| 病灶（issue #62） | 现象 | 本 feature 的对治 |
+| Cause (issue #62) | Symptom | This feature’s remedy |
 |------|------|------|
-| 进闸前不查可合并性 | 真冲突 PR 每轮重跑 reviewer 空转 | T1 提供只读查询 + T2 预检短路、一次性进 blocked |
-| poll 不兜单 record 异常 | 单个 PR 失败掀翻整轮 poll | T2 给逐 record 处理加错误隔离 |
-| 裁决回贴无条件每轮发 | 同一裁决刷成几十条 PASS | T3 按裁决结论去重、同结论跳过 |
+| No mergeability check before gate evaluation | A PR with genuine conflicts reruns the reviewer uselessly every round | T1 provides a read-only query + T2 short-circuits with a precheck and transitions to blocked once |
+| No per-record exception handling in poll | One PR failure takes down the entire poll round | T2 adds error isolation around per-record processing |
+| Decision comments are posted unconditionally every round | The same decision produces dozens of PASS comments | T3 deduplicates by decision outcome and skips identical outcomes |
 
-对使用者：行为只增不变 —— 真冲突的 PR 会被一次性标 `needs-human` 并附一条 rebase 提示（而非反复空转），其余 PR 照常走 CI→reviewer→merge；poll 不再因单个坏 PR 整轮挂掉；PR 评论区不再被相同裁决刷屏。无对外签名变更，无需任何配置或命令变化。
+For users: behavior is extended without changing the existing flow—a PR with genuine conflicts is marked `needs-human` once and receives one rebase prompt (instead of repeatedly doing useless work); other PRs continue through CI→reviewer→merge as usual. A single bad PR no longer crashes the entire poll round, and PR comments are no longer flooded with identical decisions. There are no public signature changes, and no configuration or command changes are required.
 
 ## Reference-level explanation
 
-落到改动，分解为 3 个 Task（DAG 见下；`files` 互斥，各 Task 单一 writer）：
+The changes are divided into 3 Tasks (see the DAG below; `files` are mutually exclusive, with a single writer for each Task):
 
-1. **T1 github.mergeability（叶子能力，无依赖）** — 在 `openagents/github.py` 新增只读查询，结构上**镜像既有 `is_merged`（512）/ `is_closed`（540）/ `check_status`（492）**：经唯一收口点 `_gh_json` 跑 `gh pr view <n> --json mergeable,mergeStateStatus`，自带 RFC-0010 的瞬时错误重试，零额外依赖、零新外部数据源（理念 1 奥卡姆）。返回值用一个小的 frozen dataclass（仿 `CheckStatus` 的轻量结构体）承载两个原始字段，而**不**回退成裸 tuple —— 让调用方按字段名读、避免位置歧义。字段保持 GitHub 原值大写字符串（`"DIRTY"` / `"CONFLICTING"` / `"UNKNOWN"` 等），不在本层做任何归一化或布尔判定（把「哪种组合算不可合并」留给 T2，理念 10 解耦）。建议签名：
+1. **T1 github.mergeability (leaf-level capability, no dependencies)** — Add a read-only query in `openagents/github.py`, structurally **mirroring the existing `is_merged` (512) / `is_closed` (540) / `check_status` (492)**: run `gh pr view <n> --json mergeable,mergeStateStatus` through the sole centralized entry point, `_gh_json`, inheriting RFC-0010’s transient-error retries, with zero additional dependencies and zero new external data sources (principle 1, Occam). Carry the two raw fields in a small frozen dataclass (a lightweight structure modeled on `CheckStatus`), **not** a bare tuple—so callers read fields by name and avoid positional ambiguity. Keep the fields as GitHub’s original uppercase strings (`"DIRTY"` / `"CONFLICTING"` / `"UNKNOWN"`, etc.), with no normalization or Boolean determination in this layer (leave “which combinations count as unmergeable” to T2; principle 10, decoupling). Suggested signature:
 
    ```python
    @dataclass(frozen=True)
    class Mergeability:
-       mergeable: str            # GitHub 原值：MERGEABLE / CONFLICTING / UNKNOWN
-       merge_state_status: str   # GitHub 原值：CLEAN / DIRTY / BLOCKED / BEHIND / UNKNOWN / ...
+       mergeable: str            # Original GitHub value: MERGEABLE / CONFLICTING / UNKNOWN
+       merge_state_status: str   # Original GitHub value: CLEAN / DIRTY / BLOCKED / BEHIND / UNKNOWN / ...
 
    def mergeability(*, pr_number: int) -> Mergeability: ...
    ```
 
-   全部关键字参数（CLAUDE.md 禁止位置参数），纯读无副作用、不改 state。错误处理沿用既有风格：`_gh_json` 返回非 dict 或缺字段 → 抛 `GithubError`（与 `is_merged`/`is_closed` 逐字一致）；`UNKNOWN`（GitHub 异步尚未算完）是**合法返回值**，照实回传、本层不视为错误，是否等待由 T2 决策。
+   All parameters are keyword-only (CLAUDE.md prohibits positional arguments). This is a pure read with no side effects and no state changes. Error handling follows the existing style: if `_gh_json` returns a non-dict or a field is missing → raise `GithubError` (identical to `is_merged`/`is_closed`). `UNKNOWN` (GitHub has not yet finished its asynchronous computation) is a **valid return value**; return it as-is, without treating it as an error in this layer. T2 decides whether to wait.
 
-2. **T2 代码闸预检 + poll 错误隔离（依赖 T1）** — 改 `openagents/messages.py` 两处，均不新增模块、不改状态机定义（理念 1）。
-   - **(1) 可合并性预检** 插在 `_process_coding` **最前**（甚至先于 CI 判断 —— 冲突 PR 连 CI 都不必等，越早短路越省）。判定：`mergeStateStatus == "DIRTY"` 或 `mergeable == "CONFLICTING"` 视为真冲突（二者在冲突场景同时出现，取或更稳）。冲突动作：先 `identity.post_signed_comment` 发一次 rebase 提示（**复用 `rebase.CONFLICT_COMMENT` 文案**，避免散落漂移；agent_id 用 `self._agent_id`），再走既有 `self._block(record=record, gate="merge")`（置 `STATUS_BLOCKED` + 打 `needs-human`），返回事件 `{"reason": "unmergeable"}`。**「恰一条评论」靠状态机短路**：`_block` 后 record 变 `STATUS_BLOCKED`，下一轮 poll 经 `_process_run` 的 blocked 分支（messages.py:168）—— 仍有 needs-human 标签即 `return None` 跳过，永不再进 `_process_coding`，故提示天然只发一次、无需额外去重状态。`UNKNOWN`（刚 push 常见）：`return None`，本轮不评审也不 block，下个 interval 重查。
-   - **(2) poll 单 record 错误隔离** 把 `self._process_run(record=...)` 包进 try/except（沿用 RFC-0004 决策 8 / `rebase.rebase_open_prs`（rebase.py:55-76）的错误隔离风格）：捕获后追加一条 `{"pr_number": ..., "reason": "error", "error": <摘要>}` 事件并 `continue`，绝不让单 record 异常冒泡掀翻整轮。**不改 state**（失败可能是瞬时 gh 错误，下一轮自然重试，可观测性由 error 事件 + watch 日志承担）。包裹粒度选「整个 `_process_run`」而非「仅 merge_pr」，覆盖所有 record 处理路径。`_block` 的 `gate` 取值扩展一个 `"merge"`（现有为 `"rfc"`/`"code"`），仅用于事件标注。
+2. **T2 Code gate precheck + poll error isolation (depends on T1)** — Change two places in `openagents/messages.py`, without adding modules or changing the state machine definition (principle 1).
+   - **(1) Mergeability precheck** goes at the **very beginning** of `_process_coding` (even before the CI check—a conflicting PR need not even wait for CI; the earlier the short-circuit, the greater the savings). Rule: `mergeStateStatus == "DIRTY"` or `mergeable == "CONFLICTING"` counts as a genuine conflict (both occur together in conflict scenarios; using OR is more robust). Conflict handling: first post one rebase prompt via `identity.post_signed_comment` (**reuse the wording in `rebase.CONFLICT_COMMENT`** to avoid scattered, diverging text; use `self._agent_id` for agent_id), then call the existing `self._block(record=record, gate="merge")` (set `STATUS_BLOCKED` + apply `needs-human`), and return an event with `{"reason": "unmergeable"}`. **“Exactly one comment” is guaranteed by the state machine’s short-circuit**: after `_block`, the record becomes `STATUS_BLOCKED`; on the next poll round, it follows the blocked branch in `_process_run` (messages.py:168)—if the needs-human label is still present, it skips processing with `return None` and never enters `_process_coding` again. Thus the prompt is naturally posted only once, with no additional deduplication state. For `UNKNOWN` (common immediately after a push): `return None`, with neither review nor blocking this round; check again at the next interval.
+   - **(2) Per-record error isolation in poll** wraps `self._process_run(record=...)` in try/except (following the error-isolation style of RFC-0004 decision 8 / `rebase.rebase_open_prs` (rebase.py:55-76)): after catching an exception, append one `{"pr_number": ..., "reason": "error", "error": <summary>}` event and `continue`; never allow a single record’s exception to propagate and take down the entire round. **Do not change state** (the failure may be a transient gh error; the next round naturally retries, while the error event + watch logs provide observability). Wrap “the entire `_process_run`” rather than “only merge_pr” to cover all record-processing paths. Extend `_block`’s `gate` values with `"merge"` (currently `"rfc"`/`"code"`), used only for event annotation.
 
-3. **T3 裁决评论幂等（无依赖，与 T2 正交、可并行）** — 只改 `openagents/orchestrator.py` 的 `_post_review_decision`（裁决产生即回贴的单点收口，239-253）。发评论前先 `github.list_comments`（只读，已存在）查既有评论，靠 `reviewer.render_decision` 输出的稳定抬头 `## 评审闸裁决` + kind（rfc/code）识别裁决评论，**按裁决结论（PASS / 非 PASS）去重**：比对最近一条同 kind 裁决结论与本轮 `decision.passed`，相同则跳过（`_progress` 记一句），不同（翻转）或无既往裁决则照发。**不按正文逐字节比对**（票数渲染「N 中 X 票 PASS」或措辞每轮微变会让逐字节判「不同」而继续刷屏）。**尽力而为绝不阻断**（沿用 RFC-0018 决策 2）：`list_comments` 或比对任何异常都 `except` 后**降级为照常发送**（fail-open），仅 `_progress` 记一句，评审闸与下游 refine/iterate/merge 不被拖崩或拦住。与 T2 正交：T2 用状态机短路止住冲突 PR 源头，T3 用评论比对兜所有其它「裁决不变仍重发」场景，文件不相交、可独立验证。
+3. **T3 Decision comment idempotency (no dependencies, orthogonal to T2, can run in parallel)** — Change only `_post_review_decision` in `openagents/orchestrator.py` (the single centralized point that posts a decision as soon as it is produced, 239-253). Before posting a comment, call `github.list_comments` (read-only, already exists) to query existing comments. Identify decision comments by the stable heading `## Review gate verdict` (the legacy Chinese heading) produced by `reviewer.render_decision` + kind (rfc/code), and **deduplicate by decision outcome (PASS / non-PASS)**: compare the most recent decision outcome of the same kind with this round’s `decision.passed`; if they match, skip posting (record a line via `_progress`); if they differ (the outcome flips), or there is no previous decision, post as usual. **Do not compare the body byte for byte** (small changes in the rendered vote count, “X of N votes PASS,” or wording each round would make a byte-for-byte comparison report “different” and continue the spam). **Best effort; never block** (following RFC-0018 decision 2): if `list_comments` or any comparison raises an exception, catch it and **fall back to sending as usual** (fail-open), recording only a line via `_progress`; the review gate and downstream refine/iterate/merge must neither crash nor be blocked. This is orthogonal to T2: T2 uses the state machine short-circuit to stop the source of repeated work for conflicting PRs, while T3 compares comments to cover all other cases where “the decision is unchanged but is still reposted.” The files do not overlap, and the changes can be verified independently.
 
-**端到端验证**：本组迁移自旧 metadata，无独立 e2e 脚本；hermetic 验证由各 Task 的 `tests/test_github.py`、`tests/test_messages.py`、`tests/test_orchestrator.py`（全 monkeypatch、不触真实 gh）承担。整仓回归走 `uv run pytest`（与 CI 一致）。
+**End-to-end verification**: this group was migrated from legacy metadata and has no standalone e2e script; hermetic verification is handled by each Task’s `tests/test_github.py`, `tests/test_messages.py`, and `tests/test_orchestrator.py` (all use monkeypatch and never access real gh). Run repository-wide regression tests with `uv run pytest` (the same as CI).
 
-依赖 DAG：`T1 → T2`，`T3` 独立（与 T1/T2 无依赖、可并行）。
+Dependency DAG: `T1 → T2`; `T3` is independent (no dependencies on T1/T2, can run in parallel).
 
 ## Drawbacks
 
-- 预检判定阈值（`DIRTY` 或 `CONFLICTING` 即冲突）是固定取或，未来若出现别的 `mergeStateStatus` 需要拦截，需回到 T2 调参（但收口在单点，改动面小）。
-- T3 按结论去重意味着「同结论但反馈正文更新」的那一版不会重贴 —— 人看到的是「结论变了」的信号，细节需到 worktree/日志查；可接受。
-- 错误隔离只记事件不升级状态，理论上一个反复瞬时失败的 PR 会每轮被隔离、不主动 block；本组从简不引入计数升级状态（见 Rationale）。
+- The precheck criterion (`DIRTY` or `CONFLICTING` means conflict) is a fixed OR condition. If another `mergeStateStatus` needs to be blocked in the future, T2 will need adjustment (but the logic is centralized in one place, so the change is small).
+- T3’s outcome-based deduplication means a version with “the same outcome but an updated feedback body” will not be reposted—people see a signal when “the outcome changed,” while details must be checked in the worktree/logs; this is acceptable.
+- Error isolation only records events and does not escalate state. In theory, a PR that repeatedly encounters transient failures will be isolated every round without being proactively blocked; this group keeps things simple and does not introduce counter-based state escalation (see Rationale).
 
 ## Rationale and alternatives
 
-- **T1 小 dataclass vs 裸 tuple/dict**：选 dataclass。tuple 位置易错、dict 键名散落；dataclass 与 `CheckStatus` 同构，调用方读字段名最清晰，代价仅一个轻量类型（理念 1 可接受）。
-- **T1 只取回原值 vs 本层直接给 `is_unmergeable() -> bool`**：选只取回原值，把布尔判定放 T2，github 层保持「薄 gh 封装、零业务」（理念 10）；否则阈值逻辑渗进叶子模块、未来调参要改两处。
-- **T1 一次查两字段 vs 分两次查**：一次 `--json mergeable,mergeStateStatus`，省一次 gh 往返，且两字段同源快照、避免读到不一致中间态。
-- **T2 预检放 `_process_coding` 最前 vs CI 之后**：选最前。冲突 PR 等 CI 无意义，越早短路越省（连 CI 轮询都免）。
-- **T2 错误隔离粒度：整个 `_process_run` vs 仅 `merge_pr`**：选包整个 `_process_run`。崩点本质是「逐 record 不兜异常」，包到 record 级一次性覆盖所有路径，符合 rebase.py「单 PR 失败不拖垮整轮」风格，未来新增 gh 调用也自动受保护。
-- **T2 错误隔离是否改 state（升级 needs-human）**：选不改、只记事件。失败常是瞬时（gh 限流/网络），贸然 block 会把可自愈 PR 焊死；保持下一轮自然重试。累计 N 轮升级是更主动方案，但要引入计数状态、增实体，本组从简不做。
-- **T2 rebase 提示复用 `rebase.CONFLICT_COMMENT` vs 新写文案**：复用。同一「请手动 rebase」语义只应有一处文案来源，避免 RFC-0009 与本组各写一句、日后漂移。
-- **T3 按裁决结论去重 vs 正文逐字节去重**：选结论。逐字节会因票数/措辞微变失效、继续刷屏；按 PASS/非 PASS 结论去重才命中「同一裁决不重发」的真实意图。
-- **T3 去重放 orchestrator vs reviewer**：放 orchestrator。回贴本就收口在 `_post_review_decision`；reviewer 保持「输入 diff → 输出裁决」的纯函数、不沾 PR 评论状态（理念 10 解耦）。
-- **T3 去重失败时默认照发 vs 默认跳过**：默认照发（fail-open）。宁可偶尔多一条评论，也不能因查询抖动漏发裁决、损害可观测性，与 best-effort 旁路语义一致。
+- **T1 small dataclass vs bare tuple/dict**: choose dataclass. Tuple positions are error-prone, and dict keys become scattered; a dataclass has the same structure as `CheckStatus`, makes named-field access clearest for callers, and costs only one lightweight type (acceptable under principle 1).
+- **T1 retrieve raw values only vs directly provide `is_unmergeable() -> bool` in this layer**: choose raw values only, leaving the Boolean determination to T2 and keeping the github layer a “thin gh wrapper with zero business logic” (principle 10); otherwise, threshold logic leaks into the leaf module, and future adjustments require changes in two places.
+- **T1 query both fields once vs query them separately**: use one `--json mergeable,mergeStateStatus`, saving one gh round trip and obtaining both fields from the same snapshot to avoid reading inconsistent intermediate states.
+- **T2 precheck at the very beginning of `_process_coding` vs after CI**: choose the beginning. Waiting for CI on a conflicting PR is pointless; short-circuiting earlier saves more work (even CI polling is avoided).
+- **T2 error isolation scope: all of `_process_run` vs only `merge_pr`**: choose all of `_process_run`. The fundamental crash cause is “no exception handling per record”; wrapping at record scope covers all paths at once, follows rebase.py’s style of “one PR failure must not take down the entire round,” and automatically protects future gh calls.
+- **T2 whether error isolation changes state (escalates to needs-human)**: choose no state change, only event recording. Failures are often transient (gh rate limits/network); blocking too readily would lock out PRs that could recover on their own. Preserve natural retries in the next round. Escalating after N accumulated rounds is a more proactive approach, but it requires counter state and adds entities; this group keeps things simple and does not implement it.
+- **T2 reuse `rebase.CONFLICT_COMMENT` for the rebase prompt vs write new wording**: reuse it. The same “please rebase manually” message should have only one source of wording, avoiding separate text in RFC-0009 and this group that could diverge later.
+- **T3 deduplicate by decision outcome vs compare the body byte for byte**: choose the outcome. Byte-for-byte comparison fails when vote counts/wording change slightly and allows spam to continue; deduplicating by PASS/non-PASS outcome addresses the actual intent of “do not repost the same decision.”
+- **T3 deduplication in orchestrator vs reviewer**: put it in orchestrator. Posting is already centralized in `_post_review_decision`; reviewer remains a pure function of “input diff → output decision,” without depending on PR comment state (principle 10, decoupling).
+- **T3 send by default vs skip by default when deduplication fails**: send by default (fail-open). An occasional extra comment is preferable to missing a decision because of a transient query problem and harming observability; this is consistent with best-effort side-channel semantics.
+
 
 ## Prior art
 
-GitHub 把 PR 可合并性拆成 `mergeable`（MERGEABLE / CONFLICTING / UNKNOWN）与 `mergeStateStatus`（CLEAN / DIRTY / BLOCKED / BEHIND / DRAFT / HAS_HOOKS / UNKNOWN / UNSTABLE）两个字段（见 `gh pr view --json` 文档与 GitHub GraphQL 对应枚举），冲突场景表现为 `mergeable=CONFLICTING` 且 `mergeStateStatus=DIRTY`；T1 如实取回这两字段。错误隔离「单 PR 失败不拖垮整轮」沿用本仓 `rebase.rebase_open_prs` 与 RFC-0004 决策 8 的既有范式；裁决回贴的 best-effort 旁路语义沿用 RFC-0018。
+GitHub splits PR mergeability into two fields: `mergeable`（MERGEABLE / CONFLICTING / UNKNOWN）and `mergeStateStatus`（CLEAN / DIRTY / BLOCKED / BEHIND / DRAFT / HAS_HOOKS / UNKNOWN / UNSTABLE）(see the `gh pr view --json` documentation and the corresponding GitHub GraphQL enums). Conflicts appear as `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY`; T1 retrieves these two fields faithfully. Error isolation—“a single PR failure does not bring down the entire round”—follows the existing pattern in this repository’s `rebase.rebase_open_prs` and RFC-0004 Decision 8; the best-effort side-channel semantics for posting the adjudication back follow RFC-0018.
 
 ## Unresolved questions
 
-无。三处加固的判定阈值、去重粒度、错误隔离粒度均已在本组确定。
+None. The decision thresholds, deduplication granularity, and error isolation granularity for all three hardening measures have been settled within this group.
 
 ## Future possibilities
 
-- 错误隔离可扩展为「累计 N 轮失败再升级 needs-human」的主动方案（需引入计数状态，当前 YAGNI）。
-- 预检判定可随 GitHub 字段演进扩展更多 `mergeStateStatus`（如 BEHIND 自动触发 rebase）。
-
+- Error isolation could be extended into a proactive approach that “escalates to needs-human after failures accumulate over N rounds” (requires introducing counter state; currently YAGNI).
+- Preflight checks could be extended to cover more `mergeStateStatus` values as GitHub’s fields evolve (for example, BEHIND automatically triggering a rebase).

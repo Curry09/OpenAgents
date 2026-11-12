@@ -1,25 +1,8 @@
-# Spec-0071/T1: spec.ownership —— 单一 writer 文件所有权索引 + 越权写守卫（设计期声明→运行期可执行）
+# Spec-0071/T1: spec.ownership - A single Writer file ownership index + ultra-authority guard (design period declaration & & & & & QR)
 
-"""Resolve the single-writer owner of each spec-declared file and flag unowned writes.
+"""Resolve the single-writer owner of each Spec-declared file and flag unowned writes.
 
-借鉴 Rust 所有权模型（aliasing XOR mutability）：一个文件在一个 spec 组内**至多一个 owner
-Task**——`spec validate` 的「同组 files 不重叠」error 已在设计期保证这份唯一性。本模块把那份
-**设计期声明**读成一个可查询的单一 writer 索引，并据它判定「一个 changeset 里有哪些写落在
-无主文件上」——即 issue #71 说的「越权写」（写了不属于任何 Task 的文件）。纯函数、零 IO，
-不碰 git / GitHub（理念 10 解耦）；raise 版硬闸留在 `runtime.gates`（harness 侧的拒绝原语）。
-
-调用示例：
-    >>> index = build_index(group=group)
-    >>> index.owner_of(path="openagents/spec/ownership.py")
-    '0071/T1'
-    >>> unowned_writes(group=group, changed_paths=["evil.py"])
-    ['evil.py']
-
-Exports:
-    OwnerIndex -- path → 单一 owner Task 限定 ID（如 "0071/T1"）的不可变索引，附 owner_of 查询。
-    build_index -- 从一个 Group 建单一 writer 索引（首个声明者胜，确定性）。
-    generated_artifacts -- 一个 Group 恒允许写的生成物集合（本组 spec md / OVERVIEW / ARCHITECTURE）。
-    unowned_writes -- 一个 changeset 里落在无主文件（且非生成物）上的写，排序去重返回。
+This module does not consult Git or the forge. Runtime gates enforce the result.
 """
 
 from __future__ import annotations
@@ -31,44 +14,44 @@ from pathlib import Path
 from openagents.spec import model
 from openagents.spec.model import Group
 
-# 默认 specs 根目录（与 spec CLI 一致）；生成物路径据此拼出。
+# Default specs root directory (symmetrically with spec CLI); the generator path is spelled accordingly.
 _DEFAULT_SPECS_ROOT = Path("docs/specs")
 
 
 @dataclass(frozen=True)
 class OwnerIndex:
-    """Spec-0071/T1：一个 spec 组的单一 writer 索引——path → 唯一 owner Task 的限定 ID。
+    """Spec-0071/T1: A single Writer Index for a spec group - a path  →  unique limit ID for own Task.
 
-    `by_path` 的每个键是一个 Task 在 frontmatter `files` 里声明的文件路径（仓库相对），值是它的
-    唯一 owner（`"0071/T1"` 式限定 ID）。同组不重叠由 `spec validate` 保证，故一个 path 只有一个
-    owner；`build_index` 万一遇到重复声明取**首个**（确定性、不 raise，重叠本身另由 validate 报 error）。
+    Each key of `by_path` is a file path (repository relative) that Task has declared in frontmatter `files`, and the value is its
+    Only owner (`"0071/T1"`-defined ID). The same group is not overlapping with `spec validate`, so there is only one path
+    `build_index` in case of repeated statements** (certainty, no raise, overlap itself and valaidate newspaper error)
     """
 
     by_path: dict[str, str]
 
     def owner_of(self, *, path: str) -> str | None:
-        """返回 `path` 的 owner Task 限定 ID；无主（未被任何 Task 声明）返回 None。"""
+        """Returns `path` owner Task restricted ID; no one (not any Task declaration) returns None."""
         return self.by_path.get(path)
 
 
 def build_index(*, group: Group) -> OwnerIndex:
     """Build the single-writer ownership index for one spec group.
 
-    Spec-0071/T1: 遍历组内当前版 Task，把每个 `files` 项映射到其 owner 的限定 ID（`build` 时首个
-    声明者胜，保证确定性）。同组内一个文件被多个 Task 声明本身是 `spec validate` 的 error，本索引
-    不复述该校验、只取首个 owner 供查询。
+    Spec-0071/T1: Current version of Task throughout the calendar group, map each `files` item to its owner ’s limited ID (`build`) first
+    Declarors win, guarantees certainty. A file in the same group has been declared by more than one Task as `spec validate` error, index
+    Do not repeat this check-up, only take the first owner for query.
 
     Args:
-        group: 一个已加载的 spec 组（`spec.model.Group`）。
+        Group: A loaded spec group (`spec.model.Group`).
 
     Returns:
-        OwnerIndex：path → owner 限定 ID 的不可变索引。
+        OwnerIndex: path  →  owner limits the unvariable index of ID.
     """
     by_path: dict[str, str] = {}
     for task in group.tasks:
         owner = model.qualified_id(group=group.number, task_id=task.id)
         for path in task.files:
-            # 首个声明者胜：重复声明（validate 的 error）不改写已记录的 owner，保持确定性。
+            # First speaker wins: repeat declaration (error of Validate) does not rewrite recorded owner, and maintains certainty.
             by_path.setdefault(path, owner)
     return OwnerIndex(by_path=by_path)
 
@@ -76,16 +59,16 @@ def build_index(*, group: Group) -> OwnerIndex:
 def generated_artifacts(*, group: Group, specs_root: Path = _DEFAULT_SPECS_ROOT) -> set[str]:
     """Return the set of generated/spec artifacts a group is always allowed to write.
 
-    Spec-0071/T1: 解决 issue #71 时，一个 changeset 除了各 Task 声明的 `files`，还必然会碰三类
-    **生成物**——本组的 spec markdown（`NNNN-slug.md`）、以及 `spec render` / `spec graph` 重渲的
-    `OVERVIEW.md` / `ARCHITECTURE.md`。这些不写进 `tasks[].files`（约定），但绝非越权写，故恒放行。
+    Spec-0071/T1: When resolving issue #71, a changeset will inevitably touch three categories, in addition to the `files` declared by Task
+    ** Generating** - The group’s spec markdown (`NNNN-slug.md`) and `spec render`/ `spec graph` replayed
+    `OVERVIEW.md` / `ARCHITECTURE.md`. These are not written in `tasks[].files` (under contract), but are not overstepped and are therefore always released.
 
     Args:
-        group: 目标 spec 组。
-        specs_root: specs 根目录（默认 docs/specs），用于拼出生成物的仓库相对路径。
+        Group: Target spec group.
+        specs_root: root directories (default docs/specs) for the relative path of the warehouse where the product is used to spell out the product.
 
     Returns:
-        三个仓库相对路径的集合：本组 spec md + OVERVIEW.md + ARCHITECTURE.md。
+        The collection of three warehouses relative paths: this group spec md + OVERVIEW.md + ARCHITECTURE.md.
     """
     spec_md = model.group_path(specs_root=specs_root, number=group.number, slug=group.metadata.slug)
     return {
@@ -103,17 +86,17 @@ def unowned_writes(
 ) -> list[str]:
     """Return the changed paths that no Task in the group owns and that aren't generated artifacts.
 
-    Spec-0071/T1: issue #71 的「越权写」检测——把「单一 writer」从设计期声明推到运行期可执行判定。
-    允许写的文件集 = 本组单一 writer 索引里的全部 path ∪ 本组生成物（spec md / OVERVIEW /
-    ARCHITECTURE）。落在这个并集之外的改动即无主写，排序去重后返回（空列表 = 全部合规）。
+    Spec-0071/T1: issue #71 ”Excessive Write” test - Pushing a ”single Writer” from the design-period statement to the running-time to the execution of the decision.
+    Allowed File Set = All path  → s in this group of single Writer indexes (spec md / overVIEW/
+    ARCHITECTURE. Changes that fall outside this cluster are unauthorised, sorted and re-reweighted and returned (empty list = all compliance).
 
     Args:
-        group: 目标 spec 组（提供 `files` 声明与生成物集合）。
-        changed_paths: 实际改动的文件路径（仓库相对，通常由 harness 从 `git diff --name-only` 得到）。
-        specs_root: specs 根目录（默认 docs/specs），透传给 `generated_artifacts`。
+        Group: Target spec group (providing `files` declarations and a collection of generators).
+        changed_paths: The file path that actually changes (repository relative, usually obtained by harness from `git diff --name-only`).
+        specs_root: root directory (default docs/specs), passed via `generated_artifacts`.
 
     Returns:
-        排序去重的无主写路径列表；空列表表示无越权写。
+        Sorts a list of unauthorised paths; empty lists indicate that there is no excess.
     """
     index = build_index(group=group)
     allowed = set(index.by_path) | generated_artifacts(group=group, specs_root=specs_root)

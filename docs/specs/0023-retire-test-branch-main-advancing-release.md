@@ -1,12 +1,12 @@
 ---
 number: "0023"
-title: 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布
+title: "Retire the test branch: keep main advancing continuously + publish releases through release/vX.Y.Z version branches"
 issue: 68
 slug: retire-test-branch-main-advancing-release
-summary: 退役 test 分支,反转旧的「test 门控」模型:main 成为日常自动流转分支(reviewer 闸+CI 全绿后自动合入,持续推进),发版时把 main 发布到 release/vX.Y.Z 分支并打 vX.Y.Z tag(版本号从最新 tag 自动递增,默认 patch)。人的触点从 promote 改为 release;promote.py 重命名重定向为 release.py,全链路 base 默认 test→main,去掉 test 分支自举,CI 仅 main 触发。
+summary: "Retire the test branch and reverse the old \"test gating\" model: main becomes the branch for day-to-day automated flow (automatic merging after the reviewer gate passes and CI is fully green, keeping main advancing continuously). When releasing, publish main to a release/vX.Y.Z branch and create a vX.Y.Z tag (automatically increment the version number from the latest tag, defaulting to patch). The human touchpoint changes from promote to release; rename and redirect promote.py to release.py, change the default base from test→main throughout the pipeline, remove test branch bootstrapping, and trigger CI only for main."
 tasks:
   - id: T1
-    title: github 层:base 默认 main + 去 test 分支自举
+    title: "github layer: default base to main + remove test branch bootstrapping"
     status: done
     priority: P1
     tags: []
@@ -19,10 +19,10 @@ tasks:
       - openagents/github.py
       - tests/test_github.py
       - tests/test_ensure_prerequisites.py
-    scope: create_pr base 默认 test→main;ensure_prerequisites 不再建 test 分支(收敛为只预建流程标签);无调用方的 ensure_branch 连同其 3 个单测整体删除;branch_ci_green 不变。
-    acceptance: 单测断言 create_pr 默认透传 --base main;ensure_prerequisites 只编排流程标签预建;ensure_branch 及其单测已删除;branch_ci_green 行为不变。
+    scope: "Change the default base for create_pr from test→main; ensure_prerequisites no longer creates the test branch (narrow its scope to pre-creating workflow labels only); delete ensure_branch, which has no callers, together with its 3 unit tests; leave branch_ci_green unchanged."
+    acceptance: "Unit tests assert that create_pr passes through --base main by default; ensure_prerequisites only orchestrates pre-creation of workflow labels; ensure_branch and its unit tests have been deleted; branch_ci_green behavior remains unchanged."
   - id: T2
-    title: orchestrator + vigil:base 默认 main
+    title: "orchestrator + Vigil: default base to main"
     status: done
     priority: P1
     tags: []
@@ -35,10 +35,10 @@ tasks:
       - openagents/orchestrator.py
       - tests/test_orchestrator.py
       - openagents/vigil.py
-    scope: DEFAULT_BASE test→main;start_rfc/changed_spec_group 随之以 main 为基线;vigil 文档注释更新为 main。
-    acceptance: 单测断言 start_rfc 默认 base=main 透传 create_pr;changed_spec_group base=main;vigil 注释无 test 残留。
+    scope: "Change DEFAULT_BASE from test→main; start_rfc/changed_spec_group consequently use main as their baseline; update documentation comments in Vigil to refer to main."
+    acceptance: "Unit tests assert that start_rfc passes the default base=main through to create_pr; changed_spec_group uses base=main; no references to test remain in Vigil comments."
   - id: T3
-    title: promote→release 模块:建 release/vX.Y.Z 分支 + 打 tag + 版本递增
+    title: "promote→release module: create a release/vX.Y.Z branch + create a tag + increment the version"
     status: done
     priority: P1
     tags: []
@@ -53,10 +53,10 @@ tasks:
       - tests/test_release.py
       - openagents/promote.py
       - tests/test_promote.py
-    scope: promote.py 重命名为 release.py;release(*, state, bump) 预检(无 BLOCKED run ∧ 无 needs-human open PR ∧ branch_ci_green(main))通过则读最新 vX.Y.Z tag 按 bump 递增(无 tag→v0.1.0)、建 release/vX.Y.Z 分支、打 tag 并 push;新增版本号解析/递增纯函数;删 promote.py/test_promote.py。
-    acceptance: 单测打桩 github/state/子进程:BLOCKED run→released=False;needs-human PR→False;main CI 非绿→False;全过→建分支+打tag+推且 version 正确;无 tag→v0.1.0;bump=minor/major 生效。
+    scope: "Rename promote.py to release.py; if the preflight checks for release(*, state, bump) pass (no BLOCKED run ∧ no open PR with needs-human ∧ branch_ci_green(main)), read the latest vX.Y.Z tag and increment it according to bump (no tag→v0.1.0), create a release/vX.Y.Z branch, create the tag, and push; add pure functions for version parsing/incrementing; delete promote.py/test_promote.py."
+    acceptance: "Unit tests stub github/state/subprocesses: BLOCKED run→released=False; needs-human PR→False; main CI not green→False; all checks pass→create branch+create tag+push, with the correct version; no tag→v0.1.0; bump=minor/major takes effect."
   - id: T4
-    title: CLI:release 子命令 + base 默认 main
+    title: "CLI: release subcommand + default base to main"
     status: done
     priority: P1
     tags: []
@@ -70,10 +70,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: rfc/vigil 的 --base 默认 test→main;promote 子命令→release 子命令(_cmd_promote→_cmd_release,新增 --bump {patch,minor,major} 默认 patch),路由 release.release 并按 ReleaseResult 设退出码。
-    acceptance: 单测断言 --base 默认值为 main;release 子命令路由到 release.release 并按结果设退出码;--bump 透传 release()。
+    scope: "Change the --base default for rfc/vigil from test→main; change the promote subcommand→release subcommand (_cmd_promote→_cmd_release, add --bump {patch,minor,major} with patch as the default), route to release.release, and set the exit code according to ReleaseResult."
+    acceptance: "Unit tests assert that the --base default is main; the release subcommand routes to release.release and sets the exit code according to the result; --bump is passed through to release()."
   - id: T5
-    title: CI 工作流 + indexheal 测试 + 旧 spec 0012 收尾
+    title: "CI workflow + indexheal tests + wrap up old spec 0012"
     status: done
     priority: P2
     tags: []
@@ -87,78 +87,77 @@ tasks:
       - openagents/messages.py
       - openagents/state.py
       - scripts/e2e-spec-0023-release-flow.sh
-    scope: ci.yml 触发分支 [main,test]→[main];test_indexheal base test→main(断言 origin/main);0012 正文加被取代横幅指向 0023;清理 messages.py/state.py 注释里 promote→release、test 体验服→main 的文档漂移;补 e2e 脚本。
-    acceptance: ci.yml on.pull_request.branches 仅含 main;indexheal 测试断言 origin/main 合并;spec validate 无 error。
+    scope: "Change ci.yml trigger branches from [main,test]→[main]; change the test_indexheal base from test→main (assert origin/main); add a superseded banner to the body of 0012 pointing to 0023; correct documentation drift in messages.py/state.py comments: promote→release and test staging environment→main; add an e2e script."
+    acceptance: "ci.yml on.pull_request.branches contains only main; indexheal tests assert that origin/main is merged; spec validate reports no errors."
 ---
 
-# 0023 · 退役 test 分支:main 持续推进 + release/vX.Y.Z 版本分支发布
+# 0023 · Retire the test branch: continuous advancement of main + releases from release/vX.Y.Z version branches
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-退役长期存在的 `test` 体验服分支,把日常自动流转的目标从 `test` 反转到 `main`:issue→PR 改从 `main` 切出、以 `main` 为 base,经同样的 reviewer 闸 + CI 闸自动合回 `main`,`main` 由此持续推进。正式发版单独走一条 `release/vX.Y.Z` 分支并打 `vX.Y.Z` tag(版本号从最新 tag 语义化递增,默认 patch)。人的门控触点从 `promote`(把 test 快进到 main)后移为 `release`(决定发一个版本)。
+Retire the long-lived `test` preview-environment branch and switch the target of the routine automated workflow from `test` to `main`: issue→PR work now branches from `main` and uses `main` as its base, then automatically merges back into `main` after passing the same reviewer gate + CI gate, so `main` advances continuously. Formal releases use a separate `release/vX.Y.Z` branch and a `vX.Y.Z` tag (the version is incremented semantically from the latest tag, with patch as the default). The human gate moves downstream from `promote` (fast-forwarding main from test) to `release` (deciding to publish a version).
 
 ## Motivation
 
-**现状:test 分支门控流程(完整复述,不要求读者去翻别的 spec)。** OpenAgents 此前跑一套「test 分支门控流程」:
+**Current state: the test-branch gating workflow (restated in full, without requiring readers to consult another spec).** OpenAgents previously used a “test-branch gating workflow”:
 
-- `test` 是一条长期存在的「体验服」分支。每个 issue 被领取后,agent 从 `test` 切出工作树,起草改动,开 PR 时 **PR base 锁定 `test`**。PR 经 N 个 reviewer 并行评审(裁决聚合为全票 PASS)+ CI 全绿后,**自动合回 `test`**。于是 `test` 不断累加,成为「最新可体验」版本。
-- `main` 不参与日常流转,处于冻结状态。它只在人执行 `openagents promote` 时,被从 `test` **快进**(fast-forward)一次。`promote` 前跑三条预检,全过才扬升:① 没有挂起(`STATUS_BLOCKED`)的 run;② 没有打了 `needs-human` 标签的 open PR;③ `test` 分支 HEAD 的 CI 全绿。
-- 人只有两个触点:「提 issue」和「promote 上线」。中间 issue→PR→合回 test 全自动。
+- `test` is a long-lived “preview-environment” branch. After each issue is claimed, the agent creates a worktree from `test`, drafts changes, and opens a PR with **the PR base locked to `test`**. After N reviewers review the PR in parallel (with verdicts aggregated to require unanimous PASS) and all CI checks pass, it **automatically merges back into `test`**. Changes thus accumulate continuously in `test`, making it the “latest version available to try.”
+- `main` does not participate in the routine workflow and remains frozen. It is **fast-forwarded** from `test` only when a human runs `openagents promote`. Before `promote`, three preflight checks run, and promotion proceeds only if all pass: ① no suspended (`STATUS_BLOCKED`) runs; ② no open PRs labeled `needs-human`; ③ all CI checks on the HEAD of the `test` branch pass.
+- Humans have only two touchpoints: “file an issue” and “promote to production.” The intervening issue→PR→merge back into test workflow is fully automated.
 
-为支撑上面的流程,代码里有几处「test 专属」逻辑:全链路 base 默认值(`orchestrator.DEFAULT_BASE`、`cli` 的 `--base`、`github.create_pr` 的 `base`)都是 `"test"`;冷启动时 `ensure_prerequisites` 会幂等兜底创建 `test` 分支(否则全新仓库缺 `test` 会导致 prepare 永久失败);索引自愈 `indexheal` 也以 `origin/test` 为合并基线。
+Several pieces of “test-specific” logic in the code support this workflow: the base defaults throughout the pipeline (`orchestrator.DEFAULT_BASE`, the CLI's `--base`, and `github.create_pr`'s `base`) are all `"test"`; during cold start, `ensure_prerequisites` idempotently creates the `test` branch as a fallback (otherwise, the absence of `test` in a fresh repository would cause prepare to fail indefinitely); index self-healing, `indexheal`, also uses `origin/test` as its merge baseline.
 
-**问题:为什么要改。** 「体验服」这层中介不再被需要。期望的新工作方式是:**`main` 自己就持续推进**(不再需要一条 `test` 在前面缓冲),而**正式发版**单独走一条 `release` 分支。这样人的门控点从「每一次把 test 上线到 main」**后移到「决定发一个版本」**——main 平时一直向前,发版才是人做宏观决策的时刻。
+**Problem: why change this.** The “preview environment” intermediary is no longer needed. The desired new way of working is: **`main` itself advances continuously** (without a `test` branch ahead of it as a buffer), while **formal releases** use a separate `release` branch. This moves the human gate from “each promotion of test to main” **downstream to “deciding to publish a version”**—main keeps advancing during routine work, and releasing is when a human makes the high-level decision.
 
 ## Guide-level explanation
 
-把上面三个角色**整体反转一格**:
+**Shift all three roles above together by one step**:
 
-| 角色 | 现状(被取代) | 本 feature |
+| Role | Current state (superseded) | This feature |
 |------|------|------|
-| 日常自动流转分支(issue→PR 的 base、自动合入目标) | `test`(体验服) | **`main`** |
-| 人工门控的发布目标 | `main`(被 promote 快进) | **`release/vX.Y.Z`** |
-| 人的门控触点 | `promote` | **`release`** |
+| Branch for the routine automated workflow (base for issue→PR, target for automatic merges) | `test` (preview environment) | **`main`** |
+| Release target gated by a human | `main` (fast-forwarded by promote) | **`release/vX.Y.Z`** |
+| Human gating touchpoint | `promote` | **`release`** |
 
-对使用者:平时和以前一样提 issue,agent 自动把改动合进 `main`;想发版时跑一次 `openagents release [--bump patch|minor|major]`,它在预检全过后用 `main` 当前 HEAD 物化一条 `release/vX.Y.Z` 分支并打不可变 tag。
+For users: file issues as before during routine work, and the agent automatically merges changes into `main`; when you want to publish a release, run `openagents release [--bump patch|minor|major]` once. After all preflight checks pass, it materializes a `release/vX.Y.Z` branch from the current HEAD of `main` and creates an immutable tag.
 
 ## Reference-level explanation
 
-落到改动,分解为 5 个 Task(DAG 见下;`files` 互斥,各 Task 单一 writer):
+The changes are divided into 5 Tasks (see the DAG below; `files` do not overlap, and each Task has a single writer):
 
-1. **T1 github 层** — `create_pr` 的 `base` 默认值是全链路 base 的最底层来源,test→main。`ensure_prerequisites` 里兜底建 `test` 分支那段删除(`main` 是默认分支、恒存在,无需自举),`ensure_branch` 因此再无调用方,连同其 3 个单测整体删除(奥卡姆);`branch_ci_green` 不变(release 预检对 main 用),流程标签(needs-human 等)的幂等预建保留。
-2. **T2 orchestrator + vigil** — `orchestrator.DEFAULT_BASE` 是 worktree 基线与 PR base 的单一常量来源,test→main。`indexheal` 自愈合并基线由 `cli.py` 透传 `DEFAULT_BASE`,故改这一常量即让 `git merge origin/main` 自动跟随;`vigil.py` 的 `base` 由 CLI 注入、自身无默认值,仅文档注释订正。
-3. **T3 promote→release 模块**(依赖 T1) — 预检三条(无 BLOCKED run ∧ 无 needs-human open PR ∧ 目标分支 CI 全绿)原样照搬,只把取绿对象从 test 换成 main。动作侧从「快进 main」改为「物化一个版本」:`_latest_version()` 用 `git tag --list 'v*'` 取最大 `vX.Y.Z`(语义化排序);`_next_version(latest, bump)` 按 `bump∈{patch,minor,major}` 递增(无 tag→`v0.1.0`);`git push origin main:refs/heads/release/vX.Y.Z` 新建发布分支 + `git tag vX.Y.Z` 钉死不可变快照。`ReleaseResult(released, version, reason)` 取代 `PromoteResult`。
-4. **T4 CLI**(依赖 T2、T3) — CLI 是人的唯一触点收敛处。`promote` 子命令整体改名 `release`,`_cmd_release` 新增 `--bump` 透传;`rfc`/`vigil` 的 `--base` 默认值与 T2 的 `DEFAULT_BASE` 一同 test→main。
-5. **T5 收尾**(无依赖,可并行) — `ci.yml` 的 `pull_request.branches` 去掉 test(release 分支由已绿的 main 物化、不接 PR);`test_indexheal` 桩断言 `origin/test`→`origin/main`;Spec-0012 加被取代横幅;清理 messages.py/state.py 文档漂移。
+1. **T1 github layer** — The default `base` value in `create_pr` is the lowest-level source of the base throughout the pipeline: test→main. Delete the fallback code in `ensure_prerequisites` that creates the `test` branch (`main` is the default branch and always exists, so no bootstrapping is needed). As a result, `ensure_branch` has no remaining callers, so delete it together with its 3 unit tests (Occam's razor); leave `branch_ci_green` unchanged (release preflight checks use it for main), and retain idempotent pre-creation of workflow labels (needs-human, etc.).
+2. **T2 orchestrator + vigil** — `orchestrator.DEFAULT_BASE` is the single constant supplying the worktree baseline and PR base: test→main. `cli.py` passes `DEFAULT_BASE` through as the merge baseline for `indexheal` self-healing, so changing this constant automatically makes `git merge origin/main` follow suit; `vigil.py` receives its `base` from the CLI and has no default of its own, so only its documentation comments need correction.
+3. **T3 promote→release module** (depends on T1) — Copy the three preflight checks unchanged (no BLOCKED runs ∧ no open PRs labeled needs-human ∧ all CI checks on the target branch pass), changing only the branch checked for green CI from test to main. Change the action from “fast-forward main” to “materialize a version”: `_latest_version()` uses `git tag --list 'v*'` to find the greatest `vX.Y.Z` (sorted semantically); `_next_version(latest, bump)` increments according to `bump∈{patch,minor,major}` (no tag→`v0.1.0`); `git push origin main:refs/heads/release/vX.Y.Z` creates the release branch + `git tag vX.Y.Z` pins the immutable snapshot. `ReleaseResult(released, version, reason)` replaces `PromoteResult`.
+4. **T4 CLI** (depends on T2 and T3) — The CLI is the single point where human touchpoints converge. Rename the `promote` subcommand to `release` in its entirety, and add `--bump` forwarding in `_cmd_release`; change the `--base` defaults for `rfc`/`vigil` from test→main together with T2's `DEFAULT_BASE`.
+5. **T5 cleanup** (no dependencies; can run in parallel) — Remove test from `ci.yml`'s `pull_request.branches` (release branches are materialized from main after its CI has passed and do not accept PRs); change the stub assertion in `test_indexheal` from `origin/test`→`origin/main`; add a superseded banner to Spec-0012; clean up documentation drift in messages.py/state.py.
 
-**端到端验证**:`bash scripts/e2e-spec-0023-release-flow.sh`(离线跑 ruff + pytest,演示 base=main + release 物化)。
+**End-to-end verification**: `bash scripts/e2e-spec-0023-release-flow.sh` (runs ruff + pytest offline and demonstrates base=main + release materialization).
 
-依赖 DAG:`T1 → T3`,`T2 → T4`,`T3 → T4`,T5 独立。
+Dependency DAG: `T1 → T3`, `T2 → T4`, `T3 → T4`; T5 is independent.
 
 ## Drawbacks
 
-- 去掉「体验服」缓冲后,合进 `main` 的改动直接成为最新主干,失去一层「先在 test 攒一攒再上线」的缓冲带——但 reviewer 闸 + CI 全绿闸不变,质量门槛未降低。
-- 引入 `release/*` 分支 + tag 两套发布物,概念上比单纯「快进 main」多一层。
+- After removing the “preview environment” buffer, changes merged into `main` immediately become the latest trunk state, eliminating the buffer of “accumulating changes in test before putting them into production”—but the reviewer gate + all-green CI gate remain unchanged, so the quality threshold is not lowered.
+- Introducing both `release/*` branches and tags as release artifacts adds a conceptual layer compared with simply “fast-forwarding main.”
 
 ## Rationale and alternatives
 
-- **为什么反转而非微调**:旧模型里 `main` 冻结、靠人 promote,人被绑在「每次上线」的细节上;反转后人只在「发版」这个宏观决策点介入,符合 OpenAgents「人做宏观把控」的目标。
-- **备选:建 GitHub Release 页面**。否决(YAGNI):只建 `release/vX.Y.Z` 分支 + 打 git tag 已满足「不可变快照 + 可回滚」;Release 页面是后续可加项(见 Future possibilities)。
-- **备选:版本号用日期/构建号**。否决:语义化三段 `vX.Y.Z`(默认 patch 递增)对人最直观,且 `_next_version` 是纯函数便于 hermetic 测试。
-- **不动评审/CI/messages 内部逻辑**,只换它们依赖的 base——把 blast radius 收到最小(解耦,理念 10)。
+- **Why reverse the model instead of making small adjustments**: in the old model, `main` was frozen and depended on humans running promote, tying humans to the details of “each production rollout”; after the reversal, humans intervene only at the high-level decision point of “publishing a release,” consistent with OpenAgents' goal of “humans providing high-level oversight.”
+- **Alternative: create a GitHub Release page**. Rejected (YAGNI): creating a `release/vX.Y.Z` branch + a git tag already satisfies “immutable snapshot + rollback capability”; a Release page can be added later (see Future possibilities).
+- **Alternative: use dates/build numbers for versions**. Rejected: the three-part semantic version `vX.Y.Z` (patch increments by default) is the most intuitive for humans, and `_next_version` is a pure function that is easy to test hermetically.
+- **Leave review/CI/messages internal logic unchanged**, changing only the base they depend on—minimizing the blast radius (decoupling, principle 10).
 
 ## Prior art
 
-语义化版本(SemVer `vX.Y.Z`)与「主干持续推进 + 版本分支发布」是业界主流发布模型(如多数库走 trunk-based + tagged release)。本 feature 取其「主干向前、tag 钉版本」的核心,不引入更重的 release train 流程。
+Semantic versioning (SemVer `vX.Y.Z`) and “continuous trunk advancement + releases from version branches” are mainstream release models in the industry (for example, most libraries use trunk-based development + tagged releases). This feature adopts the core ideas of “trunk advances, tags pin versions” without introducing a heavier release train process.
 
 ## Unresolved questions
 
-无。预检三条、版本递增语义、发布物形态(分支 + tag)均已在本组确定。
+None. The three preflight checks, version increment semantics, and release artifact form (branch + tag) have all been settled within this group.
 
 ## Future possibilities
 
-- 在 `release/vX.Y.Z` 之上自动建 GitHub Release 页面 / 生成 changelog(当前 YAGNI)。
-- `release` 预检可扩展为可配置策略(如要求最低覆盖率)。
-
+- Automatically create a GitHub Release page / generate a changelog on top of `release/vX.Y.Z` (currently YAGNI).
+- Extend `release` preflight checks into configurable policies (such as requiring minimum coverage).

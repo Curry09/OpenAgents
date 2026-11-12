@@ -1,6 +1,6 @@
-"""spec 端到端指路牌（signpost）单元测试 —— rust-RFC 形态（issue #69）。
+"""Spec end-to-end signpost unit test - rust-RFC form (issue #69).
 
-覆盖：从组级 Overview（Reference-level）抽脚本、渲染指路牌（有/无脚本）、组文件不存在返回 None。
+Overwrite: Script drawn from group-level Overview, rendering pointer sign (with/without script), group file does not return None.
 """
 
 from __future__ import annotations
@@ -25,19 +25,21 @@ def _group(*, root: Path, reference_level: str) -> Path:
 
 
 def test_script_path_extracted_from_overview(tmp_path: Path) -> None:
-    path = _group(root=tmp_path, reference_level="离线跑 `scripts/e2e-demo.sh`（ruff + pytest）。")
+    path = _group(
+        root=tmp_path, reference_level="Run offline `scripts/e2e-demo.sh` (ruff + pytest)."
+    )
     assert script_path_for_group(group_path=path) == "scripts/e2e-demo.sh"
 
 
 def test_script_path_none_when_no_script(tmp_path: Path) -> None:
-    path = _group(root=tmp_path, reference_level="纯手动验证，无脚本。")
+    path = _group(root=tmp_path, reference_level="Pure manual validation, no script.")
     assert script_path_for_group(group_path=path) is None
 
 
 def test_signpost_with_script_gives_run_command(tmp_path: Path) -> None:
     path = _group(root=tmp_path, reference_level="`scripts/e2e-demo.sh`")
     body = signpost_for_group(group_path=path)
-    assert "## 端到端验证" in body
+    assert "## End-to-end verification" in body
     assert "`bash scripts/e2e-demo.sh`" in body
     assert "docs/specs/0008-demo.md" in body
 
@@ -46,7 +48,7 @@ def test_signpost_without_script_points_to_group(tmp_path: Path) -> None:
     path = _group(root=tmp_path, reference_level="")
     body = signpost_for_group(group_path=path)
     assert "Spec-0008" in body
-    assert "bash" not in body  # 无脚本不给 run 命令
+    assert "bash" not in body  # No script not give run command
 
 
 def test_signpost_none_when_group_missing(tmp_path: Path) -> None:

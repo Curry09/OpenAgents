@@ -99,7 +99,7 @@ def test_every_delivery_role_receives_scoped_context_and_can_report(configured):
         def run(self, *, work_dir, task, context):
             assert "runs" not in task  # raw runtime data is not in the role instruction
             assert "s1:" in context and "manifest.json" in context
-            assert "日志" in context and "framework" in context
+            assert "diagnostic" in context and "framework" in context
             candidates = list((work_dir / ".openagents/observation-evidence").glob("issue-7-*"))
             invocation = max(candidates, key=lambda p: p.stat().st_mtime_ns)
             (invocation / "requests.json").write_text(json.dumps([request()]))

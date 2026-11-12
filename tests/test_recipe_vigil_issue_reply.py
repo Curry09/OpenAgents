@@ -1,12 +1,12 @@
-"""# Spec-0016/T4：vigil 接线——issue 页评论回复分支（reply 分支②的 issue 支）单元测试。
+"""#Spec-0016/T4:vigil connection — issue page comments response to the unit test (issue sub-section 2)
 
-覆盖：
-- `_sense`：ready 无-PR issue、最新评论是无签名人类 → latest_comment_is_ours=False → `_classify` 判
-  ACTIONABLE:reply（**非** solve）；
-- 未 ready 的无-PR issue / 有 PR 的 issue → latest_comment_is_ours 维持现状（不误激活）；
-- `_do_reply` 的 issue 支：经 identity.post_signed_comment_on_issue 落 issue、推 issue 游标；
-- 回帖后最新评论是我方签名 → 下一 tick _sense 置 latest_comment_is_ours=True → 分支②停火（不重复回帖）；
-- `_fingerprint` 输入字段集仍 == dataclasses.fields(_Facts) 全集、不含 comment id（护栏一不自毁）。
+Coverage:
+- `_sense`:ready no-PR issue, latest comment is unsigned human latest_comment_is_ours = False `_classify`
+  ACTIONABLE:preply (** non** Solve);
+- No-PR issue/ no-ready issue latest_comment_is_ours maintains the status quo (not misactivated);
+- `_do_reply`: pass identity.post_signed_comment_on_issue drop issue, push issue
+- The latest comments are signed by us. → Next tick _sense Set latest_comment_is_ours=True → branch ②(a) Ceasefire (no repeats);
+- `_fingerprint` input field set still = dataclasses.fields (Facts) full collection, without reference id (I am not self-destructing).
 """
 
 import dataclasses
@@ -43,7 +43,7 @@ def _config(**overrides) -> agent_config.AgentConfig:
     return agent_config.AgentConfig(**(defaults | overrides))
 
 
-def _human(*, created_at, body="能不能也支持 codex？"):
+def _human(*, created_at, body="Can you support it, codex?"):
     return github.Comment(
         id=f"c-{created_at}",
         author="alice",
@@ -57,14 +57,14 @@ def _ours(*, created_at, agent_id="oa-1"):
     return github.Comment(
         id=f"m-{created_at}",
         author="openagents-bot",
-        body=identity.sign(body="收到你的追问", agent_id=agent_id),
+        body=identity.sign(body="I got your question.", agent_id=agent_id),
         created_at=created_at,
         author_association="OWNER",
     )
 
 
 def _patch_issue_sense(monkeypatch, *, labels, comments, pr=None):
-    """打桩无-PR（或指定 PR）issue 的 _sense 读侧。"""
+    """Plays _sense side of a read without-PR (or specifies PR)issue."""
     monkeypatch.setattr(
         vigil_module.github, "get_issue", lambda *, number: github.Issue(149, "T", "B", labels)
     )
@@ -75,7 +75,7 @@ def _patch_issue_sense(monkeypatch, *, labels, comments, pr=None):
     )
 
 
-# ---- _sense + _classify：ready 无-PR issue 的新人类评论 → reply（非 solve）--------------------------
+# ---- _sense + _classify: new-back-no-PR issue  →  reply (non-solve) --------------------------
 
 
 def test_ready_no_pr_issue_with_human_comment_classifies_reply(monkeypatch):
@@ -89,11 +89,11 @@ def test_ready_no_pr_issue_with_human_comment_classifies_reply(monkeypatch):
     assert facts.latest_comment_is_ours is False
     verdict = _classify(facts=facts, in_flight=False)
     assert verdict.kind == _ACTIONABLE
-    assert verdict.action == _ACT_REPLY  # 分支②抢在分支④ solve 前面
+    assert verdict.action == _ACT_REPLY  # Branch 2 ahead of Branch 4
 
 
 def test_ready_no_pr_issue_latest_is_ours_falls_through_to_solve(monkeypatch):
-    # 最新评论已是我方签名（比如上一轮已回过）→ latest_comment_is_ours=True → 不再 reply、落到 solve。
+    # The latest comment has been made by our signature (e.g., the last round has been returned) latest_comment_is_ours =True  →  no longer reply to solve.
     _patch_issue_sense(
         monkeypatch,
         labels=[_LABEL_READY],
@@ -109,20 +109,20 @@ def test_ready_no_pr_issue_latest_is_ours_falls_through_to_solve(monkeypatch):
 
 
 def test_not_ready_no_pr_issue_does_not_activate_reply(monkeypatch):
-    # 未 ready 的 issue（归准入面 admitter）：即便有无签名人类评论，也**不**激活 reply。
+    # Not ready to release (at entry admitter): ** Not activated, even if signed,** reply.
     _patch_issue_sense(
         monkeypatch,
-        labels=["openagents"],  # 无 ready
+        labels=["openagents"],  # No ready
         comments=[_human(created_at="2026-07-14T12:00:00Z")],
     )
     facts = _sense(config=_config(), subject="issue:149").facts
-    assert facts.latest_comment_is_ours is True  # 维持默认，不误激活
+    assert facts.latest_comment_is_ours is True  # Maintain default, no error in activation
     verdict = _classify(facts=facts, in_flight=False)
     assert verdict.action == _ACT_SOLVE
 
 
 def test_fingerprint_input_is_full_facts_fields_without_comment_id(monkeypatch):
-    # 护栏一：fp 的输入字段集 ≡ _Facts 全集，且绝不含 comment id（只留 latest_comment_is_ours 布尔）。
+    # The input field set  → Facts is complete and does not contain a code id (latest_comment_is_ours Bull only).
     _patch_issue_sense(
         monkeypatch,
         labels=[_LABEL_READY],
@@ -132,11 +132,11 @@ def test_fingerprint_input_is_full_facts_fields_without_comment_id(monkeypatch):
     field_names = {f.name for f in dataclasses.fields(_Facts)}
     assert "latest_comment_is_ours" in field_names
     assert not any("comment_id" in name or name == "id" for name in field_names)
-    # fp 是纯函数、稳定：同 facts 两次算得同值。
+    # fp is pure function, stable: equal to fact.
     assert _fingerprint(facts=facts) == _fingerprint(facts=facts)
 
 
-# ---- _do_reply 的 issue 支：落 issue + 推 issue 游标 ----------------------------------------------
+# ---- _do_reply It's... issue Support: Fall issue + Push! issue Cursor ----------------------------------------------
 
 
 class _FakeState:
@@ -151,13 +151,13 @@ class _FakeState:
 
 
 class _FakeBackend:
-    """engine.run_agent 会读 agent_module.PROMPT.substitute → backend.run → 末行 JSON。"""
+    """engine.run_agent will read agent_module.PROMPT.substitute  →  backend.run  →  endline JSON."""
 
     def run(self, *, work_dir, task, context):
         import types
 
         return types.SimpleNamespace(
-            summary='{"reply": "收到，我理解成要兼容 codex，对吗？", "resolved": false}'
+            summary='{"reply": "Copy that. I understand.", "resolved": false}'
         )
 
 
@@ -168,7 +168,7 @@ def test_do_reply_issue_posts_signed_and_advances_cursor(monkeypatch, tmp_path):
         "post_signed_comment_on_issue",
         lambda *, number, body, agent_id: posted.append((number, body, agent_id)),
     )
-    # 无-PR issue：new_human_comments_on_issue 读侧返回一条新人类评论。
+    # No-PR issue: new_human_comments_on_issue Read side returns a new human comment.
     monkeypatch.setattr(
         vigil_module.identity,
         "new_human_comments_on_issue",
@@ -197,9 +197,9 @@ def test_do_reply_issue_posts_signed_and_advances_cursor(monkeypatch, tmp_path):
         facts=facts,
         agent_id="oa-1",
     )
-    assert reply == "收到，我理解成要兼容 codex，对吗？"
-    assert posted == [(149, "收到，我理解成要兼容 codex，对吗？", "oa-1")]
-    # 游标推到那条人类评论的 created_at（下一 tick 起不再重复读它）。
+    assert reply == "Copy that. I understand."
+    assert posted == [(149, "Copy that. I understand.", "oa-1")]
+    # The cursor is pushed to the created_at of the human comment (next tick does not repeat it).
     assert state.get_issue_cursor(number=149) == "2026-07-14T12:00:00Z"
 
 
@@ -213,7 +213,7 @@ def test_do_reply_issue_noop_when_no_new_human_comments(monkeypatch, tmp_path):
     monkeypatch.setattr(
         vigil_module.identity,
         "new_human_comments_on_issue",
-        lambda *, number, since: [],  # 游标之后无新人类评论
+        lambda *, number, since: [],  # No new human comment after the cursor
     )
     facts = _Facts(
         subject="issue:149",
@@ -238,7 +238,7 @@ def test_do_reply_issue_noop_when_no_new_human_comments(monkeypatch, tmp_path):
         agent_id="oa-1",
     )
     assert reply == ""
-    assert posted == []  # 没有新评论 → 不回帖
+    assert posted == []  # No new comments. No comments.
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
-// Spec-0073/T6: 待看优先级纯函数。从 board 条目推「待看类别 + 序」，供 Tab 导航循环。
-// 优先级（高→低）：① automation-failed 挂起 > ② PR 等合并 > ③ 人类新评论待回 > ④ 刚变状态；同级按 enqueued 序。
+// Spec-0073/T6: Derive pending categories and Tab navigation order from board entries.
+// Prioritize failures, merge-ready PRs, human comments, then recent changes; break ties by enqueue order.
 import { PENDING_ORDER, type BoardEntry, type PendingCategory } from '../types'
 
-// 类别 → 排序权重（越小越靠前）。非待看（pending=null）不入序。
+// Lower ranks come first. Entries without pending actions are excluded.
 const RANK: Record<PendingCategory, number> = {
   'automation-failed': 0,
   'pr-to-merge': 1,
@@ -10,7 +10,7 @@ const RANK: Record<PendingCategory, number> = {
   'just-changed': 3
 }
 
-// 若 daemon 未给 pending，则从富化布尔位就地推断（与 daemon.pending_category 同规则，前端兜底）。
+// Infer the category from forge flags if the daemon did not supply one.
 export function pendingCategory(entry: BoardEntry): PendingCategory | null {
   if (entry.pending !== undefined && entry.pending !== null) {
     return entry.pending
@@ -30,12 +30,12 @@ export function pendingCategory(entry: BoardEntry): PendingCategory | null {
   return null
 }
 
-// 稳定同级定序键：优先 enqueued_at，缺省回落 subject 字典序（保证确定性、可测）。
+// Use the enqueue timestamp and then the subject for a stable order.
 function orderKey(entry: BoardEntry): string {
   return entry.enqueued_at ?? entry.subject
 }
 
-// 把 board 过滤成「待看集」并按四级优先级 + 同级 enqueued 序排序。
+// Keep pending entries and sort them by rank and enqueue order.
 export function orderPending(board: BoardEntry[]): BoardEntry[] {
   return board
     .filter((entry) => pendingCategory(entry) !== null)
@@ -49,7 +49,7 @@ export function orderPending(board: BoardEntry[]): BoardEntry[] {
     })
 }
 
-// 从「当前 subject」在待看序里取下一个（循环到底回头）。无待看→null；当前不在序内→取序首。
+// Cycle to the next subject, starting at the first when no current subject is in the list.
 export function nextPending(pending: BoardEntry[], current: string | null): string | null {
   if (pending.length === 0) {
     return null

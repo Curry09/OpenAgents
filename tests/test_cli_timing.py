@@ -1,8 +1,8 @@
-"""# Spec-0066/T3: `oa report` CLI 子命令针对性单测（不触网络/仓库）。
+"""# Spec-0066/T3: `oa report` CLI sub-command targeting single (without contact with the network/storey)
 
-覆盖：子命令注册进 argparse（--help 可见）；对造好的 timing.jsonl 输出单 subject 各阶段 duration + 跨
-subject p50/p90，且出现「精度下限 = interval」字样与实际 interval 值；timing.jsonl 缺失/空时友好提示、退出
-码 0（不抛栈）。
+Overwrite: sub-command registered in argparse (--help visible); paired timing.jsonl output list subproject stages
+subject p50/p90, with ”poll input = interval” and actual interval values; timing.jsonl missing/space-friendly tips, exit
+Code 0 (no dump).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _seq(subject: str, issue, pr, phases_at):
 
 
 # --------------------------------------------------------------------------------------------------
-# 注册。
+# Register.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -44,7 +44,7 @@ def test_report_subcommand_registered():
 
 
 # --------------------------------------------------------------------------------------------------
-# 有数据：单 subject 时间线 + 跨 subject p50/p90 + interval 精度下限标注。
+# Available: Single subject time line + cross subject p50/p90 + intelval Poll label.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -65,19 +65,19 @@ def test_report_prints_timeline_and_percentiles_and_interval(tmp_path, monkeypat
     _write_events(tmp_path, events)
     assert main(["report"]) == 0
     out = capsys.readouterr().out
-    # 单 subject 时间线出现各阶段 duration。
+    # The single subject time line appears at various stages of the development.
     assert "issue:145" in out
     assert "solving" in out and "awaiting-ci" in out and "review-or-fix" in out
-    assert "3m0s" in out  # solving 停留 3 分钟
-    assert "7m0s" in out  # awaiting-ci 停留 7 分钟
-    # 跨 subject 分布段。
+    assert "3m0s" in out  # SOLVING STAY 3 MINUTES
+    assert "7m0s" in out  # Waiting-ci 7 minutes
+    # Cross-subject distribution.
     assert "p50" in out and "p90" in out
-    # **精度下限 = interval** 标注 + 实际值。
-    assert "精度下限" in out and "60s" in out
+    # **Poll interval = interval** notation + actual.
+    assert "poll interval" in out and "60s" in out
 
 
 def test_report_distinguishes_ci_wait_from_review_wait(tmp_path, monkeypatch, capsys):
-    """报告能对已合并 issue 分别列出 CI-wait 与 review-wait 段（不再糊成一段）。"""
+    """The report can list the consolidated issue separately CI-wait and review-wait (no more paragraph)."""
     _patch_report_ctx(monkeypatch, repo_root=tmp_path)
     monkeypatch.setattr("openagents.cli._report_interval", lambda *, ctx, args: 60)
     events = _seq(
@@ -95,7 +95,7 @@ def test_report_distinguishes_ci_wait_from_review_wait(tmp_path, monkeypatch, ca
     out = capsys.readouterr().out
     assert "awaiting-ci" in out
     assert "review-or-fix" in out
-    assert "30m0s" in out  # review 长尾清晰可见
+    assert "30m0s" in out  #   Review long end visible
 
 
 def test_report_includes_tool_lookup_budget_metrics(tmp_path, monkeypatch, capsys):
@@ -111,10 +111,10 @@ def test_report_includes_tool_lookup_budget_metrics(tmp_path, monkeypatch, capsy
 
     assert main(["report"]) == 0
     out = capsys.readouterr().out
-    assert "工具与取证预算" in out
+    assert "tool usage and evidence lookup budgets" in out
     assert "implementer" in out
     assert "8.0" in out
-    assert "缺原因" in out
+    assert "No reason" in out
 
 
 def test_report_includes_token_totals_and_coverage(tmp_path):
@@ -143,24 +143,24 @@ def test_report_includes_token_totals_and_coverage(tmp_path):
             },
         ],
     )
-    assert "token 用量与采集覆盖率" in text
+    assert "token usage and reporting coverage" in text
     assert "implementer" in text
     assert "missing" in text
     assert "      2         1        1" in text
-    assert "missing 不计入 token 合计" in text
+    assert "Missing counts are excluded" in text
 
 
 # --------------------------------------------------------------------------------------------------
-# 空 / 缺文件：友好提示 + 退出码 0。
+# Empty/ missing file: Friendly tip + exit code 0.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_report_missing_file_is_friendly_and_returns_zero(tmp_path, monkeypatch, capsys):
     _patch_report_ctx(monkeypatch, repo_root=tmp_path)
     monkeypatch.setattr("openagents.cli._report_interval", lambda *, ctx, args: 60)
-    assert main(["report"]) == 0  # 不抛栈
+    assert main(["report"]) == 0  # No dump.
     out = capsys.readouterr().out
-    assert "timing.jsonl" in out  # 友好提示指明文件
+    assert "timing.jsonl" in out  # Friendly hint indicates file
 
 
 def test_report_empty_file_is_friendly_and_returns_zero(tmp_path, monkeypatch, capsys):
@@ -174,7 +174,7 @@ def test_report_empty_file_is_friendly_and_returns_zero(tmp_path, monkeypatch, c
 
 
 def test_report_interval_falls_back_to_60_when_no_config(tmp_path, monkeypatch, capsys):
-    """无 openagents.yml 时 interval 回落 60（不让缺配置掀翻报告）。"""
+    """openagents.yml returns 60 (not allowing missing configuration to flip report)."""
     _patch_report_ctx(monkeypatch, repo_root=tmp_path)
     _write_events(
         tmp_path,

@@ -1,10 +1,10 @@
-"""RFC-0005 T1: Workspace（worktree + git 封装）的单元测试。
+"""Unit testing for RFC-0005 T1: Workspace (worktree + guit wrap).
 
-git 子进程全部 monkeypatch（记录命令、可按子命令注入返回码 / stdout），
-不真实操作 git。覆盖：prepare（fetch + 幂等清理 + worktree add）、ensure（复用/重建）、
-assert_delivered（head 前移硬闸：fetch + rev-parse origin/<branch> 与 HEAD 对比）、
-remote_branch_exists、git 失败抛错。（Spec-0056/T4：commit_and_push 随交付下放 agent 删除。）
-Spec-0056 补充：2026-09-09-delivery-review-snapshot-tests-design.md 记录版本一致性回归。
+gint all monkeywatches (recording command, injecting back code by sub-order / stdout),
+No real operation gig. Overwrite: prepare (fetch + Zipe etc. cleanup+ worktree add), ensure (reuse/rebuild),
+assert_delivered (head-to-head move hard gate: fitch + rev-parse origin/<branch> compared to HEAD)
+remote_branch_exists, Git failed to drop the error. (Spec-0056/T4: commit_and_push was removed with the delivery permission.)
+Spec-0056 Supplement: 2026-09-09-delivery-review-snapshot-tests-design.md record version returns.
 """
 
 import subprocess
@@ -17,11 +17,11 @@ from openagents.utils.workspace import Workspace, WorkspaceError
 
 
 class _GitRecorder:
-    """subprocess.run 替身：记录所有 git 命令，按子命令决定返回码，统一返回 stdout。"""
+    """subprocess.run double: Record all git commands, return code by sub-order, and return stdout."""
 
     def __init__(self, *, fail=(), stdout=""):
         self.commands = []
-        self._fail = set(fail)  # 需要返回非零的 git 子命令（args[3]）
+        self._fail = set(fail)  # Revert non-zero git sub-command (args [3])
         self._stdout = stdout
 
     def __call__(self, args, **kwargs):
@@ -80,7 +80,7 @@ def test_prepare_resumes_existing_remote_issue_branch(tmp_path, monkeypatch):
 
 
 def test_prepare_fetch_failure_raises(tmp_path, monkeypatch):
-    # fetch 走 check=True，失败应抛 WorkspaceError。
+    # Fetch go check =True, failure should throw Workspace Error.
     monkeypatch.setattr(subprocess, "run", _GitRecorder(fail={"fetch"}))
     ws = Workspace(work_dir=tmp_path)
     with pytest.raises(WorkspaceError):
@@ -97,7 +97,7 @@ def test_ensure_reuses_existing_worktree(tmp_path, monkeypatch):
     result = ws.ensure(issue_number=3, branch="openagents/issue-3")
 
     assert result == path
-    # 复用：不应再 worktree add
+    # Reuse: Worktree add
     assert not any("worktree add" in c for c in _joined(recorder))
 
 
@@ -161,17 +161,17 @@ def test_remote_branch_exists_false_when_empty(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0035/T2: 网络 git 超时 fail-open（fetch→WorkspaceError；去重探针→True）
+# Spec-0035/T2: network guit timeout fail-open (fetch → WorkspaceError; go reprobate needle @True)
 # --------------------------------------------------------------------------- #
 
 
 def _timeout_run(argv, **kwargs):
-    """subprocess.run 替身：一律抛 TimeoutExpired（模拟半开 socket 挂死）。"""
+    """subprocess.run double: always throw TimeoutExpired (simulation semi-open socket hanging)."""
     raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
 
 
 def test_git_helper_passes_net_timeout(tmp_path, monkeypatch):
-    # _git 必须给 subprocess.run 传 timeout=_GIT_NET_TIMEOUT_SECONDS（收敛到唯一 helper）。
+    # _git must pass subprocess.run timeout = _GIT_NET_TIMEOUT_SECONDS (conduce to the only helper).
     captured = {}
 
     def _fake_run(argv, **kwargs):
@@ -192,7 +192,7 @@ def test_prepare_fetch_timeout_raises_workspace_error(tmp_path, monkeypatch):
 
 
 def test_ensure_fetch_timeout_raises_workspace_error(tmp_path, monkeypatch):
-    # ensure 的 fetch 是 check=False，但 _git 超时统一转 WorkspaceError（不是普通非零退出）。
+    # The test is checked = False, but _git universal overtime: WorkspaceError (not normal non-zero exit).
     monkeypatch.setattr(subprocess, "run", _timeout_run)
     with pytest.raises(WorkspaceError):
         Workspace(work_dir=tmp_path).ensure(issue_number=3, branch="openagents/issue-3")
@@ -207,13 +207,13 @@ def test_assert_delivered_fetch_timeout_raises_workspace_error(tmp_path, monkeyp
 
 
 def test_remote_branch_exists_fail_open_true_on_timeout(tmp_path, monkeypatch):
-    # 去重探针超时 → 保守返回 True（「可能在途」→ 跳过本轮、不重复派单），不误吞真实失败。
+    # To reprobate the needle timeout and to return the True to the conservative ( "possibly" skip the wheel, not repeat the pie list), without the error of swallowing the real failure.
     monkeypatch.setattr(subprocess, "run", _timeout_run)
     assert Workspace(work_dir=tmp_path).remote_branch_exists(branch="x") is True
 
 
 def test_remote_branch_exists_false_on_nonzero_not_timeout(tmp_path, monkeypatch):
-    # check=False 下普通非零退出仍走 bool(stdout)='' → False（既有路径不变，非超时不吞成 True）。
+    # Check = normal non-zero exit under False still goes bol (stdout) =''''  →  False (both path unchanged and not overtime as True).
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -223,12 +223,12 @@ def test_remote_branch_exists_false_on_nonzero_not_timeout(tmp_path, monkeypatch
 
 
 # --------------------------------------------------------------------------- #
-# issue #53: changed_spec_group（取代 RFC-0008 changed_rfc_path）
+# changed_spec_group (replaces RFC-0008 changed_rfc_path)
 # --------------------------------------------------------------------------- #
 
 
 def test_changed_spec_group_returns_group_dir(tmp_path, monkeypatch):
-    # git diff 列出本分支改动的 spec 组文件，方法返回该 NNNN-slug.md 的绝对路径。
+    # git diff lists the spec group files that are changed by this branch, and the method is to return the NNNN-slug.md absolute path.
     recorder = _GitRecorder(stdout="docs/specs/0008-pr-e2e-signpost.md\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -247,7 +247,7 @@ def test_changed_spec_group_none_when_no_spec(tmp_path, monkeypatch):
 
 
 def test_changed_spec_group_excludes_top_level_files(tmp_path, monkeypatch):
-    # 顶层 OVERVIEW.md / README.md 改动不属于任何组，不应被误判。
+    # OVERVIEW.md/README.md changes do not belong to any group and should not be misjudged.
     recorder = _GitRecorder(stdout="docs/specs/OVERVIEW.md\ndocs/specs/README.md\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -255,7 +255,7 @@ def test_changed_spec_group_excludes_top_level_files(tmp_path, monkeypatch):
 
 
 def test_changed_spec_group_picks_group_over_overview(tmp_path, monkeypatch):
-    # 同时改了 OVERVIEW 与组文件时，挑出组文件（排除 dated 设计文档）。
+    # Select the group file (excluding the deded design document) when the Overview and group files are changed.
     recorder = _GitRecorder(
         stdout="docs/specs/OVERVIEW.md\ndocs/specs/2026-06-24-d.md\ndocs/specs/0008-x.md\n"
     )
@@ -279,14 +279,14 @@ def test_changed_spec_groups_returns_all_changed_groups(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0056/T1: assert_delivered（head 前移硬闸）+ 决策 7 修订
+# Spec-0056/T1: assert_delivered (head forward to hardlock)+ Decision 7 Revision
 # --------------------------------------------------------------------------- #
 
 
 class _RevParseRecorder:
-    """subprocess.run 替身：按 rev-parse 目标（origin/<branch> vs HEAD）返回不同 SHA。
+    """subprocess.run double: press rev-parse target (origin/ <branch> vs HEAD) to return different SHA.
 
-    remote_fail=True 时让 `rev-parse origin/<branch>` 返回非零（模拟远端无分支）。
+    remote_fail =True returns `rev-parse origin/<branch>` to non-zero (simulation of a remote non-division).
     """
 
     def __init__(self, *, remote_sha, head_sha, remote_fail=False, status=""):
@@ -294,7 +294,7 @@ class _RevParseRecorder:
         self._remote_sha = remote_sha
         self._head_sha = head_sha
         self._remote_fail = remote_fail
-        self.status = status  # Spec-0056 补充：HEAD 相同也可能有未交付的源码。
+        self.status = status  # Spec-0056 Supplement: HEAD may have the same source code as it has not been delivered.
 
     def __call__(self, args, **kwargs):
         self.commands.append(list(args))
@@ -309,12 +309,12 @@ class _RevParseRecorder:
             if self._remote_fail:
                 return SimpleNamespace(returncode=128, stdout="", stderr="unknown revision")
             return SimpleNamespace(returncode=0, stdout=self._remote_sha + "\n", stderr="")
-        # fetch 等其它子命令：无条件成功、空输出。
+        # Fetch et al. command: Unconditional success, empty output.
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
 def test_assert_delivered_passes_when_remote_equals_head(tmp_path, monkeypatch):
-    # origin/<branch> == HEAD → 已交付，放行（不抛）。
+    # Origin/<branch> ==HEAD  →  delivered, released (none dropped).
     recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40)
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -322,16 +322,16 @@ def test_assert_delivered_passes_when_remote_equals_head(tmp_path, monkeypatch):
     ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
 
     joined = _joined(recorder)
-    # fetch 先行（远端无分支不报错），再 rev-parse 两侧对比。
+    # Fetch first (unspecified and unspecified) and rev-parse.
     assert any("fetch origin openagents/issue-140" in c for c in joined)
     assert any("rev-parse origin/openagents/issue-140" in c for c in joined)
     assert any("rev-parse HEAD" in c for c in joined)
-    # 硬闸只读、绝不代 agent force-push（决策 7）。
+    # The hard-line is read-only and never-present (decision 7).
     assert not any("push" in c or "--force" in c for c in joined)
 
 
 def test_assert_delivered_raises_on_mismatch_with_both_shas(tmp_path, monkeypatch):
-    # origin/<branch> != HEAD → 未交付，抛 WorkspaceError，报错携双 SHA 摘要。
+    # = HEAD = undelivered, threw WorkspaceError, misdirected with double SHA summary.
     recorder = _RevParseRecorder(remote_sha="b" * 40, head_sha="c" * 40)
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -339,12 +339,12 @@ def test_assert_delivered_raises_on_mismatch_with_both_shas(tmp_path, monkeypatc
     with pytest.raises(WorkspaceError) as excinfo:
         ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
     msg = str(excinfo.value)
-    assert "b" * 12 in msg  # 远端短 SHA
-    assert "c" * 12 in msg  # 本地 HEAD 短 SHA
+    assert "b" * 12 in msg  # Shorter Far SHA
+    assert "c" * 12 in msg  # Local HEAD Short SHA
 
 
 def test_assert_delivered_raises_when_remote_branch_missing(tmp_path, monkeypatch):
-    # 远端无该分支（rev-parse origin/<branch> 失败）→ 视作未交付，抛。
+    # No branch (rev-parse origin/<branch> failed) is considered undelivered, thrown.
     recorder = _RevParseRecorder(remote_sha="", head_sha="d" * 40, remote_fail=True)
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -359,7 +359,7 @@ def test_assert_delivered_raises_when_remote_branch_missing(tmp_path, monkeypatc
     ids=["unstaged", "staged", "new-source", "deleted-source", "unmerged"],
 )
 def test_delivery_snapshot_rejects_source_outside_the_pushed_commit(tmp_path, monkeypatch, status):
-    """Spec-0056 补充：拒绝的是漏交付，不是替开发者清理、提交或推送。"""
+    """Spec-0056 supplements: The rejection is an omission, not a clean-up, submission or push-over for the developer."""
     recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40, status=status)
     monkeypatch.setattr(subprocess, "run", recorder)
     ws = Workspace(work_dir=tmp_path)
@@ -372,16 +372,16 @@ def test_delivery_snapshot_rejects_source_outside_the_pushed_commit(tmp_path, mo
     assert all(
         command[3] in {"fetch", "rev-parse", "status", "diff"} for command in recorder.commands
     )
-    assert rejected, "HEAD 与远端相等，不代表工作区里的实现已提交交付"
+    assert rejected, "HEAD is the same as far-reaching, not representing delivery in the workspace"
 
-    # 不得锁死：开发角色正常提交、推送后，同一工作区必须可以通过。
+    # The development role is normally submitted, pushed back and must be accessible in the same workspace.
     recorder.status = ""
     recorder._head_sha = recorder._remote_sha = "b" * 40
     ws.assert_delivered(worktree=tmp_path, branch="openagents/issue-140")
 
 
 def test_delivery_snapshot_ensure_preserves_uncommitted_implementation(tmp_path, monkeypatch):
-    """RFC-0005 补充：恢复非干净工作区不能复用 prepare 的强制重建语义。"""
+    """RFC-0005: The restoration of unclean working areas cannot be repeated in the prepare language of forced reconstruction."""
     recorder = _RevParseRecorder(remote_sha="a" * 40, head_sha="a" * 40, status=" M entry.py\n")
     monkeypatch.setattr(subprocess, "run", recorder)
     worktree = tmp_path / ".openagents" / "worktrees" / "issue-140"
@@ -394,13 +394,15 @@ def test_delivery_snapshot_ensure_preserves_uncommitted_implementation(tmp_path,
         == worktree
     )
     assert source.read_text() == "implementation surviving a timeout\n"
-    assert recorder.commands == [], "续写现有工作区不需要重建、reset 或 clean"
+    assert recorder.commands == [], (
+        "Relay existing workspaces without reconstruction, reset or clean"
+    )
 
 
 def test_decision_7_docstring_allows_force_with_lease_on_own_branch():
-    # 决策 7 修订：绝不*裸* force、允许 --force-with-lease 仅限本 issue 分支。
+    # Decision 7 Revision: Never* naked* force, allow --force-with-lease only for the branch of the issue.
     doc = ws_module.__doc__ or ""
-    assert "绝不裸 force-push" in doc
+    assert "Never use a bare force push" in doc
     assert "--force-with-lease" in doc
     assert "openagents/issue-" in doc
 
@@ -410,15 +412,15 @@ def test_module_exposes_workspace_error():
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0068/T1: 进程级 git-mutation 串行锁（prepare/ensure 持锁；commit/assert 不进锁）
+# Spec-0068/T1: Process Level git-mutation Serial Lock (Lock)prepare/ensure (a) Locked;commit/assert No locks)
 # --------------------------------------------------------------------------- #
 
 
 class _LockProbeRecorder:
-    """subprocess.run 替身：每条 git 命令执行时探测 _GIT_MUTATION_LOCK 当前是否被持有。
+    """subprocess.run double: detect if _GIT_MUTATION_LOCK is currently held while each guit command is being executed.
 
-    记录 (子命令, 进入时锁是否已被占)。用 `acquire(blocking=False)` 探测：能拿到 = 当前
-    没人持锁（返回 False 记「未持锁」并立刻释放）；拿不到 = 锁被本线程的 with 段占着（记 True）。
+    Record (sub-order, lock occupied when entering). `acquire(blocking=False)` detect: Can get = current
+    No one holds a lock (returns to False ”unlocked” and is released immediately); cannot get = locks with a segment (True).
     """
 
     def __init__(self, *, stdout=""):
@@ -438,42 +440,46 @@ class _LockProbeRecorder:
 
 
 def test_prepare_git_mutations_run_under_lock(tmp_path, monkeypatch):
-    # prepare 的整段共享 .git 变更（fetch/remove/prune/branch/add）都应在持锁下执行。
+    # The whole of prepare shares.git changes (fetch/remove/prune/branch/add) should be executed under a lock.
     probe = _LockProbeRecorder()
     monkeypatch.setattr(subprocess, "run", probe)
     Workspace(work_dir=tmp_path).prepare(issue_number=3, branch="openagents/issue-3", base="main")
 
     mutating = {"fetch", "worktree", "branch"}
     seen = [(sub, held) for sub, held in probe.observations if sub in mutating]
-    assert seen, "prepare 应至少跑一条 git 变更命令"
-    assert all(held for _, held in seen), f"prepare 的 git 变更段须持锁执行，实测：{seen}"
+    assert seen, "Prepare should run at least one guit change order"
+    assert all(held for _, held in seen), (
+        f"The git change in prepare is to be executed with a lock.{seen}"
+    )
 
 
 def test_ensure_git_mutations_run_under_lock(tmp_path, monkeypatch):
-    # ensure（缺失重建路径）的 fetch + worktree add 也应在持锁下执行。
+    # The setch + worktree add of the ensure (missing path for reconstruction) should also be executed under a lock.
     probe = _LockProbeRecorder()
     monkeypatch.setattr(subprocess, "run", probe)
     Workspace(work_dir=tmp_path).ensure(issue_number=3, branch="openagents/issue-3")
 
     seen = [(sub, held) for sub, held in probe.observations if sub in {"fetch", "worktree"}]
-    assert seen, "ensure 重建路径应跑 fetch + worktree add"
-    assert all(held for _, held in seen), f"ensure 的 git 变更段须持锁执行，实测：{seen}"
+    assert seen, "Esure re-build path should run"
+    assert all(held for _, held in seen), (
+        f"The guit change in the grate of the giraffe is to be executed with a lock.{seen}"
+    )
 
 
 def test_assert_delivered_does_not_take_lock(tmp_path, monkeypatch):
-    # assert_delivered 纯读、不改共享 ref，不应获取 git-mutation 锁。
+    # assert_delivered is read-only, without changing the share ref, should not get the guit-mutation lock.
     probe = _LockProbeRecorder(stdout="a" * 40 + "\n")
     monkeypatch.setattr(subprocess, "run", probe)
     Workspace(work_dir=tmp_path).assert_delivered(worktree=tmp_path, branch="openagents/issue-3")
 
-    assert probe.observations, "assert_delivered 应跑 fetch + rev-parse"
+    assert probe.observations, "assert_delivered Run"
     assert all(not held for _, held in probe.observations), (
-        f"assert_delivered 不应持 git-mutation 锁，实测：{probe.observations}"
+        f"assert_delivered should not hold a grate-mutuation lock.{probe.observations}"
     )
 
 
 def test_lock_is_module_level_threading_lock():
-    # 锁须是模块级 threading.Lock（互斥、非可重入即够；实例锁串不起跨 worker 调用）。
+    # The lock must be a modular threading.Lock (repeated, non-renewable; example lock cannot be used to cross-worker call).
     lock = ws_module._GIT_MUTATION_LOCK
     assert lock.acquire(blocking=False) is True
     lock.release()

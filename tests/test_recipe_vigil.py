@@ -1,19 +1,19 @@
-"""Spec-0065/T2: recipes.vigil —— level-triggered reconcile 守夜的契约单测。
+"""Spec-0065/T2: recipes.vigil - level-triggered contract measurement for Vigil.
 
-按 spec §14 的顺序钉死五块：
-- **感知**：`_classify` 四值逐分支 + `in_flight` 先于一切；`_fingerprint` 字段集恒等于 `_Facts` 全集、
-  不含 clock、**不含 comment id**（盖 attempt 戳前后 fp 必须相等——这条直接钉死护栏一不自毁）；
-  `_sense` 在 mergeable UNKNOWN 时**一次 CI 都不读**；`_watchdog` 按 reason 分档。
-- **队列**：`_claim_next` exactly-once 不双跑；`INSERT OR IGNORE` 幂等；`_mark_done` 是 DELETE（不是
-  `status='done'`——UNIQUE 约束会把 subject 永久锁死）。
-- **存活探测（本 spec 的核心断言，零双跑）**：持有者活着 → EWOULDBLOCK → **行原样不动**（哪怕已超
-  IN_FLIGHT 告警阈值，也只 `_park`、绝不回收）；持有者被 `kill -9` → 内核放锁 → 行**立刻**回 queued（不
-  等任何超时）；同进程两 fd 互斥（**用 `lockf` 这条会失败**——钉死必须 flock）；收工**先删行后 close(fd)**。
-- **卡死**：`_act` 硬超时 → 杀子进程 + 抛出 → 持有者自己 `_requeue_or_park`；`attempts` 到顶 → needs-human。
-- **收口**：agent 返回结构化 `needs-human` → Vigil 当轮统一 park、**零后续 agent 调用**；
-  `review-approved:<sha7>` 的 sha 必须等于当前 head 才 merge，陈旧 sha / 裸 label 一律降回 review-or-fix。
+Nailed to five in the order of spec §14:
+-** Perceptions**: `_classify` 4 values by branch + `in_flight` before everything; `_fingerprint` field set constant equals `_Facts` complete set,
+  Without clocks,** without commment id** (fp must be equal before and after a capt - this direct nail to the guard is not self-destructive);
+  `_sense` at the time of possible UNKNOWN** not read at all by CI**; `_watchdog` by reston slot.
+- **Queue**：`_claim_next` exactly-once Not running double;`INSERT OR IGNORE` (a) Arguments, etc.;`_mark_done` yes DELETE(No, it’s not.
+  `status='done'` - UNIQUE binding locks subproject permanently to death.
+** Survivors’ Detection (Ben spec’s Core Claim, Zero Double)**: Holders Alive  →  EWOLDBLONK ** Lines remain the same** (even if they are beyond)**
+  IN_FLIGHT alarm threshold, which is also only `_park`, which is never recycled; the holder is locked by `kill -9` kernel  →   →  ** immediately** returned
+  Wait for any timeout; two fd each other with process (** failure with `lockf`** — crucifying must be doneflock); ** close after deletion (fd)**.
+- **- Cut!**：`_act` Hard timeout → The killing process. + Throw → The Holder himself `_requeue_or_park`；`attempts` Top → needs-human。
+-** Shutdown**: agent returns structured `needs-human`  →  Vigil
+  `review-approved:<sha7>` must be ssha equal to the current head only mass, sha/ nud label always descend back into review-or-fix.
 
-全程假 backend + 打桩 github/git/stages，不触真实 LLM/网络/仓库。
+Full time off backend + - Prick. github/git/stages  Don’t touch the truth   LLM/Network/Warehouse.
 """
 
 from __future__ import annotations
@@ -87,12 +87,12 @@ _SHA7 = _HEAD[:7]
 
 
 # --------------------------------------------------------------------------------------------------
-# 夹具：facts 造型 + 打桩 github。
+# Plugin: acts model + put a gthub on.
 # --------------------------------------------------------------------------------------------------
 
 
 def _facts(**overrides) -> _Facts:
-    """一个「万事俱备、只欠合并」的 facts（分支⑪），各测试按需改单个字段往回退。"""
+    """A ”all-in-all, all-in-all” fact sheet (subsection 11), with individual fields being changed as needed."""
     base = _Facts(
         subject="issue:5",
         pr_number=12,
@@ -136,7 +136,7 @@ def _db(tmp_path: Path) -> tuple[Path, sqlite3.Connection]:
 
 
 # --------------------------------------------------------------------------------------------------
-# 感知①：_classify 四值分支表（顺序即正确性）。
+# Perception 1: _classify Quad-value list (order is correct).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -159,19 +159,24 @@ def test_classify_in_flight_precedes_machine_failure_terminal():
         ({"mergeable_state": None}, _QUIET, _AWAITING_MERGEABILITY, None),
         ({"mergeable_state": "dirty"}, _ACTIONABLE, None, _ACT_REBASE),
         ({"ci": "pending"}, _QUIET, _AWAITING_CI, None),
-        ({"ci": "none"}, _QUIET, _AWAITING_CI, None),  # 零个 check ≠ CI 绿
+        (
+            {"ci": "none"},
+            _QUIET,
+            _AWAITING_CI,
+            None,
+        ),  # No checks yet; wait for CI.
         ({"ci": "failure"}, _ACTIONABLE, None, _ACT_FIX_CI),
         ({"e2e_head_sha": None}, _ACTIONABLE, None, _ACT_E2E),
-        ({"e2e_head_sha": "0" * 40}, _ACTIONABLE, None, _ACT_E2E),  # 证据陈旧（张冠李戴）
+        ({"e2e_head_sha": "0" * 40}, _ACTIONABLE, None, _ACT_E2E),  # Evidence is old.
         (
             {"is_draft": True},
             _ACTIONABLE,
             None,
             _ACT_READY,
-        ),  # Spec-0017: draft → 转正
+        ),  # Spec-0017: draft Zort
         (
-            # Spec-0074 实证回归：Gitea 对 draft PR 恒报 mergeable:false（→DIRTY）。转正必须先于
-            # mergeable 判定，否则 draft 卡 rebase 永不转正 → 死锁。draft 支无条件、排在 ⑤⑥ 之前。
+            # Spec-0074 empirical return: Gitea vs. draft PR constant mediaable: false ( → DIRTY).
+            # Unable to determine that otherwise the draft card rebase will never be corrected. draft is unconditionally placed before 56.
             {"is_draft": True, "mergeable_state": "dirty"},
             _ACTIONABLE,
             None,
@@ -181,12 +186,12 @@ def test_classify_in_flight_precedes_machine_failure_terminal():
             {
                 "is_draft": True,
                 "mergeable_state": "unknown",
-            },  # 同理：不被 awaiting-mergeability 挡住
+            },  # Same: not blocked by ailing-mergeability
             _ACTIONABLE,
             None,
             _ACT_READY,
         ),
-        ({}, _ACTIONABLE, None, _ACT_MERGE),  # 非 draft 才落 merge
+        ({}, _ACTIONABLE, None, _ACT_MERGE),  # It's not datter that counts.
     ],
 )
 def test_classify_branch_table(overrides, kind, reason, action):
@@ -195,16 +200,16 @@ def test_classify_branch_table(overrides, kind, reason, action):
 
 
 def test_classify_draft_promotion_precedes_whole_merge_pipeline():
-    """Spec-0017 + Spec-0074 实证：draft → **必落 ready**，且转正先于**整条** mergeable/CI/review 流水线。
+    """Spec-0017 + Spec-0074 empirical: draft  →  ** must drop ready** and be before the whole ** mergeable/CI/review current line.
 
-    #168：draft PR 合不了、merge:human 时人也被 draft 墙挡。Spec-0074：Gitea 对 draft 报 mergeable:false，
-    转正若排在 mergeable 判定之后会死锁——故 draft 支无条件、物理上排在 ⑤⑥⑦⑧⑨⑩⑫ 之前。
+    #168：draft PR It doesn’t work.merge:human And so was the other. draft Wall.Spec-0074：Gitea Yeah. draft Report mergeable:false，
+    The shift will be locked to death if it is scheduled after a decision is made - so the draft is unconditionally, physically, before 5678910112.
     """
-    # 全绿 draft → ready（与旧行为一致）。
+    # All green – ready (in line with old behaviour).
     assert _classify(facts=_facts(is_draft=True), in_flight=False).action == _ACT_READY
-    # draft 叠加任一后续流水线态（脏/CI 红/未评审）都仍先转正——证明 draft 支物理居前、无条件。
+    # draft superimposes any subsequent flow of water line state (dirty/CI red/unevaluated) and is still corrected - proof that the draft branch physics is pre-empted and unconditional.
     for pipeline_state in (
-        {"mergeable_state": "dirty"},  # Gitea draft 的真实报告
+        {"mergeable_state": "dirty"},  # Gitea Draft's Real Report
         {"mergeable_state": "unknown"},
         {"ci": "failure"},
         {"review_state": "REWORK", "review_commit_id": None},
@@ -212,24 +217,26 @@ def test_classify_draft_promotion_precedes_whole_merge_pipeline():
         verdict = _classify(facts=_facts(is_draft=True, **pipeline_state), in_flight=False)
         assert verdict.action == _ACT_READY, pipeline_state
         assert verdict.action != _ACT_MERGE
-    # 非 draft 同一 facts → merge：证明转正支只对 draft 触发，非 draft 照常走到 merge。
+    # Non-draft same facts  → merge: certify that the transfer is triggered only by draft, and non draft normally reaches merge.
     assert _classify(facts=_facts(is_draft=False), in_flight=False).action == _ACT_MERGE
 
 
 def test_classify_reply_precedes_merge_because_merge_is_irreversible():
-    """人的新评论排在 merge 前——「先别合，我有疑问」必须抢得过 merge。**合并不可逆。**"""
-    facts = _facts(latest_comment_is_ours=False)  # 其余字段全绿、本该 merge
+    """People’s new comments are before merge -- ”Feed up, I have doubts” -- and must be taken.** Merger is irreversible.**"""
+    facts = _facts(
+        latest_comment_is_ours=False
+    )  # The rest of the fields are green, should be merge
     assert _classify(facts=facts, in_flight=False).action == _ACT_REPLY
 
 
 def test_classify_conflict_precedes_ci():
-    """冲突排在 CI 前——冲突的 PR 拿不到 merge ref、GitHub 不给它 check，先读 CI 会读成「永远在等」。"""
+    """The conflict is ahead of the CI-the conflict PR can’t get merge ref, GitHub doesn’t check, read the CI and read ”Always wait.”"""
     facts = _facts(mergeable_state="dirty", ci="failure")
     assert _classify(facts=facts, in_flight=False).action == _ACT_REBASE
 
 
 # --------------------------------------------------------------------------------------------------
-# 感知②：review 裁决绑 commit —— sha 必须进 label 名，否则会合并没人审过的代码。
+# Sensory 2: Review decision binds a committee - ssha to a label or merges code that no one has ever examined.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -238,7 +245,7 @@ def test_review_approved_with_current_head_sha_merges():
 
 
 def test_review_approved_with_stale_sha_never_merges():
-    """审完后 agent 又 push 了：裁决绑的是旧 commit → 必须降回⑩重审，**绝不 merge**。"""
+    """After the trial, agent put a push on it: the ruling tied to the old committee had to be dropped back to 10,** never merge**."""
     stale = _facts(review_commit_id="0000000", labels=frozenset({"review-approved:0000000"}))
     verdict = _classify(facts=stale, in_flight=False)
     assert verdict.action == _ACT_REVIEW_OR_FIX
@@ -246,7 +253,7 @@ def test_review_approved_with_stale_sha_never_merges():
 
 
 def test_bare_review_approved_label_is_not_honored():
-    """裸 `review-approved`（无 sha）不被承认——它正是「合并未审代码」的那个 bug。"""
+    """Naked `review-approved` (no ssha) is not recognized - it’s the bug that’s the ”merging unreviewed code”."""
     state, commit = vigil_module._review_from_labels(labels={"review-approved"})
     assert (state, commit) == (None, None)
     bare = _facts(review_state=None, review_commit_id=None, labels=frozenset({"review-approved"}))
@@ -254,7 +261,7 @@ def test_bare_review_approved_label_is_not_honored():
 
 
 def test_changes_requested_outranks_approved():
-    """同时挂两种裁决（审过后又被打回）→ CHANGES_REQUESTED 优先。"""
+    """Two decisions (which were reviewed and returned) were also filed (CHANGES_REQUESTED priority)."""
     state, _ = vigil_module._review_from_labels(
         labels={f"review-approved:{_SHA7}", f"review-changes-requested:{_SHA7}"}
     )
@@ -262,12 +269,12 @@ def test_changes_requested_outranks_approved():
 
 
 # --------------------------------------------------------------------------------------------------
-# 感知③：_fingerprint —— 字段集 ≡ _Facts 全集；不含 clock；**不含 comment id**（护栏一的自毁开关）。
+# Perception 3: _fingerprint - Field Set  → Facts Full; does not contain clock;** does not contain a contact id** (self-destruct switch for column I).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_fingerprint_covers_exactly_every_facts_field():
-    """fp 的输入集 ≡ `dataclasses.fields(_Facts)` 全集：漏一个字段 = 静默瞎掉一整类活。"""
+    """fp , and then click the input set ≡ `dataclasses.fields(_Facts)` Full set: one field leak = The silent blinding of a whole kind of work."""
     baseline = _fingerprint(facts=_facts())
     mutations = {
         "subject": "issue:6",
@@ -283,22 +290,24 @@ def test_fingerprint_covers_exactly_every_facts_field():
         "review_state": "CHANGES_REQUESTED",
         "review_commit_id": "0000000",
         "latest_comment_is_ours": False,
-        "is_draft": True,  # Spec-0017/T2: 转正使 True→False 改 fp、记为真进展 → 护栏一不误触。
+        "is_draft": True,  # Spec-0017/T2: Change True → False to fp and mark it as real progress.
         "material_digest": "changed-material",
     }
     assert set(mutations) == {field.name for field in fields(_Facts)}
     for name, value in mutations.items():
-        assert _fingerprint(facts=_facts(**{name: value})) != baseline, f"{name} 未进 fp"
+        assert _fingerprint(facts=_facts(**{name: value})) != baseline, f"{name} Not entered fp"
 
 
 def test_fingerprint_ignores_clock():
-    """`_Clock` 不进 fp：check 一开跑就刷 `started_at`，混进去会让 agent 被反复叫起（护栏一失效）。"""
+    """`_Clock` does not enter fp:check brushes `started_at` as soon as it runs, mixing it with agent will be called repeatedly (the one that is not in the column)."""
     assert "last_progress_at" not in {field.name for field in fields(_Facts)}
-    assert _fingerprint(facts=_facts()) == _fingerprint(facts=_facts())  # clock 根本不是入参
+    assert _fingerprint(facts=_facts()) == _fingerprint(
+        facts=_facts()
+    )  # Identical facts produce the same fingerprint.
 
 
 def test_fingerprint_unchanged_by_our_own_comment(monkeypatch):
-    """**护栏一不自毁**：盖 attempt 戳（一条新评论）前后 fp 必须相等——否则戳当场作废 → 无限重叫 agent。"""
+    """** Col. No Self-Default**: fp must be equal before and after the Guy Attempt jab (a new comment) - otherwise the jab will be scrapped on the spot and indefinitely called agent."""
     posted: list[str] = []
     monkeypatch.setattr(
         vigil_module.identity,
@@ -307,13 +316,13 @@ def test_fingerprint_unchanged_by_our_own_comment(monkeypatch):
     )
     before = _fingerprint(facts=_facts())
     vigil_module._post_attempt_stamp(facts=_facts(), fp=before, conclusion="flaky", agent_id="a")
-    # 盖戳只追加一条我方评论：`latest_comment_is_ours` 仍为 True，且 facts 不含 comment id → fp 不变。
+    # The stamp adds only one comment: `latest_comment_is_ours` is still True and facts do not contain a comment id id  → fp.
     assert _fingerprint(facts=_facts()) == before
     assert posted and f"fp={before}" in posted[0]
 
 
 # --------------------------------------------------------------------------------------------------
-# 感知④：_sense —— mergeable UNKNOWN 时**一次 CI 都不读**；三态 skip 归一成「已过闸」。
+# Perception 4: _sense — universal UNKNOWN** not read by CI**; tri-state skip is divided into "passed gate"
 # --------------------------------------------------------------------------------------------------
 
 
@@ -346,10 +355,10 @@ def _patch_sense(monkeypatch, *, snapshot, comments=(), blockers=(), on_checks=N
 
 
 def test_sense_does_not_read_ci_when_mergeability_unknown(monkeypatch):
-    """mergeable UNKNOWN ⇒ **一次 CI 请求都不发**（否则「CI 卡住」的症状会盖住「有冲突」的病因）。"""
+    """The #CiClosed Symptoms will cover the cause of the conflict."""
 
     def _boom(*, pr_number):
-        raise AssertionError("mergeable UNKNOWN 时不得读 CI")
+        raise AssertionError("UnknowN is not allowed to read CI")
 
     _patch_sense(
         monkeypatch,
@@ -362,7 +371,7 @@ def test_sense_does_not_read_ci_when_mergeability_unknown(monkeypatch):
 
 
 def test_sense_zero_checks_is_awaiting_ci_not_green(monkeypatch):
-    """当前 head 上零个 check → `none` → QUIET(awaiting-ci)，**绝不是「CI 绿了」**。"""
+    """The current zero check of the head `none` QuiET (awaiting-ci)** is not ”CI green”**."""
     _patch_sense(
         monkeypatch,
         snapshot=_snapshot(),
@@ -374,8 +383,8 @@ def test_sense_zero_checks_is_awaiting_ci_not_green(monkeypatch):
 
 
 def test_sense_reads_is_draft_from_snapshot(monkeypatch):
-    """Spec-0017/T2: `_sense` 从 pr_snapshot.is_draft 读入 → `_classify` 全绿+approved 时判 ready（非 merge）。"""
-    # e2e:skip 把证据戳归一成 head（本测只关心 draft 支）；review 留 agent，用真 review-approved label。
+    """Spec-0017/T2: `_sense` read pr_snapshot.is_draft when `_classify` is green + programmed"""
+    # e2e:skip pegs the evidence to a head (this test only concerns draft); review stays ant, with real review-approved label.
     config = _config(stages=_stages(e2e="skip"))
     _patch_sense(
         monkeypatch,
@@ -384,7 +393,7 @@ def test_sense_reads_is_draft_from_snapshot(monkeypatch):
     facts = _sense(config=config, subject="issue:5").facts
     assert facts.is_draft is True
     assert _classify(facts=facts, in_flight=False).action == _ACT_READY
-    # 非 draft 同源 → merge（证明 is_draft 是每 tick 复检的一等事实）。
+    # Non-draft co-source  → merge (proves that is_draft is a first-class fact per tick check).
     _patch_sense(
         monkeypatch,
         snapshot=_snapshot(labels=(f"review-approved:{_SHA7}",), is_draft=False),
@@ -395,7 +404,7 @@ def test_sense_reads_is_draft_from_snapshot(monkeypatch):
 
 
 def test_sense_normalizes_skip_gates_as_already_passed(monkeypatch):
-    """三态 `skip` 在 `_sense` 归一成「事实上已过闸」，`_classify` 因而保持纯机械、不吃 config。"""
+    """The 3-State `skip` has been added to the ”de facto past the gate” in `_sense`, so that `_classify` remains purely mechanical and does not eat config."""
     _patch_sense(
         monkeypatch,
         snapshot=_snapshot(),
@@ -410,14 +419,12 @@ def test_sense_normalizes_skip_gates_as_already_passed(monkeypatch):
 
 
 def test_sense_still_sees_the_pr_after_it_is_merged(monkeypatch):
-    """PR 一合并就从 open 列表消失——`_sense` 若用 open-only 的查法，会把已完成的 issue 读成「还没有 PR」。
+    """PR merges and disappears from the open list - `_sense` reads completed issue as ”P” if you use open-only.
 
-    后果不是漏一个字段，是**把同一个 issue 整个重做一遍**（分支④ solve → 再开一个 PR）。故这里钉死：
-    `_sense` 查 PR 走 `pr_for_branch`（不限状态），merged 读得出来 → `_classify` 判 TERMINAL。
+    The result is not a missing field, but ** to redo the same issue as the whole** (subsection 4 Solve opens another PR). So here’s the nail:
+    `_sense` Cha. PR Let’s go. `pr_for_branch`(open-ended),merged I can read it. → `_classify` Judgement TERMINAL。
     """
-    monkeypatch.setattr(
-        vigil_module.github, "find_pr_by_branch", lambda *, branch: None
-    )  # open 为空
+    monkeypatch.setattr(vigil_module.github, "find_pr_by_branch", lambda *, branch: None)  # open
     _patch_sense(monkeypatch, snapshot=_snapshot(state="MERGED"))
     facts = _sense(config=_config(), subject="issue:5").facts
     assert (facts.pr_number, facts.merged) == (12, True)
@@ -425,7 +432,7 @@ def test_sense_still_sees_the_pr_after_it_is_merged(monkeypatch):
 
 
 def test_sense_reads_deps_from_native_blocked_by(monkeypatch):
-    """依赖边读 GitHub 原生 `blocked_by`；响应自带 state ⇒ 一次调用同时拿到「边」和「关没关」。"""
+    """Reliance on reading by-dot GitHub native `blocked_by`; responding to the autostate  →  call at a time to get both ”side” and ”sun-off”"""
     _patch_sense(
         monkeypatch,
         snapshot=_snapshot(),
@@ -437,7 +444,7 @@ def test_sense_reads_deps_from_native_blocked_by(monkeypatch):
 
 
 def test_sense_clock_uses_head_push_time_when_no_checks_no_comments(monkeypatch):
-    """刚推上去、零 check、零评论的 PR：`last_progress_at` 必须来自 head 推送时间——否则看门狗永不响。"""
+    """PR: `last_progress_at` must come from the head push time -- otherwise the watchdog never rings."""
     _patch_sense(
         monkeypatch,
         snapshot=_snapshot(),
@@ -448,15 +455,17 @@ def test_sense_clock_uses_head_push_time_when_no_checks_no_comments(monkeypatch)
 
 
 def test_sense_clock_reads_the_issue_comments_when_there_is_no_pr_yet(monkeypatch):
-    """还没 PR 的 issue，进度时钟必须从 **issue 自己的评论流** 走——否则 `last_progress_at` 恒 `None`，
-    护栏二（QUIET 看门狗）对整个 `solve` 阶段**永久失效**：一个空转的 solve（agent 跑完没推 PR → fp 没变
-    → 盖同-fp attempt 戳 → 降级 QUIET(awaiting-effect)）会静默永久卡死、`_watchdog` 因 None 直接返回
-    False、needs-human 永不触发。attempt 戳落在 issue 上，读它，看门狗才算得出 age。"""
+    """Not yet PR issue, progress clock must go from **issue’s own comment** - otherwise `last_progress_at` constant `None`,
+    The second guard (QuiET door dog) permanently expires throughout `solve`**: an empty solve (agent running or pushing PR  → fp unchanged)
+     →  Quixiet (awaiting-effect) will die silently and permanently, `_watchdog` will return directly because Noone
+    False, Neds-human never triggers. Attempt falls on issue, reads it, and the watchdogs calculates the age."""
     monkeypatch.setattr(
         vigil_module.github, "get_issue", lambda *, number: github.Issue(7, "T", "B", [])
     )
     monkeypatch.setattr(vigil_module.github, "list_blocked_by", lambda *, number: [])
-    monkeypatch.setattr(vigil_module.github, "pr_for_branch", lambda *, branch: None)  # 还没 PR
+    monkeypatch.setattr(
+        vigil_module.github, "pr_for_branch", lambda *, branch: None
+    )  # Not yet, PR.
     stamp = github.Comment(
         id="IC_1",
         author="openagents-bot",
@@ -470,14 +479,14 @@ def test_sense_clock_reads_the_issue_comments_when_there_is_no_pr_yet(monkeypatc
 
     assert observed.facts.pr_number is None
     assert observed.clock.last_progress_at == datetime(2026, 7, 14, 12, 0, tzinfo=UTC), (
-        "无-PR issue 的时钟没读 issue 评论 → last_progress_at 恒 None → 看门狗永不响 → 静默永久卡死"
+        "None-PR issue The clock didn't read. issue Comments → last_progress_at Constant None → The watchdog never rings. → Quiet and permanent death."
     )
 
 
 def test_sense_reads_e2e_evidence_stamp(monkeypatch):
-    """e2e 证据是一条带 head 溯源戳的评论；head 一前移，证据自动作废 → 分支⑨重跑。"""
+    """e2e The evidence is a comment with a head trace; head is moved and evidence automatically invalidates branch 9."""
     body = vigil_module.identity.sign(
-        body=f"<!-- openagents:e2e head={_HEAD} -->\n✅ e2e 通过", agent_id="bot"
+        body=f"<!-- openagents:e2e head={_HEAD} -->\n → e2e Passed", agent_id="bot"
     )
     stamp = github.Comment(1, "bot", body, "2026-07-14T11:00:00Z")
     _patch_sense(monkeypatch, snapshot=_snapshot(), comments=[stamp])
@@ -485,37 +494,37 @@ def test_sense_reads_e2e_evidence_stamp(monkeypatch):
 
     _patch_sense(monkeypatch, snapshot=_snapshot(head_sha="f" * 40), comments=[stamp])
     facts = _sense(config=_config(), subject="issue:5").facts
-    assert facts.e2e_head_sha != facts.head_sha  # 陈旧证据不被承认
+    assert facts.e2e_head_sha != facts.head_sha  # Old evidence is not recognized.
     assert _classify(facts=facts, in_flight=False).action == _ACT_E2E
 
 
 # --------------------------------------------------------------------------------------------------
-# 感知⑤：看门狗按 reason 分档（护栏二）。
+# Perception 5: Watchdogs are in reason slots (Battle 2).
 # --------------------------------------------------------------------------------------------------
 
 
 def test_watchdog_fires_per_reason_threshold():
     clock = _Clock(last_progress_at=_NOW - timedelta(seconds=600))
     thresholds = {_AWAITING_CI: 3600, _AWAITING_EFFECT: 300, _AWAITING_BLOCKERS: None}
-    assert not _watchdog(  # 10 分钟 < 1 小时：CI 还在正常跑
+    assert not _watchdog(  # 10 min < 1 hour: CI is still running
         verdict=_Verdict(kind=_QUIET, reason=_AWAITING_CI),
         clock=clock,
         thresholds=thresholds,
         now=_NOW,
     )
-    assert _watchdog(  # 10 分钟 > 5 分钟：agent 出手了但状态没动 → 叫人
+    assert _watchdog(  # 10 minutes > 5 minutes: agent shot but hasn't moved yet, call for help.
         verdict=_Verdict(kind=_QUIET, reason=_AWAITING_EFFECT),
         clock=clock,
         thresholds=thresholds,
         now=_NOW,
     )
-    assert not _watchdog(  # 阈值 None = 不看门（上游 blocker 有自己的看门狗）
+    assert not _watchdog(  # None = no doorkeeper (blocker has his own housekeeper dog upstream)
         verdict=_Verdict(kind=_QUIET, reason=_AWAITING_BLOCKERS),
         clock=clock,
         thresholds=thresholds,
         now=_NOW,
     )
-    assert not _watchdog(  # 非 QUIET 一律不看门
+    assert not _watchdog(  # QuiET, no doorkeeper.
         verdict=_Verdict(kind=_ACTIONABLE, action=_ACT_MERGE),
         clock=clock,
         thresholds=thresholds,
@@ -524,12 +533,12 @@ def test_watchdog_fires_per_reason_threshold():
 
 
 # --------------------------------------------------------------------------------------------------
-# 队列：幂等入队 / exactly-once 领取 / _mark_done 是 DELETE。
+# Queue: / Exactly-once collect / _mark_done is DelETE.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_enqueue_is_idempotent_via_subject_unique(tmp_path):
-    """`subject` UNIQUE + `INSERT OR IGNORE`：每 tick 无脑入队，重复是 no-op（level-triggered 的落地）。"""
+    """`subject` UniQUE + `INSERT OR IGNORE`: No-op (level-triggered) per tick inbound."""
     _, conn = _db(tmp_path)
     assert _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True
     assert _enqueue(conn=conn, subject="issue:5", priority=9, now=_NOW) is False
@@ -537,7 +546,7 @@ def test_enqueue_is_idempotent_via_subject_unique(tmp_path):
 
 
 def test_claim_next_is_exactly_once(tmp_path):
-    """两次领取同一行 → 第二次领空。这正是 GitHub label 做不到的（不安全方法无条件请求 ⇒ 无 CAS）。"""
+    """Two times you get the same line of air space for the second time. This is exactly what GitHub label can’t do."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     first = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w1", now=_NOW)
@@ -549,27 +558,29 @@ def test_claim_next_is_exactly_once(tmp_path):
 
 
 def test_claim_next_orders_by_priority_then_fifo(tmp_path):
-    """`ORDER BY priority DESC, enqueued_at ASC` 在**领取时**求值（久候行的优先级不冻结在入队时刻）。"""
+    """`ORDER BY priority DESC, enqueued_at ASC` is requested when ** is received (the priority of long waiting passes is not frozen at the time of entry)."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:1", priority=1, now=_NOW)
     _enqueue(conn=conn, subject="pr:2", priority=6, now=_NOW + timedelta(seconds=10))
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
-    assert row["subject"] == "pr:2"  # 后入队但优先级高
+    assert row["subject"] == "pr:2"  # Back in line, but first priority.
     os.close(fd)
 
 
 def test_mark_done_deletes_the_row(tmp_path):
-    """**必须是 DELETE**：留个 `status='done'` 行会因 UNIQUE 约束把该 subject 永久锁死（再也入不了队）。"""
+    """** Must be Delete**: Leave a `status='done'` row permanently locked to death (never in line) because of the UNIQUE constraint."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
     _mark_done(conn=conn, task_id=row["id"], fd=fd)
     assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
-    assert _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True  # 能再入队
+    assert (
+        _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW) is True
+    )  # I can get in the line again.
 
 
 def test_mark_done_deletes_row_before_closing_fd(tmp_path, monkeypatch):
-    """**先删行、后 close(fd)**：反过来会开一个窗口让 `_reclaim_dead` 抢到锁、把行打回 queued → 双跑。"""
+    """** Delete first line, then close (fd)**: In turn, a window will be opened to get `_reclaim_dead` to grab the lock and hit back queued back and run."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
@@ -582,31 +593,31 @@ def test_mark_done_deletes_row_before_closing_fd(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vigil_module.os, "close", _spy_close)
     _mark_done(conn=conn, task_id=row["id"], fd=fd)
-    assert seen == [0], "close(fd) 的那一刻，队列行必须已经删掉"
+    assert seen == [0], "The moment of the line must have been deleted."
 
 
 # --------------------------------------------------------------------------------------------------
-# 存活探测（**本 spec 的核心断言：零双跑**）：凭 flock 判死，不凭租约猜死。
+# Survivors (** Core assertion of this spec: zero doubles**): Flock is the reason for death, not the lease.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_two_fds_in_same_process_are_mutually_exclusive(tmp_path):
-    """**必须 flock、不能 lockf**：lockf 的锁是 per-process 的，同进程两 fd 不互斥 → K 线程互斥静默失效。
+    """** The lock that must be frozen, not locked**:lockf is per-process, and the two fds of the process do not rebuff each other and the k-lines are silent.
 
-    本模块是「一个进程 K 条 worker 线程」——这条断言是那个选择的护城河。改用 `fcntl.lockf` 后它会失败。
+    This module is a ”K-K-worker thread” -- this assertion is the moat that was chosen. It will fail when `fcntl.lockf` is replaced.
     """
     path = tmp_path / "claims" / "issue-5.lock"
     first = _try_lock(path=path)
     assert first is not None
-    assert _try_lock(path=path) is None, "同进程第二个 fd 必须抢不到锁（lockf 会误判为抢到）"
+    assert _try_lock(path=path) is None, "The second fd of the process must be unlocked."
     os.close(first)
     second = _try_lock(path=path)
-    assert second is not None  # 释放后可再抢
+    assert second is not None  # Once released, you can rob again.
     os.close(second)
 
 
 def test_reclaim_leaves_row_alone_while_holder_is_alive(tmp_path):
-    """持有者**活着** → EWOULDBLOCK → **行原样不动**。回收一个活着的持有者的行，定义上就是双跑。"""
+    """The holder** lives** EWOLDBLONK** stays the same.** Recycles a live holder’s walk, by definition, double-drive."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w1", now=_NOW)
@@ -615,12 +626,14 @@ def test_reclaim_leaves_row_alone_while_holder_is_alive(tmp_path):
         "SELECT status, worker FROM work_queue WHERE id=?", (row["id"],)
     ).fetchone()
     assert (after["status"], after["worker"]) == ("claimed", "w1")
-    assert _claim_next(conn=conn, work_dir=tmp_path, worker_id="w2", now=_NOW) is None  # 领不走
+    assert (
+        _claim_next(conn=conn, work_dir=tmp_path, worker_id="w2", now=_NOW) is None
+    )  # I can't take it.
     os.close(fd)
 
 
 def test_reclaim_leaves_row_alone_even_past_inflight_alarm_age(tmp_path):
-    """哪怕 `claimed_at` 已超 IN_FLIGHT 告警阈值：持有者还活着 → **只 `_park` 告警，绝不回收行**。"""
+    """Even if `claimed_at` is above the IN_FLIGHT threshold:  →  ** Only `_park` is still alive, never recycle**."""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     ancient = _NOW - timedelta(seconds=vigil_module._INFLIGHT_ALARM_SECONDS * 3)
@@ -634,13 +647,13 @@ def test_reclaim_leaves_row_alone_even_past_inflight_alarm_age(tmp_path):
 
 
 def test_reclaim_requeues_immediately_when_holder_was_killed(tmp_path):
-    """持有者被 `kill -9` → 内核放锁 → 行**立刻**回 queued（**不等任何超时**：根本没有租约可等）。"""
+    """Holders are locked by `kill -9` kernel ** immediately ** returned (** without any timeout**: no lease at all etc.)"""
     _, conn = _db(tmp_path)
     _enqueue(conn=conn, subject="issue:5", priority=1, now=_NOW)
     lock_file = _lock_path(work_dir=tmp_path, subject="issue:5")
     lock_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # 真起一个子进程持锁再 kill -9——只有内核能证明「flock 随进程死亡自动释放」这条性质。
+    # The real process is locked and killed-9 -- only internal nuclear power proves the nature of "flock automatically released with process death".
     holder = subprocess.Popen(
         [
             sys.executable,
@@ -661,20 +674,22 @@ def test_reclaim_requeues_immediately_when_holder_was_killed(tmp_path):
         "UPDATE work_queue SET status='claimed', worker='dead', worker_pid=?, claimed_at=?",
         (holder.pid, _NOW.isoformat()),
     )
-    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 0, "持有者活着时不许回收"
+    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 0, (
+        "The owner is not to be recovered while alive."
+    )
 
     holder.kill()
     holder.wait(timeout=5)
-    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 1, "持有者已死 → 立刻回收"
+    assert _reclaim_dead(conn=conn, work_dir=tmp_path) == 1, "Holder dead."
     row = conn.execute("SELECT status, worker, claimed_at FROM work_queue").fetchone()
     assert (row["status"], row["worker"], row["claimed_at"]) == ("queued", None, None)
     reclaimed = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w2", now=_NOW)
-    assert reclaimed is not None  # 可被重领
+    assert reclaimed is not None  # Reunified
     os.close(reclaimed[1])
 
 
 # --------------------------------------------------------------------------------------------------
-# 卡死：_act 硬超时 + attempts 上限（唯一必须计数的护栏）。
+# Card dead: _act hard timeout + upper limit (only one bar that must be counted).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -686,7 +701,7 @@ def test_requeue_returns_row_to_queue_below_max_attempts(tmp_path):
     after = conn.execute("SELECT status, attempts FROM work_queue").fetchone()
     assert (after["status"], after["attempts"]) == ("queued", 1)
     freed = _try_lock(path=_lock_path(work_dir=tmp_path, subject="issue:5"))
-    assert freed is not None, "回队时必须把锁一起释放"
+    assert freed is not None, "When we get back, we’ll have to release the locks together."
     os.close(freed)
 
 
@@ -705,12 +720,14 @@ def test_requeue_marks_automation_failed_at_max_attempts(tmp_path, monkeypatch):
     for _ in range(_MAX_ATTEMPTS):
         row, fd = _claim_next(conn=conn, work_dir=tmp_path, worker_id="w", now=_NOW)
         _requeue_or_park(conn=conn, task_id=row["id"], subject="issue:5", fd=fd, agent_id="vigil-1")
-    assert conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0  # 行已删，不霸占槽
+    assert (
+        conn.execute("SELECT COUNT(*) FROM work_queue").fetchone()[0] == 0
+    )  # We're done. We don't take the chute.
     assert parked == [(5, "automation-failed")]
 
 
 class _HangingBackend:
-    """永不返回的 backend——模拟「进程活着但挂死在一个不返回的调用上」（flock 判不出这种死法）。"""
+    """The backend - a simulation of ”process alive but hung up on a call that doesn’t return” (flock can’t rule out this death)."""
 
     name = "hanging"
 
@@ -719,7 +736,7 @@ class _HangingBackend:
 
 
 def test_timed_backend_raises_on_agent_hang():
-    """`_act` 硬超时 → 抛 `_ActTimeout` → `_worker_loop` 捕获 → 持有者自己 `_requeue_or_park`（行不成孤儿）。"""
+    """`_act` Hard timeout → Throw! `_ActTimeout` → `_worker_loop` Capture → The Holder himself `_requeue_or_park`Or not."""
     with pytest.raises(_ActTimeout):
         _TimedBackend(inner=_HangingBackend(), timeout_seconds=1, lock_fd=None).run(
             work_dir=Path("."), task="t", context="c"
@@ -743,29 +760,29 @@ def test_timed_backend_passes_through_normal_result():
 def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(
     monkeypatch, tmp_path, budget
 ):
-    """# Spec-0065/T2: 准入面的两次 agent 调用（triager / curator）**必须**是 `_TimedBackend`，不是裸 backend。
+    """# Spec-0065/T2: Two agent calls on the access ** must ** be `_TimedBackend`, not naked back.
 
-    它们跑在**生产者线程**上——那是整条守夜的主循环。任何一个挂死（模型不返回 / 网络半开），停摆的就不是
-    某一个 subject 而是**全系统**：不再有 tick、不再有 `_reclaim_dead`（真死掉的持有者永远不被回收）、
-    `--once` 连排空都进不去，而 K 个 worker 全都在等生产者补给。且这种死法**没有任何护栏看得见**：
-    看门狗与 IN_FLIGHT 告警本身就住在那条停掉的循环里。硬超时是这里唯一的活口。
+    They run on the **Producer’s ** -- that’s the whole Vigil cycle. Any hang-up, no swinging.
+    A sub-project is a system**: no more ticks, no more `_reclaim_dead` (no more dead holders being recovered),
+    `--once` cannot even get in, and K-worker is waiting for the producer to resupply. ** This death penalty is not visible **:
+    The watchdog and IN_FLIGHT report themselves live in that stopped loop. Hard time is the only living thing here.
 
-    这条路上没有认领的行（准入还没入队），故 `lock_fd=None`——不传 fd，不参与存活证明。
+    There was no claim on this road (access is not yet on the team), so `lock_fd=None` - no fd, no proof of survival.
     """
     monkeypatch.setenv("OPENAGENTS_CLAUDE_MAX_WALL", budget)
-    raw = object()  # 裸 backend：它绝不能原样漏到任何一个 stage 手上
+    raw = object()  # Naked: It must not be missing in any of the stages.
     seen: list[object] = []
     monkeypatch.setattr(vigil_module.github, "ensure_label", lambda *, name, description: None)
     monkeypatch.setattr(
         vigil_module.github,
         "list_issues",
-        lambda *, labels: [github.Issue(number=5, title="标题", body="正文", labels=())],
+        lambda *, labels: [github.Issue(number=5, title="Title", body="Text", labels=())],
     )
     monkeypatch.setattr(
         vigil_module.github,
         "get_issue",
         lambda *, number: github.Issue(
-            number=number, title="标题", body="正文", labels=("openagents",)
+            number=number, title="Title", body="Text", labels=("openagents",)
         ),
     )
     monkeypatch.setattr(vigil_module.github, "issue_add_label", lambda *, number, name: None)
@@ -790,21 +807,23 @@ def test_intake_runs_its_producer_thread_agent_calls_through_a_timed_backend(
         now=_NOW,
     )
 
-    assert len(seen) == 2, "triage 与 curator 两处都要经过硬超时（漏一处，主循环就还是能被挂死）"
+    assert len(seen) == 2, "Tread with curator both times through hard time."
     for backend in seen:
-        assert isinstance(backend, _TimedBackend), "裸 backend 挂死 = 整条守夜停摆，且无人看得见"
-        assert backend._inner is raw  # 只是包了一层，没换掉真正干活的那个
-        assert backend._lock_fd is None, "准入面没有认领的行 → 不传存活证明的 fd"
+        assert isinstance(backend, _TimedBackend), (
+            "  Naked backend hanged     The whole Vigil was out and nobody could see  "
+        )
+        assert backend._inner is raw  # It's just one floor.
+        assert backend._lock_fd is None, "No access, no access, no proof of survival, fd."
         assert backend._timeout_seconds == float(budget)
 
 
 # --------------------------------------------------------------------------------------------------
-# reconcile：worker 恒以 in_flight=False 调 _classify（否则每个 worker 领到活就空转）；零进展 → 盖戳收工。
+# Recincile: worker constant in_flight = False _classify (or every workr gets a job); zero progress  →  stamped off.
 # --------------------------------------------------------------------------------------------------
 
 
 def _stub_reconcile(monkeypatch, *, facts_seq: list[_Facts]) -> list[str]:
-    """把 `_sense` 打成一串预置 facts（每调一次吐一个，用尽后重复最后一个），并记录 `_act` 的动作序列。"""
+    """- Put it on. `_sense` I’ll put it in a line of presets. facts(one at a time, and one after the last after the last time) and recorded `_act` is the sequence of actions."""
     seen: list[str] = []
     box = {"index": 0}
 
@@ -815,7 +834,7 @@ def _stub_reconcile(monkeypatch, *, facts_seq: list[_Facts]) -> list[str]:
 
     def _fake_act(*, backend, state, work_dir, config, observed, verdict, agent_id, now, lock_fd):
         seen.append(verdict.action)
-        return "结论"
+        return "Conclusions"
 
     monkeypatch.setattr(vigil_module, "_sense", _fake_sense)
     monkeypatch.setattr(vigil_module, "_act", _fake_act)
@@ -824,7 +843,7 @@ def _stub_reconcile(monkeypatch, *, facts_seq: list[_Facts]) -> list[str]:
 
 
 def _reconcile_once(tmp_path):
-    # Spec-0065/T2: `lock_fd` = 认领行的 flock fd（透传给 agent 子进程继承）；本组只测感知/路由，无认领行。
+    # Spec-0065/T2: `lock_fd` = recognized flock fd (successive to agent subprocess); this group only detects perceptions/routings, and no approval.
     _reconcile(
         backend=None,
         state=None,
@@ -838,14 +857,14 @@ def _reconcile_once(tmp_path):
 
 
 def test_reconcile_never_idles_on_its_own_claim(monkeypatch, tmp_path):
-    """worker **就是**那个 in-flight 的持有者 → 必须以 `in_flight=False` 调 `_classify`，否则它立刻空转收工。"""
+    """worker **Yeah.**That. in-flight Holders → I have to. `in_flight=False` Tranquility `_classify`Otherwise it’s going to be empty."""
     seen = _stub_reconcile(monkeypatch, facts_seq=[_facts(), _facts(merged=True)])
     _reconcile_once(tmp_path)
-    assert seen == [_ACT_MERGE], "worker 领到活必须真出手（传 in_flight=True 会让它空转）"
+    assert seen == [_ACT_MERGE], "worker You must be real. in_flight=True   Will make it empty  "
 
 
 def test_reconcile_drives_to_a_stop_not_one_step(monkeypatch, tmp_path):
-    """一次认领里**推进到卡住为止**：e2e → review → merge 应在一趟走完，而不是烧三个 tick（每 tick 一支）。"""
+    """One claim** pushed to the point where it was stuck**: e2e  → review  →  merge should have gone after the trip, instead of burning three ticks (one per tick)."""
     seen = _stub_reconcile(
         monkeypatch,
         facts_seq=[
@@ -947,14 +966,14 @@ def test_implementer_summary_cannot_claim_merge_success(monkeypatch, tmp_path):
 
 
 def test_reconcile_returns_the_slot_when_stuck_on_something_external(monkeypatch, tmp_path):
-    """卡在外部（QUIET：等 CI）→ 立刻交还 slot，不占着 worker 空等。"""
+    """The cartons are stuck outside (QUIET: Waiting for CI) immediately return the slot, without the worker empty, etc."""
     seen = _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="pending")])
     _reconcile_once(tmp_path)
     assert seen == []
 
 
 def test_reconcile_stamps_and_stops_when_agent_made_zero_progress(monkeypatch, tmp_path):
-    """护栏一：agent 出手后 fp **一个字节没变** → 盖 attempt 戳收工（它自己意识不到，不会去打 needs-human）。"""
+    """Column 1: fp** a byte remains unchanged after agent’s hand is taken (it does not know, it does not need-human)."""
     stuck = _facts(ci="failure")
     seen = _stub_reconcile(monkeypatch, facts_seq=[stuck, stuck, stuck])
     stamps: list[tuple[str, str]] = []
@@ -964,8 +983,8 @@ def test_reconcile_stamps_and_stops_when_agent_made_zero_progress(monkeypatch, t
         lambda *, facts, fp, conclusion, agent_id: stamps.append((fp, conclusion)),
     )
     _reconcile_once(tmp_path)
-    assert seen == [_ACT_FIX_CI], "同一个 fp 上只许出手一次"
-    assert stamps == [(_fingerprint(facts=stuck), "结论")]
+    assert seen == [_ACT_FIX_CI], "The same fp only once."
+    assert stamps == [(_fingerprint(facts=stuck), "Conclusions")]
 
 
 def test_reconcile_propagates_protocol_error_to_bounded_queue_retry(monkeypatch, tmp_path):
@@ -973,14 +992,14 @@ def test_reconcile_propagates_protocol_error_to_bounded_queue_retry(monkeypatch,
     monkeypatch.setattr(
         vigil_module,
         "_act",
-        lambda **kwargs: (_ for _ in ()).throw(engine.AgentOutputError("旧控制 envelope")),
+        lambda **kwargs: (_ for _ in ()).throw(engine.AgentOutputError("Old Control")),
     )
-    with pytest.raises(engine.AgentOutputError, match="旧控制"):
+    with pytest.raises(engine.AgentOutputError, match="Old Control"):
         _reconcile_once(tmp_path)
 
 
 def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
-    """raw PUT 型替换会被动作边界发现：二次读取、逐项 additive 恢复、当轮交人。"""
+    """The raw PUT type replacement is detected at the action boundary: read twice, restore item by item, and turn over."""
     _stub_reconcile(monkeypatch, facts_seq=[_facts(ci="failure")])
     baseline = vigil_module._LabelTargetSnapshot(
         kind="issue",
@@ -1018,8 +1037,10 @@ def test_reconcile_restores_deleted_labels_then_parks(monkeypatch, tmp_path):
 
     assert restored == ["from-synthesize", "ready", "round-1"]
     assert len(failed) == 1
-    assert "标签完整性" in failed[0]
-    assert "`P1`" in failed[0], "并发方已补回的标签仍应出现在事故诊断中"
+    assert "removed required labels" in failed[0]
+    assert "`P1`" in failed[0], (
+        "The labels that the co-dispersor has returned should still appear in the accident diagnosis."
+    )
 
 
 def test_review_refresh_allows_only_framework_owned_stale_verdict_removal():
@@ -1038,12 +1059,12 @@ def test_review_refresh_allows_only_framework_owned_stale_verdict_removal():
 
 
 # --------------------------------------------------------------------------------------------------
-# 生产者：护栏一读侧（同 fp 戳 → 不入队）；四值分流；单 subject 错误隔离。
+# Producer: First reading of the guard (with fp poking); four-value diversion; single subject error segregation.
 # --------------------------------------------------------------------------------------------------
 
 
 def _consider_once(conn, *, work_dir, in_flight=None, quiet_counts=None) -> int:
-    # Spec-0066/T2: `_consider` 增 additive 关键字参 `work_dir`（墙钟计时落盘路径）；本 seam 透传 tmp_path。
+    # Spec-0066/T2: `_consider` Add additive keyword `work_dir` (Word clock timedown path); this Seam faxed tmp_path.
     return _consider(
         conn=conn,
         state=None,
@@ -1069,12 +1090,12 @@ def _stub_consider(monkeypatch, *, facts: _Facts, comments=()):
 
 
 def test_producer_skips_enqueue_when_same_fp_attempt_stamp_exists(tmp_path, monkeypatch):
-    """护栏一读侧：GitHub 上已有**同 fp** 的 attempt 戳 → 降级 QUIET(awaiting-effect)、**不入队**（零 LLM）。"""
+    """The first reading side of the guard: ** has been stamped attempt with fp** downgraded QUIEET (awaiting-effect), ** is not in line (nil LLM)."""
     _, conn = _db(tmp_path)
     stuck = _facts(ci="failure")
     fp = _fingerprint(facts=stuck)
     stamp = github.Comment(
-        1, "bot", f"<!-- openagents:attempt fp={fp} -->\n撞墙了", "2026-07-14T11:00:00Z"
+        1, "bot", f"<!-- openagents:attempt fp={fp} -->\nIt hit the wall.", "2026-07-14T11:00:00Z"
     )
     _stub_consider(monkeypatch, facts=stuck, comments=[stamp])
     quiet: dict[str, int] = {}
@@ -1084,11 +1105,14 @@ def test_producer_skips_enqueue_when_same_fp_attempt_stamp_exists(tmp_path, monk
 
 
 def test_producer_enqueues_again_once_fingerprint_changes(tmp_path, monkeypatch):
-    """fp 一变（真有进展 / 新情况）→ 旧戳自动失配 → 正常重新入队（护栏一不会把 subject 永久钉死）。"""
+    """fp One change (real progress/new)  →  Old jab automatically lost  →  normal re-entry (column I does not nail subproject permanently)."""
     _, conn = _db(tmp_path)
     old_fp = _fingerprint(facts=_facts(ci="failure"))
     stale = github.Comment(
-        1, "bot", f"<!-- openagents:attempt fp={old_fp} -->\n撞墙了", "2026-07-14T11:00:00Z"
+        1,
+        "bot",
+        f"<!-- openagents:attempt fp={old_fp} -->\nIt hit the wall.",
+        "2026-07-14T11:00:00Z",
     )
     _stub_consider(monkeypatch, facts=_facts(ci="failure", head_sha="f" * 40), comments=[stale])
     assert _consider_once(conn, work_dir=tmp_path) == 1
@@ -1118,7 +1142,7 @@ def test_producer_marks_machine_failure_on_watchdog_timeout(tmp_path, monkeypatc
 
 
 def test_producer_does_not_park_a_live_in_flight_holder(tmp_path, monkeypatch):
-    """IN_FLIGHT 未超龄 → 什么都不做（**绝不**把正在写代码的 agent 当成「状态没动」而误挂 needs-human）。"""
+    """IN_FLIGHT does nothing until it is overage (** never** mistook the enpute of the code writing as ”state is still moving” needs-human)."""
     _, conn = _db(tmp_path)
     _stub_consider(monkeypatch, facts=_facts(ci="failure"))
     failed: list[str] = []
@@ -1147,12 +1171,12 @@ def test_producer_only_logs_overdue_live_holder_without_terminal_projection(tmp_
 
 
 def test_producer_isolates_a_failing_subject(tmp_path, monkeypatch):
-    """单 subject 感知失败 → 记日志跳过，**不拖垮整轮生产**（守夜第一要务是活着进下一轮）。"""
+    """Single subject perception failure  →  log skips,** does not slow down the whole production round** (the first priority of the watch is to go on the next round alive)."""
     db_path, conn = _db(tmp_path)
 
     def _flaky_sense(*, config, subject):
         if subject == "issue:5":
-            raise RuntimeError("gh 抽风")
+            raise RuntimeError("gh, wind.")
         return _Observed(facts=_facts(subject=subject), clock=_Clock(last_progress_at=_NOW))
 
     monkeypatch.setattr(vigil_module, "_sense", _flaky_sense)
@@ -1185,7 +1209,7 @@ def _observed(**overrides) -> _Observed:
 
 
 def _spy_remove_labels(monkeypatch) -> tuple[list[tuple[str, str]], list[tuple[int, str]]]:
-    """打桩两个撤 label 原语，返回 (PR 调用记录, issue 调用记录)，供解挂断言。"""
+    """Play two drop-labels, return (PR call record, issue call record) for unfixing the assertion."""
     pr_calls: list[tuple[str, str]] = []
     issue_calls: list[tuple[int, str]] = []
     monkeypatch.setattr(
@@ -1366,10 +1390,10 @@ def test_failure_missing_or_invalid_marker_is_not_new_evidence(monkeypatch, subj
 
 
 def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
-    """# Spec-0065/T2: `_sweep_stalled` 里一行 park 不成（`gh` 429）→ **整轮生产照跑**。
+    """# Spec-0065/T2: `_sweep_stalled` line park (`gh` 429) ** whole round of production **
 
-    park 的 `gh` 抛出若上抛出 `_producer_tick`，这一 tick 的 `_intake` 与**全部**感知/入队一起停摆——
-    一个泄漏的行把整条流水线拖死，比它自己卡住坏得多（而它本来只是「下一轮重试 park」而已）。
+    `gh` throws `_producer_tick`, and this `_intake` of tick stops with ** all ** perception/incoming team -
+    A leaked line dragged the whole line to death, which was far worse than it was stuck itself (and it was only ”the next round of the park”).
     """
     db_path, conn = _db(tmp_path)
     intake_calls: list[int] = []
@@ -1386,11 +1410,11 @@ def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vigil_module,
         "_fail_automation",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh 限流 429")),
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("gh restricted flow 429.")),
     )
     monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
-    # 一个「存活证明泄漏」的 queued 行：锁被持着，且**上一 tick 就已经**见过它锁着（跨 tick 记忆已超龄）
-    # → 本 tick 的 `_sweep_stalled` 会去 park 它，而 park 的 `gh` 必抛。
+    # A queued line of "survival certificate leak": the lock is held and ** the last tick has ** seen it locked.
+    # `_sweep_stalled` of tick will go to park it, and `gh` of park will throw it.
     vigil_module._enqueue(conn=conn, subject="issue:9", priority=1, now=_NOW)
     leaked = vigil_module._try_lock(
         path=vigil_module._lock_path(work_dir=tmp_path, subject="issue:9")
@@ -1411,20 +1435,20 @@ def test_producer_tick_survives_a_park_that_never_lands(tmp_path, monkeypatch):
         now=_NOW,
     )
 
-    assert intake_calls == [1], "park 抛出不许吃掉 `_intake`（准入面停摆 = 新 issue 永远进不来）"
-    assert enqueued == 1, "park 抛出不许吃掉本轮感知/入队"
+    assert intake_calls == [1], "Park, throw no `_intake`."
+    assert enqueued == 1, "Park, throw no food for this round of perception/into the team."
     assert vigil_module._is_claimed(conn=conn, subject="issue:9") is False
-    # 行是**开口之前**用 DELETE 抢下来的（`_park_stalled`：删行即预约），故 `gh` 抛了它也不回来。
-    # 恢复靠下一 tick 的 `_intake` 从 GitHub 现态重新推导（锁还占着 → 重新计时 → 重新 park：有节流、零 LLM）。
+    # Okay.**Before you start talking,**Use DELETE - It's stolen.`_park_stalled`:Deleting an appointment) `gh` Throw it and don't come back.
+    # Restore `_intake` from GitHub current re-guide (the lock also holds the re-calculation  →  Park: no throttle, no LLM).
     assert conn.execute("SELECT 1 FROM work_queue WHERE subject='issue:9'").fetchone() is None
     assert vigil_module._enqueue(conn=conn, subject="issue:9", priority=1, now=_NOW) is True, (
-        "subject 必须仍可恢复（UNIQUE 的坑没被这次失败的 park 占死）"
+        "The subject must still recover (UNIQUE’s pit was not killed by this failed park)"
     )
     os.close(leaked)
 
 
 def test_priority_finishes_work_in_progress_before_starting_new():
-    """先收尾在制品、再开新工；人在等的 reply 最高。"""
+    """Finish the product first, start new work; people wait for the highest rate."""
     order = [_ACT_REPLY, _ACT_MERGE, _ACT_REVIEW_OR_FIX, _ACT_E2E, _ACT_FIX_CI, _ACT_SOLVE]
     priorities = [
         vigil_module._priority_default(verdict=_Verdict(kind=_ACTIONABLE, action=action))
@@ -1434,7 +1458,7 @@ def test_priority_finishes_work_in_progress_before_starting_new():
 
 
 # --------------------------------------------------------------------------------------------------
-# 准入面：三态 route / 依赖图 validate（无环 + 真实 issue；半张错图比没有图更糟）。
+# Access: Tri-state route / dependent on validate (Little + real issue; half of the wrong graph is worse than no graph).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -1458,7 +1482,7 @@ def test_route_dispatches_agent_and_skip_and_rejects_retired_owner():
             == owner
         )
     assert calls == {"agent": 1, "skip": 1}
-    with pytest.raises(ValueError, match="未知 stage owner"):
+    with pytest.raises(ValueError, match="Unknown"):
         route(owner="hu" + "man", on_agent=_bump("agent"), on_skip=_bump("skip"))
 
 
@@ -1468,18 +1492,18 @@ def test_has_cycle_detects_cycles():
 
 
 def test_proposed_edges_returns_only_new_edges_and_keeps_anchors():
-    """已有边是锚点（人可能在 UI 手设）——只 POST 新边，绝不重排、不删。"""
+    """The edge is the anchor (a person may be set by UI) - a new POST, never re-numbered, undeleted."""
     fresh = _proposed_edges(
         edges=[{"issue": 6, "blocked_by": [5]}, {"issue": 7, "blocked_by": [5]}],
         known={5, 6, 7},
         existing={5: [], 6: [5], 7: []},
         agent_id="vigil-1",
     )
-    assert fresh == [(7, 5)]  # 6←5 已存在（锚点），只补 7←5
+    assert fresh == [(7, 5)]  # 6  → 5 Exists (Olmb) with 7  → 5
 
 
 def test_proposed_edges_rejects_the_whole_batch_on_cycle(monkeypatch):
-    """成环 → **不落任何边** + park 交人（错边会持久冻住本可并行的流转，半张错图比没有图更糟）。"""
+    """Ring ** without any edge** + Park-to-man (the wrong side will freeze for long periods of time in parallel, half a wrong picture is worse than no picture)."""
     monkeypatch.setattr(vigil_module, "_failure_facts", lambda **kwargs: _facts(pr_number=None))
     monkeypatch.setattr(vigil_module, "_fail_automation", lambda **kwargs: None)
     assert (
@@ -1508,12 +1532,12 @@ def test_proposed_edges_rejects_hallucinated_issue_numbers(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------------
-# 生命周期：once 走 _drain_queue 排空；K=1 与 K=2 同末态；KeyboardInterrupt 经 stop_event 收池。
+# Life cycle: once go _drain_queue empty; K=1 is the same as K=2; Keyboard Interrupt is a stop_event collection.
 # --------------------------------------------------------------------------------------------------
 
 
 def _run_once(tmp_path, *, concurrency, subjects) -> list[str]:
-    """跑一趟 `run_vigil(once=True)`：打桩 `_sense`/`_act`，返回被真正推进过的 subject 序列。"""
+    """Runs to `run_vigil(once=True)`: Plugs `_sense`/ `_act`, returns the real advance of the subject sequence."""
     acted: list[str] = []
     lock = threading.Lock()
     done: set[str] = set()
@@ -1569,7 +1593,7 @@ def _run_once(tmp_path, *, concurrency, subjects) -> list[str]:
 
 
 def test_run_vigil_once_drains_the_queue(tmp_path):
-    """`once=True`：一个生产者 tick + `_drain_queue` 排空（队列必须见底才返回，给测试确定性同步语义）。"""
+    """`once=True`: A producer tick + `_drain_queue` emptied (the queue must return to the bottom to test the definitive sync syntax)."""
     acted = _run_once(tmp_path, concurrency=1, subjects=["issue:5", "issue:6"])
     assert sorted(acted) == ["issue:5", "issue:6"]
     conn = _connect(db_path=tmp_path / ".openagents" / "vigil-queue.db")
@@ -1577,7 +1601,7 @@ def test_run_vigil_once_drains_the_queue(tmp_path):
 
 
 def test_k1_serial_and_k2_parallel_reach_the_same_end_state(tmp_path):
-    """**K=1 不是另一种模式，只是并发上限为 1** —— 两者末态必须一致。"""
+    """**K=1 is not another model, but a single cap of 1** - the last two must be consistent."""
     subjects = ["issue:5", "issue:6", "issue:7"]
     serial = _run_once(tmp_path / "a", concurrency=1, subjects=subjects)
     parallel = _run_once(tmp_path / "b", concurrency=2, subjects=subjects)
@@ -1585,13 +1609,13 @@ def test_k1_serial_and_k2_parallel_reach_the_same_end_state(tmp_path):
 
 
 def test_run_vigil_survives_keyboard_interrupt(tmp_path, monkeypatch):
-    """Ctrl-C → `stop_event` 置位 → worker 收池退出；queued 行留 DB（幂等 + 持久，重启续跑）。"""
+    """Ctrl-C → `stop_event` Place → worker (b) Exiting the pool;queued Stay DB(scoffs) + Hold on, start running again."""
 
     def _boom(**kwargs):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(vigil_module, "_producer_tick", _boom)
-    run_vigil(  # 不得把 KeyboardInterrupt 漏出去
+    run_vigil(  # Keyboard Interrupt is not allowed to leak out.
         backend=None,
         state=None,
         work_dir=tmp_path,
@@ -1606,13 +1630,13 @@ def test_run_vigil_survives_keyboard_interrupt(tmp_path, monkeypatch):
 
 
 def test_producer_error_does_not_kill_the_daemon(tmp_path, monkeypatch):
-    """`once=False` 时单轮生产者异常 → 记日志、继续（**不杀生产者**）；第二轮确认还活着后收工。"""
+    """`once=False` single-wheel producers abnormally log, continuing (** no producers killed**); second round confirmed to be alive and then closed."""
     ticks = {"n": 0}
 
     def _flaky(**kwargs):
         ticks["n"] += 1
         if ticks["n"] == 1:
-            raise RuntimeError("gh 抽风")
+            raise RuntimeError("gh, wind.")
         raise KeyboardInterrupt
 
     monkeypatch.setattr(vigil_module, "_producer_tick", _flaky)
@@ -1626,7 +1650,9 @@ def test_producer_error_does_not_kill_the_daemon(tmp_path, monkeypatch):
         concurrency=1,
         agent_id="a",
     )
-    assert ticks["n"] == 2, "第一轮抛异常后生产者必须活着进第二轮"
+    assert ticks["n"] == 2, (
+        "After the first round of anomalies, producers must live to go through the second round."
+    )
 
 
 @pytest.mark.parametrize("refresh_design", [True, False])

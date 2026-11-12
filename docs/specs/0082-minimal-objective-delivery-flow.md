@@ -1,99 +1,99 @@
 ---
 number: "0082"
-title: 最小目标保持与生成交付流
+title: "Preserving the minimal goal and the generation delivery flow"
 issue: 0
 slug: minimal-objective-delivery-flow
-summary: 增加 minimal 与 generate-only 交付流：两者都先写紧凑 Spec；前者一次验收，后者由受约束 executor 直接产出 PR 并机械合并，用于无质量闸的隔离生成实验。
+summary: "Add minimal and generate-only delivery flows: both first write a compact Spec; the former has a single acceptance pass, while the latter uses a constrained executor to produce a PR directly and merge it mechanically, for isolated generation experiments without quality gates."
 architecture:
-  objective: 在保留现行 standard 流的同时，提供一条以原 issue 为最终权威的最小交付流，固定为紧凑 Spec、一次实现、一次成果验收三次判断调用；困难目标不得通过缩小 Spec 自动变成 PASS。
+  objective: "While preserving the current standard flow, provide a minimal delivery flow that treats the original issue as the final authority, fixed at three judgment calls: a compact Spec, one implementation, and one acceptance review of the results; difficult objectives must not automatically become PASS by narrowing the Spec."
   constraints:
-    - 原 issue 标题与正文始终进入 Spec Writer、Implementer 和 Acceptance Reviewer 的上下文；Spec 只能选择实现路径，不能降低原目标。
-    - Spec Writer 无法给出覆盖完整目标的可实施方案时必须返回 BLOCKED；Acceptance Reviewer 只能返回 PASS、PARTIAL 或 FAIL，只有 PASS 可产生合并授权。
-    - minimal 流不调用 Architect、Tester、传统 Reviewer 或 Merger LLM；CI、仓库完整性、head 绑定和合并前复读仍由确定性硬闸保留。
-    - standard 流默认行为与已有配置保持兼容。
-    - generate-only 保留 Spec Writer，移除 Implementer 与 Acceptance 主观角色；只保留 compact objective digest、head、证据戳、worktree、PR SHA 和冲突等结构性硬闸，质量验证移到实验后离线执行；不得套用 standard 的全仓 docs/specs/OVERVIEW 派生完整性门禁。
+    - "The original issue title and body always enter the context of the Spec Writer, Implementer, and Acceptance Reviewer; the Spec may only choose the implementation path and must not lower the original objective."
+    - "The Spec Writer must return BLOCKED if it cannot provide an implementable plan covering the entire objective; the Acceptance Reviewer may return only PASS, PARTIAL, or FAIL, and only PASS may grant merge authorization."
+    - "The minimal flow does not call Architect, Tester, the traditional Reviewer, or the Merger LLM; CI, repository integrity, head binding, and rereading before merge remain enforced by deterministic hard gates."
+    - "The default behavior of the standard flow remains compatible with existing configurations."
+    - "generate-only retains the Spec Writer and removes the subjective Implementer and Acceptance roles; it retains only structural hard gates such as the compact objective digest, head, evidence stamp, worktree, PR SHA, and conflicts, and moves quality validation to offline execution after the experiment; it must not apply standard's repository-wide gate for the integrity of derived docs/specs/OVERVIEW content."
   non-goals:
-    - 取代适合高风险或跨团队变更的 standard 多阶段流。
-    - 用关键词或字段存在性机械判断语义目标是否满足。
-    - 在本次引入自动返工循环；PARTIAL/FAIL 明确终止，交由新事实或后续决策重新启动。
+    - "Replace the standard multistage flow suited to high-risk or cross-team changes."
+    - "Mechanically determine whether semantic objectives are satisfied using keywords or the presence of fields."
+    - "Introduce an automatic rework loop in this change; PARTIAL/FAIL explicitly terminate execution, leaving a restart to new facts or subsequent decisions."
   candidates:
     - id: stage-skips-only
       layer: configuration
       boundary:
         - architecture/e2e stage ownership
       evidence:
-        - 现有配置已经允许跳过 architecture 与 e2e
-      tradeoffs: 改动小，但仍使用面向 Spec 的传统 Reviewer 和 Merger LLM，无法表达 PARTIAL，也无法钉住原 issue。
+        - "The existing configuration already allows architecture and e2e to be skipped"
+      tradeoffs: "The change is small, but it still uses the traditional Spec-oriented Reviewer and Merger LLM, cannot express PARTIAL, and cannot anchor decisions to the original issue."
     - id: vigil-minimal-profile
       layer: orchestration
       boundary:
         - solve/review/merge decisions
         - existing worktree/PR/CI/gates
       evidence:
-        - 现有 Vigil 已集中拥有 queue、claim、forge、恢复、审计和确定性硬闸
-        - 实验 trace 显示主要坍塌来自多个主观角色逐层重写目标，而不是基础调度能力缺失
-      tradeoffs: 需要在状态机内维护两个清晰分支，但能复用单一调度真相并把 minimal 的角色序列做成可测试契约。
+        - "The existing Vigil already centrally owns queue, claim, forge, recovery, auditing, and deterministic hard gates"
+        - "Experimental traces show that the main collapse comes from multiple subjective roles successively rewriting the objective, rather than from missing basic scheduling capabilities"
+      tradeoffs: "Two clear branches must be maintained within the state machine, but a single source of scheduling truth can be reused and the minimal role sequence can be made a testable contract."
     - id: independent-minimal-runner
       layer: orchestration
       boundary:
         - separate queue and delivery lifecycle
       evidence:
-        - 独立 runner 可以物理隔离流程实验
-      tradeoffs: 会复制 queue、claim、forge、恢复和审计链，形成第二套真相并扩大运行风险。
+        - "An independent runner can physically isolate flow experiments"
+      tradeoffs: "It would duplicate queue, claim, forge, recovery, and the audit chain, creating a second source of truth and increasing operational risk."
   selected: vigil-minimal-profile
   affected-components:
-    - openagents/utils/agent_config.py：声明 standard/minimal flow 并透传单仓与 fleet plan。
-    - openagents/agents/spec_writer.py、acceptance.py、implementer.py、executor.py：紧凑目标契约、一次实现、原 issue 成果裁决与无验证受约束执行。
-    - openagents/recipes/stages.py、vigil.py：三拍路由、PARTIAL/FAIL 终止和机械合并。
-    - tests 与 e2e 脚本：角色序列、失败闭合、标准流兼容和无额外 LLM 调用。
+    - "openagents/utils/agent_config.py: declare the standard/minimal flow and pass it through to single-repository and fleet plans."
+    - "openagents/agents/spec_writer.py, acceptance.py, implementer.py, executor.py: a compact objective contract, one implementation, adjudication of results against the original issue, and constrained execution without validation."
+    - "openagents/recipes/stages.py, vigil.py: three-step routing, termination on PARTIAL/FAIL, and mechanical merging."
+    - "tests and e2e scripts: role sequences, fail-closed behavior, standard flow compatibility, and no additional LLM calls."
   failure-modes:
-    - Spec Writer 仍把目标改写成更弱版本；通过把原 issue 原文同时交给 Acceptance Reviewer，并规定 Spec 无权覆盖 issue，PARTIAL/FAIL 不合并来限制影响。
-    - Acceptance Reviewer 又做全仓架构审计；其任务只允许检查原失败、变更文件和声明证据，超出必须给出具体证据缺口，不得借扩展侦察延后裁决。
-    - minimal profile 意外走入 architecture/e2e/rework/merger 分支；以记录型 backend 断言完整角色序列恰为 spec_writer、implementer、acceptance。
-    - PARTIAL 被映射为 REWORK 并再次调用 Implementer；minimal 路径直接写 automation-failed 终态，不产生 review-changes-requested。
-    - generate-only 又退化成全能 Implementer 或自验收；以角色序列严格为 spec_writer、executor 且零 acceptance/reviewer/tester/merger 固定边界。
-    - 干净冻结 seed 的 docs/specs/OVERVIEW 尚未渲染或与候选树不同步，旧全仓门禁使 generate-only 在未改该树时仍无法合并；generate-only 只复读本 issue 的 compact objective digest，standard/minimal 的仓库级门禁保持不变。
+    - "The Spec Writer still rewrites the objective into a weaker version; limit the impact by also giving the Acceptance Reviewer the verbatim original issue, stipulating that the Spec has no authority to override the issue, and preventing merges on PARTIAL/FAIL."
+    - "The Acceptance Reviewer performs another repository-wide architecture audit; its task permits only checking the original failure, changed files, and declared evidence. Anything beyond that requires identifying a specific evidence gap, and it must not delay adjudication by expanding reconnaissance."
+    - "The minimal profile unexpectedly enters the architecture/e2e/rework/merger branches; use a recording backend to assert that the complete role sequence is exactly spec_writer, implementer, acceptance."
+    - "PARTIAL is mapped to REWORK and calls the Implementer again; the minimal path directly writes the automation-failed terminal state and does not produce review-changes-requested."
+    - "generate-only degenerates again into an all-purpose Implementer or self-acceptance; fix the boundary by requiring the role sequence to be strictly spec_writer, executor, with zero acceptance/reviewer/tester/merger calls."
+    - "The clean, frozen seed's docs/specs/OVERVIEW has not yet been rendered or is out of sync with the candidate tree, and the old repository-wide gate prevents generate-only from merging even when it has not modified that tree; generate-only rereads only this issue's compact objective digest, while the repository-level gates for standard/minimal remain unchanged."
 verification:
   behavior-cases:
     - id: BC1
       polarity: positive
-      stimulus: 一个已有失败 issue 在 flow=minimal 下由记录型 backend 返回 READY、实现成功、Acceptance PASS。
-      expected: 只调用 spec_writer、implementer、acceptance；不调用 architect、tester、reviewer、merger；PASS 绑定当前 head 后由机械合并路径收口。
-      observation: 离线 e2e 输出角色序列、review-approved 标签和 merge 调用，序列与预期完全相等。
+      stimulus: "For an existing issue with a failure, under flow=minimal, a recording backend returns READY, implementation succeeds, and Acceptance returns PASS."
+      expected: "Only spec_writer, implementer, acceptance are called; architect, tester, reviewer, merger are not called; after PASS is bound to the current head, the mechanical merge path completes the flow."
+      observation: "The offline e2e outputs the role sequence, the review-approved label, and the merge call, with the sequence exactly matching the expected sequence."
     - id: BC2
       polarity: negative
-      stimulus: Acceptance Reviewer 对已实现 PR 返回 PARTIAL。
-      expected: PR 不获 review-approved、不进入返工循环、不合并；落 automation-failed 及原始 PARTIAL 理由。
-      observation: 一次 acceptance 后终止，forge 探针无 merge 调用且有机器失败投影。
+      stimulus: "The Acceptance Reviewer returns PARTIAL for an implemented PR."
+      expected: "The PR does not receive review-approved, does not enter a rework loop, and is not merged; automation-failed and the original PARTIAL reason are recorded."
+      observation: "Execution terminates after one acceptance call; the forge probe shows no merge call and includes a machine-readable failure projection."
     - id: BC3
       polarity: negative
-      stimulus: Spec Writer 判断完整 issue 在当前仓库边界内不可实施并返回 BLOCKED。
-      expected: 不创建 PR、不调用 Implementer；issue 直接记录明确 blocker 并机器终止。
-      observation: 角色序列只有 spec_writer，create_pr 与后续角色调用均为零。
+      stimulus: "The Spec Writer determines that the entire issue cannot be implemented within the current repository boundaries and returns BLOCKED."
+      expected: "No PR is created and the Implementer is not called; a clear blocker is recorded directly on the issue, and execution terminates programmatically."
+      observation: "The role sequence contains only spec_writer, with zero create_pr calls and zero subsequent role calls."
     - id: BC4
       polarity: positive
-      stimulus: 未配置 flow 或显式 flow=standard。
-      expected: 现有 Drafter→Architect→Implementer→Reviewer→Merger 行为不变。
-      observation: 既有 Vigil、stage、agent config 测试全部通过，并新增兼容性断言。
+      stimulus: "flow is not configured, or flow=standard is explicitly configured."
+      expected: "The existing Drafter→Architect→Implementer→Reviewer→Merger behavior remains unchanged."
+      observation: "All existing Vigil, stage, and agent config tests pass, and compatibility assertions are added."
     - id: BC5
       polarity: positive
-      stimulus: 多个已有 issue 在 flow=generate-only、parallel=4 下进入 Vigil，curator 已给出 blocked_by 关系。
-      expected: 每个可执行 issue 只调用 spec_writer、executor；依赖未关闭者等待，独立 issue 并发；PR 无质量角色调用，合并经串行机械临界区完成。
-      observation: 记录型 backend 中无 implementer/acceptance/tester/reviewer/merger，依赖 facts 控制可执行集合，merge_pr 调用均经过同一锁。
+      stimulus: "Multiple existing issues enter Vigil under flow=generate-only, parallel=4, and the curator has already provided blocked_by relationships."
+      expected: "Each executable issue calls only spec_writer, executor; issues whose dependencies are not closed wait, while independent issues run concurrently; PRs have no quality-role calls, and merging completes through a serialized mechanical critical section."
+      observation: "The recording backend contains no implementer/acceptance/tester/reviewer/merger calls, dependency facts control the executable set, and all merge_pr calls pass through the same lock."
     - id: BC6
       polarity: positive
-      stimulus: 一个冻结 seed 的 docs/specs/OVERVIEW 与 standard 候选树不同步，但 generate-only issue 只新增 docs/objectives contract 与实现文件。
-      expected: 合并只复读当前 issue 的 compact objective digest，不调用全仓 repository-integrity；同一条件下 standard/minimal 仍保留原门禁。
-      observation: generate-only 记录测试把 repository-integrity 设为抛错探针仍完成机械 merge，compact digest 复读照常发生。
+      stimulus: "A frozen seed's docs/specs/OVERVIEW is out of sync with the standard candidate tree, but the generate-only issue adds only the docs/objectives contract and implementation files."
+      expected: "Merging rereads only the current issue's compact objective digest and does not call repository-wide repository-integrity; under the same conditions, standard/minimal still retain the original gate."
+      observation: "The generate-only recording test still completes the mechanical merge with repository-integrity configured as a probe that throws an error, while the compact digest is reread as usual."
   repository-invariants:
-    - minimal 的 PASS 必须绑定当前 head；head 前移后裁决自动失效。
-    - PARTIAL、FAIL、BLOCKED 不能调用 merge，也不能伪装成 review-changes-requested 触发自动返工。
-    - minimal/standard 的 repository-integrity 保持启用；generate-only 仅保留 compact objective digest、head-advanced、evidence-stamp 与 merge-allowed 等结构性硬闸，不把全仓派生索引当质量门禁。
-    - standard 是缺省值，存量 openagents.yml 无需修改即可保持原行为。
+    - "A minimal PASS must be bound to the current head; the verdict is automatically invalidated after head advances."
+    - "PARTIAL, FAIL, and BLOCKED cannot call merge, nor can they masquerade as review-changes-requested to trigger automatic rework."
+    - "repository-integrity remains enabled for minimal/standard; generate-only retains only structural hard gates such as compact objective digest, head-advanced, evidence-stamp, and merge-allowed, and does not treat repository-wide derived indexes as quality gates."
+    - "standard is the default value, and existing openagents.yml files retain their original behavior without modification."
   exemptions: []
 tasks:
   - id: T1
-    title: 实现 minimal 三拍交付流
+    title: "Implement the three-step minimal delivery flow"
     status: done
     priority: P0
     tags: []
@@ -114,10 +114,10 @@ tasks:
       - tests/test_recipe_stages.py
       - tests/test_recipe_vigil_act.py
       - tests/test_recipe_vigil.py
-    scope: 新增 standard/minimal/generate-only profile；minimal 保持紧凑 Spec→一次实现→Acceptance，generate-only 固定为紧凑 Spec→受约束 executor→机械合并；保留结构硬闸、依赖调度和 standard 兼容。
-    acceptance: 配置 round-trip；minimal 序列严格为 spec_writer→implementer→acceptance；generate-only 严格为 spec_writer→executor 且零质量判断角色，开发可按 issue DAG 并发而 merge 串行；BLOCKED 不开 PR，相关 pytest 通过。
+    scope: "Add standard/minimal/generate-only profiles; minimal retains compact Spec→single implementation pass→Acceptance, while generate-only is fixed as compact Spec→constrained executor→mechanical merge; retain hard structural gates, dependency scheduling, and standard compatibility."
+    acceptance: "Configuration round-trip; the minimal sequence is strictly spec_writer→implementer→acceptance; generate-only is strictly spec_writer→executor with zero roles that make quality judgments; development may proceed concurrently according to the issue DAG, while merges are serialized; BLOCKED does not open a PR; the relevant pytest tests pass."
   - id: T2
-    title: 验证 minimal 流角色序列与失败闭合
+    title: "Verify the minimal flow's role sequence and fail-closed behavior"
     status: done
     priority: P0
     tags: []
@@ -127,81 +127,81 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-spec-0082-minimal-objective-delivery-flow.sh
-    scope: 提供离线可重复成果脚本，运行 minimal 的 PASS、PARTIAL、BLOCKED 与 standard 兼容行为测试，并输出角色序列和确定性 gate 结果。
-    acceptance: 脚本非交互运行成功；PASS 序列只有三角色，PARTIAL/FAIL/BLOCKED 零合并且无返工，standard 既有测试不回归；退出码和关键断言可供 CI 与审计复跑。
+    scope: "Provide an offline, reproducible results script that runs tests for minimal PASS, PARTIAL, and BLOCKED behavior and standard compatibility, and outputs role sequences and deterministic gate results."
+    acceptance: "The script runs successfully without interaction; the PASS sequence contains only three roles, PARTIAL/FAIL/BLOCKED result in zero merges and no rework, and existing standard tests show no regressions; exit codes and key assertions are available for reruns in CI and audits."
 ---
 
-# 0082 · 最小目标保持开发流
+# 0082 · Minimal Objective-Preserving Development Flow
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: frontmatter is the structured source data (including the tasks DAG), and the body is a group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-增加可选 `flow: minimal`。它把单 issue 的主观交付链固定为三次调用：Spec Writer 冻结原 issue 并写一份紧凑可实施 Spec；Implementer 一次实现；Acceptance Reviewer 直接回放原失败并对原 issue 判 `PASS / PARTIAL / FAIL`。只有 PASS 能授权确定性合并；BLOCKED、PARTIAL、FAIL 都终止，不用缩 scope 或反复审计换取“成功”。
+Add optional `flow: minimal`. It fixes the judgment-based delivery chain for a single issue at three calls: Spec Writer freezes the original issue and writes a compact, implementable Spec; Implementer implements it in one pass; Acceptance Reviewer directly replays the original failure and assigns `PASS / PARTIAL / FAIL` against the original issue. Only PASS can authorize deterministic merging; BLOCKED, PARTIAL, and FAIL all terminate the flow, without shrinking scope or repeating audits to obtain “success.”
 
-同时增加实验用 `flow: generate-only`：仍先写同一 compact Spec，但后续只派一次受约束 coding executor，随后跳过 CI、e2e、Acceptance、Reviewer 与 Merger LLM，由结构硬闸机械合并。它用于观察无质量闸时模型自然产出，merged 不代表目标已验证。
+Also add experimental `flow: generate-only`: it first writes the same compact Spec, but then dispatches a constrained coding executor only once, skips CI, e2e, Acceptance, Reviewer, and the Merger LLM, and merges mechanically through structural hard gates. It is used to observe what the model naturally produces without quality gates; merged does not mean the objective has been verified.
 
 ## Motivation
 
-现行 Vigil 在一个 issue 上依次运行 Drafter、Architect、可能的 redraft、Implementer、Reviewer、可能的 re-implement/re-review、Merger。真实运行表明，这条链容易把“守住原目标”变成“逐层证明当前 Spec 自洽”：Architect 可以要求去掉难以闭合的部分，Drafter 通过标记 non-goal 或 future work 缩小交付，Reviewer 最后只对缩水后的 Spec 判 PASS。与此同时，每个角色重新读取相同源码、重新验证相同边界，简单变更也产生上百次工具调用。
+For a single issue, the current Vigil runs Drafter, Architect, possibly a redraft, Implementer, Reviewer, possibly re-implement/re-review, and Merger in sequence. Actual runs show that this chain can easily turn “preserve the original objective” into “prove at each layer that the current Spec is internally consistent”: Architect can request removal of parts that are difficult to bring to completion, Drafter narrows delivery by marking them as non-goals or future work, and Reviewer ultimately assigns PASS only against the reduced Spec. Meanwhile, each role rereads the same source code and revalidates the same boundaries, producing hundreds of tool calls even for simple changes.
 
-最小流要验证另一种假设：对于已经通过需求面准入的单 issue，不再需要一个设计委员会式流水线。需要的是一份短而不可缩水的目标契约、一个负责落地的开发者、一个站在原 issue 一侧的成果验收者。若底层只读或当前能力不足，正确结果是 BLOCKED/PARTIAL，而不是退化成一个易通过的 prompt 改动。
+The minimal flow tests a different hypothesis: a single issue that has already passed requirements admission no longer needs a design-committee-style pipeline. What it needs is a short objective contract that cannot be reduced, a developer responsible for implementation, and an acceptance reviewer who evaluates the result from the perspective of the original issue. If the underlying layer is read-only or current capabilities are insufficient, the correct result is BLOCKED/PARTIAL, rather than degrading into an easy-to-pass prompt change.
 
 ## Guide-level explanation
 
-配置 `flow: minimal` 后，用户仍以相同方式给 issue 打发现标签、让 Vigil 建 worktree 和 PR。不同之处只有判断链：
+With `flow: minimal` configured, users still apply discovery labels to issues and have Vigil create worktrees and PRs in the same way. Only the judgment chain changes:
 
-1. **Spec Writer** 收到原 issue 原文，最多做有界定位，写一份单 Task 为主的紧凑 Spec。Spec 必须包含“原始目标契约”和可证伪验收；它可更换实现路径，不可删除目标。完整方案做不到时返回 `BLOCKED`，Vigil 在 issue 上记录 blocker，不开 PR。
-2. **Implementer** 读取这份 Spec 和同一份 issue 原文，直接实现。验证优先回放原失败；禁止为了证明“很严谨”扩展成无关的全仓、全版本或全文件系统调查。
-3. **Acceptance Reviewer** 不重做架构设计，只回答原失败是否在当前 head 上消失。`PASS` 表示完整满足；`PARTIAL` 表示有价值但未完整解决；`FAIL` 表示无效或回归。后两者都停止且不合并。
+1. **Spec Writer** receives the full original issue text, performs at most bounded code location work, and writes a compact Spec centered on a single Task. The Spec must include an “original objective contract” and falsifiable acceptance criteria; it may change the implementation path, but may not remove objectives. If the complete solution cannot be delivered, it returns `BLOCKED`; Vigil records the blocker on the issue and does not open a PR.
+2. **Implementer** reads this Spec and the same original issue text, then implements it directly. Validation prioritizes replaying the original failure; expanding into unrelated investigations of the entire repository, all versions, or the entire filesystem to demonstrate “rigor” is prohibited.
+3. **Acceptance Reviewer** does not redo the architectural design; it answers only whether the original failure has disappeared at the current head. `PASS` means the objective is fully satisfied; `PARTIAL` means the result is valuable but does not fully resolve the issue; `FAIL` means the result is ineffective or introduces a regression. The latter two both stop the flow without merging.
 
-`generate-only` 在第 1 步后改走 **coding executor**：只执行 compact Spec 的唯一实现任务，禁止重写目标、评审、自测和扩展调查；commit/push 后直接进入机械 PR 队列。Vigil 现有 curator 负责 issue `blocked_by` DAG，`--parallel 4` 只并发依赖已满足的 issue；同一 base 的不可逆 merge 由临界区串行化。
+After step 1, `generate-only` switches to a **coding executor**: it executes only the compact Spec’s sole implementation task, and is prohibited from rewriting objectives, reviewing, self-testing, or expanding the investigation; after commit/push, it enters the mechanical PR queue directly. Vigil’s existing curator manages the issue `blocked_by` DAG, and `--parallel 4` runs concurrently only those issues whose dependencies are satisfied; irreversible merges into the same base are serialized through a critical section.
 
-通过后不再调用 Merger LLM。Vigil 复读 CI、head 绑定、仓库完整性和 review-approved 标签，然后直接调用 forge 的幂等 merge 原语。
+After a pass, the Merger LLM is no longer called. Vigil rechecks CI, head binding, repository integrity, and the review-approved label, then directly calls the forge’s idempotent merge primitive.
 
 ## Reference-level explanation
 
-配置新增顶层 `flow`，合法值 `standard | minimal`，缺省 `standard`。resolved `AgentConfig` 与 `RepoPlan` 都携带该值，保证单仓和 fleet 不丢配置。
+Add a top-level `flow` configuration field with valid values `standard | minimal`, defaulting to `standard`. Both the resolved `AgentConfig` and `RepoPlan` carry this value so that configuration is preserved for both single-repository and fleet operation.
 
-本组扩展后合法值为 `standard | minimal | generate-only`。generate-only 复用 compact Spec digest、worktree 隔离、head-advanced、evidence-stamp、PR head 绑定和 forge 冲突判定；它机械写入绑 head 的 approval 标签只是状态机令牌，不表达质量 PASS。
+With this group’s extensions, the valid values become `standard | minimal | generate-only`. generate-only reuses the compact Spec digest, worktree isolation, head-advanced, evidence-stamp, PR head binding, and forge conflict detection; the head-bound approval label it writes mechanically is only a state-machine token and does not express a quality PASS.
 
-`stages.minimal_spec` 调用新的 `agents.spec_writer`。输出为 `READY | BLOCKED`；READY 只写 `docs/objectives/issue-N.md` 固定五段 compact contract（原目标、不变量、实现路径、可证伪验收、一个实现任务），不调用标准流的 9 段 RFC/DAG/render/graph。它必须通过现有 head 前移与证据戳硬闸，随后由 `minimal_design_snapshot` 校验固定段落、120 行上限并记录字节 digest；合并前复读同一 digest。BLOCKED 不要求制造空 commit。
+`stages.minimal_spec` calls the new `agents.spec_writer`. Its output is `READY | BLOCKED`; READY writes only `docs/objectives/issue-N.md`, a compact contract with five fixed sections (original objective, invariants, implementation path, falsifiable acceptance criteria, and one implementation task), without invoking the standard flow’s nine-section RFC/DAG/render/graph. It must pass the existing head-advance and evidence-stamp hard gates, after which `minimal_design_snapshot` validates the fixed sections and the 120-line limit and records a byte-level digest; the same digest is rechecked before merging. BLOCKED does not require creating an empty commit.
 
-`_do_solve` 在 minimal 分支跳过 Architect，创建 PR 后只调用一次 Implementer；传入显式 minimal contract 和原 issue。`_sense` 在 minimal 下把独立 e2e 阶段视为已折叠进实现与验收，避免额外 Tester 调用。
+In the minimal branch, `_do_solve` skips Architect and calls Implementer only once after creating the PR, passing an explicit minimal contract and the original issue. Under minimal, `_sense` treats the independent e2e stage as folded into implementation and acceptance, avoiding an additional Tester call.
 
-`stages.acceptance` 调用新的 `agents.acceptance`，输入原 issue、候选 Spec、diff/PR 上下文和已有 evidence。输出严格枚举 `PASS | PARTIAL | FAIL`。`_do_review_or_fix` 在 minimal 下不使用 review-changes-requested 回环：PASS 生成绑 head 的 review-approved；PARTIAL/FAIL 调用现有 `_fail_automation`，理由原样持久化。
+`stages.acceptance` calls the new `agents.acceptance`, with the original issue, candidate Spec, diff/PR context, and existing evidence as input. Its output is strictly enumerated as `PASS | PARTIAL | FAIL`. Under minimal, `_do_review_or_fix` does not use the review-changes-requested loop: PASS produces a head-bound review-approved; PARTIAL/FAIL call the existing `_fail_automation`, persisting the reason verbatim.
 
-`stages.merge_mechanical` 只执行 `gates.assert_merge_allowed` 后的 forge merge 原语；`_do_merge` minimal 分支仍在动作前执行 repository-integrity 与 design-digest 硬闸。
+`stages.merge_mechanical` executes only the forge merge primitive after `gates.assert_merge_allowed`; the minimal branch of `_do_merge` still executes the repository-integrity and design-digest hard gates before taking action.
 
-Task DAG：
+Task DAG:
 
 ```mermaid
 graph LR
-  T1[配置、角色、三拍状态机与单测] --> T2[离线端到端角色序列与失败闭合]
+  T1[Configuration, roles, three-step state machine, and unit tests] --> T2[Offline end-to-end role sequence and failure closure]
 ```
 
-离线成果脚本：`scripts/e2e-spec-0082-minimal-objective-delivery-flow.sh`。本次还会以已有实验 issue 做一次真实 Gitea + GLM 试跑，真实结果落到实验 role_runs；该运行用于评价流程，不被伪装成 hermetic CI。
+Offline outcome script: `scripts/e2e-spec-0082-minimal-objective-delivery-flow.sh`. This round will also perform a real Gitea + GLM trial run using an existing experimental issue, with the actual results recorded in the experiment’s role_runs; this run is used to evaluate the flow and is not presented as hermetic CI.
 
 ## Drawbacks
 
-minimal 流故意放弃多轮架构辩论、完整 RFC 模板和自动返工，第一次实现不完整就会以 PARTIAL 停止；吞吐更高，但一次成功率可能低于 standard。Acceptance 仍是语义判断，无法用纯代码证明模型绝不会误判。机械合并减少一次 LLM，但也不再让 Merger 临场处理硬闸之外的异常；异常统一走现有机器失败路径。
+The minimal flow deliberately gives up multiple rounds of architectural debate, the full RFC template, and automatic rework; if the first implementation is incomplete, it stops with PARTIAL. Throughput is higher, but the first-attempt success rate may be lower than standard. Acceptance remains a semantic judgment; pure code cannot prove that the model will never misjudge. Mechanical merging eliminates one LLM call, but also removes the Merger’s ability to handle exceptions beyond the hard gates as they arise; all exceptions follow the existing machine failure path.
 
-generate-only 更激进：错误、未测试或未满足目标的代码也可能被合并，因此其结果只能用于隔离实验与事后评估，不能作为生产成功率。依赖推断依赖现有 curator 与 forge 原生边；未声明的语义冲突只能在 PR mergeability 阶段暴露。
+generate-only is more aggressive: code that is incorrect, untested, or fails to satisfy the objective may also be merged, so its results can be used only for isolated experiments and retrospective evaluation, and cannot count toward the production success rate. Dependency inference relies on the existing curator and forge-native edges; undeclared semantic conflicts can surface only at the PR mergeability stage.
 
 ## Rationale and alternatives
 
-选择在现有 Vigil 内增加 profile，而不是新 runner，因为队列、claim、worktree、forge、恢复、审计和硬闸都已经正确存在，复制只会制造第二套状态机。选择三个判断角色而不是两个，是为了避免 Implementer 自己给自己验收；但取消独立 Architect、Tester、传统 Reviewer 和 Merger，防止同一问题被四次重新解释。
+Add a profile within the existing Vigil rather than a new runner because queues, claim, worktree, forge, recovery, auditing, and hard gates are already correctly in place; copying them would only create a second state machine. Choose three judgment roles rather than two to prevent Implementer from accepting its own work; remove the independent Architect, Tester, traditional Reviewer, and Merger to prevent the same problem from being reinterpreted four times.
 
-备选“只用 stages 跳过 architecture/e2e”不足：它仍让传统 Reviewer 以当前 Spec 为权威、仍只有 PASS/REWORK、仍会自动返工，也仍调用 Merger。备选“保留 Architect 但限制工具预算”只减少时间，不改变缩目标后 PASS 的激励。
+The alternative of “using only stages to skip architecture/e2e” is insufficient: it still makes the traditional Reviewer treat the current Spec as authoritative, still offers only PASS/REWORK, still performs automatic rework, and still calls Merger. The alternative of “retaining Architect but limiting the tool budget” only reduces time; it does not change the incentive to obtain PASS after shrinking the objective.
 
 ## Prior art
 
-单 issue 单 agent 直接交付是仓库 `CLAUDE.md` 的既有理念；现有 Vigil 的 worktree 与确定性硬闸提供了可复用底座。类似 trunk-based delivery 的原则是把不可逆合并建立在少量客观门槛上，而不是让多个角色重复证明同一设计。
+Direct delivery of a single issue by a single agent is an existing principle in the repository’s `CLAUDE.md`; the existing Vigil worktree and deterministic hard gates provide a reusable foundation. A principle similar to trunk-based delivery is to base irreversible merging on a small number of objective thresholds, rather than having multiple roles repeatedly prove the same design.
 
 ## Unresolved questions
 
-本轮没有保留需要用户先决策的开放问题：minimal 明确作为可选实验 profile，standard 保持缺省；真实试跑结果再决定是否扩大使用范围。
+This round leaves no open questions requiring a user decision first: minimal is explicitly an optional experimental profile, and standard remains the default; the results of the real trial run will determine whether to expand its use.
 
 ## Future possibilities
 
-若真实试跑证明三拍有效，可进一步把原始失败 trace 作为结构化 artifact 挂到 issue，而不是只放正文；也可统计每拍工具调用、模型延迟和 objective outcome，形成 standard/minimal 的对照。若 Acceptance 误判率高，可增加一次只针对争议证据的仲裁，但不得恢复全链重复侦察。
+If the real trial run demonstrates that the three-step flow is effective, the original failure trace could be attached to the issue as a structured artifact rather than appearing only in the body; tool calls per step, model latency, and objective outcome could also be collected to compare standard/minimal. If Acceptance has a high misjudgment rate, one arbitration pass limited to disputed evidence could be added, but repeated reconnaissance across the entire chain must not be restored.

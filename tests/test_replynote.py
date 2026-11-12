@@ -1,12 +1,12 @@
-"""Spec-0036/T2：replynote.build 引用原评论回应构造的单元测试（纯函数，无 IO）。
+"""Spec-0036/T2: replynote.build quotes the unit test (pure function, no IO) of the original comment response structure.
 
-覆盖：
-- 正常 original/response → 引用块 + 回应段齐全；
-- original 多行 → 逐行引用块包裹；
-- response 为空 → 占位不缺段；
-- original 为空 → 引用段占位不缺段；
-- 不含签名（签名由调用方盖）；
-- 纯函数无 IO（仅靠入参产出）。
+Coverage:
+- Normal original/response reference block + response paragraph is complete;
+- Original multiline line-by-line reference block packages;
+- Response is empty and unobserved;
+- Original is empty and the reference section is not missing;
+- Not including a signature (signature is covered by the call);
+- Pure function does not have IO (only by input output).
 """
 
 import pytest
@@ -16,48 +16,49 @@ from openagents.utils import replynote
 
 def test_build_has_quote_and_response():
     body = replynote.build(
-        original="先解 OVERVIEW.md 再动 state.py", response="已按你的指导解冲突并 push"
+        original="Resolve OVERVIEW.md first, then move state.py.",
+        response="Resolved the conflict and pushed the changes",
     )
-    # 引用块包裹原评论。
-    assert "> 先解 OVERVIEW.md 再动 state.py" in body
-    # 回应正文齐全。
-    assert "已按你的指导解冲突并 push" in body
+    # The quote is the original comment.
+    assert "> Resolve OVERVIEW.md first, then move state.py." in body
+    # The response is complete.
+    assert "Resolved the conflict and pushed the changes" in body
 
 
 def test_build_wraps_multiline_original_in_quote():
-    body = replynote.build(original="第一行\n第二行", response="收到")
-    assert "> 第一行" in body
-    assert "> 第二行" in body
+    body = replynote.build(original="First line\nSecond line", response="Copy that.")
+    assert "> First line" in body
+    assert "> Second line" in body
 
 
 def test_build_empty_response_has_placeholder():
-    body = replynote.build(original="人类评论", response="")
-    # 引用段仍在 + 回应段占位（结构完整，不缺段）。
-    assert "> 人类评论" in body
-    assert "（本轮无更多说明）" in body
+    body = replynote.build(original="Human Review", response="")
+    # The reference paragraph is still in place (structure complete, no missing paragraph).
+    assert "> Human Review" in body
+    assert "(No further details)" in body
 
 
 def test_build_blank_response_has_placeholder():
-    # 仅空白的 response 也占位（strip 后为空）。
-    body = replynote.build(original="人类评论", response="   \n  ")
-    assert "（本轮无更多说明）" in body
+    # Only empty response is also in position (strip is empty).
+    body = replynote.build(original="Human Review", response="   \n  ")
+    assert "(No further details)" in body
 
 
 def test_build_empty_original_has_placeholder():
-    body = replynote.build(original="", response="我做了 X")
-    # 引用段不缺（占位），回应段照常。
-    assert "（原评论为空）" in body
-    assert "我做了 X" in body
+    body = replynote.build(original="", response="I did it, X.")
+    # Reference paragraph is not missing (in place), response paragraph remains the same.
+    assert "(Original comment is empty)" in body
+    assert "I did it, X." in body
 
 
 def test_build_contains_no_signature():
-    # 签名由调用方盖——build 自身不得含隐藏签名标记。
+    # The signature is covered by the caller - the build itself may not contain a hidden signature mark.
     body = replynote.build(original="x", response="y")
     assert "openagents:agent=" not in body
 
 
 def test_build_is_pure_function():
-    # 同一入参两次调用产出逐字节相同（无隐藏状态 / 无 IO / 不读时钟）。
+    # Same bytes of the same caller output (no hidden status / no IO / no read clock).
     a = replynote.build(original="x", response="y")
     b = replynote.build(original="x", response="y")
     assert a == b

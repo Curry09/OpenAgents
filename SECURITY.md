@@ -1,6 +1,6 @@
 # Security
 
-English | [简体中文](SECURITY.zh-CN.md)
+English | [CREDIT Chinese](SECURITY.zh-CN.md)
 
 OpenAgents runs in trusted development environments. Agents execute commands, modify repositories, and call external models; delivery workflows can merge PRs automatically. Grant access to repositories, host tools, and model services according to the deployment's needs. Keep the local observation API bound to a trusted interface unless access control is provided separately.
 

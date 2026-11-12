@@ -1,12 +1,12 @@
 ---
 number: "0009"
-title: 合并后自动 rebase 其他 open PR
+title: "Automatically rebase other open PRs after a merge"
 issue: 24
 slug: auto-rebase-open-prs-on-merge
-summary: 一个 PR 合并进 main 后，自动把其余还开着的 PR rebase 到最新 main，省去手动 rebase。含 github 层 list_open_prs/update_branch、扇出模块、合并后集成和手动 sync-prs 命令。
+summary: "After a PR is merged into main, automatically rebase the remaining open PRs onto the latest main, eliminating manual rebasing. Includes list_open_prs/update_branch in the github layer, a fan-out module, post-merge integration, and a manual sync-prs command."
 tasks:
   - id: T1
-    title: github 层 `list_open_prs` + `update_branch`
+    title: "`list_open_prs` + `update_branch` in the github layer"
     status: done
     priority: P1
     tags:
@@ -19,10 +19,10 @@ tasks:
     files:
       - openagents/github.py
       - tests/test_github.py
-    scope: 在 github.py 新增两个模块函数:list_open_prs()(gh pr list --state open --json number,url,解析为 PR 列表)与 update_branch(*, pr_number, rebase=False)(gh pr update-branch <n> [--rebase],成功返回 True、「已是最新」吞掉返回 False、冲突/其它失败抛 GithubError)。复用既有 _run_gh / _gh_json / PR。函数体注释引用 RFC-0009。
-    acceptance: 单测覆盖 list_open_prs 解析(含空列表)、update_branch 三态(updated→True / already-up-to-date→False / 冲突→GithubError);ruff + pytest 全绿。
+    scope: "Add two module-level functions in github.py: list_open_prs() (gh pr list --state open --json number,url, parsed into a list of PR objects) and update_branch(*, pr_number, rebase=False) (gh pr update-branch <n> [--rebase], returning True on success, swallowing the “already up to date” case and returning False, and raising GithubError for conflicts or other failures). Reuse the existing _run_gh / _gh_json / PR. Reference RFC-0009 in comments within the function bodies."
+    acceptance: "Unit tests cover list_open_prs parsing (including an empty list) and the three outcomes of update_branch (updated→True / already-up-to-date→False / conflict→GithubError); ruff + pytest all pass."
   - id: T2
-    title: '`rebase_open_prs` 扇出模块'
+    title: "`rebase_open_prs` fan-out module"
     status: done
     priority: P1
     tags:
@@ -36,10 +36,10 @@ tasks:
     files:
       - openagents/rebase.py
       - tests/test_rebase.py
-    scope: 新建 openagents/rebase.py,实现 rebase_open_prs(*, merged_pr_number=None, rebase=False):调 github.list_open_prs、排除 merged_pr_number、逐个 github.update_branch;冲突(GithubError)时 github.post_comment 贴冲突提示评论并继续;返回 [{pr_number, result}]。冲突评论文案以模块常量定义。注释引用 RFC-0009。
-    acceptance: 单测(monkeypatch github.list_open_prs / update_branch / post_comment)覆盖:正常更新、排除已合并 PR、up-to-date 归类、冲突→留言且不中断后续、空 open 列表;ruff + pytest 全绿。
+    scope: "Create openagents/rebase.py and implement rebase_open_prs(*, merged_pr_number=None, rebase=False): call github.list_open_prs, exclude merged_pr_number, and call github.update_branch for each PR; on a conflict (GithubError), post a comment indicating the conflict via github.post_comment and continue; return [{pr_number, result}]. Define the conflict comment text as a module constant. Reference RFC-0009 in comments."
+    acceptance: "Unit tests (monkeypatching github.list_open_prs / update_branch / post_comment) cover: normal updates, exclusion of the merged PR, classification of up-to-date results, conflicts→posting a comment without interrupting subsequent processing, and an empty open PR list; ruff + pytest all pass."
   - id: T3
-    title: '`messages.poll` 合并后扇出集成'
+    title: "Post-merge fan-out integration in `messages.poll`"
     status: done
     priority: P1
     tags:
@@ -53,10 +53,10 @@ tasks:
     files:
       - openagents/messages.py
       - tests/test_messages.py
-    scope: 在 messages._process_run 侦测到 is_merged、置 STATUS_DONE 后追加 rebase.rebase_open_prs(merged_pr_number=pr_number);merged 事件可附带同步结果。其余路由逻辑不变。注释引用 RFC-0009。
-    acceptance: 单测断言「侦测到合并时调用了 rebase.rebase_open_prs 且传入正确 merged_pr_number」(monkeypatch rebase 函数);既有 poll 用例不回归;ruff + pytest 全绿。
+    scope: "In messages._process_run, after detecting is_merged and setting STATUS_DONE, add a call to rebase.rebase_open_prs(merged_pr_number=pr_number); the merged event may include the synchronization results. Leave the remaining routing logic unchanged. Reference RFC-0009 in comments."
+    acceptance: "A unit test asserts that “rebase.rebase_open_prs is called with the correct merged_pr_number when a merge is detected” (monkeypatching the rebase function); existing poll test cases have no regressions; ruff + pytest all pass."
   - id: T4
-    title: '`openagents sync-prs` 手动命令'
+    title: "Manual `openagents sync-prs` command"
     status: done
     priority: P1
     tags:
@@ -70,10 +70,10 @@ tasks:
     files:
       - openagents/cli.py
       - tests/test_cli.py
-    scope: 在 cli.build_parser 注册 sync-prs 子命令(--merged、--rebase),新增 _cmd_sync_prs handler 延迟 import 并调 rebase.rebase_open_prs,打印结果摘要;接入 _dispatch handlers 表。注释引用 RFC-0009。
-    acceptance: 单测断言参数解析与 handler 透传(monkeypatch rebase.rebase_open_prs,校验 merged_pr_number / rebase 入参与退出码);ruff + pytest 全绿。
+    scope: "Register the sync-prs subcommand (--merged, --rebase) in cli.build_parser, add a _cmd_sync_prs handler that performs a lazy import and calls rebase.rebase_open_prs, and print a summary of the results; wire it into the _dispatch handlers table. Reference RFC-0009 in comments."
+    acceptance: "Unit tests assert argument parsing and handler pass-through (monkeypatch rebase.rebase_open_prs and verify the merged_pr_number / rebase arguments and exit code); ruff + pytest all pass."
   - id: T5
-    title: 端到端脚本
+    title: "End-to-end script"
     status: done
     priority: P1
     tags:
@@ -87,78 +87,77 @@ tasks:
     parallel: false
     files:
       - scripts/e2e-rfc-0009-auto-rebase.sh
-    scope: 新增 scripts/e2e-rfc-0009-auto-rebase.sh:在一个测试仓库建两个 open PR、合并其一、运行 openagents sync-prs --merged <n>(或一轮 poll),校验另一 PR 分支已并入最新 main(gh pr view --json mergeStateStatus 或对比 commits),并演示冲突场景下的留言。脚本含前置条件与运行说明(对齐既有 scripts/e2e-rfc-000X-*.sh 风格)。
-    acceptance: 脚本可独立运行并打印每步结果;README/RFC 给出启动说明;bash -n 语法检查通过。
+    scope: "Add scripts/e2e-rfc-0009-auto-rebase.sh: create two open PRs in a test repository, merge one of them, run openagents sync-prs --merged <n> (or one poll cycle), verify that the other PR branch has incorporated the latest main (using gh pr view --json mergeStateStatus or by comparing commits), and demonstrate commenting in a conflict scenario. Include prerequisites and execution instructions in the script (following the style of the existing scripts/e2e-rfc-000X-*.sh scripts)."
+    acceptance: "The script can run independently and prints the results of each step; README/RFC provides startup instructions; the bash -n syntax check passes."
 ---
 
-# 0009 · 合并后自动 rebase 其他 open PR
+# 0009 · Automatically rebase other open PRs after a merge
 
-<!-- 本文件由 spec 工具维护：frontmatter 为结构化源数据（含 tasks DAG），正文为组级 rust-RFC 9 段总览。 -->
+<!-- This file is maintained by the spec tool: the frontmatter is the structured source data (including the tasks DAG), and the body is the group-level overview in the nine-section rust-RFC format. -->
 
 ## Summary
 
-当一个 PR 合并进 `main` 后,自动把其余仍然开着的 PR 逐个 rebase（`gh pr update-branch`）到最新的 `main`,省去人工逐个手动 rebase。落地为四层:github 层新增 `list_open_prs` / `update_branch`,`rebase.py` 扇出模块统一编排「列出 open PR→排除已合并者→逐个更新分支→冲突留言不中断」,`messages.poll` 在侦测到合并时自动触发扇出,以及一个手动 `openagents sync-prs` 命令兜底。
+After a PR is merged into `main`, automatically rebase all remaining open PRs, one by one (`gh pr update-branch`), onto the latest `main`, eliminating the need to rebase each one manually. The implementation has four layers: new `list_open_prs` / `update_branch` functions in the github layer; a `rebase.py` fan-out module that centrally orchestrates “list open PRs → exclude the merged PR → update branches one by one → comment on conflicts without stopping”; automatic fan-out triggered by `messages.poll` when it detects a merge; and a manual `openagents sync-prs` command as a fallback.
 
 ## Motivation
 
-OpenAgents 是去中心化多 Agent 协作框架,同一时刻常有多个 issue 各自派发了 agent、各开着一个 PR 并行推进。当其中一个 PR 先合进 `main` 后,其余 open PR 的分支基线就落后了:它们仍基于旧的 `main`,后续若直接合并容易产生过期 diff 或与新主干冲突。
+OpenAgents is a decentralized framework for collaboration among multiple agents. It is common for several issues to have agents assigned to them at the same time, each with an open PR progressing in parallel. When one of those PRs is merged into `main` first, the base of the remaining open PR branches falls behind: they are still based on the old `main`, and merging them directly later can easily produce outdated diffs or conflicts with the new mainline.
 
-在没有自动化之前,这件事要么靠人逐个去点 GitHub 的「Update branch」按钮,要么等到该 PR 自己被处理时才发现需要 rebase——前者把人重新绑回了「每次合并都要善后」的细节,与 OpenAgents「人做宏观把控、不做代码层面细节」的目标相悖;后者则让冲突暴露得太晚。
+Without automation, someone must either click GitHub's “Update branch” button for each PR or wait until a PR is being processed before discovering that it needs a rebase. The former ties people back to the details of “cleaning up after every merge,” contrary to OpenAgents' goal of “people overseeing the big picture without handling code-level details”; the latter exposes conflicts too late.
 
-期望的工作方式是:**一旦有 PR 合入 `main`,框架自动把其余 open PR 拉到最新主干上**;能自动 rebase 的就直接更新分支,遇到冲突无法自动解决的,就在那个 PR 上留一条评论提示需要人/agent 介入,且不阻断对其余 PR 的处理。这样多 PR 并行时主干始终是各分支的最新基线,冲突尽早暴露在对应 PR 上。
+The desired workflow is: **as soon as a PR is merged into `main`, the framework automatically brings the remaining open PRs up to the latest mainline**. Branches that can be rebased automatically are updated directly. If a conflict cannot be resolved automatically, a comment is left on that PR indicating that human/agent intervention is needed, without blocking the processing of other PRs. This keeps the latest mainline as the base for all branches when multiple PRs are progressing in parallel, and exposes conflicts early on the corresponding PRs.
 
 ## Guide-level explanation
 
-对使用者:平时照常提 issue、让 agent 并行开 PR。当任意一个 PR 合进 `main`,框架的轮询(`messages.poll`)会自动对其余 open PR 发起一轮 rebase——能更新的分支自动更新,更新不了(冲突)的 PR 上会收到一条评论说明冲突、需要介入,其它 PR 不受影响继续被更新。
+For users: file issues and let agents open PRs in parallel as usual. Whenever a PR is merged into `main`, the framework's polling (`messages.poll`) automatically initiates a round of rebasing for the remaining open PRs. Branches that can be updated are updated automatically; PRs that cannot be updated because of conflicts receive a comment explaining the conflict and the need for intervention. Other PRs are unaffected and continue to be updated.
 
-若想手动触发(例如刚手动合了一个 PR,或想立即对齐所有分支),可以跑:
+To trigger this manually (for example, after manually merging a PR, or to bring all branches up to date immediately), run:
 
 ```
-openagents sync-prs [--merged <已合并PR号>] [--rebase]
+openagents sync-prs [--merged <merged-PR-number>] [--rebase]
 ```
 
-`--merged` 指定刚合并的 PR 号(会从待更新列表中排除它自身),`--rebase` 选择用 rebase 方式更新分支。命令会打印每个 PR 的处理结果摘要。
+`--merged` specifies the number of the PR that was just merged (excluding that PR itself from the list to update), and `--rebase` selects rebase as the branch update method. The command prints a summary of the processing result for each PR.
 
 ## Reference-level explanation
 
-落到改动,分解为 5 个 Task(DAG 见末尾;各 Task 的 `files` 互斥,单一 writer):
+The changes are divided into 5 Tasks (see the DAG at the end; each Task has a mutually exclusive set of `files`, with a single writer):
 
-1. **T1 github 层 `list_open_prs` + `update_branch`**(无依赖) — 在 `github.py` 新增两个模块函数,作为整套扇出的底层能力。`list_open_prs()` 执行 `gh pr list --state open --json number,url`,解析为 `PR` 列表(空列表也正确返回)。`update_branch(*, pr_number, rebase=False)` 执行 `gh pr update-branch <n> [--rebase]`,三态语义:成功更新返回 `True`、「已是最新」吞掉返回 `False`、冲突或其它失败抛 `GithubError`。复用既有 `_run_gh` / `_gh_json` / `PR`。
+1. **T1 github-layer `list_open_prs` + `update_branch`** (no dependencies) — Add two module-level functions to `github.py` as the underlying capabilities for the entire fan-out process. `list_open_prs()` executes `gh pr list --state open --json number,url` and parses the output into a list of `PR` objects (correctly returning an empty list as well). `update_branch(*, pr_number, rebase=False)` executes `gh pr update-branch <n> [--rebase]`, with three-state semantics: return `True` on a successful update, suppress the “already up to date” condition and return `False`, and raise `GithubError` on conflicts or other failures. Reuse the existing `_run_gh` / `_gh_json` / `PR`.
 
-2. **T2 `rebase_open_prs` 扇出模块**(依赖 T1) — 新建 `openagents/rebase.py`,实现 `rebase_open_prs(*, merged_pr_number=None, rebase=False)`:调 `github.list_open_prs` 取全部 open PR、排除 `merged_pr_number` 自身、逐个调 `github.update_branch`;某个 PR 冲突(`GithubError`)时调 `github.post_comment` 在该 PR 贴一条冲突提示评论(文案以模块常量定义)并**继续处理后续 PR**,不整体中断;返回 `[{pr_number, result}]` 列表,result 区分「更新成功 / 已是最新 / 冲突」三类。
+2. **T2 `rebase_open_prs` fan-out module** (depends on T1) — Create `openagents/rebase.py` and implement `rebase_open_prs(*, merged_pr_number=None, rebase=False)`: call `github.list_open_prs` to retrieve all open PRs, exclude `merged_pr_number` itself, and call `github.update_branch` for each PR. If a PR encounters a conflict (`GithubError`), call `github.post_comment` to post a conflict notification comment on that PR (with the text defined as a module constant) and **continue processing subsequent PRs**, without interrupting the entire operation. Return a list of `[{pr_number, result}]`, with result distinguishing three categories: “updated successfully / already up to date / conflict.”
 
-3. **T3 `messages.poll` 合并后扇出集成**(依赖 T2) — 在 `messages._process_run` 中,侦测到 `is_merged`、把 run 置为 `STATUS_DONE` 之后,追加调用 `rebase.rebase_open_prs(merged_pr_number=pr_number)`;`merged` 事件可附带同步结果。其余路由逻辑保持不变。
+3. **T3 Post-merge fan-out integration in `messages.poll`** (depends on T2) — In `messages._process_run`, after detecting `is_merged` and setting the run to `STATUS_DONE`, add a call to `rebase.rebase_open_prs(merged_pr_number=pr_number)`. The `merged` event may include the synchronization results. Keep the remaining routing logic unchanged.
 
-4. **T4 `openagents sync-prs` 手动命令**(依赖 T2) — 在 `cli.build_parser` 注册 `sync-prs` 子命令(参数 `--merged`、`--rebase`),新增 `_cmd_sync_prs` handler:延迟 import `rebase` 后调 `rebase.rebase_open_prs`,打印结果摘要;接入 `_dispatch` 的 handlers 表。
+4. **T4 Manual `openagents sync-prs` command** (depends on T2) — Register the `sync-prs` subcommand in `cli.build_parser` (with the `--merged` and `--rebase` arguments), and add a `_cmd_sync_prs` handler: lazily import `rebase`, call `rebase.rebase_open_prs`, and print a summary of the results. Add it to the handlers table in `_dispatch`.
 
-5. **T5 端到端脚本**(依赖 T3、T4) — 新增 `scripts/e2e-rfc-0009-auto-rebase.sh`:在一个测试仓库建两个 open PR、合并其一、运行 `openagents sync-prs --merged <n>`(或一轮 poll),校验另一 PR 分支已并入最新 `main`(`gh pr view --json mergeStateStatus` 或对比 commits),并演示冲突场景下的留言。脚本含前置条件与运行说明,对齐既有 `scripts/e2e-rfc-000X-*.sh` 风格。
+5. **T5 End-to-end script** (depends on T3 and T4) — Add `scripts/e2e-rfc-0009-auto-rebase.sh`: create two open PRs in a test repository, merge one of them, run `openagents sync-prs --merged <n>` (or one polling cycle), verify that the other PR's branch has incorporated the latest `main` (`gh pr view --json mergeStateStatus` or a comparison of commits), and demonstrate commenting in a conflict scenario. Include prerequisites and instructions for running the script, following the style of the existing `scripts/e2e-rfc-000X-*.sh` scripts.
 
-**端到端验证**:`bash scripts/e2e-rfc-0009-auto-rebase.sh`(建双 PR、合并其一、sync-prs 后校验另一分支已对齐最新 main，并演示冲突留言)。
+**End-to-end validation**: `bash scripts/e2e-rfc-0009-auto-rebase.sh` (create two PRs, merge one, run sync-prs and verify that the other branch is up to date with the latest main, and demonstrate conflict commenting).
 
-依赖 DAG:`T1 → T2`,`T2 → T3`,`T2 → T4`,`T3 → T5`,`T4 → T5`。
+Dependency DAG: `T1 → T2`, `T2 → T3`, `T2 → T4`, `T3 → T5`, `T4 → T5`.
 
 ## Drawbacks
 
-- 每次合并都触发对所有 open PR 的扇出更新,PR 数量很多时会产生一批 `gh pr update-branch` 调用(N 个 open PR ⇒ N 次更新);但更新本身是幂等的(已最新即跳过),量级与 open PR 数线性。
-- 自动 rebase 可能改写各 open PR 分支的提交基线,正在该分支上手工操作的人/agent 需要重新拉取。
+- Each merge triggers a fan-out update of all open PRs, producing a batch of `gh pr update-branch` calls when there are many PRs (N open PRs ⇒ N updates). However, the update itself is idempotent (branches that are already up to date are skipped), and the scale is linear in the number of open PRs.
+- Automatic rebasing may rewrite the commit base of each open PR's branch; people/agents working manually on that branch need to pull again.
 
 ## Rationale and alternatives
 
-- **为什么放在 github 层加 `update_branch` 而不在扇出模块里直接拼 `gh` 命令**:把「调一次 gh 更新一个分支」收敛成 github 层的单一三态函数(True/False/抛错),扇出模块只编排、不关心 gh 细节,职责解耦(理念 10)、便于 monkeypatch 做 hermetic 单测。
-- **为什么冲突时留言而非中断**:多 PR 并行场景下,一个 PR 冲突不应阻断其余 PR 的对齐;留言把「需要人/agent 介入」的信号留在对应 PR 上,符合 OpenAgents 以 PR/comment 为消息载体的协作模型。
-- **为什么同时提供自动(poll 集成)与手动(sync-prs)两条入口**:自动路径覆盖常态(agent 合并触发);手动命令兜底人工合并或需要立即对齐的场景,二者共用同一 `rebase_open_prs`,无重复逻辑。
-- **备选:不自动 rebase,只在 PR 被处理时按需更新**。否决:冲突暴露太晚,且把善后重新压回每个 PR 的处理流程。
+- **Why add `update_branch` to the github layer instead of constructing `gh` commands directly in the fan-out module**: Encapsulating “call gh once to update one branch” in a single github-layer function with three-state semantics (True/False/raise an error) leaves the fan-out module responsible only for orchestration, without needing to know gh details. This decouples responsibilities (principle 10) and makes it easy to use monkeypatch for hermetic unit tests.
+- **Why comment on conflicts instead of stopping**: When multiple PRs are progressing in parallel, a conflict in one PR should not block the others from being brought up to date. A comment leaves the signal that “human/agent intervention is needed” on the corresponding PR, consistent with OpenAgents' collaboration model of using PRs/comments as message carriers.
+- **Why provide both automatic (poll integration) and manual (sync-prs) entry points**: The automatic path covers normal operation (triggered by an agent merging a PR); the manual command covers manual merges or situations that require bringing branches up to date immediately. Both share the same `rebase_open_prs`, with no duplicated logic.
+- **Alternative: do not rebase automatically; update on demand only when a PR is processed**. Rejected: conflicts are exposed too late, and cleanup is pushed back into each PR's processing workflow.
 
 ## Prior art
 
-GitHub 原生提供 PR 的「Update branch」按钮与 `gh pr update-branch` 命令,以及仓库设置里的「require branches to be up to date before merging」。本 feature 复用 `gh pr update-branch` 作为底层动作,把「合并后批量对齐其余 open PR」这一编排自动化,属于 trunk-based 开发中「保持各分支基于最新主干」的常见实践。
+GitHub natively provides the “Update branch” button for PRs, the `gh pr update-branch` command, and the “require branches to be up to date before merging” repository setting. This feature reuses `gh pr update-branch` as the underlying action and automates the orchestration of “bringing the remaining open PRs up to date in a batch after a merge.” This is a common practice in trunk-based development: keeping each branch based on the latest mainline.
 
 ## Unresolved questions
 
-无。三态更新语义、冲突留言而不中断、自动 + 手动双入口均已在本组确定。
+None. The three-state update semantics, commenting on conflicts without stopping, and the automatic + manual entry points have all been decided within this group.
 
 ## Future possibilities
 
-- 冲突留言可升级为自动派发一个 agent 去解决该 PR 的 rebase 冲突。
-- 扇出可加并发/限流策略,应对 open PR 数量很大的仓库。
-
+- Conflict comments could be extended to automatically dispatch an agent to resolve the PR's rebase conflicts.
+- Concurrency/rate-limiting strategies could be added to the fan-out process for repositories with very large numbers of open PRs.

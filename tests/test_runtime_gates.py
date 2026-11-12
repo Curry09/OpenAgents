@@ -1,7 +1,7 @@
-"""Spec-0060/T3: runtime.gates 最小硬闸单测——只验客观事实，四闸各正/反例。
+"""Spec-0060/T3: runtime.gates Minimum Hardgate Single Test - Only Objective Facts, Four Gates Positive/Terror.
 
-utils.git.head_sha / utils.github.pr_head_branch 打桩，不触真实仓库/网络。
-Spec-0017 补充：2026-09-09-delivery-review-snapshot-tests-design.md 的实时 HEAD 回归。
+utils.git.head_sha / utils.github.pr_head_branch staked the stake without touching the real warehouse/network.
+Spec-0017 Supplement: 2026-09-09-delivery-review-snapshot-tests-design.md real-time HEAD returns.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ from openagents.utils import github as ugithub
 
 
 def test_snapshot_head_reads_current_head(monkeypatch):
-    # 确定性基点读取：直接透传 utils.git.head_sha 的客观值（供 recipe 交付前自记 before）。
+    # Valid basis for reading: the objective value (for pre-delivery self-collection) of utils.git.head_sha directly.
     monkeypatch.setattr(gates.git, "head_sha", lambda *, work_dir: "cursha00000")
     assert gates.snapshot_head(workspace="/tmp/wt") == "cursha00000"
 
 
 def test_head_advanced_passes_when_moved(monkeypatch):
     monkeypatch.setattr(gates.git, "head_sha", lambda *, work_dir: "newsha00000")
-    # 前移即通过，并返回实际 after（供上层接证据溯源戳复用）。
+    # Forward is passed and returns to the actual after (for retroactive retrace of the upper layer of evidence).
     assert gates.assert_head_advanced(before="oldsha00000", workspace="/tmp/wt") == "newsha00000"
 
 
@@ -44,7 +44,7 @@ def test_round_cap_yields_then_raises_on_overflow():
     seen = []
     with pytest.raises(GateError):
         for r in gates.round_cap(max_rounds=3):
-            seen.append(r)  # 恒不 break → 跑满 3 轮后 raise
+            seen.append(r)  # Always break and run after three rounds
     assert seen == [1, 2, 3]
 
 
@@ -53,13 +53,13 @@ def test_round_cap_no_raise_when_break_early():
     for r in gates.round_cap(max_rounds=3):
         seen.append(r)
         if r == 2:
-            break  # 提前收敛 → 生成器丢弃、永不 raise
+            break  # Early accumulation, pre-disposal of the generator, never raise
     assert seen == [1, 2]
 
 
 def test_pr_exists_passes(monkeypatch):
     monkeypatch.setattr(gates.github, "pr_head_branch", lambda *, pr_number: "openagents/issue-1")
-    gates.assert_pr_exists(pr_number=1)  # 不抛即通过
+    gates.assert_pr_exists(pr_number=1)  # Pass or pass.
 
 
 def test_pr_exists_raises_when_absent(monkeypatch):
@@ -116,7 +116,7 @@ def test_design_approved_rejects_when_approved_digest_disappeared(tmp_path, monk
     monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [changed])
     monkeypatch.setattr(gates.spec_model, "design_digest", lambda *, group: "changed")
 
-    with pytest.raises(gates.DesignApprovalStale, match="已批准设计不存在"):
+    with pytest.raises(gates.DesignApprovalStale, match="The approved design does not exist"):
         gates.assert_design_approved(
             workspace=tmp_path, issue_number=13, approved_digest="approved"
         )
@@ -154,7 +154,7 @@ def test_design_approval_renumber_and_real_changes(tmp_path, legacy):
     model.dump_group(group=group, path=path)
     if legacy:
         # No original snapshot migration: an old approval never blesses changed raw content.
-        with pytest.raises(GateError, match="已批准设计不存在"):
+        with pytest.raises(GateError, match="The approved design does not exist"):
             gates.assert_design_approved(
                 workspace=tmp_path, issue_number=8, approved_digest=approved
             )
@@ -162,7 +162,7 @@ def test_design_approval_renumber_and_real_changes(tmp_path, legacy):
     gates.assert_design_approved(workspace=tmp_path, issue_number=8, approved_digest=approved)
     group.tasks[0].acceptance = "Allow arbitrary scope escapes"
     model.dump_group(group=group, path=path)
-    with pytest.raises(GateError, match="已批准设计不存在"):
+    with pytest.raises(GateError, match="The approved design does not exist"):
         gates.assert_design_approved(workspace=tmp_path, issue_number=8, approved_digest=approved)
 
 
@@ -171,18 +171,18 @@ def test_duplicate_semantic_design_identity_is_rejected(tmp_path, monkeypatch):
     group = SimpleNamespace(metadata=SimpleNamespace(issue=8))
     monkeypatch.setattr(gates.spec_model, "load_all", lambda *, specs_root: [group, group])
     monkeypatch.setattr(gates.spec_model, "design_digest", lambda *, group: "v2:approved")
-    with pytest.raises(GateError, match="多个内容相同"):
+    with pytest.raises(GateError, match="multiple Specs matching the approved design digest"):
         gates.assert_design_approved(
             workspace=tmp_path, issue_number=8, approved_digest="v2:approved"
         )
 
 
 # --------------------------------------------------------------------------- #
-# Spec-0017/T3: assert_merge_allowed —— 合并不可逆红线硬闸（CI 全绿 + review-approved:<head sha7>@head）。
-# 纯读客观事实、假快照注入、不触网。四情形：全绿+approved@head 放行；否则各抛 GateError。
+# Spec-0017/T3: assert_merge_allowed - Merger of Unreversible Red Line Hardgates (CI Green + review-approved: <head Sha7>@head)
+# Read the facts, fake snapshots, and don't touch the net. Four scenarios: green + approved@head; otherwise, each of them throws GateError.
 # --------------------------------------------------------------------------- #
 
-_HEAD = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"  # 40 位 head；sha7 = "a1b2c3d"
+_HEAD = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"  # 40 bit head;sha7 = "a1b2c3d"
 
 
 def _stub_merge_facts(monkeypatch, *, ci_state, ci_count, labels):
@@ -210,7 +210,7 @@ def _stub_merge_facts(monkeypatch, *, ci_state, ci_count, labels):
 
 def test_merge_allowed_passes_when_green_and_approved_at_head(monkeypatch):
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("review-approved:a1b2c3d",))
-    gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)  # 不抛即通过
+    gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)  # Pass or pass.
 
 
 def test_merge_allowed_skips_ci_but_still_requires_approved_head(monkeypatch):
@@ -245,15 +245,15 @@ def test_merge_allowed_skips_ci_but_still_requires_approved_head(monkeypatch):
 
 
 def test_merge_allowed_raises_when_ci_failing(monkeypatch):
-    # (a) CI 非全绿 → 决不合并未过 CI 的代码。
+    # (a) The CI is not fully green and never merges an uncharted CI code.
     _stub_merge_facts(monkeypatch, ci_state="fail", ci_count=3, labels=("review-approved:a1b2c3d",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
 def test_merge_pending_is_not_ready_not_a_violation(monkeypatch):
-    # Spec-0074 实证：CI 仍在跑（pending，count>0）不是红线、是暂态——抛 MergeNotReady 而非 GateError，
-    # 供 _run_claimed 当干净收工（不烧 attempts），避免 pending→success 窗口内误挂 needs-human。
+    # Spec-0074: The CI is still running (pending, count > 0) not red, but temporary - throw Megernot Ready instead of GateError, and then move to the next level.
+    # For _run_claimed When you're done with the clean work. attempts）Avoid pending→success Unsung inside window needs-human。
     _stub_merge_facts(
         monkeypatch, ci_state="pending", ci_count=3, labels=("review-approved:a1b2c3d",)
     )
@@ -261,19 +261,19 @@ def test_merge_pending_is_not_ready_not_a_violation(monkeypatch):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
     assert not issubclass(
         gates.MergeNotReady, GateError
-    )  # 与红线严格区分（不被 except GateError 吞）
+    )  # Strictly distinguish with red line (not swallowed by except GateError)
 
 
 def test_merge_allowed_raises_when_zero_checks(monkeypatch):
-    # 零个 check「不算绿」（比照 vigil _ci_state）——防合并一份没跑过 CI 的代码。硬红线 GateError，
-    # 且**先于 pending 判**：count==0 时 state 即便是 pending 也是「根本没 CI」不是「CI 在跑」。
+    # No checks at the current head must not authorize a merge.
+    # And ** before pending**: count=0 = state even pending is "none CI" and not "CI running"
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=0, labels=("review-approved:a1b2c3d",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
 def test_merge_zero_checks_with_pending_state_is_hard_block(monkeypatch):
-    # count==0 且 state=pending（Gitea 空 combined 的形态）：仍是硬红线（没 CI），不是 MergeNotReady。
+    # Count=0 and state=ping (Gitea empty pattern): still hard red (no CI), not Mergenotready.
     _stub_merge_facts(
         monkeypatch, ci_state="pending", ci_count=0, labels=("review-approved:a1b2c3d",)
     )
@@ -282,21 +282,21 @@ def test_merge_zero_checks_with_pending_state_is_hard_block(monkeypatch):
 
 
 def test_merge_allowed_raises_when_no_approved_label(monkeypatch):
-    # (b) 无 review-approved label → 决不合并未审代码。
+    # (b) No reported-approved label  →  never merges unheard code.
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("openagents",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
 def test_merge_allowed_raises_when_label_sha_mismatches_head(monkeypatch):
-    # (c) label sha ≠ 当前 head（_sense→_act 间 head 前移的 TOCTOU）→ 裁决作废，决不合并未审的新代码。
+    # (c) The current head [sense_act] TOCTOU (moved) decision is annulled and no new code is merged without review.
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=("review-approved:0000000",))
     with pytest.raises(GateError):
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
 
 
 def test_delivery_snapshot_merge_rechecks_head_even_when_old_approval_label_remains(monkeypatch):
-    """Spec-0017 补充（2026-09-09 snapshot tests）：push 不会自动删除旧审批标签。"""
+    """Spec-0017 supplements (2026-09-09 snapshot tests): Push does not automatically delete old approval labels."""
     old_label = f"review-approved:{_HEAD[:7]}"
     _stub_merge_facts(monkeypatch, ci_state="pass", ci_count=3, labels=(old_label,))
     monkeypatch.setattr(
@@ -317,4 +317,6 @@ def test_delivery_snapshot_merge_rechecks_head_even_when_old_approval_label_rema
         gates.assert_merge_allowed(pr_number=175, head_sha=_HEAD)
     except (GateError, gates.MergeNotReady):
         rejected = True
-    assert rejected, "远端已换版但旧标签还在，不能用感知时的旧 HEAD 放行合并"
+    assert rejected, (
+        "Far-end re-enactment but old labels are still in place, and the old HeADs cannot be used to merge"
+    )

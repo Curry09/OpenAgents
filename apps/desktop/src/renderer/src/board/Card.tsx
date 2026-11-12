@@ -1,4 +1,4 @@
-// Spec-0073/T4: 成果卡——一个 subject 的阶段 / PR / 证据戳 / 评论数 / automation-failed 徽标。点击发 onOpen。
+// Spec-0073/T4: Summarize a subject’s phase, PR, evidence, comments, and failure status.
 import type { BoardEntry } from '../types'
 
 export interface CardProps {
@@ -6,21 +6,21 @@ export interface CardProps {
   onOpen: (subject: string) => void
 }
 
-// 把队列状态 + 富化字段浓成一句人话阶段（成果优先，字段以 board.html 为起点）。
+// Combine queue state and forge metadata into a short status label.
 function stageLabel(entry: BoardEntry): string {
   if (entry.automation_failed) {
-    return '✗ automation-failed 机器失败'
+    return '✗ automation-failed'
   }
   if (entry.pr_ready_to_merge) {
-    return `✅ PR#${entry.pr ?? '?'} 等合并`
+    return `✅ PR#${entry.pr ?? '?'} awaiting merge`
   }
   if (entry.pr) {
-    return `↻ PR#${entry.pr} 推进中`
+    return `↻ PR#${entry.pr} In progress`
   }
   if (entry.status === 'claimed') {
-    return '↻ 推进中'
+    return '↻ In progress'
   }
-  return '… 排队中'
+  return '… Queued'
 }
 
 export default function Card({ entry, onOpen }: CardProps): JSX.Element {

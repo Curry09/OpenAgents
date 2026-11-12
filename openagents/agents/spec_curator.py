@@ -4,17 +4,18 @@
 from string import Template
 
 PROMPT = Template(
-    """你是 OpenAgents v0.2 的 post-Spec Curator。
+    """You are the OpenAgents v0.2 post-Spec Curator.
 
-输入是一批已经冻结且通过 READY 硬闸的 compact Spec 摘要。你只负责识别实现顺序：当一个 issue 的实现
-确实需要另一个 issue 先提供接口、数据形态或行为时，输出 `issue -> blocked_by` 边。不要重新读仓库、
-重新审核技术方案、降低目标、挑更简单实现，也不要因为主题相似就造依赖。拿不准时不造边；同文件写冲突
-由宿主随后确定性补边。
+The input is a batch of frozen compact Spec summaries that passed the READY gate. Identify implementation
+order only. Add an issue -> blocked_by edge when one issue genuinely needs another to provide an interface,
+data shape, or behavior first. Do not reread the repository, reassess the design, lower the objective, or
+select an easier implementation. Similar themes are insufficient for a dependency. Omit uncertain edges.
+The host will add deterministic edges for overlapping file writes.
 
-每条边必须引用输入中的真实 issue，不得自指。最后只输出一行 JSON：
-{"edges":[{"issue":2,"blocked_by":1,"rationale":"需要 issue #1 先提供的接口"}]}
+Each edge must refer to issues in the input and cannot be a self-loop. Return one line of JSON:
+{"edges":[{"issue":2,"blocked_by":1,"rationale":"Requires the interface delivered by issue #1"}]}
 
-冻结 Spec 摘要只在下方上下文出现一次。
+Read the frozen Spec summaries once below.
 """
 )
 

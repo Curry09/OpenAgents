@@ -1,7 +1,7 @@
-"""# Spec-0074/T1: forge 分发层单测——委托 / 惰性发现 / 常量零 IO / 配置段校验 / 命令注入。
+"""# Spec-0074/T1: single forge distribution layer (Little detection) / Constant zero IO / Configuration segment verification / command in.
 
-不触真实 gh/网络：github 侧只调纯字符串函数（merge_command_text），gitea 侧只到 configure 为止
-（不发请求）；cli merge-pr 经 monkeypatch forge 打桩。
+Untouch real gh/ network: github side only to pure string function (merge_command_text), gita side only until configuure
+(No request); cli merge-pr laid a stake through the Monkey Patch forge.
 """
 
 from __future__ import annotations
@@ -15,19 +15,19 @@ from openagents.utils import forge, github
 
 @pytest.fixture(autouse=True)
 def _reset_forge():
-    """每个用例前后清掉 forge 的模块级选择，互不串台。"""
+    """Each module level selection that uses the example to clear the forge is free of string."""
     forge.reset()
     yield
     forge.reset()
 
 
 # --------------------------------------------------------------------------------------------------
-# 委托与常量。
+# Commission with constant.
 # --------------------------------------------------------------------------------------------------
 
 
 def test_default_delegates_to_github(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)  # 无配置 → 惰性发现回落 github
+    monkeypatch.chdir(tmp_path)  # No configuration  →  inertity found back github
     assert forge.active_forge() == forge.FORGE_GITHUB
     assert forge.merge_command_text(pr_number=7) == "gh pr merge 7 --merge"
     assert forge.merge_verify_command_text(pr_number=7) == "gh pr view 7 --json state"
@@ -69,7 +69,7 @@ def test_discovery_resolves_external_linked_worktree(monkeypatch, tmp_path):
 
 
 def test_constants_reexported_statically():
-    # 常量与错误类型是静态 re-export（import 时零 IO），且与 github.py 同一份定义。
+    # Constants and error types are static re-export (IOs) and are defined in the same way as github.py.
     assert forge.DISCOVERY_LABEL == github.DISCOVERY_LABEL
     assert forge.PROCESS_LABELS == github.PROCESS_LABELS
     assert forge.GithubError is github.GithubError
@@ -96,12 +96,12 @@ def test_configure_gitea_missing_settings_raises():
 
 def test_missing_driver_function_has_actionable_error():
     forge.configure(name="github")
-    with pytest.raises(AttributeError, match="事实契约"):
+    with pytest.raises(AttributeError, match="implement public operations in both drivers"):
         _ = forge.not_a_real_function
 
 
 # --------------------------------------------------------------------------------------------------
-# 惰性发现（cwd → 仓库根，读 .openagents/openagents.yml 的 forge/gitea 两键）。
+# Inertity Discovery (cwd  → streasure root, read . openagents/openagents.yml, forge/gitea, two keys).
 # --------------------------------------------------------------------------------------------------
 
 
@@ -128,7 +128,7 @@ def test_lazy_discovery_walks_up_to_repo_root(monkeypatch, tmp_path):
 
 
 def test_lazy_discovery_stops_at_git_root(monkeypatch, tmp_path):
-    # 配置在 git 仓库根之上 → 不认（配置只认本仓的，与 gh 的 cwd→仓库绑定语义一致）。
+    # Configures the root of the guit repository without recognition (configuring only the in-house, consistent with the semantics of the cwd-repository).
     _write_config(tmp_path, _GITEA_YML)
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -149,7 +149,7 @@ def test_unknown_forge_value_falls_back_to_github(monkeypatch, tmp_path):
 
 
 def test_gitea_declared_but_incomplete_fails_loud(monkeypatch, tmp_path):
-    # forge=gitea 但 gitea 段缺失 → 大声报错（绝不静默拿 gh 打一个 Gitea 项目）。
+    # Forge=gitea but gitea is missing and wrongs are reported loudly (no silent gh hitting a Gitea project).
     _write_config(tmp_path, "forge: gitea\n")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(github.GithubError):
@@ -157,7 +157,7 @@ def test_gitea_declared_but_incomplete_fails_loud(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# agent_config 的 forge/gitea 配置段（schema + 跨字段守卫 + resolved 透传）。
+# forge/gitea configuration (schema + cross-field guard + resolved fax) for agent_config.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -184,7 +184,7 @@ def test_agent_config_parses_gitea_section(tmp_path):
 def test_agent_config_rejects_gitea_without_section(tmp_path):
     from openagents.utils.agent_config import AgentConfigError
 
-    with pytest.raises(AgentConfigError, match="gitea 段"):
+    with pytest.raises(AgentConfigError, match="gitea segment"):
         _load(tmp_path, "forge: gitea\n")
 
 
@@ -192,7 +192,7 @@ def test_agent_config_rejects_bad_gitea_shape(tmp_path):
     from openagents.utils.agent_config import AgentConfigError
 
     with pytest.raises(AgentConfigError):
-        _load(tmp_path, "forge: gitea\ngitea:\n  base_url: http://x\n")  # 缺 owner/repo
+        _load(tmp_path, "forge: gitea\ngitea:\n  base_url: http://x\n")  # owner/repo missing
 
 
 def test_agent_config_rejects_unknown_forge(tmp_path):
@@ -203,7 +203,7 @@ def test_agent_config_rejects_unknown_forge(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------------
-# stages.merge 的平台命令注入 + cli merge-pr 出口。
+# stages.merge platform command injects +cli merge-pr exit.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -220,7 +220,7 @@ def test_stages_merge_injects_platform_commands(monkeypatch, tmp_path):
 
     monkeypatch.setattr(stages.engine, "run_agent", _fake_run_agent)
     stages.merge(backend=object(), pr_number=42, head_sha="abc", work_dir="/wt", context_text="")
-    # Spec-0074/T1: merger 的平台命令按当前 forge 注入（github 侧即原 gh 命令，行为零变化）。
+    # The platform command for Spec-0074/T1: merger is injected into the current forge (github side, the original gh command, no change in behaviour).
     assert seen["merge_command"] == "gh pr merge 42 --merge --match-head-commit abc"
     assert seen["verify_command"] == "gh pr view 42 --json state"
 
@@ -255,5 +255,5 @@ def test_cli_merge_pr_idempotent_when_already_merged(monkeypatch, capsys):
     )
     code = cli._cmd_merge_pr(argparse.Namespace(pr=42, method="merge"), ctx=None)
     assert code == 0
-    assert merged_calls == []  # 已合并 → 不再 POST（幂等）
+    assert merged_calls == []  # Merged  →  Not anymore POST (Queue)
     assert "MERGED" in capsys.readouterr().out

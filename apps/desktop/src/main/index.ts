@@ -1,5 +1,5 @@
-// Spec-0073/T3: Electron 主进程——创建 BrowserWindow 装 renderer。
-// 数据全部经 renderer 直连本地 daemon（HTTP+SSE），主进程不代理网络，故窗口配置最小。
+// Spec-0073/T3: Create the Electron window and load the renderer.
+// The renderer connects directly to the local daemon; the main process does not proxy traffic.
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 
@@ -8,7 +8,7 @@ function createWindow(): void {
     width: 1280,
     height: 800,
     show: false,
-    title: 'OpenAgents 桌面看板',
+    title: 'OpenAgents Desktop Dashboard',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -18,7 +18,7 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
-  // 外链（PR / diff）用系统浏览器打开，不在应用内导航。
+  // Open external PR and diff links in the system browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
