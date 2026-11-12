@@ -16,7 +16,6 @@ from openagents import agents
 from openagents.agents import (
     acceptance,
     deliver,
-    developer,
     drafter,
     executor,
     implementer,
@@ -97,7 +96,6 @@ def test_minimal_roles_keep_original_issue_as_authority():
     assert "Do not use PARTIAL just because future" in spec_writer.PROMPT.template
     assert "Developer implements it and Acceptance checks behavior" in spec_writer.PROMPT.template
     assert "head_sha" not in spec_writer.OUTPUT_SCHEMA
-    assert "head_sha" not in developer.OUTPUT_SCHEMA
     assert "independent, falsifiable" in spec_writer.PROMPT.template
     assert "PARTIAL" in acceptance.PROMPT.template
     assert acceptance.OUTPUT_SCHEMA == {"verdict": str, "reason": str, "evidence": list}
@@ -128,12 +126,8 @@ def test_minimal_roles_keep_original_issue_as_authority():
     assert "Do not explore the repository again" in spec_writer.PROMPT.template
     assert "A draft" in spec_writer.PROMPT.template
     assert "estimated coordination surface" in spec_writer.PROMPT.template
-    assert "The freeze covers objectives, rationale, causal" in developer.PROMPT.template
-    assert "choose a sound implementation" in developer.PROMPT.template
-    assert "You choose classes, functions, algorithms" in developer.PROMPT.template
     assert "source=original_replay" in acceptance.PROMPT.template
-    assert "source=user_test" in acceptance.PROMPT.template
-    assert "independent variant" in acceptance.PROMPT.template
+    assert "source=independent_variant" in acceptance.PROMPT.template
     assert "Any passed=false prevents PASS" in acceptance.PROMPT.template
     assert "Keep the candidate worktree immutable" in acceptance.PROMPT.template
     assert "/tmp/openagents-acceptance-$issue_number/" in acceptance.PROMPT.template

@@ -30,21 +30,6 @@ openagents vigil --skip ci,e2e
 
 使用 Ctrl+C 停止进程。恢复时使用相同的目标仓库和配置，运行时会将持久化工作与 Forge 当前状态重新核对。本地队列和锁应位于同一台机器，详见[架构指南](ARCHITECTURE.zh-CN.md)。
 
-## 显式批量交付
-
-```bash
-openagents v02 --issue 12 --issue 15 --parallel 4 \
-  --user-test-command 'python3 app.py' \
-  --user-test-transcript /path/to/user-test.json \
-  --user-test-timeout 900
-```
-
-`v02` 选择一批已有 Issue，起草并冻结规格，按依赖 DAG 调度 Developer 和 Acceptance，最后合并成功的结果。它逐项打印终态并保存审计产物，不轮询发现新 Issue；默认并发为 4。
-
-Acceptance 需要真实可执行命令和 JSON 交互输入列表，列表元素可以是事件对象或字符串。可选的 `wait_seconds` 字段指定事件发送前的等待时间，发送时移除该字段；其余对象字段原样作为 JSON 行发送，字符串转为 `{"message": "..."}`。应提供**目标应用实际支持的协议**。命令按参数拆分，不作为 Shell 管道执行；它在已交付候选的一次性副本中运行，超时、崩溃或环境准备失败均不能记为用户测试通过。
-
-对应环境变量为 `OPENAGENTS_USER_TEST_COMMAND`、`OPENAGENTS_USER_TEST_TRANSCRIPT` 和 `OPENAGENTS_USER_TEST_TIMEOUT`，命令行参数只在本批次覆盖它们。此格式用于 OpenAgents 验收，与 AHE-Beta 的实验配置不同。
-
 ## 规格补录与版本发布
 
 ```bash

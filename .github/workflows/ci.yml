@@ -2,11 +2,11 @@
 # Only "CI Gate" is required by branch protection.
 name: CI
 
-# Spec-0023/T5: Check main and the v0.2 compatibility branch.
+# Spec-0023/T5: Check pull requests targeting main.
 # Release branches are created from green main commits and do not receive PRs.
 on:
   pull_request:
-    branches: [main, auto-designer/v0.2]
+    branches: [main]
 
 permissions:
   contents: read

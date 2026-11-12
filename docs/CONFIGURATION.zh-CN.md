@@ -33,7 +33,7 @@ repos:
 
 ## 后端
 
-当前已实现的后端为 `claude_code` 和 `nexau`。`vigil` 和 `v02` 通过 `OPENAGENTS_BACKEND=nexau` 选择 NexAU，否则 CLI 创建 Claude Code 后端。
+当前已实现的后端为 `claude_code` 和 `nexau`。`vigil` 通过 `OPENAGENTS_BACKEND=nexau` 选择 NexAU，否则 CLI 创建 Claude Code 后端。
 
 加载器接受 `agents.<角色>.backend` 声明，但当前 CLI 尚未按这些逐角色映射路由执行。仅修改这些字段不会切换实际后端，也不会实现混合后端执行；配置字段接受字符串，不代表任意后端名都有实现。
 
@@ -75,9 +75,6 @@ gitea:
 | `standard` | `openagents vigil` | 持续交付，包含规格、架构评审、实现、验证、评审和返工 |
 | `minimal` | 配置 `flow: minimal` 后运行 `openagents vigil` | 实验流程：紧凑规格、一次实现、按原始 Issue 验收 |
 | `generate-only` | 配置 `flow: generate-only` 后运行 `openagents vigil` | 研究流程：受约束生成和机械合并，不做质量验证 |
-| `v0.2` | `openagents v02 --issue N` | 显式有限批次：规格、依赖 DAG、Developer、Acceptance 和机械合并 |
-
-批量流程应使用显式的 `v02` 命令；仅设置 `flow: v0.2` 不会把 `vigil` 变成批次运行器。其验收还需要真实用户测试命令和交互输入，详见 [CLI 指南](cli.zh-CN.md)。
 
 `coordination: dependencies` 由 Curator 建立硬依赖；`soft` 生成非阻塞的排序建议，保留原始 Issue 和验收条件；`off` 关闭模型协调，Forge 上已有的依赖仍然生效。
 

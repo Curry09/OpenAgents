@@ -68,7 +68,7 @@ def prepare_probe(*, expected: dict, digest: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="oa-evidence-probe-") as name:
         root = Path(name)
         subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
-        scope = evidence.prepare(work_dir=root, issue=expected["issue"], role="developer")
+        scope = evidence.prepare(work_dir=root, issue=expected["issue"], role="implementer")
         return verify_scope(scope=scope, expected=expected, digest=digest)
 
 
@@ -120,7 +120,7 @@ def check_execution_contract(*, fixture: Path) -> dict:
         "spec_writer",
         "architect",
         "implementer",
-        "developer",
+        "executor",
         "reviewer",
         "acceptance",
     )
@@ -158,7 +158,7 @@ def check_execution_contract(*, fixture: Path) -> dict:
                 runtime_context.execution_dispatch(state=state, required=True),
             ):
                 scope = evidence.prepare(
-                    work_dir=root, issue=value["issue"], role="developer", execution_required=True
+                    work_dir=root, issue=value["issue"], role="implementer", execution_required=True
                 )
                 verify_scope(scope=scope, expected=value, digest=digest)
                 for role in roles:

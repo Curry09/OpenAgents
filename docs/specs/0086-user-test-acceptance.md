@@ -111,6 +111,8 @@ tasks:
 
 # 0086 · Auditable Acceptance Driven by User Test
 
+> **Historical design.** The standalone batch runner and its transcript replay have been retired. Vigil's minimal flow still checks original replay and an independent variant.
+
 ## Summary
 
 Past acceptance processes could easily turn into component reviews: there was abundant evidence, but actual user goals were never carried out, so the Developer tended to choose

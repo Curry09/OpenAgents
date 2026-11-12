@@ -507,8 +507,6 @@ def acceptance(
     issue_title: str,
     issue_body: str,
     context_text: str,
-    user_test_result: dict | None = None,
-    require_user_test: bool = False,
 ) -> dict:
     """Judge the current candidate once against the complete original issue.
 
@@ -520,16 +518,6 @@ def acceptance(
         work_dir=Path(work_dir),
         context=context.sections(
             ("original issue", f"# {issue_number} {issue_title}\n\n{issue_body}"),
-            *(
-                (
-                    (
-                        "user test artifact",
-                        json.dumps(user_test_result, ensure_ascii=False, sort_keys=True),
-                    ),
-                )
-                if user_test_result is not None
-                else ()
-            ),
             ("runtime context", context_text),
         ),
         issue_number=issue_number,
@@ -546,7 +534,6 @@ def acceptance(
                 verdict="PASS",
                 evidence=manifest,
                 require_behavior=True,
-                required_source="user_test" if require_user_test else None,
             )
         except evidence_validation.EvidenceError as exc:
             raise gates.GateError(f"Invalid evidence for Acceptance PASS: {exc}") from exc
@@ -554,32 +541,15 @@ def acceptance(
             raise gates.GateError(
                 "Every Acceptance PASS evidence item must explicitly have passed=true"
             )
-        if require_user_test:
-            if not isinstance(user_test_result, dict):
-                raise gates.GateError("Acceptance PASS lacks an actual User Test artifact")
-            if user_test_result.get("status") != "completed":
-                raise gates.GateError(
-                    "User Test did not complete normally; Acceptance PASS is rejected"
-                )
-            if not any(
-                item.get("kind") == "behavior" and item.get("source") == "user_test"
-                for item in manifest
-            ):
-                raise gates.GateError(
-                    "Acceptance PASS lacks behavioral evidence with source=user_test"
-                )
-        else:
-            # Legacy recipe callers may still use replay/variant evidence while they
-            # migrate.  v0.2 always sets require_user_test=True.
-            behavior_sources = {
-                item.get("source") for item in manifest if item.get("kind") == "behavior"
-            }
-            missing_sources = {"original_replay", "independent_variant"} - behavior_sources
-            if missing_sources:
-                raise gates.GateError(
-                    "Acceptance PASS lacks independent behavioral evidence: "
-                    + ", ".join(sorted(missing_sources))
-                )
+        behavior_sources = {
+            item.get("source") for item in manifest if item.get("kind") == "behavior"
+        }
+        missing_sources = {"original_replay", "independent_variant"} - behavior_sources
+        if missing_sources:
+            raise gates.GateError(
+                "Acceptance PASS lacks independent behavioral evidence: "
+                + ", ".join(sorted(missing_sources))
+            )
     return verdict
 
 

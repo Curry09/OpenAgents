@@ -16,7 +16,6 @@ def validate_manifest(
     verdict: str,
     evidence: list,
     require_behavior: bool = True,
-    required_source: str | None = None,
 ) -> None:
     """Validate evidence items and reject presence-only or explicitly failed PASS claims.
 
@@ -46,8 +45,3 @@ def validate_manifest(
             raise EvidenceError(f"case {item['case_id']} Mark explicitly as not passed")
     if require_behavior and not any(item.get("kind") == "behavior" for item in evidence):
         raise EvidenceError("Behavioural change cannot be allowed by static/grep evidence alone")
-    if required_source is not None and not any(
-        item.get("kind") == "behavior" and item.get("source") == required_source
-        for item in evidence
-    ):
-        raise EvidenceError(f"PASS Missing source={required_source} Evidence of actual behaviour")

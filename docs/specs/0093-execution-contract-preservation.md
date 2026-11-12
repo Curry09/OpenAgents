@@ -96,8 +96,6 @@ tasks:
     parallel: false
     files:
       - openagents/cli.py
-      - openagents/v02/openagents_adapter.py
-      - tests/test_v02_openagents_adapter.py
       - openagents/backends/nexau.py
       - tests/test_backend_nexau.py
       - openagents/runtime/engine.py
@@ -110,7 +108,6 @@ tasks:
       - tests/test_runtime_context.py
       - tests/test_agents_architect.py
       - openagents/agents/drafter.py
-      - openagents/agents/developer.py
       - openagents/runtime/state.py
       - openagents/recipes/vigil.py
       - openagents/recipes/stages.py
@@ -194,7 +191,7 @@ The read-only advisory must actually reach the model call. The pinned NexAU exec
 
 Implement pure validation and projection in `observations/execution_contracts.py`; `evidence.prepare()` returns `execution_contract_context` and structured references, and `runtime.engine` appends them for all applicable roles at the sole injection point. Do not duplicate parsers in individual role functions or let the architecture path skip this because it receives only spec_text.
 
-This joint live validation covers the public default standard path (whose actual drafting role is drafter) and the explicit v0.2 path (including spec_writer and developer). Put shared responsibilities in the unified evidence context rules; role Prompts only add differences in responsibilities and do not duplicate contract parsing. Other flows passing through the same engine can receive contracts, but flows without independent acceptance must not be advertised as verified; testing only the module named spec_writer must not be presented as verification of the complete standard wiring.
+The cross-repository validation targets the standard Vigil flow, where the Drafter writes the Spec. Put shared responsibilities in the unified evidence context rules; role Prompts only add differences in responsibilities and do not duplicate contract parsing. Other flows passing through the same engine can receive contracts, but flows without independent acceptance must not be advertised as verified; testing only the module named spec_writer must not be presented as verification of the complete standard wiring.
 
 The projection includes fixed items that must not be trimmed away, such as input availability, budget, delivery prerequisites, and validity; long goals and long evidence use cached references with digests. Deduplicate before bounded pagination; if the number of contracts prevents presenting them in full, provide explicit counts/page references and processing status, rather than silently truncating some and claiming to cover all conditions.
 

@@ -10,7 +10,7 @@
 
 控制器在交付仓库生成 `.openagents/openagents.yml`。当前使用 Gitea、默认的 `standard` 流程、软协调和 Agent 评审；跳过 e2e，默认跳过 CI，本地实验可按 CI 策略启用；执行条件证据为必需。这与独立 CLI 的所有可配阶段默认由 Agent 执行不同。
 
-通过 AHE-Beta 的 `backend/scripts/experiment.py` 和公开实验配置启动、设置实验。生成的 OpenAgents YAML 可能被重写，直接修改它不能作为持久的实验设置。独立的 `v02` 批次命令是另一套工作流，不是控制器交付轮的别名。
+通过 AHE-Beta 的 `backend/scripts/experiment.py` 和公开实验配置启动、设置实验。生成的 OpenAgents YAML 可能被重写，直接修改它不能作为持久的实验设置。
 
 交付进程需要同时通过 Git 和 API 访问同一个 Gitea 仓库。E2B 部署应使用沙盒可访问的地址，`127.0.0.1` 指向沙盒自身，而非操作者机器。固定实际 OpenAgents 可执行文件或镜像，并设置 `OPENAGENTS_NO_SELF_UPDATE=1` 保持版本不变。
 

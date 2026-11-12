@@ -33,7 +33,7 @@ Unspecified stages use `agent`; the CLI uses Claude Code unless the backend envi
 
 ## Backends
 
-The implemented backends are `claude_code` and `nexau`. For `vigil` and `v02`, select NexAU with `OPENAGENTS_BACKEND=nexau`; the CLI otherwise creates a Claude Code backend.
+The implemented backends are `claude_code` and `nexau`. For `vigil`, select NexAU with `OPENAGENTS_BACKEND=nexau`; the CLI otherwise creates a Claude Code backend.
 
 The loader accepts `agents.<role>.backend` declarations, but the current CLI does not route execution through those per-role mappings. Setting them alone does not switch the actual backend or provide mixed-backend execution. Do not use an unimplemented backend name just because the configuration accepts a string.
 
@@ -75,9 +75,6 @@ Export the named token before launching the command. Use your deployment's reach
 | `standard` | `openagents vigil` | Persistent delivery with specification, architecture review, implementation, verification, review, and rework |
 | `minimal` | `openagents vigil` with `flow: minimal` | Experimental compact specification, one implementation, and acceptance against the original issue |
 | `generate-only` | `openagents vigil` with `flow: generate-only` | Research profile: constrained generation and mechanical merging without quality verification |
-| `v0.2` | `openagents v02 --issue N` | Explicit finite batch: specifications, dependency DAG, Developer, Acceptance, and mechanical merging |
-
-Use the explicit `v02` command for that batch workflow; setting `flow: v0.2` does not turn `vigil` into the batch runner. Its acceptance step also requires a real user-test command and transcript; see [CLI](cli.md).
 
 `coordination: dependencies` lets the curator establish hard issue dependencies. `soft` generates non-blocking ordering advice while preserving the original issue and acceptance conditions. `off` disables model-based coordination; existing forge dependencies still apply.
 

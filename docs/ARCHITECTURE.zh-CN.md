@@ -15,7 +15,6 @@ OpenAgents 将交付决策、模型执行和 Forge 操作分开。[配置指南]
 | `openagents/backends/` | Claude Code 与 NexAU 执行适配 |
 | `openagents/observations/` | 授权证据下载与执行条件校验 |
 | `openagents/utils/` | Git、GitHub/Gitea、工作区、配置与发布操作 |
-| `openagents/v02/` | 显式有限批次的 DAG 调度及生产适配器 |
 | `openagents/spec/` | Spec 编写、校验与视图生成 |
 | `apps/desktop/` | 实验性的桌面观测界面 |
 
